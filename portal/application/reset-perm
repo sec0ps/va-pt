@@ -1,0 +1,1 @@
+chown -R nobody * && chgrp  -R www-data *
