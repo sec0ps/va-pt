@@ -351,6 +351,10 @@ cd /pentest/exploits && mkdir windows-tools
 cd windows-tools && wget http://download.sysinternals.com/Files/PsTools.zip
 unzip PsTools.zip && rm -rf PsTools.zip
 wget http://dl.packetstormsecurity.net/groups/checksum/nc.exe
+cd /pentest/temp && wget http://swamp.foofus.net/fizzgig/fgdump/fgdump-2.1.0-exeonly.tar.bz2
+bunzip fgdump-2.1.0-exeonly.tar.bz2 && rm -rf fgdump-2.1.0-exeonly.tar.bz2
+tar xvf fgdump-2.1.0-exeonly.tar && rm -rf fgdump-2.1.0-exeonly.tar
+mv Release/fgdump.exe /pentest/exploits/windows-tools/ && rm -rf Release/
 fi
 #if [ ! -d /pentest/passwords/oclhashcat ] ; then
 #echo "Installing oclhashcat"
