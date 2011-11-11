@@ -345,6 +345,12 @@ cd /pentest/temp && wget http://hashcat.net/files/hashcat-0.37.7z?d=tdtp3vc5qs2a
 7za x hashcat-0.37.7z && rm -rf hashcat-0.37.7z
 mv hashcat-0.37/ /pentest/passwords/hashcat
 fi
+if [ ! -d /pentest/exploits/windows-tools ] ; then
+echo "Installing Windows Tools"
+cd /pentest/exploits && mkdir windows-tools
+cd windows-tools && wget http://download.sysinternals.com/Files/PsTools.zip
+unzip PsTools.zip && rm -rf PsTools.zip
+fi
 #if [ ! -d /pentest/passwords/oclhashcat ] ; then
 #echo "Installing oclhashcat"
 #cd /pentest/temp &&  wget http://hashcat.net/files/oclHashcat-0.25.7z?d=5knt7juet7tih11fu5l28fftf2 -O oclHashcat-0.25.7z
