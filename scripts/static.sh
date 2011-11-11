@@ -350,6 +350,7 @@ echo "Installing Windows Tools"
 cd /pentest/exploits && mkdir windows-tools
 cd windows-tools && wget http://download.sysinternals.com/Files/PsTools.zip
 unzip PsTools.zip && rm -rf PsTools.zip
+wget http://dl.packetstormsecurity.net/groups/checksum/nc.exe
 fi
 #if [ ! -d /pentest/passwords/oclhashcat ] ; then
 #echo "Installing oclhashcat"
