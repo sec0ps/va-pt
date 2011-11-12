@@ -1,11 +1,11 @@
 echo "Starting Redmine"
-cd /var/www/redmine && ruby script/server -e production -d
+cd /pentest/misc/redmine && ruby script/server -e production -d
 echo "Starting OpenVAS"
 sudo /usr/sbin/openvasd -D -q
-echo "Starting MSFRPCD"
-/pentest/exploits/framework3/msfrpcd -U root -P vapt -a 127.0.0.1
-echo "Starting BeEF"
-cd /var/www/beef && sudo ./beef.rb &
+#echo "Starting MSFRPCD"
+#/pentest/exploits/framework3/msfrpcd -U root -P vapt -a 127.0.0.1
+#echo "Starting BeEF"
+#cd /var/www/beef && sudo ./beef.rb &
 #echo "Starting Netglub Master and Slave"
 #cd /pentest/enumeration/netglub/master/ && sudo ./master &
 #cd /pentest/enumeration/netglub/slave/ && sudo ./slave &
@@ -27,7 +27,6 @@ cd /var/www/beef && sudo ./beef.rb &
 #cd /pentest/misc/dradis && sudo mysqladmin create dradis -u root -p
 #RAILS_ENV=production rake db:migrate && thor dradis:reset
 #else
-#echo "Starting Dradis Web Interface - listening on 3004"
-#cd /pentest/misc/dradis && sudo bundle install
-#ruby script/rails server -e production -b 0.0.0.0 -p 3004 -d
-#fi
+echo "Starting Dradis Web Interface - listening on 3004"
+cd /pentest/misc/dradis/server && ruby script/rails server -b 0.0.0.0 -p 3004 -d
+fi
