@@ -290,16 +290,9 @@ make linux-x86-any
 fi
 if [ ! -d /pentest/passwords/cewl ] ; then
 echo "Installing Cewl"
-cd /pentest/temp && wget http://www.digininja.org/files/cewl_3.0.tar.bz2
-bunzip2 cewl_3.0.tar.bz2 && tar xvf cewl_3.0.tar
-mv cewl /pentest/passwords/ && rm -rf cewl*
-sudo gem install hpricot
-sudo gem install http_configuration
-sudo gem install mime-types
-sudo gem install mini_exiftool
-sudo gem install rubyzip
-sudo gem install spider
-sudo apt-get install libimage-exiftool-perl
+cd /pentest/temp && wget http://www.digininja.org/files/cewl_4.1.tar.bz2
+bunzip2 cewl_4.1.tar.bz2 && tar xvf cewl_4.1.tar
+mv cewl/ /pentest/passwords/ && rm -rf cewl*
 fi
 if [ ! -d /pentest/enumeration/bile ] ; then
 echo "Installing Bile"
