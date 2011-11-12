@@ -355,6 +355,13 @@ fi
 #7za x oclHashcat-0.25.7z && rm -rf oclHashcat-0.25.7z
 #mv oclHashcat-0.25/ /pentest/passwords/oclhashcat
 #fi
+if [ ! -d /pentest/misc/dradis ] ; then
+echo "Installing Dradis"
+cd /pentest/temp && wget http://sourceforge.net/projects/dradis/files/dradis/v2.8.0/dradis-v2.8.0.tar.bz2/download -O dradis-v2.8.0.tar.bz2
+bunzip2 dradis-v2.8.0.tar.bz2 && tar dradis-v2.8.0.tar
+rm -rf dradis-v2.8.0.tar && mv dradis-2.8/ /pentest/misc/dradis
+cd /pentest/misc/dradis/server && bundle install
+fi
 if [ ! -d /opt/xplico ] ; then
 echo "Installing Xplico"
 cd /pentest/temp && wget http://prdownloads.sourceforge.net/xplico/xplico-0.6.3.tgz
