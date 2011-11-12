@@ -72,14 +72,6 @@ echo "Installing the Harvester"
 cd /pentest/enumeration && git clone https://github.com/laramies/theHarvester.git
 cd /pentest/enumeration/theHarvester && chmod 700 theHarvester.py
 fi
-#if [ ! -d /pentest/misc/dradis ] ; then
-#echo "Installing Dradis"
-#cd /pentest/misc/ && svn co https://dradis.svn.sourceforge.net/svnroot/dradis/server/trunk dradis/
-#fi
-#if [ ! -f /usr/bin/bundle ] ; then
-#cd /pentest/misc/dradis && bundle install
-#sudo ln -s /var/lib/gems/1.8/bin/bundle /usr/bin/bundle
-#fi
 if [ ! -d /var/www/beef/.svn/ ] ; then
 echo "Installing Beef"
 cd /var/www && sudo svn co http://beef.googlecode.com/svn/trunk/ beef/
