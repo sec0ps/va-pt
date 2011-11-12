@@ -12,7 +12,7 @@ sudo apt-get install build-essential libpcap-dev libnet1-dev libdumbnet-dev sips
 sudo apt-get install python-qt3 libmysql++-dev libxml-smart-perl libextractor-plugins libextractor-dbg extract python-nltk python-soappy
 sudo apt-get install python-svn python-dev sqlite3 nbtscan dsniff libapache2-mod-php5 python-mysqldb pyqt-tools sox rezound macchanger-gtk
 sudo apt-get install webhttrack smbclient xsmbrowser httping libnl2 libcap2-bin ndisgtk python-wxtools libdigest-hmac-perl rake
-sudo apt-get install irpas python-bluetooth libstdc++5 smb4k kate libssh2-1-dev
+sudo apt-get install irpas python-bluetooth libstdc++5 smb4k kate libssh2-1-dev libimage-exiftool-perl
 sudo apt-get install texlive libcrypt-blowfish-perl libdigest-sha-perl libcrypt-cbc-perl libsort-versions-perl libcrypt-des-perl libdigest-* libreadline-dev
 
 dpkg-query -l | grep php-pear
@@ -76,6 +76,7 @@ sudo gem install rubyzip
 sudo gem install http_configuration
 sudo gem install mime-types
 sudo gem install mini_exiftool
+sudo gem install hpricot
 #
 if [ ! -f /usr/bin/waveplay ] ; then
 cd /pentest/temp && wget ftp://ftp.eenet.ee/pub/FreeBSD/distfiles/waveplay-20010924.tar.gz
