@@ -27,7 +27,9 @@ rm -rf *.tgz && rm -rf *.c
 rm -rf *.tar
 mv wordlist50.pl /pentest/passwords/
 cp /pentest/passwords/oclhashcat/example.dict /pentest/passwords/wordlists/
-cat * | grep -v "#" | grep -v ":" | sort -b | uniq >> /pentest/passwords/combinedwordlist
+cd /pentest/passwords/wordlists && wget http://erikmusick.com/content/dl/WholeLottaPasswords.7z
+7za e WholeLottaPasswords.7z && rm -rf WholeLottaPasswords.hash
+cat * | grep -v "#" | grep -v ":" | sort -bi | uniq >> /pentest/passwords/combinedwordlist
 #rm -rf *
 #
 if [ ! -d /pentest/passwords/vendor ] ; then
