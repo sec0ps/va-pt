@@ -71,7 +71,11 @@ sudo gem install ansi
 sudo gem install term-ansicolor
 sudo gem install dm-sqlite-adapter
 sudo gem install mysql
-fi
+sudo gem install spider
+sudo gem install rubyzip
+sudo gem install http_configuration
+sudo gem install mime-types
+sudo gem install mini_exiftool
 #
 if [ ! -f /usr/bin/waveplay ] ; then
 cd /pentest/temp && wget ftp://ftp.eenet.ee/pub/FreeBSD/distfiles/waveplay-20010924.tar.gz
