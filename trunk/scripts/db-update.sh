@@ -6,7 +6,7 @@ clear
 #read dbpass
 echo "Enter the root mysql password"
 read mrpass
-cd /pentest/misc/vapt/scripts
+cd /pentest/misc/va-pt/scripts/
 mysql -u root --password=$mrpass -e 'show databases' | grep exploitdb
 if [ $? -eq 1 ] ; then
 mysqladmin -u root --password=$mrpass create exploitdb
@@ -49,7 +49,7 @@ sudo rm -rf /tmp/nvd.csv
 #
 #Portal Search Interface
 if [ ! -d /var/www/search ] ; then
-echo "Installing the Search Interface - http://127.0.0.1/search"
+echo "Installing the Vulnerability and Exploit Search Interface - http://127.0.0.1/search"
 cd /pentest/misc/vapt && sudo mv search/ /var/www/
 cd /var/www && sudo chown -R www-data search/
 sudo ln -s /pentest/ pentest
