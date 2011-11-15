@@ -93,8 +93,9 @@ cd /pentest/scanners/ncrack && svn up
 echo "Updating HTTPrint"
 cd /pentest/enumeration/httprint && mv signatures.txt signatures.txt.old
 wget http://net-square.com/httprint/signatures.txt
-echo "Updating Exploit DB"
-cd /pentest/exploits/exploitdb && svn up
+#SVN not working - update through exploits.sh
+#echo "Updating Exploit DB"
+#cd /pentest/exploits/exploitdb && svn up
 echo "Updating OpenVAS"
 sudo /pentest/misc/vapt/scripts/vapt-openvas-nvt-sync.sh --wget && sudo rm -rf /tmp/openvas-feed-*
 if [ -f /opt/nessus/sbin/nessus-update-plugins ] ; then
