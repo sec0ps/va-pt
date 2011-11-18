@@ -89,6 +89,8 @@ cd /pentest/scanners/ncrack && svn up
 #svn up
 #./configure
 #make && sudo make install
+echo "Updating VA-PT"
+cd /pentest/misc/va-pt && svn up
 #rm -rf *.c *.h *.o *.cc
 echo "Updating HTTPrint"
 cd /pentest/enumeration/httprint && mv signatures.txt signatures.txt.old

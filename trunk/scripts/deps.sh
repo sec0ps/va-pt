@@ -1,19 +1,19 @@
-sudo apt-get install ncftp rar python-setuptools python-configobj python-flickrapi gnome-common gtk-doc-tools libsoup2.4 python-pyexiv2 registry-tools
-sudo apt-get install libxml-libxml-perl libdbi-perl libdbd-sqlite3-perl alien librpmbuild1 lsb-core ncurses-term pax rpm rpm2cpio nfs-common python-psyco
-sudo apt-get install libgd2-xpm-dev flasm unetbootin unetbootin-translations open-iscsi open-iscsi-utils ldap-utils upx python-pymssql
-sudo apt-get install gtk-recordmydesktop postgresql libpq-dev p7zip-full iw make ethtool dos2unix gcc subversion gip mysql-server
-sudo apt-get install libmysqlclient-dev gem arp-scan libmysql-ruby php5-mysql libapache2-mod-auth-mysql sqlite3 hping3 openssh-server
-sudo apt-get install uClibc++ libncurses-dev libidn11-dev libssl-dev libssh-dev cmake python-scapy python-sqlalchemy python2.6-dev
-sudo apt-get install libpcap0.8 libnl-dev ruby cdpr p0f xprobe rdoc bluez-hcidump ruby1.8-dev wine liberror-perl git-core apache2 mono-2.0-devel
-sudo apt-get install openjdk-6-jre openjdk-6-jre-lib python-lxml graphviz autoconf sqlmap openvas-server openvas-client libsqlite3-0 libsqlite3-dev sslscan
-sudo apt-get install libcamlimages-ocaml libcamlimages-ocaml-dev libcamlimages-ocaml-dev libocamlgsl-ocaml libocamlgsl-ocaml-dev
-sudo apt-get install ocaml-findlib ocaml-native-compilers m4 maven2 libxslt1.1 libxslt1-dev xsltproc ettercap-gtk libgmp3-dev
-sudo apt-get install build-essential libpcap-dev libnet1-dev libdumbnet-dev sipsak cvs netcat6 libwxgtk2.8-0 python-qt4 curl
-sudo apt-get install python-qt3 libmysql++-dev libxml-smart-perl libextractor-plugins libextractor-dbg extract python-nltk python-soappy
-sudo apt-get install python-svn python-dev sqlite3 nbtscan dsniff libapache2-mod-php5 python-mysqldb pyqt-tools sox rezound macchanger-gtk
-sudo apt-get install webhttrack smbclient xsmbrowser httping libnl2 libcap2-bin ndisgtk python-wxtools libdigest-hmac-perl rake
-sudo apt-get install irpas python-bluetooth libstdc++5 smb4k kate libssh2-1-dev libimage-exiftool-perl
-sudo apt-get install texlive libcrypt-blowfish-perl libdigest-sha-perl libcrypt-cbc-perl libsort-versions-perl libcrypt-des-perl libdigest-* libreadline-dev
+sudo apt-get install -y ncftp rar python-setuptools python-configobj python-flickrapi gnome-common gtk-doc-tools libsoup2.4 python-pyexiv2 registry-tools
+sudo apt-get install -y libxml-libxml-perl libdbi-perl libdbd-sqlite3-perl alien librpmbuild1 lsb-core ncurses-term pax rpm rpm2cpio nfs-common python-psyco
+sudo apt-get install -y libgd2-xpm-dev flasm unetbootin unetbootin-translations open-iscsi open-iscsi-utils ldap-utils upx python-pymssql
+sudo apt-get install -y gtk-recordmydesktop postgresql libpq-dev p7zip-full iw make ethtool dos2unix gcc subversion gip mysql-server
+sudo apt-get install -y libmysqlclient-dev gem arp-scan libmysql-ruby php5-mysql libapache2-mod-auth-mysql sqlite3 hping3 openssh-server
+sudo apt-get install -y uClibc++ libncurses-dev libidn11-dev libssl-dev libssh-dev cmake python-scapy python-sqlalchemy python2.6-dev
+sudo apt-get install -y libpcap0.8 libnl-dev ruby cdpr p0f xprobe rdoc bluez-hcidump ruby1.8-dev wine liberror-perl git-core apache2 mono-2.0-devel
+sudo apt-get install -y openjdk-6-jre openjdk-6-jre-lib python-lxml graphviz autoconf sqlmap openvas-server openvas-client libsqlite3-0 libsqlite3-dev sslscan
+sudo apt-get install -y libcamlimages-ocaml libcamlimages-ocaml-dev libcamlimages-ocaml-dev libocamlgsl-ocaml libocamlgsl-ocaml-dev
+sudo apt-get install -y ocaml-findlib ocaml-native-compilers m4 maven2 libxslt1.1 libxslt1-dev xsltproc ettercap-gtk libgmp3-dev
+sudo apt-get install -y build-essential libpcap-dev libnet1-dev libdumbnet-dev sipsak cvs netcat6 libwxgtk2.8-0 python-qt4 curl
+sudo apt-get install -y python-qt3 libmysql++-dev libxml-smart-perl libextractor-plugins libextractor-dbg extract python-nltk python-soappy
+sudo apt-get install -y python-svn python-dev sqlite3 nbtscan dsniff libapache2-mod-php5 python-mysqldb pyqt-tools sox rezound macchanger-gtk
+sudo apt-get install -y webhttrack smbclient xsmbrowser httping libnl2 libcap2-bin ndisgtk python-wxtools libdigest-hmac-perl rake
+sudo apt-get install -y irpas python-bluetooth libstdc++5 smb4k kate libssh2-1-dev libimage-exiftool-perl
+sudo apt-get install -y texlive libcrypt-blowfish-perl libdigest-sha-perl libcrypt-cbc-perl libsort-versions-perl libcrypt-des-perl libdigest-* libreadline-dev
 
 dpkg-query -l | grep php-pear
 if [ $? -eq 1 ] ; then
