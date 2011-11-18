@@ -12,7 +12,6 @@ if [ ! -d /pentest ] ; then
 sudo mkdir /pentest
 sudo chown -R $USER /pentest && chgrp -R $USER /pentest
 fi
-#[ ! -d /pentest ] && mkdir /pentest
 [ ! -d /pentest/temp ] && mkdir /pentest/temp
 [ ! -d /pentest/wireless ] && mkdir /pentest/wireless
 [ ! -d /pentest/exploits ] && mkdir /pentest/exploits
@@ -24,7 +23,6 @@ fi
 [ ! -d /pentest/voip ] && mkdir /pentest/voip
 [ ! -d /pentest/database ] && mkdir /pentest/database
 [ ! -d /pentest/passwords ] && mkdir /pentest/passwords
-# moved to enum [ ! -d /pentest/dns ] && mkdir /pentest/dns
 [ ! -d /pentest/fuzzers ] && mkdir /pentest/fuzzers
 [ ! -d /pentest/spoofing ] && mkdir /pentest/spoofing
 [ ! -d /pentest/cisco ] && mkdir /pentest/cisco
@@ -64,15 +62,15 @@ until [ "$selection" = "0" ]; do
      read selection
      echo ""
      case $selection in
-         1 ) /pentest/misc/vapt/scripts/deps.sh;;
-         2 ) /pentest/misc/vapt/scripts/svn.sh;;
-         3 ) /pentest/misc/vapt/scripts/static.sh;;
-         4 ) /pentest/misc/vapt/scripts/exploits.sh;;
-         5 ) /pentest/misc/vapt/scripts/wordlists.sh;;
-         6 ) /pentest/misc/vapt/scripts/db-update.sh;;
-         7 ) /pentest/misc/vapt/scripts/update-tools.sh;;
-         8 ) /pentest/misc/vapt/scripts/services.sh;;
-         9 ) /pentest/misc/vapt/scripts/firefox-extensions.sh;;
+         1 ) /pentest/misc/va-pt/scripts/deps.sh;;
+         2 ) /pentest/misc/va-pt/scripts/svn.sh;;
+         3 ) /pentest/misc/va-pt/scripts/static.sh;;
+         4 ) /pentest/misc/va-pt/scripts/exploits.sh;;
+         5 ) /pentest/misc/va-pt/scripts/wordlists.sh;;
+         6 ) /pentest/misc/va-pt/scripts/db-update.sh;;
+         7 ) /pentest/misc/va-pt/scripts/update-tools.sh;;
+         8 ) /pentest/misc/va-pt/scripts/services.sh;;
+         9 ) /pentest/misc/va-pt/scripts/firefox-extensions.sh;;
          0 ) exit;;
          * ) echo "Please enter your selection"
      esac

@@ -50,9 +50,8 @@ sudo rm -rf /tmp/nvd.csv
 #Portal Search Interface
 if [ ! -d /var/www/search ] ; then
 echo "Installing the Vulnerability and Exploit Search Interface - http://127.0.0.1/search"
-cd /pentest/misc/vapt && sudo mv search/ /var/www/
+cd /pentest/misc/va-pt && sudo mv search/ /var/www/
 cd /var/www && sudo chown -R www-data search/
-sudo ln -s /pentest/ pentest
 echo ""
 echo "Modify http conf setting to AllowOverride All"
 echo ""
