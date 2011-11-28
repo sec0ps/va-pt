@@ -273,10 +273,10 @@ cd /pentest/database && wget http://www.darkoperator.com/tools-and-scripts/mysql
 fi
 if [ ! -d /pentest/passwords/john ] ; then
 echo "Installing John the Ripper"
-cd /pentest/temp && wget http://www.openwall.com/john/g/john-1.7.8.tar.gz
-tar zxvf john-1.7.8.tar.gz && rm -rf john-1.7.8.tar.gz
-mv john-1.7.8 /pentest/passwords/john && cd /pentest/passwords/john/src
-make linux-x86-any
+cd /pentest/temp && wget http://www.openwall.com/john/g/john-1.7.9.tar.gz
+tar zxvf john-1.7.9.tar.gz && rm -rf john-1.7.9.tar.gz
+mv john-1.7.9 /pentest/passwords/john && cd /pentest/passwords/john/src
+make linux-x86-64
 fi
 if [ ! -d /pentest/passwords/cewl ] ; then
 echo "Installing Cewl"
@@ -318,12 +318,12 @@ cd /pentest/temp/ && wget http://www.morningstarsecurity.com/downloads/whatweb-0
 tar zxvf whatweb-0.4.7.tar.gz && rm -rf whatweb-0.4.7.tar.gz
 mv whatweb-0.4.7 /pentest/web/whatweb
 fi
-if [ ! -d /pentest/passwords/hashcat ] ; then
-echo "Installing Hashcat"
-cd /pentest/temp && wget http://hashcat.net/files/hashcat-0.37.7z?d=tdtp3vc5qs2a47ied8dbv5a271 -O hashcat-0.37.7z
-7za x hashcat-0.37.7z && rm -rf hashcat-0.37.7z
-mv hashcat-0.37/ /pentest/passwords/hashcat
-fi
+#if [ ! -d /pentest/passwords/hashcat ] ; then
+#echo "Installing Hashcat"
+#cd /pentest/temp && wget http://hashcat.net/files/hashcat-0.37.7z?d=tdtp3vc5qs2a47ied8dbv5a271 -O hashcat-0.37.7z
+#7za x hashcat-0.37.7z && rm -rf hashcat-0.37.7z
+#mv hashcat-0.37/ /pentest/passwords/hashcat
+#fi
 if [ ! -d /pentest/exploits/windows-tools ] ; then
 echo "Installing Windows Tools"
 cd /pentest/exploits && mkdir windows-tools
@@ -344,15 +344,15 @@ fi
 if [ ! -d /pentest/misc/dradis ] ; then
 echo "Installing Dradis"
 cd /pentest/temp && wget http://sourceforge.net/projects/dradis/files/dradis/v2.8.0/dradis-v2.8.0.tar.bz2/download -O dradis-v2.8.0.tar.bz2
-bunzip2 dradis-v2.8.0.tar.bz2 && tar dradis-v2.8.0.tar
+bunzip2 dradis-v2.8.0.tar.bz2 && tar xvf dradis-v2.8.0.tar
 rm -rf dradis-v2.8.0.tar && mv dradis-2.8/ /pentest/misc/dradis
-cd /pentest/misc/dradis/server && bundle install
+cd /pentest/misc/dradis/server && /var/lib/gems/1.8/bin/bundle install
 fi
 if [ ! -d /opt/xplico ] ; then
 echo "Installing Xplico"
-cd /pentest/temp && wget http://prdownloads.sourceforge.net/xplico/xplico-0.6.3.tgz
-tar zxvf xplico-0.6.3.tgz && rm -rf xplico-0.6.3.tgz
-cd /pentest/temp/xplico-0.6.3 && make
+cd /pentest/temp && wget http://prdownloads.sourceforge.net/xplico/xplico-0.7.0.tgz
+tar zxvf xplico-0.7.0.tgz && rm -rf xplico-0.7.0.tgz
+cd /pentest/temp/xplico-0.7.0 && make
 echo "To complete the installation, sudo su then make install"
 echo ""
 echo "Xplico was installed for the first time"

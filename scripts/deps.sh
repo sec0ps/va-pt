@@ -93,7 +93,7 @@ sudo gem install bson_ext
 sudo gem install rake
 sudo gem install rails
 sudo gem install RedCloth
-sudo gem install bundler
+sudo gem install bundle
 sudo gem install sqlite3-ruby
 sudo gem install wxruby
 sudo gem install rake-compiler
@@ -103,7 +103,6 @@ sudo gem install fxruby
 sudo gem install ip
 sudo gem install httpclient
 sudo gem install thor
-sudo ln -s /var/lib/gems/1.8/bin/thor /usr/bin/thor
 sudo gem install factory_girl
 sudo gem install dm-core
 sudo gem install dm-migrations
@@ -137,18 +136,18 @@ sudo a2ensite ssl
 sudo a2enmod rewrite
 sudo service apache2 force-reload
 # misc perl modules
-cd /pentest/temp && wget http://search.cpan.org/CPAN/authors/id/S/SA/SAPER/Net-Pcap-0.16.tar.gz
-tar xvf Net-Pcap-0.16.tar.gz && rm -rf Net-Pcap-0.16.tar.gz
-cd Net-Pcap-0.16/ && perl Makefile.PL
-make && sudo make install
-cd ../ && rm -rf Net-Pcap-0.16/
+#cd /pentest/temp && wget http://search.cpan.org/CPAN/authors/id/S/SA/SAPER/Net-Pcap-0.16.tar.gz
+#tar xvf Net-Pcap-0.16.tar.gz && rm -rf Net-Pcap-0.16.tar.gz
+#cd Net-Pcap-0.16/ && perl Makefile.PL
+#make && sudo make install
+#cd ../ && rm -rf Net-Pcap-0.16/
 #this section is still questionable
-cd /pentest/temp && wget ftp://megrez.math.u-bordeaux.fr/pub/pari/unix/OLD/pari-2.1.7.tgz
-tar xvf pari-2.1.7.tgz && rm -rf pari-2.1.7.tgz
-cd pari-2.1.7/ && ./Configure
-make all && sudo make install
-cd /pentest/temp && wget http://search.cpan.org/CPAN/authors/id/I/IL/ILYAZ/modules/Math-Pari-2.01080605.tar.gz
-tar xvf Math-Pari-2.01080605.tar.gz && rm -rf Math-Pari-2.01080605.tar.gz
-cd Math-Pari-2.01080605 && perl Makefile.PL
-sudo make install
-sudo cpanm Net::SSH::Perl
+#cd /pentest/temp && wget ftp://megrez.math.u-bordeaux.fr/pub/pari/unix/OLD/pari-2.1.7.tgz
+#tar xvf pari-2.1.7.tgz && rm -rf pari-2.1.7.tgz
+#cd pari-2.1.7/ && ./Configure
+#make all && sudo make install
+#cd /pentest/temp && wget http://search.cpan.org/CPAN/authors/id/I/IL/ILYAZ/modules/Math-Pari-2.01080605.tar.gz
+#tar xvf Math-Pari-2.01080605.tar.gz && rm -rf Math-Pari-2.01080605.tar.gz
+#cd Math-Pari-2.01080605 && perl Makefile.PL
+#sudo make install
+#sudo cpanm Net::SSH::Perl
