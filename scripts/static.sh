@@ -26,8 +26,7 @@ echo "Installing THC Hydra"
 cd /pentest/temp && wget http://freeworld.thc.org/releases/hydra-7.1-src.tar.gz
 tar zxvf hydra-7.1-src.tar.gz && rm -rf hydra-7.1-src.tar.gz
 cd hydra-7.1-src && ./configure && make
-cd hydra-gtk && ./configure
-make && mv src/xhydra ../
+sudo make install
 cd /pentest/temp/ && mv hydra-7.1-src /pentest/enumeration/hydra
 fi
 if [ ! -d /pentest/web/stompy ] ; then
@@ -362,10 +361,7 @@ echo "to Apache, visit the following URL for more info."
 echo "http://wiki.xplico.org/doku.php?id=interface"
 sleep 10
 fi
-#if [ ! -d /pentest/enumeration/netglub ] ; then
-#sudo apt-get install build-essential python-simplejson mysql-server libmysqlclient-dev zlib1g-dev libperl-dev libnet-ip-perl libopenssl-ruby ruby-dev ruby omt php5-cli 
-#sudo apt-get install libnet-dns-perl libnet-ip-perl python-dev qt4-qmake qt-sdk
-#sudo apt-get install libglib2.0-dev libSM-dev libxrender-dev libfontconfig1-dev libxext-dev
+if [ ! -d /pentest/enumeration/netglub ] ; then
 #wget http://pypi.python.org/packages/source/s/simplejson/simplejson-2.1.5.tar.gz && tar -xzvf simplejson-2.1.5.tar.gz
 #rm -rf simplejson-2.1.5.tar.gz && cd simplejson-2.1.5
 #sudo python setup.py build && sudo python setup.py install 
@@ -385,21 +381,21 @@ fi
 #cd xmlrpc-c-1.16.34
 #./configure
 #make && sudo make install
-#cd /pentest/enumeration && wget http://redmine.lab.diateam.net/attachments/download/1/netglub-1.0.tar.gz
-#tar -xzvf netglub-1.0.tar.gz && rm -rf netglub-1.0.tar.gz
-#mv netglub-1.0 netglub
-#cd /pentest/enumeration/netglub/qng/
-#qmake && make
-#
-#mysqladmin create netglub -u root -p
-#mysql -u root -p -e "grant all privileges on netglub.* to 'netglub'@'localhost' identified by 'netglub'"
-#mysql -u root -p netglub < /pentest/enumeration/netglub/master/tools/sql/netglub.sql  
-#
-#cd /pentest/enumeration/netglub/master
-#qmake && make
-#cd tools/ && sudo ./install.sh
-#cd /pentest/enumeration/netglub/slave
-#qmake && make
-#cd tools/ && sudo ./install.sh
-#fi
+cd /pentest/enumeration && wget http://redmine.lab.diateam.net/attachments/download/1/netglub-1.0.tar.gz
+tar -xzvf netglub-1.0.tar.gz && rm -rf netglub-1.0.tar.gz
+mv netglub-1.0 netglub
+cd /pentest/enumeration/netglub/qng/
+qmake && make
+echo "Enter the root mysql password to create the netglub user and databases"
+mysqladmin create netglub -u root -p
+mysql -u root -p -e "grant all privileges on netglub.* to 'netglub'@'localhost' identified by 'netglub'"
+mysql -u root -p netglub < /pentest/enumeration/netglub/master/tools/sql/netglub.sql  
+cd /pentest/enumeration/netglub/master
+qmake && make
+cd tools/ && sudo ./install.sh
+cd /pentest/enumeration/netglub/slave
+qmake && make
+cd tools/ && sudo ./install.sh
+echo "When starting netglub for the first time use the code 2222-4567-89ab-cdef"
+fi
 echo "Static Code Updates Complete"

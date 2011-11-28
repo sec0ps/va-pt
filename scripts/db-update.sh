@@ -51,7 +51,8 @@ sudo rm -rf /tmp/nvd.csv
 if [ ! -d /var/www/search ] ; then
 echo "Installing the Vulnerability and Exploit Search Interface - http://127.0.0.1/search"
 cd /pentest/misc/va-pt && sudo mv search/ /var/www/
-cd /var/www && sudo chown -R www-data search/
+cd /var/www
+sudo chown -R www-data search/ && sudo chgrp -R www-data search/
 echo ""
 echo "Modify http conf setting to AllowOverride All"
 echo ""
