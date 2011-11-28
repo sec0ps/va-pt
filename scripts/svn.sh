@@ -1,10 +1,6 @@
 if [ ! -d /pentest/wireless/giskismet ] ; then
 echo "Installing gisKismet"
 cd /pentest/wireless && svn co https://my-svn.assembla.com/svn/giskismet/trunk giskismet
-sudo cpanm HTML::Tidy::libXML
-sudo cpanm XML::LibXML
-sudo cpanm DBI
-sudo cpanm DBD::SQLite
 cd /pentest/wireless/gismisket && perl Makefile.PL
 make
 fi
@@ -89,7 +85,6 @@ cd /pentest/wireless && svn co https://www.kismetwireless.net/code/svn/trunk kis
 cd /pentest/wireless/kismet
 ./configure && make dep
 make && sudo make install
-rm -rf *.h *.c *.cc *.c *.o *.m
 fi
 #
 if [ ! -d /pentest/wireless/aircrack-ng ] ; then
@@ -171,10 +166,9 @@ fi
 if [ ! -d /pentest/misc/redmine ] ; then
 echo "Installing Redmine"
 cd /pentest/misc && svn co http://redmine.rubyforge.org/svn/branches/1.2-stable redmine
-sudo gem install -v=0.4.2 i18n
-sudo gem install -v=2.3.11 rails
 mysql -u root -p -e "create database redmine character set utf8;"
 mysql -u root -p -e "grant all privileges on redmine.* to 'redmine'@'localhost' identified by 'redminelocal';"
+cp config/database.yml.example config/database.yml
 rake db:migrate RAILS_ENV="production"
 echo "If this fails make sure require 'rake/dsl_definition' is in the Rakefile ands you setup database.yml"
 fi

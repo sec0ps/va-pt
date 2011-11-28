@@ -125,7 +125,6 @@ cd /pentest/temp && wget wget http://freeworld.thc.org/releases/thc-pptp-bruter-
 tar zxvf thc-pptp-bruter-0.1.4.tar.gz && mv THC-pptp-bruter-0.1.4/ /pentest/enumeration/thc-pptp-bruter
 rm -rf thc-pptp-bruter-0.1.4.tar.gz && cd /pentest/enumeration/thc-pptp-bruter/src
 ./configure && make
-cp thc-pptp-bruter ../
 fi
 if [ ! -d /pentest/cisco/torch ] ; then
 echo "Installing Cisco Torch"
@@ -168,11 +167,11 @@ mv Firewalk/ /pentest/enumeration/firewalk
 #cd /pentest/temp && git clone http://git.libssh.org/projects/libssh.git libssh 
 #cd libssh/built && ./build_make.sh
 #make && make install
-cd /pentest/temp && wget http://prdownloads.sourceforge.net/libdnet/libdnet-1.11.tar.gz
-tar zxvf libdnet-1.11.tar.gz && rm -rf libdnet-1.11.tar.gz
-cd libdnet-1.11/ && ./configure
-make && sudo make install
-sudo ln -s /usr/lib/libdumbnet.so /usr/lib/libdnet.so && sudo ln -s /usr/include/dumbnet.h /usr/include/dnet.h
+#cd /pentest/temp && wget http://prdownloads.sourceforge.net/libdnet/libdnet-1.11.tar.gz
+#tar zxvf libdnet-1.11.tar.gz && rm -rf libdnet-1.11.tar.gz
+#cd libdnet-1.11/ && ./configure
+#make && sudo make install
+#sudo ln -s /usr/lib/libdumbnet.so /usr/lib/libdnet.so && sudo ln -s /usr/include/dumbnet.h /usr/include/dnet.h
 cd /pentest/enumeration/firewalk
 touch src/firewalk.good && touch include/firewalk.h.1
 touch include/firewalk.h.2 && touch  configure.1
@@ -202,14 +201,6 @@ rm -rf configure.5 && chmod +x configure
 ./configure
 make && sudo make install
 sudo cp man/firewalk.8 /usr/local/man/man8
-fi
-if [ ! -d /pentest/scanners/ikescan ] ; then
-echo "Installing Ike-Scan"
-cd /pentest/temp && wget http://www.nta-monitor.com/tools/ike-scan/download/ike-scan-1.9.tar.gz
-tar zxvf ike-scan-1.9.tar.gz && rm -rf ike-scan-1.9.tar.gz
-mv ike-scan-1.9/ /pentest/scanners/ikescan && cd /pentest/scanners/ikescan
-./configure --with-openssl && make
-sudo make install
 fi
 if [ ! -d /pentest/audit/graudit ] ; then
 echo "Installing Grep Auditing Utility"
@@ -269,7 +260,7 @@ if [ ! -d /pentest/web/webscarab ] ; then
 mkdir /pentest/web/webscarab && cd /pentest/web/webscarab
 wget http://webscarab-ng.googlecode.com/files/WebScarab-ng-0.2.1.one-jar.zip && unzip WebScarab-ng-0.2.1.one-jar.zip
 rm -rf WebScarab-ng-0.2.1.one-jar.zip && chmod 700 start.sh
-rm -rf start.bat && dos2unix start.sh
+dos2unix start.sh
 fi
 if [ ! -d /pentest/web/websecurify ] ; then
 echo "Installing WebSecurify"
@@ -327,10 +318,6 @@ echo "Installing WhatWeb"
 cd /pentest/temp/ && wget http://www.morningstarsecurity.com/downloads/whatweb-0.4.7.tar.gz
 tar zxvf whatweb-0.4.7.tar.gz && rm -rf whatweb-0.4.7.tar.gz
 mv whatweb-0.4.7 /pentest/web/whatweb
-sudo gem install em-resolv-replace
-sudo gem install mongo
-sudo gem install rchardet
-sudo gem install SystemTimer
 fi
 if [ ! -d /pentest/passwords/hashcat ] ; then
 echo "Installing Hashcat"
@@ -375,44 +362,44 @@ echo "to Apache, visit the following URL for more info."
 echo "http://wiki.xplico.org/doku.php?id=interface"
 sleep 10
 fi
-if [ ! -d /pentest/enumeration/netglub ] ; then
-sudo apt-get install build-essential python-simplejson mysql-server libmysqlclient-dev zlib1g-dev libperl-dev libnet-ip-perl libopenssl-ruby ruby-dev ruby omt php5-cli 
-sudo apt-get install libnet-dns-perl libnet-ip-perl python-dev qt4-qmake qt-sdk
-sudo apt-get install libglib2.0-dev libSM-dev libxrender-dev libfontconfig1-dev libxext-dev
-wget http://pypi.python.org/packages/source/s/simplejson/simplejson-2.1.5.tar.gz && tar -xzvf simplejson-2.1.5.tar.gz
-rm -rf simplejson-2.1.5.tar.gz && cd simplejson-2.1.5
-sudo python setup.py build && sudo python setup.py install 
-cd /pentest/temp
-wget http://sourceforge.net/projects/pyxml/files/pyxml/0.8.4/PyXML-0.8.4.tar.gz
-tar -xvzf PyXML-0.8.4.tar.gz && rm -rf PyXML-0.8.4.tar.gz
-cd PyXML-0.8.4 && wget http://launchpadlibrarian.net/31786748/0001-Patch-for-Python-2.6.patch
-patch -p1 < 0001-Patch-for-Python-2.6.patch && sudo python setup.py install 
-cd /pentest/temp
-wget http://www.graphviz.org/pub/graphviz/stable/SOURCES/graphviz-2.26.3.tar.gz
-tar -xzvf graphviz-2.26.3.tar.gz
-cd graphviz-2.26.3 && ./configure
-make && sudo make install
-cd /pentest/temp
-wget http://sourceforge.net/projects/xmlrpc-c/files/Xmlrpc-c%20Super%20Stable/1.16.34/xmlrpc-c-1.16.34.tgz
-tar -zxvf xmlrpc-c-1.16.34.tgz && rm -rf xmlrpc-c-1.16.34.tgz
-cd xmlrpc-c-1.16.34
-./configure
-make && sudo make install
-cd /pentest/enumeration && wget http://redmine.lab.diateam.net/attachments/download/1/netglub-1.0.tar.gz
-tar -xzvf netglub-1.0.tar.gz && rm -rf netglub-1.0.tar.gz
-mv netglub-1.0 netglub
-cd /pentest/enumeration/netglub/qng/
-qmake && make
+#if [ ! -d /pentest/enumeration/netglub ] ; then
+#sudo apt-get install build-essential python-simplejson mysql-server libmysqlclient-dev zlib1g-dev libperl-dev libnet-ip-perl libopenssl-ruby ruby-dev ruby omt php5-cli 
+#sudo apt-get install libnet-dns-perl libnet-ip-perl python-dev qt4-qmake qt-sdk
+#sudo apt-get install libglib2.0-dev libSM-dev libxrender-dev libfontconfig1-dev libxext-dev
+#wget http://pypi.python.org/packages/source/s/simplejson/simplejson-2.1.5.tar.gz && tar -xzvf simplejson-2.1.5.tar.gz
+#rm -rf simplejson-2.1.5.tar.gz && cd simplejson-2.1.5
+#sudo python setup.py build && sudo python setup.py install 
+#cd /pentest/temp
+#wget http://sourceforge.net/projects/pyxml/files/pyxml/0.8.4/PyXML-0.8.4.tar.gz
+#tar -xvzf PyXML-0.8.4.tar.gz && rm -rf PyXML-0.8.4.tar.gz
+#cd PyXML-0.8.4 && wget http://launchpadlibrarian.net/31786748/0001-Patch-for-Python-2.6.patch
+#patch -p1 < 0001-Patch-for-Python-2.6.patch && sudo python setup.py install 
+#cd /pentest/temp
+#wget http://www.graphviz.org/pub/graphviz/stable/SOURCES/graphviz-2.26.3.tar.gz
+#tar -xzvf graphviz-2.26.3.tar.gz
+#cd graphviz-2.26.3 && ./configure
+#make && sudo make install
+#cd /pentest/temp
+#wget http://sourceforge.net/projects/xmlrpc-c/files/Xmlrpc-c%20Super%20Stable/1.16.34/xmlrpc-c-1.16.34.tgz
+#tar -zxvf xmlrpc-c-1.16.34.tgz && rm -rf xmlrpc-c-1.16.34.tgz
+#cd xmlrpc-c-1.16.34
+#./configure
+#make && sudo make install
+#cd /pentest/enumeration && wget http://redmine.lab.diateam.net/attachments/download/1/netglub-1.0.tar.gz
+#tar -xzvf netglub-1.0.tar.gz && rm -rf netglub-1.0.tar.gz
+#mv netglub-1.0 netglub
+#cd /pentest/enumeration/netglub/qng/
+#qmake && make
 #
-mysqladmin create netglub -u root -p
-mysql -u root -p -e "grant all privileges on netglub.* to 'netglub'@'localhost' identified by 'netglub'"
-mysql -u root -p netglub < /pentest/enumeration/netglub/master/tools/sql/netglub.sql  
+#mysqladmin create netglub -u root -p
+#mysql -u root -p -e "grant all privileges on netglub.* to 'netglub'@'localhost' identified by 'netglub'"
+#mysql -u root -p netglub < /pentest/enumeration/netglub/master/tools/sql/netglub.sql  
 #
-cd /pentest/enumeration/netglub/master
-qmake && make
-cd tools/ && sudo ./install.sh
-cd /pentest/enumeration/netglub/slave
-qmake && make
-cd tools/ && sudo ./install.sh
-fi
+#cd /pentest/enumeration/netglub/master
+#qmake && make
+#cd tools/ && sudo ./install.sh
+#cd /pentest/enumeration/netglub/slave
+#qmake && make
+#cd tools/ && sudo ./install.sh
+#fi
 echo "Static Code Updates Complete"
