@@ -14,9 +14,10 @@ sudo apt-get install -y python-svn python-dev sqlite3 nbtscan dsniff libapache2-
 sudo apt-get install -y webhttrack smbclient httping libnl2 libcap2-bin ndisgtk python-wxtools libdigest-hmac-perl rake doxygen libgnutls-dev
 sudo apt-get install -y irpas python-bluetooth libstdc++5 smb4k kate libssh2-1-dev libimage-exiftool-perl vim rubygems libgpgme11-dev uuid-dev
 sudo apt-get install -y texlive libcrypt-blowfish-perl libdigest-sha-perl libcrypt-cbc-perl libsort-versions-perl libcrypt-des-perl libdigest-* libreadline-dev
-sudo apt-get install -y qt4-qmake qt4-dev-tools libcurl3-dbg
+sudo apt-get install -y qt4-qmake qt4-dev-tools libcurl3-dbg libxmlrpc-core-c3-dev libperl-dev libruby omt libgraphviz-dev libpcre3-dev libsvn-dev
+sudo apt-get install -y libfbclient2 firebird2.1-dev libncp-dev jxplorer bluefish bluefish-data bluefish-plugins
 
-#review python-psyco  xsmbrowser
+#review python-psyco  xsmbrowser qt-sqk
 #wget http://www.openvas.org/download/wmi/wmi-1.3.14.tar.bz2
 #wget http://www.openvas.org/download/wmi/openvas-wmi-1.3.14.patch
 #wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/greenbone-security-assistant_2.0.1.orig.tar.gz

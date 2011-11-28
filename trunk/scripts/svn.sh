@@ -166,6 +166,7 @@ fi
 if [ ! -d /pentest/misc/redmine ] ; then
 echo "Installing Redmine"
 cd /pentest/misc && svn co http://redmine.rubyforge.org/svn/branches/1.2-stable redmine
+echo "Enter the root mysql password to create the redmine database and user"
 mysql -u root -p -e "create database redmine character set utf8;"
 mysql -u root -p -e "grant all privileges on redmine.* to 'redmine'@'localhost' identified by 'redminelocal';"
 cp config/database.yml.example config/database.yml
