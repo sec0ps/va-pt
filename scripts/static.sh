@@ -318,6 +318,12 @@ cd /pentest/temp/ && wget http://www.morningstarsecurity.com/downloads/whatweb-0
 tar zxvf whatweb-0.4.7.tar.gz && rm -rf whatweb-0.4.7.tar.gz
 mv whatweb-0.4.7 /pentest/web/whatweb
 fi
+if [ ! -d /pentest/misc/flare ] ; then
+echo "Installing Flare"
+cd /pentest/misc && mkdir flare
+cd /pentest/misc/flare && wget http://www.nowrap.de/download/flare06linux.tgz
+tar xvf flare06linux.tgz && rm -rf flare06linux.tgz
+fi
 #if [ ! -d /pentest/passwords/hashcat ] ; then
 #echo "Installing Hashcat"
 #cd /pentest/temp && wget http://hashcat.net/files/hashcat-0.37.7z?d=tdtp3vc5qs2a47ied8dbv5a271 -O hashcat-0.37.7z
