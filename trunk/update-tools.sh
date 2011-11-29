@@ -99,7 +99,7 @@ wget http://net-square.com/httprint/signatures.txt
 #echo "Updating Exploit DB"
 #cd /pentest/exploits/exploitdb && svn up
 echo "Updating OpenVAS"
-sudo /pentest/misc/va-pt/scripts/vapt-openvas-nvt-sync.sh --wget && sudo rm -rf /tmp/openvas-feed-*
+sudo openvas-nvt-sync
 if [ -f /opt/nessus/sbin/nessus-update-plugins ] ; then
 echo "Updating Nessus Plugins"
 sudo /opt/nessus/sbin/nessus-update-plugins
