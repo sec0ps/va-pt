@@ -15,7 +15,8 @@ sudo apt-get install -y webhttrack smbclient httping libnl2 libcap2-bin ndisgtk 
 sudo apt-get install -y irpas python-bluetooth libstdc++5 smb4k kate libssh2-1-dev libimage-exiftool-perl vim rubygems libgpgme11-dev uuid-dev
 sudo apt-get install -y texlive libcrypt-blowfish-perl libdigest-sha-perl libcrypt-cbc-perl libsort-versions-perl libcrypt-des-perl libdigest-* libreadline-dev
 sudo apt-get install -y qt4-qmake qt4-dev-tools libcurl3-dbg libxmlrpc-core-c3-dev libperl-dev libruby omt libgraphviz-dev libpcre3-dev libsvn-dev
-sudo apt-get install -y libfbclient2 firebird2.1-dev libncp-dev jxplorer bluefish bluefish-data bluefish-plugins
+sudo apt-get install -y libfbclient2 firebird2.1-dev libncp-dev jxplorer bluefish bluefish-data bluefish-plugins tcpdump python-gnuplot python-qt3 inguma
+sudo apt-get install -y python-pytools pdfcrack gzrt ophcrack ophcrack-cli sipcrack
 
 #review python-psyco  xsmbrowser qt-sqk
 #wget http://www.openvas.org/download/wmi/wmi-1.3.14.tar.bz2
