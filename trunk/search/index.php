@@ -1,4 +1,8 @@
 <?php
+	if ($_SERVER['REMOTE_ADDR'] != '127.0.0.1')
+	exit( print "Connections to this portal are not permitted from remote systems" );
+?>
+<?php
 // destroy previous session
 session_start();
 session_regenerate_id();
