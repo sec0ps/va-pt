@@ -47,13 +47,3 @@ wget http://cve.mitre.org/data/downloads/allitems.csv -O nvd.csv && sudo mv nvd.
 sudo chown mysql /tmp/nvd.csv && mysqlimport --compress --delete --columns=name,status,description,reference,phase,votes,comments --ignore-lines=8 --replace --fields-terminated-by=, nvd /tmp/nvd.csv -u root --password=$mrpass
 sudo rm -rf /tmp/nvd.csv
 #
-#Portal Search Interface
-if [ ! -d /var/www/search ] ; then
-echo "Installing the Vulnerability and Exploit Search Interface - http://127.0.0.1/search"
-cd /pentest/misc/va-pt && sudo mv search/ /var/www/
-cd /var/www
-sudo chown -R www-data search/ && sudo chgrp -R www-data search/
-echo ""
-echo "Modify http conf setting to AllowOverride All"
-echo ""
-fi
