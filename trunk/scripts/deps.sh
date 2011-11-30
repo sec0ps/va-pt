@@ -136,6 +136,12 @@ sudo a2enmod ssl
 sudo a2ensite ssl
 sudo a2enmod rewrite
 sudo service apache2 force-reload
+# install Vuln Portal
+if [ ! -d /var/www/search ] ; then
+echo "Installing Vulnerability Database Portal"
+cd /var/www/ && sudo svn checkout http://va-pt.googlecode.com/svn/trunk/search search
+echo "The portal is now available at http://localhost/search/"
+#
 # misc perl modules
 #cd /pentest/temp && wget http://search.cpan.org/CPAN/authors/id/S/SA/SAPER/Net-Pcap-0.16.tar.gz
 #tar xvf Net-Pcap-0.16.tar.gz && rm -rf Net-Pcap-0.16.tar.gz
