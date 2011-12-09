@@ -24,8 +24,8 @@ cd /pentest/web/htshells && git pull
 #cd /pentest/misc/dradis && svn up
 echo "Updating wfuzz"
 cd /pentest/web/wfuzz && svn up
-echo "Updating Beef"
-cd /var/www/beef && sudo svn update
+#echo "Updating Beef"
+#cd /var/www/beef && sudo svn update
 echo "Updating Fierce2"
 cd /pentest/enumeration/fierce2 && svn update
 echo "Updating Kismet"

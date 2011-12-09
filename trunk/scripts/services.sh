@@ -3,7 +3,6 @@ cd /pentest/misc/redmine && ruby script/server -e production -d
 echo "Starting OpenVAS"
 sudo openvassd
 sudo openvasmd
-sudo openvasmd
 sudo gsad -p 8001 --http-only
 echo GSAD is running @ http://localhost:8001
 #
