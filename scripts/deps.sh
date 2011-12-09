@@ -17,7 +17,7 @@ sudo apt-get install -y texlive libcrypt-blowfish-perl libdigest-sha-perl libcry
 sudo apt-get install -y qt4-qmake qt4-dev-tools libcurl3-dbg libxmlrpc-core-c3-dev libperl-dev libruby omt libgraphviz-dev libpcre3-dev libsvn-dev
 sudo apt-get install -y libfbclient2 firebird2.1-dev libncp-dev jxplorer bluefish bluefish-data bluefish-plugins tcpdump python-gnuplot python-qt3 inguma
 sudo apt-get install -y python-pytools pdfcrack gzrt ophcrack ophcrack-cli sipcrack virtualbox-ose quicksynergy ngorca smb-nat libnet-nbname-perl libnet-netmask-perl
-sudo apt-get install -y flashplugin-installer jftp virtualbox-ose virtualbox-guest-additions wipe
+sudo apt-get install -y flashplugin-installer jftp virtualbox-ose virtualbox-guest-additions wipe reglookup
 
 #review python-psyco xsmbrowser qt-sqk
 #wget http://www.openvas.org/download/wmi/wmi-1.3.14.tar.bz2
@@ -90,6 +90,7 @@ sudo gem install rchardet
 sudo gem install SystemTimer
 sudo gem install -v=0.4.2 i18n
 sudo gem install -v=2.3.11 rails
+gem install rake -v=0.8.7
 sudo gem install postgres
 sudo gem install bson_ext
 sudo gem install rake
