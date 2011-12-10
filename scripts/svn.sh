@@ -16,12 +16,12 @@ if [ ! -d /pentest/exploits/framework3 ] ; then
 echo "Installing Metasploit"
 cd /pentest/exploits && svn co http://metasploit.com/svn/framework3/trunk/ framework3
 fi
-cd ~
-[ ! -d .msf3/ ] &&  mkdir .msf3
-cd ~/.msf3/
-if [ ! -f msfconsole.rc ] ; then
-echo "db_connect root:vapt@localhost/msf" >> msfconsole.rc
-fi
+#cd ~
+#[ ! -d .msf3/ ] &&  mkdir .msf3
+#cd ~/.msf3/
+#if [ ! -f msfconsole.rc ] ; then
+#echo "db_connect root:vapt@localhost/msf" >> msfconsole.rc
+#fi
 if [ ! -d /pentest/web/wapiti ] ; then
 echo "Installing Wapiti"
 cd /pentest/web && svn co https://wapiti.svn.sourceforge.net/svnroot/wapiti wapiti
@@ -67,6 +67,9 @@ if [ ! -d /pentest/enumeration/theHarvester ] ; then
 echo "Installing the Harvester"
 cd /pentest/enumeration && git clone https://github.com/laramies/theHarvester.git
 cd /pentest/enumeration/theHarvester && chmod 700 theHarvester.py
+fi
+if [ ! -d /pentest/web/sslyze ] ; then
+cd /pentest/web && svn checkout http://sslyze.googlecode.com/svn/trunk/ sslyze
 fi
 if [ ! -d /var/www/beef/.svn/ ] ; then
 echo "Installing Beef"

@@ -20,6 +20,8 @@ echo "Updating The Harvester"
 cd /pentest/enumeration/theHarvester && git pull
 echo "updating htshells"
 cd /pentest/web/htshells && git pull
+echo "Updating SSLyze"
+cd /pentest/web/sslyze && svn up
 #echo "Updating Dradis"
 #cd /pentest/misc/dradis && svn up
 echo "Updating wfuzz"
