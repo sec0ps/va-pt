@@ -320,7 +320,7 @@ mv whatweb-0.4.7 /pentest/web/whatweb
 fi
 if [ ! -d /pentest/misc/flare ] ; then
 echo "Installing Flare"
-cd /pentest/misc && mkdir flare
+cd /pentest/misc && mkdir flaref
 cd /pentest/misc/flare && wget http://www.nowrap.de/download/flare06linux.tgz
 tar xvf flare06linux.tgz && rm -rf flare06linux.tgz
 fi
