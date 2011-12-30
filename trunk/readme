@@ -22,6 +22,15 @@ How To
 To start, run the installer: sudo ./install.sh
 Install the dependencies first via option 1) Install/Check Dependencies
 
+--Setup for postgres DB 
+sudo su postgres
+psql
+create user <your username> with password 'password';
+create database msf owner <your username>;
+\q
+./msfconsole
+db_connect <username>:<password>@localhost/msf
+
 All tools are loaded into the /pentest directory.
 
 Future Major Release to include
