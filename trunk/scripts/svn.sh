@@ -191,6 +191,9 @@ cd /pentest/scanners/ncrack
 make clean
 ./configure && make
 sudo make install
-if [ ! -f /var/www/search ] ; then
-cd /var/www && sudo svn checkout https://va-pt.googlecode.com/svn/trunk/search search
-fi
+# install Vuln Portal
+if [ ! -d /var/www/search ] ; then
+echo "Installing Vulnerability Database Portal"
+cd /var/www/ && sudo svn checkout http://va-pt.googlecode.com/svn/trunk/search search
+echo "The portal is now available at http://localhost/search/"
+#
