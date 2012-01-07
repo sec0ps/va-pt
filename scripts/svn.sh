@@ -16,12 +16,6 @@ if [ ! -d /pentest/exploits/framework3 ] ; then
 echo "Installing Metasploit"
 cd /pentest/exploits && svn co http://metasploit.com/svn/framework3/trunk/ framework3
 fi
-#cd ~
-#[ ! -d .msf3/ ] &&  mkdir .msf3
-#cd ~/.msf3/
-#if [ ! -f msfconsole.rc ] ; then
-#echo "db_connect root:vapt@localhost/msf" >> msfconsole.rc
-#fi
 if [ ! -d /pentest/web/wapiti ] ; then
 echo "Installing Wapiti"
 cd /pentest/web && svn co https://wapiti.svn.sourceforge.net/svnroot/wapiti wapiti
@@ -89,7 +83,6 @@ cd /pentest/wireless/kismet
 ./configure && make dep
 make && sudo make install
 fi
-#
 if [ ! -d /pentest/wireless/aircrack-ng ] ; then
 echo "Installing Aircrack Tools"
 cd /pentest/wireless && svn co http://trac.aircrack-ng.org/svn/trunk aircrack-ng
@@ -198,4 +191,6 @@ cd /pentest/scanners/ncrack
 make clean
 ./configure && make
 sudo make install
+if [ ! -f /var/www/search ] ; then
+cd /var/www && sudo svn checkout https://va-pt.googlecode.com/svn/trunk/search search
 fi

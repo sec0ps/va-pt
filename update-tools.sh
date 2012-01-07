@@ -32,10 +32,6 @@ echo "Updating Fierce2"
 cd /pentest/enumeration/fierce2 && svn update
 echo "Updating Kismet"
 cd /pentest/wireless/kismet && svn up
-#cd /pentest/wireless/kismet && make clean
-#./configure && make dep
-#make && sudo make install
-#rm -rf *.h *.c *.cc *.c *.o *.m
 echo "Updating Aircrack Tools"
 cd /pentest/wireless/aircrack-ng && svn up
 echo "Updating Airgraph-NG"
@@ -76,32 +72,17 @@ echo "Updating Wifite"
 cd /pentest/wireless/wifite && svn up
 echo "Updating and recompiling nmap"
 cd /pentest/scanners/nmap && svn up
-#make clean
-#svn up && ./configure
-#make && sudo make install
-#rm -rf *.c *.h *.o *.cc
 echo "Updating and recompiling ncat"
 cd /pentest/scanners/nmap/ncat && svn up
-#./configure && make
-#sudo make install
-#rm -rf *.c *.h *.o *.cc
 echo "Updating and compiling ncrack"
 cd /pentest/scanners/ncrack && svn up
-#make clean
-#svn up
-#./configure
-#make && sudo make install
 echo "Updating VA-PT"
 cd /pentest/misc/va-pt && svn up
 echo "Updating the Vulnerability Database Portal"
 cd /var/www/search && sudo svn up
-#rm -rf *.c *.h *.o *.cc
 echo "Updating HTTPrint"
 cd /pentest/enumeration/httprint && mv signatures.txt signatures.txt.old
 wget http://net-square.com/httprint/signatures.txt
-#SVN not working - update through exploits.sh
-#echo "Updating Exploit DB"
-#cd /pentest/exploits/exploitdb && svn up
 echo "Updating OpenVAS"
 sudo openvas-nvt-sync
 if [ -f /opt/nessus/sbin/nessus-update-plugins ] ; then
