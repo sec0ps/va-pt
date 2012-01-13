@@ -157,7 +157,6 @@ fi
 if [ ! -d /pentest/exploits/keimpx ] ; then
 echo "Installing keimpx"
 cd /pentest/exploits && svn checkout http://keimpx.googlecode.com/svn/trunk/ keimpx
-sudo apt-get install python-impacket
 fi
 if [ ! -d /pentest/misc/redmine ] ; then
 echo "Installing Redmine"
