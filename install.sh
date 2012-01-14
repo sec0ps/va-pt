@@ -6,8 +6,8 @@ fi
 if [ ! -f /etc/network/if-up.d/ntpdate ] ; then
 sudo ntpdate time.nist.gov
 fi
-sudo echo 1 > /proc/sys/net/ipv4/ip_forward
-clear
+#sudo echo 1 > /proc/sys/net/ipv4/ip_forward
+#clear
 if [ ! -d /pentest ] ; then
 sudo mkdir /pentest
 sudo chown -R $USER /pentest && chgrp -R $USER /pentest
