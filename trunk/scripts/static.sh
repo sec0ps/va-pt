@@ -359,6 +359,7 @@ cd /pentest/temp && wget http://sourceforge.net/projects/dradis/files/dradis/v2.
 bunzip2 dradis-v2.8.0.tar.bz2 && tar xvf dradis-v2.8.0.tar
 rm -rf dradis-v2.8.0.tar && mv dradis-2.8/ /pentest/misc/dradis
 cd /pentest/misc/dradis/server && /var/lib/gems/1.8/bin/bundle install
+cd /pentest/misc/dradis && ./reset.sh
 fi
 if [ ! -d /opt/xplico ] ; then
 echo "Installing Xplico"
