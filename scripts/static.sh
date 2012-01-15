@@ -122,7 +122,8 @@ fi
 if [ ! -d /pentest/enumeration/burpsuite ] ; then
 echo "Installing Burp Suite"
 cd /pentest/temp && wget http://portswigger.net/burp/burpsuite_v1.4.zip
-unzip burpsuite_v1.4.zip && mv burpsuite_v1.4 /pentest/enumeration/burpsuite
+unzip burpsuite_v1.4.zip && rm -rf burpsuite_v1.4.zip
+mv burpsuite_v1.4 /pentest/enumeration/burpsuite
 fi
 if [ ! -d /pentest/enumeration/thc-pptp-bruter ] ; then
 echo "Installing THC PPTP Bruteforcer"
@@ -217,7 +218,6 @@ if [ ! -d /pentest/audit/rats ] ; then
 echo "Rough Auditing Tool for Security"
 cd /pentest/temp && wget https://www.fortify.com/downloads2/public/rats-2.3.tar.gz
 tar zxvf rats-2.3.tar.gz && rm -rf rats-2.3.tar.gz
-sudo apt-get install expat
 mv rats-2.3 /pentest/audit/rats && cd /pentest/audit/rats
 ./configure && make
 sudo make install
@@ -237,7 +237,6 @@ chmod 700 rat
 fi
 if [ ! -d /pentest/audit/rips ] ; then
 echo "Downloading RIPS PHP Static Source Code Analyzer"
-wget http://sourceforge.net/projects/rips-scanner/files/rips-0.40.zip/download -O rips.zip
 cd /pentest/audit && mkdir rips
 cd /pentest/audit/rips && wget http://sourceforge.net/projects/rips-scanner/files/rips-0.40.zip/download -O rips.zip
 fi
@@ -302,6 +301,7 @@ echo "Installing HTTPrint"
 cd /pentest/temp && wget http://net-square.com/httprint/httprint_linux_301.zip
 unzip httprint_linux_301.zip && rm -rf httprint_linux_301.zip
 mv httprint_301/linux /pentest/enumeration/httprint
+cd /pentest/temp && rm -rf httprint_301/
 fi
 if [ ! -d /pentest/web/xsser ] ; then
 echo "Installing XSSer"
@@ -343,7 +343,7 @@ cd windows-tools && wget http://download.sysinternals.com/Files/PsTools.zip
 unzip PsTools.zip && rm -rf PsTools.zip
 wget http://dl.packetstormsecurity.net/groups/checksum/nc.exe
 cd /pentest/temp && wget http://swamp.foofus.net/fizzgig/fgdump/fgdump-2.1.0-exeonly.tar.bz2
-bunzip fgdump-2.1.0-exeonly.tar.bz2 && rm -rf fgdump-2.1.0-exeonly.tar.bz2
+bunzip2 fgdump-2.1.0-exeonly.tar.bz2 && rm -rf fgdump-2.1.0-exeonly.tar.bz2
 tar xvf fgdump-2.1.0-exeonly.tar && rm -rf fgdump-2.1.0-exeonly.tar
 mv Release/fgdump.exe /pentest/exploits/windows-tools/ && rm -rf Release/
 fi

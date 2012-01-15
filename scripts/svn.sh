@@ -42,6 +42,7 @@ echo "Installing w3af"
 cd /pentest/temp && wget http://c.pypi.python.org/packages/source/p/pybloomfiltermmap/pybloomfiltermmap-0.2.0.tar.gz
 tar zxvf pybloomfiltermmap-0.2.0.tar.gz && rm -rf pybloomfiltermmap-0.2.0.tar.gz
 cd pybloomfiltermmap-0.2.0/ && sudo python setup.py install
+cd /pentest/temp/ && sudo rm -rf pybloomfiltermmap-0.2.0/
 cd /pentest/web && svn co https://w3af.svn.sourceforge.net/svnroot/w3af/trunk w3af/
 fi
 if [ ! -d /pentest/web/waffit/.svn ] ; then
