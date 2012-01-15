@@ -1,3 +1,4 @@
+echo "Installing Ubuntu Packages"
 sudo apt-get install -y ncftp rar python-setuptools python-configobj python-flickrapi gnome-common gtk-doc-tools libsoup2.4 python-pyexiv2 registry-tools
 sudo apt-get install -y libxml-libxml-perl libdbi-perl libdbd-sqlite3-perl alien librpmbuild1 lsb-core ncurses-term pax rpm rpm2cpio nfs-common
 sudo apt-get install -y libgd2-xpm-dev flasm unetbootin unetbootin-translations open-iscsi open-iscsi-utils ldap-utils upx python-pymssql
@@ -18,50 +19,28 @@ sudo apt-get install -y qt4-qmake qt4-dev-tools libcurl3-dbg libxmlrpc-core-c3-d
 sudo apt-get install -y libfbclient2 firebird2.1-dev libncp-dev jxplorer bluefish bluefish-data bluefish-plugins tcpdump python-gnuplot python-qt3 inguma
 sudo apt-get install -y python-pytools pdfcrack gzrt ophcrack ophcrack-cli sipcrack virtualbox-ose quicksynergy ngorca smb-nat libnet-nbname-perl libnet-netmask-perl
 sudo apt-get install -y flashplugin-installer jftp virtualbox-ose virtualbox-guest-additions wipe reglookup libxmlrpc-c3-dev httrack finger rusers sslsniff
-sudo apt-get install -y revelation python-impacket
+sudo apt-get install -y revelation python-impacket expat php-pear
 
-#review python-psyco xsmbrowser qt-sqk
-#wget http://www.openvas.org/download/wmi/wmi-1.3.14.tar.bz2
-#wget http://www.openvas.org/download/wmi/openvas-wmi-1.3.14.patch
-#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/greenbone-security-assistant_2.0.1.orig.tar.gz
-#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/gsd_1.2.0.orig.tar.gz
-#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/libopenvas_4.0.6.orig.tar.gz
-#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/openvas-administrator_1.1.2.orig.tar.gz
-#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/openvas-cli_1.1.3.orig.tar.gz
-#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/openvas-manager_2.0.4.orig.tar.gz
-#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/openvas-scanner_3.2.5.orig.tar.gz
-#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/libmicrohttpd_0.9.17.orig.tar.gz
-#sudo openvas-nvt-sync
-#test -e /var/lib/openvas/users/om || sudo openvas-mkcert-client -n om -i
-#sudo openvassd
-#sudo openvasmd --migrate
-#sudo openvasmd --rebuild
-#sudo killall openvassd
-#test -e /var/lib/openvas/users/admin || sudo openvasad -c add_user -n user -w pass -r Admin
-#http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/
-
-dpkg-query -l | grep php-pear
-if [ $? -eq 1 ] ; then
-sudo apt-get --force-yes -y install php-pear
+echo "Installing Pear Database Libraries"
 sudo pear install DB
 sudo pear install MDB2
 sudo pear install MDB2_Driver_mysqli
 sudo pear install MDB2_Driver_mysql
 sudo pear upgrade-all
-fi
-if [ ! -f /usr/local/bin/cpanm ] ; then
-cd /pentest/temp
-git clone git://github.com/miyagawa/cpanminus.git
-cd cpanminus
-#sudo ./cpanm --installdeps .
-perl Makefile.PL
-make
-sudo make install
-fi
 #
 #insert firewalk deps here
 #cd /pentest/temp && wget http://prdownloads.sourceforge.net/libdnet/libdnet-1.11.tar.gz
 #
+if [ ! -f /usr/local/bin/cpanm ] ; then
+echo "Installing CPANimus"
+cd /pentest/temp && git clone git://github.com/miyagawa/cpanminus.git
+cd cpanminus
+#sudo ./cpanm --installdeps .
+perl Makefile.PL && make
+sudo make install
+fi
+
+echo "Installing PERL Libraries"
 sudo cpanm Net::Whois::IP
 sudo cpanm W3C::LinkChecker
 sudo cpanm Number::Bytes::Human
@@ -84,7 +63,8 @@ sudo cpanm HTML::Tidy::libXML
 sudo cpanm XML::LibXML
 sudo cpanm DBI
 sudo cpanm DBD::SQLite
-#
+
+echo "Installing Ruby Gems"
 sudo gem install em-resolv-replace
 sudo gem install mongo
 sudo gem install rchardet
@@ -141,6 +121,28 @@ sudo a2enmod ssl
 sudo a2ensite ssl
 sudo a2enmod rewrite
 sudo service apache2 force-reload
+
+#OpenVAS and Greenbone Packages
+#wget http://www.openvas.org/download/wmi/wmi-1.3.14.tar.bz2
+#wget http://www.openvas.org/download/wmi/openvas-wmi-1.3.14.patch
+#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/greenbone-security-assistant_2.0.1.orig.tar.gz
+#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/gsd_1.2.0.orig.tar.gz
+#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/libopenvas_4.0.6.orig.tar.gz
+#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/openvas-administrator_1.1.2.orig.tar.gz
+#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/openvas-cli_1.1.3.orig.tar.gz
+#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/openvas-manager_2.0.4.orig.tar.gz
+#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/openvas-scanner_3.2.5.orig.tar.gz
+#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/libmicrohttpd_0.9.17.orig.tar.gz
+#sudo openvas-nvt-sync
+#test -e /var/lib/openvas/users/om || sudo openvas-mkcert-client -n om -i
+#sudo openvassd
+#sudo openvasmd --migrate
+#sudo openvasmd --rebuild
+#sudo killall openvassd
+#test -e /var/lib/openvas/users/admin || sudo openvasad -c add_user -n user -w pass -r Admin
+#http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/
+
+#Misc crap I`m not sure where it came from, need to review/remove
 # misc perl modules
 #cd /pentest/temp && wget http://search.cpan.org/CPAN/authors/id/S/SA/SAPER/Net-Pcap-0.16.tar.gz
 #tar xvf Net-Pcap-0.16.tar.gz && rm -rf Net-Pcap-0.16.tar.gz
