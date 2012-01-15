@@ -121,6 +121,8 @@ sudo gem install http_configuration
 sudo gem install mime-types
 sudo gem install mini_exiftool
 sudo gem install hpricot
+cd && echo "export PATH=/var/lib/gems/1.8/bin/:$PATH" >> .bashrc
+source ~/.bashrc
 #
 if [ ! -f /usr/bin/waveplay ] ; then
 cd /pentest/temp && wget ftp://ftp.eenet.ee/pub/FreeBSD/distfiles/waveplay-20010924.tar.gz
