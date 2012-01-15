@@ -168,16 +168,9 @@ cp config/database.yml.example config/database.yml
 rake db:migrate RAILS_ENV="production"
 echo "If this fails make sure require 'rake/dsl_definition' is in the Rakefile ands you setup database.yml"
 fi
-if [ ! -d /pentest/voip/sipvicious ] ; then
-echo "Installing SIPVicious"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/sip/sipvicious-0.2.6.tar.gz
-tar zxvf sipvicious-0.2.6.tar.gz && rm -rf sipvicious-0.2.6.tar.gz
-mv sipvicious/ /pentest/voip/ && cd /pentest/voip/sipvicious
-svn up
-fi
 if [ ! -d /pentest/scanners/nmap ] ; then
 echo "Installing and compiling nmap"
-cd /pentest/scanners && svn co --username guest --password "" svn://svn.insecure.org/nmap/ nmap
+cd /pentest/scanners && svn co https://svn.nmap.org/nmap nmap
 cd /pentest/scanners/nmap
 make clean
 ./configure && make
@@ -185,7 +178,7 @@ sudo make install
 fi
 if [ ! -d /pentest/scanners/ncrack ] ; then
 echo "Installing and compiling ncrack"
-cd /pentest/scanners && svn co --username guest --password "" svn://svn.insecure.org/ncrack ncrack
+cd /pentest/scanners && svn co https://svn.nmap.org/ncrack ncrack
 cd /pentest/scanners/ncrack
 make clean
 ./configure && make
@@ -193,6 +186,6 @@ sudo make install
 # install Vuln Portal
 if [ ! -d /var/www/search ] ; then
 echo "Installing Vulnerability Database Portal"
-cd /var/www/ && sudo svn checkout http://va-pt.googlecode.com/svn/trunk/search search
+cd /var/www/ && sudo svn co http://va-pt.googlecode.com/svn/trunk/search search
 echo "The portal is now available at http://localhost/search/"
 #
