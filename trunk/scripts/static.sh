@@ -21,6 +21,12 @@ cd /pentest/temp && wget http://www.ictsc.it/site/IT/projects/freacs/freacs.tar.
 tar zxvf freacs.tar.gz && rm -rf freacs.tar.gz
 mv freacs/ /pentest/misc/
 fi
+if [ ! -d /pentest/voip/sipvicious ] ; then
+echo "Installing SIPVicious"
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/sip/sipvicious-0.2.6.tar.gz
+tar zxvf sipvicious-0.2.6.tar.gz && rm -rf sipvicious-0.2.6.tar.gz
+mv sipvicious/ /pentest/voip/ && cd /pentest/voip/sipvicious
+fi
 if [ ! -d /pentest/enumeration/hydra ] ; then
 echo "Installing THC Hydra"
 cd /pentest/temp && wget http://freeworld.thc.org/releases/hydra-7.1-src.tar.gz
