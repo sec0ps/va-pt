@@ -278,10 +278,10 @@ cd /pentest/database && wget http://www.darkoperator.com/tools-and-scripts/mysql
 fi
 if [ ! -d /pentest/passwords/john ] ; then
 echo "Installing John the Ripper"
-cd /pentest/temp && wget http://www.openwall.com/john/g/john-1.7.9.tar.gz
-tar zxvf john-1.7.9.tar.gz && rm -rf john-1.7.9.tar.gz
-mv john-1.7.9 /pentest/passwords/john && cd /pentest/passwords/john/src
-make linux-x86-64
+cd /pentest/temp && wget http://www.openwall.com/john/g/john-1.7.9-jumbo-5.tar.gz
+tar zxvf john-1.7.9-jumbo-5.tar.gz && rm -rf john-1.7.9-jumbo-5.tar.gz
+mv john-1.7.9-jumbo-5 /pentest/passwords/john && cd /pentest/passwords/john/src
+make generic
 fi
 if [ ! -d /pentest/passwords/cewl ] ; then
 echo "Installing Cewl"
