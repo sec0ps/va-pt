@@ -268,9 +268,9 @@ dos2unix start.sh
 fi
 if [ ! -d /pentest/web/websecurify ] ; then
 echo "Installing WebSecurify"
-cd  /pentest/temp && wget0 http://websecurify.googlecode.com/files/Websecurify%200.8.tgz
-tar xvf Websecurify\ 0.8.tgz && rm -rf Websecurify\ 0.8.tgz
-mv Websecurify\ 0.8/ /pentest/web/websecurify
+cd  /pentest/temp && wget http://websecurify.googlecode.com/files/Websecurify%20Scanner%200.9.tgz
+tar xvf Websecurify\ 0.9.tgz && rm -rf Websecurify\ 0.9.tgz
+mv Websecurify\ 0.9/ /pentest/web/websecurify
 fi
 if [ ! -f /pentest/database/mysqlaudit.py ] ; then
 echo "Installing MySQLAudit"
