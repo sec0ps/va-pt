@@ -20,10 +20,10 @@ if [ ! -d /pentest/web/wapiti ] ; then
 echo "Installing Wapiti"
 cd /pentest/web && svn co https://wapiti.svn.sourceforge.net/svnroot/wapiti wapiti
 fi
-if [ ! -d /pentest/web/wfuzz ] ; then
+if [ ! -d /pentest/fuzzers/wfuzz ] ; then
 echo "Installing wfuzz"
-cd /pentest/web && svn checkout http://wfuzz.googlecode.com/svn/trunk/ wfuzz
-cd /pentest/web/wfuzz && chmod 700 wfuzz.py
+cd /pentest/fuzzers && svn checkout http://wfuzz.googlecode.com/svn/trunk/ wfuzz
+cd /pentest/fuzzers/wfuzz && chmod 700 wfuzz.py
 fi
 if [ ! -d /pentest/web/fimap ] ; then
 echo "Installing fimap"
