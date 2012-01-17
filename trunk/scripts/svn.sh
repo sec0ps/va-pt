@@ -116,9 +116,9 @@ if [ ! -d /pentest/web/laudanum ] ; then
 echo "Installing Laudanum"
 cd /pentest/web && svn co https://laudanum.svn.sourceforge.net/svnroot/laudanum laudanum
 fi
-if [ ! -d /pentest/database/fuzzdb ] ; then
+if [ ! -d /pentest/fuzzers/fuzzdb ] ; then
 echo "Installing FuzzDB"
-cd /pentest/database && svn checkout http://fuzzdb.googlecode.com/svn/trunk/ fuzzdb
+cd /pentest/fuzzers && svn checkout http://fuzzdb.googlecode.com/svn/trunk/ fuzzdb
 fi
 if [ ! -d /pentest/enumeration/monkeyfist ] ; then
 echo "Installing MonkeyFist"
