@@ -189,4 +189,5 @@ if [ ! -d /var/www/search ] ; then
 echo "Installing Vulnerability Database Portal"
 cd /var/www/ && sudo svn co http://va-pt.googlecode.com/svn/trunk/search search
 echo "The portal is now available at http://localhost/search/"
+fi
 #
