@@ -184,6 +184,7 @@ cd /pentest/scanners/ncrack
 make clean
 ./configure && make
 sudo make install
+fi
 # install Vuln Portal
 if [ ! -d /var/www/search ] ; then
 echo "Installing Vulnerability Database Portal"
