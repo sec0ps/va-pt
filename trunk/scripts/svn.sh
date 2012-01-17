@@ -14,7 +14,7 @@ cd /pentest/exploits && svn co http://svn.secmaniac.com/social_engineering_toolk
 fi
 if [ ! -d /pentest/exploits/framework3 ] ; then
 echo "Installing Metasploit"
-cd /pentest/exploits && svn co http://metasploit.com/svn/framework3/trunk/ framework3
+cd /pentest/exploits && svn co https://www.metasploit.com/svn/framework3/trunk/ framework3
 fi
 if [ ! -d /pentest/web/wapiti ] ; then
 echo "Installing Wapiti"
