@@ -25,7 +25,7 @@ cd /pentest/web/sslyze && svn up
 #echo "Updating Dradis"
 #cd /pentest/misc/dradis && svn up
 echo "Updating wfuzz"
-cd /pentest/web/wfuzz && svn up
+cd /pentest/fuzzers/wfuzz && svn up
 #echo "Updating Beef"
 #cd /var/www/beef && sudo svn update
 echo "Updating Fierce2"
@@ -41,7 +41,7 @@ cd /pentest/web/fimap && svn up
 echo "Updating SQL Map"
 cd /pentest/database/sqlmap && svn up
 echo "Updatign FuzzDB"
-cd /pentest/database/fuzzdb && svn up
+cd /pentest/fuzzers/fuzzdb && svn up
 echo "Updating Monkeyfist"
 cd /pentest/enumeration/monkeyfist && svn up
 echo "Updating WSFuzzer"
@@ -89,3 +89,14 @@ if [ -f /opt/nessus/sbin/nessus-update-plugins ] ; then
 echo "Updating Nessus Plugins"
 sudo /opt/nessus/sbin/nessus-update-plugins
 fi
+echo "Updating Local Exploit Repository"
+rm -rf /pentest/exploits/exploitdb && /pentest/misc/va-pt/scripts/exploits.sh
+#
+while true; do
+    read -p "Do you want to update the local exploit database? (y/n)" yn
+    case $yn in
+        [Yy]* ) /pentest/misc/va-pt/scripts/db-update.sh;  break;;
+        [Nn]* ) echo "Exiting the updater."; exit;;
+        * ) echo "Please answer yes or no.";;
+    esac
+done

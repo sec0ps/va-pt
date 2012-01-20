@@ -52,6 +52,7 @@ sudo cpanm Net::SSLeay
 sudo cpanm Net::SNMP
 sudo cpanm Socket6
 sudo cpanm Net::SSH
+sudo cpanm Net::SSH::Perl
 sudo cpanm HTML::Tidy::libXML
 sudo cpanm DBD::SQLite
 sudo cpanm DBI
