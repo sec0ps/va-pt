@@ -31,6 +31,12 @@ create database msf owner <your username>;
 ./msfconsole
 db_connect <username>:<password>@localhost/msf
 
+If you are running, or are planning on running, Nexpose on the same system. You will need to change the listening port on the postgresql database.
+
+/etc/postgresql/8.4/main/postgresql.conf
+
+Make sure your msf rc files reference the port number you set.
+
 All tools are loaded into the /pentest directory.
 
 Future Major Release to include
