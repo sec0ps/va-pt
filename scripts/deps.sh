@@ -56,7 +56,7 @@ sudo cpanm Net::SSH::Perl
 sudo cpanm HTML::Tidy::libXML
 sudo cpanm DBD::SQLite
 sudo cpanm DBI
-sudo cpanm IO::Socket:SSL
+sudo cpanm IO::Socket::SSL
 sudo cpanm NetPacket::ICMP
 sudo cpanm Net::Netmask
 sudo cpanm XML::Writer
