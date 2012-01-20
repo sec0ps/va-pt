@@ -36,6 +36,8 @@ If you are running, or are planning on running, Nexpose on the same system. You 
 /etc/postgresql/8.4/main/postgresql.conf
 
 Make sure your msf rc files reference the port number you set.
+-- .msf4/msfconsole.rc
+-- db_connect username:password@localhost:port/msf
 
 All tools are loaded into the /pentest directory.
 
