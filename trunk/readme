@@ -14,7 +14,6 @@ svn.sh - SVN repository scripts to checkout and update the various tools
 wordlists.sh - Contains the scripts to download the various wordlists from public sources
 update.sh - The script that makes it all happen
 readme - You're looking at it
-vapt-openvas-nvt-sync.sh - This script down update the OpenVAS signature set via http, the new script doesn't support http only rsync
 search/ - the PHP Files for the local vulnerability and exploitdb search interface
 
 How To
