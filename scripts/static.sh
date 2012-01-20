@@ -266,13 +266,7 @@ wget http://webscarab-ng.googlecode.com/files/WebScarab-ng-0.2.1.one-jar.zip && 
 rm -rf WebScarab-ng-0.2.1.one-jar.zip && chmod 700 start.sh
 dos2unix start.sh
 fi
-if [ ! -d /pentest/web/websecurify ] ; then
-echo "Installing WebSecurify"
-cd  /pentest/temp && wget http://websecurify.googlecode.com/files/Websecurify%20Scanner%200.9.tgz
-tar xvf Websecurify\ Scanner\ 0.9.tgz && rm Websecurify\ Scanner\ 0.9.tgz
-mv Websecurify\ Scanner\ 0.9/ /pentest/web/websecurify
-fi
-if [ ! -f /pentest/database/mysqlaudit.py ] ; then
+ if [ ! -f /pentest/database/mysqlaudit.py ] ; then
 echo "Installing MySQLAudit"
 cd /pentest/database && wget http://www.darkoperator.com/tools-and-scripts/mysqlaudit.py
 fi
@@ -375,25 +369,6 @@ echo "http://wiki.xplico.org/doku.php?id=interface"
 sleep 10
 fi
 if [ ! -d /pentest/enumeration/netglub ] ; then
-#wget http://pypi.python.org/packages/source/s/simplejson/simplejson-2.1.5.tar.gz && tar -xzvf simplejson-2.1.5.tar.gz
-#rm -rf simplejson-2.1.5.tar.gz && cd simplejson-2.1.5
-#sudo python setup.py build && sudo python setup.py install 
-#cd /pentest/temp
-#wget http://sourceforge.net/projects/pyxml/files/pyxml/0.8.4/PyXML-0.8.4.tar.gz
-#tar -xvzf PyXML-0.8.4.tar.gz && rm -rf PyXML-0.8.4.tar.gz
-#cd PyXML-0.8.4 && wget http://launchpadlibrarian.net/31786748/0001-Patch-for-Python-2.6.patch
-#patch -p1 < 0001-Patch-for-Python-2.6.patch && sudo python setup.py install 
-#cd /pentest/temp
-#wget http://www.graphviz.org/pub/graphviz/stable/SOURCES/graphviz-2.26.3.tar.gz
-#tar -xzvf graphviz-2.26.3.tar.gz
-#cd graphviz-2.26.3 && ./configure
-#make && sudo make install
-#cd /pentest/temp
-#wget http://sourceforge.net/projects/xmlrpc-c/files/Xmlrpc-c%20Super%20Stable/1.16.34/xmlrpc-c-1.16.34.tgz
-#tar -zxvf xmlrpc-c-1.16.34.tgz && rm -rf xmlrpc-c-1.16.34.tgz
-#cd xmlrpc-c-1.16.34
-#./configure
-#make && sudo make install
 cd /pentest/enumeration && wget http://redmine.lab.diateam.net/attachments/download/1/netglub-1.0.tar.gz
 tar -xzvf netglub-1.0.tar.gz && rm -rf netglub-1.0.tar.gz
 mv netglub-1.0 netglub

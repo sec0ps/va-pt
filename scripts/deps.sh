@@ -106,24 +106,48 @@ cd && echo "export PATH=/var/lib/gems/1.8/bin/:$PATH" >> .bashrc
 source ~/.bashrc
 #
 if [ ! -f /usr/bin/waveplay ] ; then
+echo "Installing waveplay"
 cd /pentest/temp && wget ftp://ftp.eenet.ee/pub/FreeBSD/distfiles/waveplay-20010924.tar.gz
 tar zxvf waveplay-20010924.tar.gz && cd waveplay-20010924
 make && sudo mv waveplay /usr/bin/
 rm -rf /pentest/temp/waveplay-20010924
 fi
 if [ ! -f /usr/bin/crunch ] ; then
+echo "Installing crunch"
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/Crack/crunch.cpp
 gcc -o crunch crunch.cpp -lstdc++ && sudo mv crunch /usr/bin/
 rm -rf crunch.cpp
 fi
-sudo updatedb
-#enable default ssl site for portal
+if [ ! -d /pentest/cisco/torch ] ; then
+echo "Installing static compiled dependancy packages needed for Cisco Torch"
+cd /pentest/temp && wget ftp://megrez.math.u-bordeaux.fr/pub/pari/unix/OLD/pari-2.3.0.tar.gz
+tar xvf pari-2.3.0.tar.gz && rm -rf pari-2.3.0.tar.gz
+cd pari-2.3.0/ && ./Configure
+make all && make install
+cd /pentest/temp && wget http://search.cpan.org/CPAN/authors/id/I/IL/ILYAZ/modules/Math-Pari-2.01080605.tar.gz
+tar xvf Math-Pari-2.01080605.tar.gz && rm -rf Math-Pari-2.01080605.tar.gz
+cd Math-Pari-2.01080605 && perl Makefile.PL
+sudo make install
+sudo cpanm Net::SSH::Perl
+fi
+
+echo "enabling default ssl site for portal if needed"
+service='https'
+if sudo lsof -i :443 | grep $service > /dev/null
+then
+echo "$service is there, skipping this step"
+else
+echo "$service is not there, enabling default SSL configuration"
 sudo a2enmod ssl
 sudo a2ensite ssl
 sudo a2enmod rewrite
 sudo service apache2 force-reload
+fi
 
-#OpenVAS and Greenbone Packages
+echo "Updating locate database"
+sudo updatedb
+
+#OpenVAS and Greenbone Packages - still need to get to this one day...
 #wget http://www.openvas.org/download/wmi/wmi-1.3.14.tar.bz2
 #wget http://www.openvas.org/download/wmi/openvas-wmi-1.3.14.patch
 #wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/greenbone-security-assistant_2.0.1.orig.tar.gz
@@ -144,19 +168,29 @@ sudo service apache2 force-reload
 #http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/
 
 #Misc crap I`m not sure where it came from, need to review/remove
-# misc perl modules
 #cd /pentest/temp && wget http://search.cpan.org/CPAN/authors/id/S/SA/SAPER/Net-Pcap-0.16.tar.gz
 #tar xvf Net-Pcap-0.16.tar.gz && rm -rf Net-Pcap-0.16.tar.gz
 #cd Net-Pcap-0.16/ && perl Makefile.PL
 #make && sudo make install
 #cd ../ && rm -rf Net-Pcap-0.16/
-#this section is still questionable
-#cd /pentest/temp && wget ftp://megrez.math.u-bordeaux.fr/pub/pari/unix/OLD/pari-2.1.7.tgz
-#tar xvf pari-2.1.7.tgz && rm -rf pari-2.1.7.tgz
-#cd pari-2.1.7/ && ./Configure
-#make all && sudo make install
-#cd /pentest/temp && wget http://search.cpan.org/CPAN/authors/id/I/IL/ILYAZ/modules/Math-Pari-2.01080605.tar.gz
-#tar xvf Math-Pari-2.01080605.tar.gz && rm -rf Math-Pari-2.01080605.tar.gz
-#cd Math-Pari-2.01080605 && perl Makefile.PL
-#sudo make install
-#sudo cpanm Net::SSH::Perl
+#crap from the original netglub install..leaving it here in case I need it for reference
+#wget http://pypi.python.org/packages/source/s/simplejson/simplejson-2.1.5.tar.gz && tar -xzvf simplejson-2.1.5.tar.gz
+#rm -rf simplejson-2.1.5.tar.gz && cd simplejson-2.1.5
+#sudo python setup.py build && sudo python setup.py install 
+#cd /pentest/temp
+#wget http://sourceforge.net/projects/pyxml/files/pyxml/0.8.4/PyXML-0.8.4.tar.gz
+#tar -xvzf PyXML-0.8.4.tar.gz && rm -rf PyXML-0.8.4.tar.gz
+#cd PyXML-0.8.4 && wget http://launchpadlibrarian.net/31786748/0001-Patch-for-Python-2.6.patch
+#patch -p1 < 0001-Patch-for-Python-2.6.patch && sudo python setup.py install 
+#cd /pentest/temp
+#wget http://www.graphviz.org/pub/graphviz/stable/SOURCES/graphviz-2.26.3.tar.gz
+#tar -xzvf graphviz-2.26.3.tar.gz
+#cd graphviz-2.26.3 && ./configure
+#make && sudo make install
+#cd /pentest/temp
+#wget http://sourceforge.net/projects/xmlrpc-c/files/Xmlrpc-c%20Super%20Stable/1.16.34/xmlrpc-c-1.16.34.tgz
+#tar -zxvf xmlrpc-c-1.16.34.tgz && rm -rf xmlrpc-c-1.16.34.tgz
+#cd xmlrpc-c-1.16.34
+#./configure
+#make && sudo make install
+
