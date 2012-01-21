@@ -112,13 +112,6 @@ tar zxvf voiphopper-1.02.tar.gz && rm -rf voiphopper-1.02.tar.gz
 mv voiphopper-1.02 /pentest/voip/voiphopper && cd /pentest/voip/voiphopper
 cd /pentest/voip/voiphopper && make
 fi
-
-if [ ! -d /pentest/wireless/cowpatty ] ; then
-cd /pentest/temp && wget http://wirelessdefence.org/Contents/Files/cowpatty-4.6.tgz
-tar -zxvf cowpatty-4.6.tgz && rm -rf cowpatty-4.6.tgz
-mv cowpatty-4.6/ /pentest/wireless/cowpatty && cd /pentest/wireless/cowpatty
-make && sudo make install
-fi
 if [ ! -d /pentest/enumeration/burpsuite ] ; then
 echo "Installing Burp Suite"
 cd /pentest/temp && wget http://portswigger.net/burp/burpsuite_v1.4.zip
