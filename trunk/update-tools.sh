@@ -71,11 +71,11 @@ echo "Updating SIPVicious"
 cd /pentest/voip/sipvicious/ && svn up
 echo "Updating Wifite"
 cd /pentest/wireless/wifite && svn up
-echo "Updating and recompiling nmap"
+echo "Updating nmap - you will need to recompile if needed"
 cd /pentest/scanners/nmap && svn up
-echo "Updating and recompiling ncat"
+echo "Updating ncat - you will need to recompile if needed"
 cd /pentest/scanners/nmap/ncat && svn up
-echo "Updating and compiling ncrack"
+echo "Updating ncrack - you will need to recompile if needed"
 cd /pentest/scanners/ncrack && svn up
 echo "Updating VA-PT"
 cd /pentest/misc/va-pt && svn up
