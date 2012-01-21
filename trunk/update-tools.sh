@@ -1,3 +1,4 @@
+echo "Beginning package updates"
 echo "Updating gisKismet"
 cd /pentest/wireless/giskismet && svn up
 echo "Updating SET"

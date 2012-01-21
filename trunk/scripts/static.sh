@@ -1,3 +1,4 @@
+echo "Static software package installation beginning"
 if [ ! -d /pentest/scanners/snmp ] ; then
 echo "Installing OneSixtyOne & snmpcheck"
 mkdir /pentest/scanners/snmp
@@ -379,4 +380,4 @@ qmake && make
 cd tools/ && sudo ./install.sh
 echo "When starting netglub for the first time use the code 2222-4567-89ab-cdef"
 fi
-echo "Static Code Updates Complete"
+echo "Static Code installation complete"
