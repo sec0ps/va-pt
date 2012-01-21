@@ -66,6 +66,7 @@ sudo cpanm DBI
 sudo cpanm DBD::SQLite
 
 echo "Installing Ruby Gems"
+#need to add dep checking for this, wastes time on rechecks
 sudo gem install em-resolv-replace
 sudo gem install mongo
 sudo gem install rchardet

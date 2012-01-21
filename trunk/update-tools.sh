@@ -89,6 +89,27 @@ if [ -f /opt/nessus/sbin/nessus-update-plugins ] ; then
 echo "Updating Nessus Plugins"
 sudo /opt/nessus/sbin/nessus-update-plugins
 fi
+/pentest/web/skipfish/skipfish -h | grep "version"
+if [ $? != "2.03b" ] ; then
+echo "skipfish is up to date"
+else
+echo "skipfish is not up to date, updating now."
+rm -rf /pentest/web/skipfish && /pentest/misc/va-pt/scripts/static.sh
+fi
+/pentest/passwords/john/run/john | grep "ver:"
+if [ $? != "1.7.9-jumbo-5" ] ; then
+echo "john the ripper is up to date"
+else
+echo "john the ripper is not up to date, updating now."
+rm -rf /pentest/passwords/john && /pentest/misc/va-pt/scripts/static.sh
+fi
+/pentest/enumeration/hydra/hydra | grep "THC"
+if [ $? != "v7.1" ] ; then
+echo "THC Hydra is up to date"
+else
+echo "THC Hydra is not up to date, updating now."
+rm -rf /pentest/enumeration/hydra && /pentest/misc/va-pt/scripts/static.sh
+fi
 echo "Updating Local Exploit Repository"
 rm -rf /pentest/exploits/exploitdb && /pentest/misc/va-pt/scripts/exploits.sh
 #
