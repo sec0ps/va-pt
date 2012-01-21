@@ -1,3 +1,4 @@
+echo "Beginning subverion package installation"
 if [ ! -d /pentest/wireless/giskismet ] ; then
 echo "Installing gisKismet"
 cd /pentest/wireless && svn co https://my-svn.assembla.com/svn/giskismet/trunk giskismet
@@ -192,3 +193,4 @@ cd /var/www/ && sudo svn co http://va-pt.googlecode.com/svn/trunk/search search
 echo "The portal is now available at http://localhost/search/"
 fi
 #
+echo "Subversion package installation complete"
