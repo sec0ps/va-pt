@@ -1,15 +1,15 @@
 <?php
 
-require 'authorize.php';
+//require 'authorize.php';
 require 'connect.php';
 
 $username=$conn->real_escape_string(strip_tags(substr($_POST['username'],0,32)));
-$realname=$conn->real_escape_string(strip_tags(substr($_POST['realname'],0,60)));
-$password=md5($_POST['password']);
-$password1=md5($_POST['password1']);
+//$realname=$conn->real_escape_string(strip_tags(substr($_POST['realname'],0,60)));
+$password=sha1($_POST['password']);
+$password1=sha1($_POST['password1']);
 $email=$conn->real_escape_string(strip_tags(substr($_POST['email'],0,50)));
 
-$hid=sha1($_POST['username']);
+//$hid=sha1($_POST['username']);
 
 if ( !$username ) {
         echo "You must enter the name you will use to access the system in the Username field";
@@ -17,11 +17,11 @@ if ( !$username ) {
   exit;
 }
 
-if ( !$realname ) {
-        echo "You must enter your full name in the Full Name field";
-        echo "<p><a href='javascript:history.back(1);'>Back</a></p>";
-  exit;
-}
+//if ( !$realname ) {
+//        echo "You must enter your full name in the Full Name field";
+//        echo "<p><a href='javascript:history.back(1);'>Back</a></p>";
+//  exit;
+//}
 
 if ( !$email ) {
         echo "You must enter your email address in the Email Address field";
@@ -71,12 +71,12 @@ if (!eregi("^[_a-z0-9-]+(\.[_a-z0-9-]+)*@[a-z0-9-]+(\.[a-z0-9-]+)*(\.[a-z]{2,3})
 }
 
 // hash the password with sha1
-$shapass = sha1($_POST['password1']);
+//$shapass = sha1($_POST['password1']);
 
 // insert user record into the database
      
-$query = "insert into users (username, password, realname, email, role, status, hid) values ('".$username."','".$shapass."','".$realname."','".$email."','0','0','".$hid."')";
-
+//$query = "insert into users (username, password, realname, email, role, status, hid) values ('".$username."','".$password."','".$realname."','".$email."','0','0','".$hid."')";
+$query = "insert into users (username, password, email, status) values ('".$username."','".$password."','".$email."','0')";
      $result = $conn->query($query);
 
      if($result) {

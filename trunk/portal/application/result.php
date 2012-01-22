@@ -4,8 +4,7 @@ session_start();
 session_regenerate_id();
 
 require 'incs/define.php';
-require 'incs/authorize.php';
-require 'incs/forcessl.inc';
+//require 'incs/sessman.inc';
 ?>
 
 <html>
@@ -80,7 +79,7 @@ $conn->close();
 ?>
 </div>
 
-<?php // require 'incs/footer.php' ?>
+<!-- <?php require 'incs/footer.php' ?> -->
 
 </body>
 </html>

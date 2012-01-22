@@ -1,7 +1,7 @@
 <?php
 
 $host = "localhost";
-$user = "root";
+$user = "vapt";
 $pass = "vapt";
 $db = "application";
 
