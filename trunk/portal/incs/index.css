@@ -1,0 +1,48 @@
+* {
+        margin:0;
+        padding:0;
+}
+body {
+        background-color:#C0C0C0;
+        font-family:Arial,sans-serif;
+}
+div {
+        margin:10px 20px;
+        padding:8px;
+}
+.application {
+        border:solid 1px #444444;
+        background-color:#EFEFEF;
+}
+.error {
+        color:#880000;
+        border:solid 1px #880000;
+        background-color:#EFCCCC;
+}
+.message {
+        color:#008800;
+        border:solid 1px #444444;
+        background-color:#EFEFEF;
+	width: 500px;
+	margin: 0 auto;
+}
+.footer {
+	position: absolute;
+	bottom: 0;
+	width: 1200px;
+	text-align: center;
+}
+ul {
+        list-style-type:square;
+        margin-left:20px;
+}
+li {
+        margin-bottom:0.4em;
+}
+p {
+        margin:0.4em 0.2em;
+}
+.ms {
+        font-family:monospace;
+}
+
