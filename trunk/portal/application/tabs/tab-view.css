@@ -1,0 +1,56 @@
+html, body { margin: 0px; padding: 0px; }
+
+div.TabView
+{
+  font-family: Verdana, Sans-Serif;
+  font-size:   12px;
+}
+
+div.TabView div.Tabs
+{
+  height: 22px;
+  background: url('tabs/tab-view.png')  repeat-x 0px -72px;
+}
+
+div.TabView div.Tabs a
+{
+  display: block;
+  float: left;
+  margin-right: 1px;
+  width: 200px;
+  text-align: center;
+  height: 22px;
+  line-height: 21px;
+  vertical-align: middle;
+  background: url('tabs/tab-view.png') no-repeat 0px 0px;
+  text-decoration: none;
+  font-weight: 900;
+  color:   #004040;
+  cursor:  pointer;
+}
+
+div.TabView div.Tabs a:hover
+{
+  background: url('tabs/tab-view.png') no-repeat 0px -35px;
+}
+
+div.TabView div.Tabs a.Current,
+div.TabView div.Tabs a.Current:hover
+{
+  margin-top: 01px;
+  height:     21px;
+  background: url('tabs/tab-view.png') no-repeat 0px 0px;
+  cursor:  default;
+}
+
+div.TabView div.Pages
+{
+  clear: both;
+  border: 1px solid #404040;
+  border-top: none;
+  background: #FCFCFC;
+}
+
+div.TabView div.Pages                  { overflow: hidden; }
+div.TabView div.Pages div.Page         { overflow:   auto; }
+div.TabView div.Pages div.Page div.Pad { padding: 7px 7px; }
