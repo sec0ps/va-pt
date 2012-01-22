@@ -16,7 +16,7 @@ include('connect.php');
  }
   else
  {
-  echo "ERROR: could not prepare SQL statement.";
+  echo "User was not deleted.";
 }
 $conn->close();
 // redirect user after delete is successful
