@@ -5,7 +5,7 @@ session_regenerate_id();
 
 require 'incs/connect.php';
 require 'incs/define.php';
-//require 'incs/sessman.inc';
+require 'incs/sessman.inc';
 
 ?>
 
@@ -26,7 +26,8 @@ require 'incs/define.php';
 
 <div class="application">
 
-<form method="post" action="incs/addproj.php" name="addproj" autocomplete="off">
+<!-- <form method="post" action="incs/addproj.php" name="addproj" autocomplete="off"> -->
+<form method="post" action="" name="addproj" autocomplete="off">
  <input name="projname"> Project Name<br>
  <input name="custcontact"> Customer Contact Name<br>
  <input name="custphone"> Customer Phone<br>

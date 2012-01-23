@@ -1,6 +1,6 @@
 <?php
 
-//require 'sessman.inc';
+require 'sessman.inc';
 require 'connect.php';
 
 $projname=$conn->real_escape_string(strip_tags(substr($_POST['projname'],0,32)));
