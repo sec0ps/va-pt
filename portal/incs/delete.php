@@ -20,11 +20,11 @@ include('connect.php');
 }
 $conn->close();
 // redirect user after delete is successful
-header("Location: index.php");
+header("Location: main.php");
 }
  else
 // if the 'id' variable isn't set, redirect the user
  {
- header("Location: index.php");
+ header("Location: main.php");
 }
 ?>

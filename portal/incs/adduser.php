@@ -1,6 +1,6 @@
 <?php
 
-//require 'authorize.php';
+//require 'sessman.inc';
 require 'connect.php';
 
 $username=$conn->real_escape_string(strip_tags(substr($_POST['username'],0,32)));
