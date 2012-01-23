@@ -4,10 +4,8 @@ session_start();
 session_regenerate_id();
 
 require 'incs/connect.php';
-//require 'incs/authorize.php';
 require 'incs/define.php';
-//require 'incs/force-ssl.inc';
-//require 'incs/enumuser.php';
+//require 'incs/sessman.inc';
 
 ?>
 
@@ -31,8 +29,6 @@ Logged in as: <?php echo $_SESSION['username'] ?> | <a href="incs/logout.php">lo
 </div>
 
 <?php require 'incs/menu.inc' ?>
-
-<?php require 'incs/footer.php' ?>
 
 </body>
 </html>

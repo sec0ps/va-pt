@@ -3,7 +3,7 @@
   <option>Choose one...</option> 
   <option value="index.php">- Main Page</option>
   <option value="">- Project Management</option>
-  <option value="">-- Create New Project</option>
+  <option value="createproj.php">-- Create New Project</option>
   <option value="">-- View Projects</option>
   <option value="">- Import XML Data</option>
   <option value="">-- Import Nessus XML</option>
