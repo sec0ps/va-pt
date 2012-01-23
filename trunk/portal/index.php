@@ -6,7 +6,7 @@ session_destroy();
 unset($_SESSION);
 session_start();
 require 'incs/define.php';
-//require 'incs/forcessl.inc';
+
 ?>
 
 <html>
