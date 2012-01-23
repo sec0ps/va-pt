@@ -31,6 +31,7 @@ require 'incs/define.php';
  <input name="custcontact"> Customer Contact Name<br>
  <input name="custphone"> Customer Phone<br>
  <input name="custemail"> Customer Email<br>
+<!-- need to add a select assessment types to be performed -->
  <input type="submit" value="Submit Project" name="submit">
 </form>
 

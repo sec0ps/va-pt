@@ -5,8 +5,7 @@ session_regenerate_id();
 
 require 'incs/define.php';
 require 'incs/connect.php';
-require 'incs/authorize.php';
-require 'incs/forcessl.inc';
+//require 'incs/sessman.inc';
 ?>
 
 <html>
@@ -31,8 +30,6 @@ Logged in as: <?php echo $_SESSION['username'] ?> | <a href="incs/logout.php">lo
 <?php require 'incs/menu.inc' ?>
 
 <?php include 'pci/tabs.php' ?>
-
-<?php require 'incs/footer.php' ?>
 
 </body>
 </html>

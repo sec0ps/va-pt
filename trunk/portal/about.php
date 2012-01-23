@@ -35,7 +35,7 @@ Logged in as: <?php echo $_SESSION['username'] ?> | <a href="incs/logout.php">lo
 the storage of information gather during the course of vulnerability assessments, penetration tests and control<br>
 assessments (PCI-DSS, NIST, ISO, etc).</p>
 
-<p>The kit is being provided at no cost at this point during development under <a href="http://www.gnu.org/licenses/old-licenses/gpl-2.0.html" target="_blank">GNU GPLv2</a></p>
+<p>The kit is being provided during development under <a href="http://www.gnu.org/licenses/old-licenses/gpl-2.0.html" target="_blank">GNU GPLv2</a></p>
 
 <p>If you have any comments, questions, suggestions or to report bugs, please use the <a href="http://code.google.com/p/va-pt/issues/list" target="_blank">Issue Tracker</a> on Google Code.</p> 
 
