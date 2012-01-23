@@ -5,7 +5,7 @@ session_regenerate_id();
 
 require 'incs/define.php';
 require 'incs/connect.php';
-//require 'incs/sessman.inc';
+require 'incs/sessman.inc';
 ?>
 
 <html>

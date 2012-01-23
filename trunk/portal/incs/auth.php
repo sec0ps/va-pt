@@ -17,8 +17,9 @@ if ( !$name ) {
 }
 
 if ( !$password ) {
-        echo "You must enter your password in the Password field";
-        echo "<p><a href='javascript:history.back(1);'>Back</a></p>";
+	     echo "You must enter a password." .$conn->error;
+//        echo "You must enter your password in the Password field";
+//        echo "<p><a href='javascript:history.back(1);'>Back</a></p>";
   exit;
 }
 
@@ -41,6 +42,8 @@ if ( !$password ) {
     } else {
 
 //$deny = "update users set failures = failures +1, last_failure = now(), where username = "'.$name.'"
+
+//       echo "An error has occured, user has not been added to the database" .$conn->error;
 
       // name and password combination are not correct
       echo "Your Username or Password is incorrect or your account has not yet been authorized.</p>";
