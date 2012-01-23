@@ -20,11 +20,12 @@ include('connect.php');
 }
 $conn->close();
 // redirect user after delete is successful
-header("Location: main.php");
+header("Location: ../main.php");
 }
  else
 // if the 'id' variable isn't set, redirect the user
  {
- header("Location: main.php");
+echo "Error - unable to remove the specified user: " . $conn->error;
+ //header("Location: main.php");
 }
 ?>
