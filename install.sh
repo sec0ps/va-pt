@@ -70,7 +70,7 @@ until [ "$selection" = "0" ]; do
          6 ) /pentest/misc/va-pt/scripts/db-update.sh;;
          7 ) /pentest/misc/va-pt/scripts/update-tools.sh;;
          8 ) /pentest/misc/va-pt/scripts/services.sh;;
-         9 ) /pentest/misc/va-pt/scripts/firefox-extensions.sh;;
+         9 ) firefox https://addons.mozilla.org/en-US/firefox/collections/sec0ps/vapt/;;
          0 ) exit;;
          * ) echo "Please enter your selection"
      esac

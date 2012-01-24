@@ -190,7 +190,14 @@ fi
 if [ ! -d /var/www/search ] ; then
 echo "Installing Vulnerability Database Portal"
 cd /var/www/ && sudo svn co http://va-pt.googlecode.com/svn/trunk/search search
-echo "The portal is now available at http://localhost/search/"
+echo "The vulnerability search portal is now available at http://localhost/search/"
 fi
-#
+#if [ ! -d /var/www/portal ] ; then
+#echo "Installing the VA-PT Portal"
+#cd /var/www/ && sudo svn checkout https://va-pt.googlecode.com/svn/trunk/portal portal
+#echo Creating necessary database and structure, enter the root mysql password
+#mysqladmin create application -u root -p && mysql -u root -p -e "grant all privileges on application.* to 'vapt'@'localhost';"
+#echo "adding default user account - vapt/vapt"
+#echo "The VA-PT Portal is now available at http://localhost/portal"
+#fi
 echo "Subversion package installation complete"
