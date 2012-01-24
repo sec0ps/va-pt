@@ -5,9 +5,7 @@
   <option value="">- Project Management</option>
   <option value="createproj.php">-- Create New Project</option>
   <option value="viewproj.php">-- View Projects</option>
-  <option value="">- Import XML Data</option>
-  <option value="">-- Import Nessus XML</option>
-  <option value="">-- Import Nexpose XML</option>
+  <option value="upload.php">- Import XML Data</option>
   <option value="search.php">- Vulnerability Search</option>
   <option value="index.php">-Risk Assessments</option>
   <option value="pci.php">-- PCI-DSS</option>
