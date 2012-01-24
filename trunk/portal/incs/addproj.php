@@ -1,5 +1,6 @@
 <?php
-
+session_start();
+session_regenerate_id();
 require 'sessman.inc';
 require 'connect.php';
 
@@ -28,10 +29,25 @@ if ( !$custemail ) {
         echo "<p><a href='javascript:history.back(1);'>Back</a></p>";
   exit;
 }
+
+// attempt to create a table based on the projname variable and create the table structure
+
+//$query = "create table {$_POST[projname]} (
+//  `id` INT(11)  NOT NULL AUTO_INCREMENT,
+//  `projname` TEXT(50)  NOT NULL,
+//  `custcontact` TEXT(50)  NOT NULL,
+//  `custphone` TEXT(50)  NOT NULL,
+//  `custemail` TEXT(50)  NOT NULL,
+//  PRIMARY KEY (`id`)
+//);"
+
+//$result = $conn->query($query);
+//$query = "insert into {$_SESSION[projname]} (projname, custcontact, custphone, custemail) values ('".$projname."','".$custcontact."','".$custphone."','".$custemail."')";
+//
 $query = "insert into projects (projname, custcontact, custphone, custemail) values ('".$projname."','".$custcontact."','".$custphone."','".$custemail."')";
      $result = $conn->query($query);
 
-     if($result) {
+    if($result) {
 
         echo $conn->affected_rows." Project has been created.";
         echo "<p><a href='../main.php'>Return to Portal</a></p>";

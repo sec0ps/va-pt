@@ -25,15 +25,16 @@ require 'incs/sessman.inc';
 </div>
 
 <div class="application">
-<form method="post" action="incs/addproj.php" name="addproj" autocomplete="off">
- <input name="projname"> Project Name<br>
- <input name="custcontact"> Customer Contact Name<br>
- <input name="custphone"> Customer Phone<br>
- <input name="custemail"> Customer Email<br>
-<!-- need to add a select assessment types to be performed -->
- <input type="submit" value="Submit Project" name="submit">
+<form action="incs/upload_file.php" method="post"
+enctype="multipart/form-data">
+<label for="file">Filename:</label>
+<input type="file" name="file" id="file" />
+<input type="submit" name="submit" value="Submit" />
 </form>
+</div>
 
+<div class="application">
+Upload XML data for Nessus, Nexpose or Nmap results here to be processed.
 </div>
 
 <div class="logout">
