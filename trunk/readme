@@ -24,7 +24,7 @@ Install the dependencies first via option 1) Install/Check Dependencies
 --Setup for postgres DB 
 sudo su postgres
 psql
-create user <your username> with password 'password';
+create user <username with password 'password' createdb;
 create database msf owner <your username>;
 \q
 ./msfconsole
