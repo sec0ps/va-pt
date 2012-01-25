@@ -1,20 +1,25 @@
 <?php
-// destroy previous session
 session_start();
 session_regenerate_id();
-
 require 'incs/connect.php';
 require 'incs/define.php';
 require 'incs/sessman.inc';
-
 ?>
-
 <html>
 <head>
+<script type="text/javascript">
+function validateForm()
+{
+var x=document.forms["fupload"]["uploaded"].value;
+if (x==null || x=="")
+  {
+  alert("You must enter the file to uploaded");
+  return false;
+  }
+}
+</script>
 <title><?php echo title; ?></title>
-
 <link rel="stylesheet" type="text/css" href="incs/index.css" />
-
 </head>
 <body>
 
@@ -25,16 +30,14 @@ require 'incs/sessman.inc';
 </div>
 
 <div class="application">
-<form action="incs/upload_file.php" method="post"
-enctype="multipart/form-data">
-<label for="file">Filename:</label>
-<input type="file" name="file" id="file" />
+<form action="incs/upload_file.php" name="fupload" method="post" enctype="multipart/form-data" onsubmit="return validateForm()">
+<input type="file" name="uploaded"/>
 <input type="submit" name="submit" value="Submit" />
 </form>
 </div>
 
 <div class="application">
-Upload XML data for Nessus, Nexpose or Nmap results here to be processed.
+Upload XML data from Nexpose Vulnerability Assessment Software.
 </div>
 
 <div class="logout">

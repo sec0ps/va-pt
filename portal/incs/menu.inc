@@ -7,7 +7,7 @@
   <option value="viewproj.php">-- View Projects</option>
   <option value="">- Import CSV/XML Data</option>
   <option value="upload.php">-- Import Nessus XML</option>
-  <option value="upload.php">-- Import Nexpose CSV</option>
+  <option value="upload.php">-- Import Nexpose XML</option>
   <option value="upload.php">-- Import Nmap XML</option>
   <option value="search.php">- Vulnerability Search</option>
   <option value="">-Risk Assessments</option>
