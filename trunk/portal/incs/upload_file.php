@@ -4,42 +4,47 @@ session_regenerate_id();
 
 //require 'connect.php';
 //require 'define.php';
-//require 'sessman.inc';
+require 'sessman.inc';
 
 ?>
-<?php
-if ((($_FILES["file"]["type"] == "text/xml")
-|| ($_FILES["file"]["type"] == "image/jpeg")
-|| ($_FILES["file"]["type"] == "image/pjpeg"))
-&& ($_FILES["file"]["size"] < 20000))
-  {
-  if ($_FILES["file"]["error"] > 0)
-    {
-    echo "Return Code: " . $_FILES["file"]["error"] . "<br />";
-    }
-  else
-    {
-    echo "Upload: " . $_FILES["file"]["name"] . "<br />";
-    echo "Type: " . $_FILES["file"]["type"] . "<br />";
-    echo "Size: " . ($_FILES["file"]["size"] / 1024) . " Kb<br />";
-    echo "Temp file: " . $_FILES["file"]["tmp_name"] . "<br />";
 
-    if (file_exists("../uploads/" . $_FILES["file"]["name"]))
-      {
-      echo $_FILES["file"]["name"] . " already exists. ";
-      }
-    else
-      {
-      move_uploaded_file($_FILES["file"]["tmp_name"],
-      "upload/" . $_FILES["file"]["name"]);
-      echo "Stored in: " . "../uploads/" . $_FILES["file"]["name"];
-      }
+ <?php 
+ $target = "../uploads/"; 
+ $target = $target . basename( $_FILES['uploaded']['name']) ;  
+ 
+  $allowedExtensions = array("txt","csv","xml");
+  foreach ($_FILES as $file) {
+    if ($file['tmp_name'] > '') {
+      if (!in_array(end(explode(".",
+            strtolower($file['name']))),
+            $allowedExtensions)) {
+       die($file['name'].' is an invalid file type!<br/>'.
+        '<a href="javascript:history.go(-1);">'.
+        '&lt;&lt Go Back</a>');
     }
   }
-else
-  {
-  echo "Invalid file";
-  }
-?> 
+}
+ 
+ if ($_FILES["uploaded"]["error"] > 0)
+ {
+ 	echo "Error: " . $_FILES["file"]["error"] . "<br />";
+}
+ if ($_FILES["uploaded"]["size"] > 350000) 
+ { 
+ echo "Your file is too large.<br>"; 
+ } 
+ 
+ if(move_uploaded_file($_FILES['uploaded']['tmp_name'], $target)) 
+ { 
+ echo "<meta http-equiv='refresh' content='3; URL=../main.php'>"; 
+ echo "The file ". basename( $_FILES['uploaded']['name']). " has been uploaded<br />"; 
+ echo "Redirecting you back to the main page...";
+ } 
+ else 
+ { 
+ echo "Sorry, there was a problem uploading your file."; 
+ } 
+// } 
+ ?>  
 
 <!-- need to add the import into mysql here for this to be complete -->

@@ -49,7 +49,5 @@ Email: <a href="mailto:enforce570@gmail.com">enforce570@gmail.com</a>
 
 <?php require 'incs/menu.inc' ?>
 
-<!-- <?php require 'incs/footer.php' ?> -->
-
 </body>
 </html>
