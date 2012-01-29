@@ -83,7 +83,7 @@ echo "Updating the Vulnerability Database Portal"
 cd /var/www/search && sudo svn up
 echo "Updating HTTPrint"
 cd /pentest/enumeration/httprint && mv signatures.txt signatures.txt.old
-wget http://net-square.com/httprint/signatures.txt
+wget http://net-square.com/httprint/signatures.txt --proxy=off
 echo "Updating OpenVAS"
 sudo openvas-nvt-sync
 if [ -f /opt/nessus/sbin/nessus-update-plugins ] ; then
@@ -112,7 +112,8 @@ echo "THC Hydra is not up to date, updating now."
 rm -rf /pentest/enumeration/hydra && /pentest/misc/va-pt/scripts/static.sh
 fi
 echo "Updating Local Exploit Repository"
-rm -rf /pentest/exploits/exploitdb && /pentest/misc/va-pt/scripts/exploits.sh
+cd /pentest/exploits && rm -rf exploitdb/
+/pentest/misc/va-pt/scripts/exploits.sh
 #
 while true; do
     read -p "Do you want to update the local exploit database? (y/n)" yn
