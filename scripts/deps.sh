@@ -21,6 +21,10 @@ sudo apt-get install -y python-pytools pdfcrack gzrt ophcrack ophcrack-cli sipcr
 sudo apt-get install -y flashplugin-installer jftp virtualbox-ose virtualbox-guest-additions wipe reglookup libxmlrpc-c3-dev httrack finger rusers sslsniff
 sudo apt-get install -y revelation python-impacket expat php-pear gpsd gpsd-dbg libgps-dev
 
+#Installing google earth
+#sudo apt-get install googleearth-package
+#cd /pentest/temp && sudo make-googleearth-package --force
+
 echo "Installing Pear Database Libraries"
 sudo pear install DB
 sudo pear install MDB2
@@ -108,24 +112,24 @@ source ~/.bashrc
 #
 if [ ! -f /usr/bin/waveplay ] ; then
 echo "Installing waveplay"
-cd /pentest/temp && wget ftp://ftp.eenet.ee/pub/FreeBSD/distfiles/waveplay-20010924.tar.gz
+cd /pentest/temp && wget ftp://ftp.eenet.ee/pub/FreeBSD/distfiles/waveplay-20010924.tar.gz --proxy=off
 tar zxvf waveplay-20010924.tar.gz && cd waveplay-20010924
 make && sudo mv waveplay /usr/bin/
 rm -rf /pentest/temp/waveplay-20010924
 fi
 if [ ! -f /usr/bin/crunch ] ; then
 echo "Installing crunch"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/Crack/crunch.cpp
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/Crack/crunch.cpp --proxy=off
 gcc -o crunch crunch.cpp -lstdc++ && sudo mv crunch /usr/bin/
 rm -rf crunch.cpp
 fi
 if [ ! -d /pentest/cisco/torch ] ; then
 echo "Installing static compiled dependancy packages needed for Cisco Torch"
-cd /pentest/temp && wget ftp://megrez.math.u-bordeaux.fr/pub/pari/unix/OLD/pari-2.3.0.tar.gz
+cd /pentest/temp && wget ftp://megrez.math.u-bordeaux.fr/pub/pari/unix/OLD/pari-2.3.0.tar.gz --proxy=off
 tar xvf pari-2.3.0.tar.gz && rm -rf pari-2.3.0.tar.gz
 cd pari-2.3.0/ && ./Configure
 make all && make install
-cd /pentest/temp && wget http://search.cpan.org/CPAN/authors/id/I/IL/ILYAZ/modules/Math-Pari-2.01080605.tar.gz
+cd /pentest/temp && wget http://search.cpan.org/CPAN/authors/id/I/IL/ILYAZ/modules/Math-Pari-2.01080605.tar.gz --proxy=off
 tar xvf Math-Pari-2.01080605.tar.gz && rm -rf Math-Pari-2.01080605.tar.gz
 cd Math-Pari-2.01080605 && perl Makefile.PL
 sudo make install
