@@ -61,8 +61,9 @@ cd /pentest/web && svn co http://svn2.assembla.com/svn/Nikto_2/trunk nikto
 fi
 if [ ! -d /pentest/enumeration/theHarvester ] ; then
 echo "Installing the Harvester"
-cd /pentest/enumeration && git clone https://github.com/laramies/theHarvester.git
-cd /pentest/enumeration/theHarvester && chmod 700 theHarvester.py
+#cd /pentest/enumeration && git clone https://github.com/laramies/theHarvester.git
+cd /pentest/enumeration && svn checkout http://theharvester.googlecode.com/svn/trunk/ theharvester
+cd /pentest/enumeration/theHarvester && chmod 755 theHarvester.py
 fi
 if [ ! -d /pentest/web/sslyze ] ; then
 cd /pentest/web && svn checkout http://sslyze.googlecode.com/svn/trunk/ sslyze
