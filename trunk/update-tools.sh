@@ -104,8 +104,8 @@ else
 echo "john the ripper is not up to date, updating now."
 rm -rf /pentest/passwords/john && /pentest/misc/va-pt/scripts/static.sh
 fi
-/pentest/enumeration/hydra/hydra | grep "THC"
-if [ $? != "v7.1" ] ; then
+/pentest/enumeration/hydra/hydra | grep "v7.2"
+if [ $? -eq 0 ] ; then
 echo "THC Hydra is up to date"
 else
 echo "THC Hydra is not up to date, updating now."

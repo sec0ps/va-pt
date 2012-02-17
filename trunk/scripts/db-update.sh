@@ -29,7 +29,7 @@ fi
 
 cd /pentest/temp
 echo "Updating the OSVDB Database"
-wget http://osvdb.org/file/get_latest_mysql/9EQGVQRP0hFVRMN2vsRlz5okvT/osvdb-mysql.latest.tar.gz 
+wget http://osvdb.org/file/get_latest_mysql/UaBc6bGFQZgJHYEvZhQ3kg2Pak/osvdb-mysql.latest.tar.gz
 gunzip osvdb-mysql.latest.tar.gz && sudo chown mysql osvdb-mysql.latest.tar
 mysql -u root --password=$mrpass --compress osvdb < osvdb-mysql.latest.tar && rm -rf /pentest/temp/osvdb-mysql.latest.tar
 rm -rf /pentest/temp/osvdb-mysql.latest.tar
