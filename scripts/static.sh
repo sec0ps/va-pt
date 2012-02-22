@@ -6,7 +6,7 @@ cd /pentest/temp && wget http://freshmeat.net/urls/2a758cc469ce124b21de08a87ae1d
 tar zxvf onesixtyone.tar.gz && rm -rf onesixtyone.tar.gz
 mv onesixtyone-0.3.2/ /pentest/scanners/snmp/onesixtyone
 cd /pentest/scanners/snmp/onesixtyone && make
-cd /pentest/scanners/snmp && wget http://dl.packetstormsecurity.net/UNIX/scanners/snmpcheck-1.6.txt -O snmpcheck.pl --proxy=off
+cd /pentest/scanners/snmp && wget http://www.nothink.org/perl/snmpcheck/downloads/snmpcheck-1.8.pl -O snmpcheck.pl --proxy=off
 chmod 700 /pentest/scanners/snmp/snmpcheck.pl
 fi
 if [ ! -d /pentest/cisco/cge ] ; then
