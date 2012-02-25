@@ -2,7 +2,7 @@ echo "Beginning subverion package installation"
 if [ ! -d /pentest/wireless/giskismet ] ; then
 echo "Installing gisKismet"
 cd /pentest/wireless && svn co https://my-svn.assembla.com/svn/giskismet/trunk giskismet
-cd /pentest/wireless/gismisket && perl Makefile.PL
+cd /pentest/wireless/giskismet && perl Makefile.PL
 make
 fi
 if [ ! -d /pentest/wireless/wifite/ ] ; then
@@ -59,11 +59,10 @@ if [ ! -d /pentest/web/nikto ] ; then
 echo "Installing Nikto"
 cd /pentest/web && svn co http://svn2.assembla.com/svn/Nikto_2/trunk nikto
 fi
-if [ ! -d /pentest/enumeration/theHarvester ] ; then
+if [ ! -d /pentest/enumeration/theharvester ] ; then
 echo "Installing the Harvester"
-#cd /pentest/enumeration && git clone https://github.com/laramies/theHarvester.git
 cd /pentest/enumeration && svn checkout http://theharvester.googlecode.com/svn/trunk/ theharvester
-cd /pentest/enumeration/theHarvester && chmod 755 theHarvester.py
+cd /pentest/enumeration/theharvester && chmod 755 theHarvester.py
 fi
 if [ ! -d /pentest/web/sslyze ] ; then
 cd /pentest/web && svn checkout http://sslyze.googlecode.com/svn/trunk/ sslyze
@@ -167,9 +166,11 @@ cd /pentest/misc && svn co http://redmine.rubyforge.org/svn/branches/1.2-stable 
 echo "Enter the root mysql password to create the redmine database and user"
 mysql -u root -p -e "create database redmine character set utf8;"
 mysql -u root -p -e "grant all privileges on redmine.* to 'redmine'@'localhost' identified by 'redminelocal';"
-cp config/database.yml.example config/database.yml
-rake db:migrate RAILS_ENV="production"
+cd /pentest/misc/redmine && cp config/database.yml.example config/database.yml
+echo ""
+echo "enter the correct username/password for the redmine install in config/database.yml before attempting start"
 echo "If this fails make sure require 'rake/dsl_definition' is in the Rakefile ands you setup database.yml"
+echo "Once you have entered the correct user/pass migrate the db rake db:migrate RAILS_ENV="production""
 fi
 if [ ! -d /pentest/scanners/nmap ] ; then
 echo "Installing and compiling nmap"
