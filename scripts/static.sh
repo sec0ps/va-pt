@@ -65,12 +65,21 @@ echo "Installing SQLBrute"
 cd /pentest/database && wget http://packetstormsecurity.org/files/view/44881/sqlbrute.py.txt --proxy=off -O sqlbrute.py
 cd /pentest/database && chmod 700 sqlbrute.py
 fi
-#if [ ! -d /pentest/voip/ace ] ; then
-#cd /pentest/temp && wget http://www.protectors.cc/blog/uploads/vapt/ace.tar.gz
-#tar zxvf ace.tar.gz && rm -rf ace.tar.gz
-#mv ace/ /pentest/voip/ && cd /pentest/voip/ace
-#make clean && make
+if [ ! -d /pentest/voip/ace ] ; then
+cd /pentest/temp && wget http://prdownloads.sourceforge.net/ucsniff/ace/ace-1.10.tar.gz
+tar xvf ace-1.10.tar.gz && rm -rf ace-1.10.tar.gz
+mv ace-1.10 /pentest/voip/ace
+cd /pentest/voip/ace && make
+fi
+#if [ ! -d /pentest/voip/ucsniff ] ; then
+#cd /pentest/temp && wget http://prdownloads.sourceforge.net/ucsniff/ucsniff-3.10.tar.gz
+#tar xvf ucsniff-3.10.tar.gz && rm -rf ucsniff-3.10.tar.gz
+#mv ucsniff-3.10 /pentest/voip/ucsniff && cd /pentest/voip/ucsniff
+#libtoolize --copy --force && ./configure
 #fi
+#
+#videosnarf pending
+#
 if [ ! -d /pentest/voip/sipcrack ] ; then
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/Crackers/SIPcrack-0.2.tar.gz --proxy=off
 tar zxvf SIPcrack-0.2.tar.gz && rm -rf SIPcrack-0.2.tar.gz
@@ -135,13 +144,13 @@ echo "Installing Cisco Torch"
 wget http://www.hackingciscoexposed.com/tools/cisco-torch-0.4b.tar.gz --proxy=off && tar zxvf cisco-torch-0.4b.tar.gz
 mv cisco-torch-0.4b /pentest/cisco/torch && rm cisco-torch-0.4b.tar.gz
 fi
-if [ ! -d /pentest/scanners/halfscan6 ] ; then
-echo "Installing Halfscan"
-cd /pentest/temp && wget http://freshmeat.net/urls/14cf8e84c44c52c3045936e7c3d23f71 -O halfscan6-0.2.tar.gz --proxy=off
-tar zxvf halfscan6-0.2.tar.gz && cd halfscan6-0.2
-make && cd ../
-mv halfscan6-0.2 /pentest/scanners/halfscan6 && rm -rf rm -rf /pentest/temp/halfscan6-0.2.tar.gz
-fi
+#if [ ! -d /pentest/scanners/halfscan6 ] ; then
+#echo "Installing Halfscan"
+#cd /pentest/temp && wget http://freshmeat.net/urls/14cf8e84c44c52c3045936e7c3d23f71 -O halfscan6-0.2.tar.gz --proxy=off
+#tar zxvf halfscan6-0.2.tar.gz && cd halfscan6-0.2
+#make && cd ../
+#mv halfscan6-0.2 /pentest/scanners/halfscan6 && rm -rf rm -rf /pentest/temp/halfscan6-0.2.tar.gz
+#fi
 if [ ! -d /pentest/scanners/snmp/snmpenum ] ; then
 echo "Installing SNMPenum"
 cd /pentest/scanners/snmp && mkdir snmpenum
