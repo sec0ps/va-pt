@@ -16,6 +16,10 @@ tar zxvf cge-13.tar.gz && mv cge-13/ /pentest/cisco/cge
 cd /pentest/cisco/cge && chmod 700 cge.pl
 rm -rf /pentest/temp/cge-13.tar.gz && dos2unix cge.pl
 fi
+if [ ! -f /pentest/cisco/copy-router-config.pl ] ; then
+cd /pentest/cisco && wget http://littlehacker.persiangig.com/cisco/copy-router-config.pl
+chmod 755 copy-router-config.pl
+fi
 if [ ! -d /pentest/misc/freacs ] ; then
 echo "Installing Fuzzy Risk Calculator Evaluation And Calculation System"
 cd /pentest/temp && wget http://www.ictsc.it/site/IT/projects/freacs/freacs.tar.gz --proxy=off

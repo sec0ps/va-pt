@@ -19,7 +19,9 @@ sudo apt-get install -y qt4-qmake qt4-dev-tools libcurl3-dbg libxmlrpc-core-c3-d
 sudo apt-get install -y libfbclient2 firebird2.1-dev libncp-dev jxplorer bluefish bluefish-data bluefish-plugins tcpdump python-gnuplot python-qt3 inguma
 sudo apt-get install -y python-pytools pdfcrack gzrt ophcrack ophcrack-cli sipcrack virtualbox-ose quicksynergy ngorca smb-nat libnet-nbname-perl libnet-netmask-perl
 sudo apt-get install -y flashplugin-installer jftp virtualbox-ose virtualbox-guest-additions wipe reglookup libxmlrpc-c3-dev httrack finger rusers sslsniff
-sudo apt-get install -y revelation python-impacket expat php-pear gpsd gpsd-dbg libgps-dev snmp
+sudo apt-get install -y revelation python-impacket expat php-pear gpsd gpsd-dbg libgps-dev snmp python-svn python-pypdf python-beautifulsoup python-pysqlite2
+sudo apt-get install -y bkhive xprobe2 safecopy ptunnel ngrep btscanner cabextract chntpw cmospwd cdpr dcfldd dc3dd ddrescue disktype fcrackzip
+sudo apt-get install -y galleta pasco vinetto autopsy wine1.3-dev rifiuti2
 
 #Installing google earth
 #sudo apt-get install googleearth-package
@@ -45,6 +47,7 @@ sudo make install
 fi
 
 echo "Installing PERL Libraries"
+sudo cpanm Cisco::CopyConfig
 sudo cpanm Net::Whois::IP
 sudo cpanm W3C::LinkChecker
 sudo cpanm Number::Bytes::Human
@@ -110,6 +113,12 @@ sudo gem install hpricot
 cd && echo "export PATH=/var/lib/gems/1.8/bin/:$PATH" >> .bashrc
 source ~/.bashrc
 #
+#
+if [ ! -f /usr/local/lib/python2.6/dist-packages/pybloomfiltermmap-0.2.0.egg-info ] ; then
+cd /pentest/temp && wget http://pypi.python.org/packages/source/p/pybloomfiltermmap/pybloomfiltermmap-0.2.0.tar.gz
+tar xvf pybloomfiltermmap-0.2.0.tar.gz && rm -rf pybloomfiltermmap-0.2.0.tar.gz
+sudo python2.6 setup.py install
+fi
 if [ ! -f /usr/bin/waveplay ] ; then
 echo "Installing waveplay"
 cd /pentest/temp && wget ftp://ftp.eenet.ee/pub/FreeBSD/distfiles/waveplay-20010924.tar.gz --proxy=off
