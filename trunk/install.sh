@@ -68,7 +68,7 @@ until [ "$selection" = "0" ]; do
          4 ) /pentest/misc/va-pt/scripts/exploits.sh;;
          5 ) /pentest/misc/va-pt/scripts/wordlists.sh;;
          6 ) /pentest/misc/va-pt/scripts/db-update.sh;;
-         7 ) /pentest/misc/va-pt/scripts/update-tools.sh;;
+         7 ) /pentest/misc/va-pt/update-tools.sh;;
          8 ) /pentest/misc/va-pt/scripts/services.sh;;
          9 ) firefox https://addons.mozilla.org/en-US/firefox/collections/sec0ps/vapt/;;
          0 ) exit;;

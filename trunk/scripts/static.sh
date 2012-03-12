@@ -229,18 +229,18 @@ mv rats-2.3 /pentest/audit/rats && cd /pentest/audit/rats
 ./configure && make
 sudo make install
 fi
-#if [ ! -d /pentest/audit/nipper ] ; then
-#echo "Installing Nipper"
-#cd /pentest/temp && wget http://www.protectors.cc/blog/uploads/vapt/nipper-0.11.7.tgz
-#tar zxvf nipper-0.11.7.tgz && rm -rf nipper-0.11.7.tgz
-#mv nipper-0.11.7/ /pentest/audit/nipper
-#cd /pentest/audit/nipper && make
-#fi
-if [ ! -d /pentest/cisco/rat ] ; then
+if [ ! -d /pentest/audit/nipper ] ; then
+echo "Installing Nipper"
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/cisco/nipper-0.11.7.tgz
+tar zxvf nipper-0.11.7.tgz && rm -rf nipper-0.11.7.tgz
+mv nipper-0.11.7/ /pentest/audit/nipper
+cd /pentest/audit/nipper && make
+fi
+if [ ! -d /pentest/audit/rat ] ; then
 cd /pentest/temp && wget --no-check-certificate https://community.cisecurity.org/download/?redir=/cisco/rat-2.2-dist.sh.gz -O rat.gz --proxy=off
 gunzip rat.gz && rm -rf rat.gz 
 chmod 700 rat
-./rat && mv rat-2.2P/ /pentest/cisco/rat
+./rat && mv rat-2.2P/ /pentest/audit/rat
 fi
 if [ ! -d /pentest/audit/rips ] ; then
 echo "Downloading RIPS PHP Static Source Code Analyzer"
