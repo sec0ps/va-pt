@@ -31,7 +31,7 @@ fi
 if [ ! -d /pentest/misc/va-pt ] ; then
 cd /pentest/misc && svn checkout http://va-pt.googlecode.com/svn/trunk/ va-pt
 fi
-
+clear
 selection=
 until [ "$selection" = "0" ]; do
      echo ""
