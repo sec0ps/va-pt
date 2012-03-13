@@ -4,6 +4,8 @@ Vulnerability Assessments and Penetration Testing.
 The goal of this project was to allow a portable set of tools to be easily installed onto any release of Ubuntu at a
 moments notice, allowing the tester to be free of distribution release specific constraints.
 
+Note: Ubuntu 11 does not come with Konsole installed, you will need to install it prior to running these scripts.
+
 Contents of Files
 -----------------
 deps.sh - Contains the necessary software dependencies for the tools within the kit to function.

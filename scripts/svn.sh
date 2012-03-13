@@ -160,6 +160,10 @@ if [ ! -d /pentest/exploits/keimpx ] ; then
 echo "Installing keimpx"
 cd /pentest/exploits && svn checkout http://keimpx.googlecode.com/svn/trunk/ keimpx
 fi
+if [ ! -d /pentest/audit/routerdefense ] ; then
+echo "Installing Router Defense"
+cd /pentest/audit && svn checkout http://routerdefense.googlecode.com/svn/trunk/ routerdefense
+fi
 if [ ! -d /pentest/misc/redmine ] ; then
 echo "Installing Redmine"
 cd /pentest/misc && svn co http://redmine.rubyforge.org/svn/branches/1.2-stable redmine
