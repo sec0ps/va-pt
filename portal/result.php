@@ -31,7 +31,7 @@ Logged in as: <?php echo $_SESSION['username'] ?> | <a href="incs/logout.php">lo
 <?php require 'incs/menu.inc' ?>
 
 <div class="search">
-<p><a href="nvd.php">NVD</a> | <a href="exploitdb.php">ExploitDB Results</a> | <a href="index.php">New Search</a></p>
+<p><a href="nvd.php">NVD</a> | <a href="exploitdb.php">OSVDB Results</a> | <a href="index.php">New Search</a></p>
 
 <?php
 // connect to the database
@@ -42,7 +42,7 @@ $search = $_POST['dbstring'];
 $_SESSION['dbstring'] = $_POST['dbstring'];
 
 // get the records from the database
-if ($result = $conn->query("select title, description, short_description from vulnerabilities where short_description like '%".$search."%' ORDER by osvdb_id"))
+if ($result = $conn1->query("select description,platform,type,file from exploits where description like '%".$search."%' ORDER by id"))
 {
 // display records if there are records to display
         if ($result->num_rows > 0)
@@ -50,15 +50,16 @@ if ($result = $conn->query("select title, description, short_description from vu
 // display records in a table
 echo "<table border='1' cellpadding='5'>";
 // set table headers
-echo "<tr><th>Title</th><th>Description</th><th>Short Description</th></tr>";
+echo "<tr><th>Description</th><th>Platform</th><th>Type</th><th>File</th></tr>";
 
 while ($row = $result->fetch_object())
 {
 // set up a row for each record
 echo "<tr>";
-echo "<td>" . $row->title . "</td>";
 echo "<td>" . $row->description . "</td>";
-echo "<td>" . $row->short_description . "</td>";
+echo "<td>" . $row->platform . "</td>";
+echo "<td>" . $row->type . "</td>";
+echo "<td>" . $row->file . "</a></td>";
 echo "</tr>";
 }
  echo "</table>";
