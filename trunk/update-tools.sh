@@ -69,6 +69,8 @@ echo "Updating keimpx"
 cd /pentest/exploits/keimpx && svn up
 echo "Updating SIPVicious"
 cd /pentest/voip/sipvicious/ && svn up
+echo "Updating Router Defense"
+cd /pentest/audit/routerdefense/ && svn up
 echo "Updating Wifite"
 cd /pentest/wireless/wifite && svn up
 echo "Updating nmap - you will need to recompile if needed"
