@@ -21,18 +21,18 @@ mysql -u root --password=$mrpass nvd < nvd.sql
 mysql -u root --password=$mrpass -e "grant all privileges on nvd.* to 'vapt'@'localhost' identified by 'vapt';"
 fi
 
-mysql -u root --password=$mrpass -e "show databases" | grep osvdb
-if [ $? -eq 1 ] ; then
-mysqladmin -u root --password=$mrpass create osvdb
-mysql -u root --password=$mrpass -e "grant all privileges on osvdb.* to 'vapt'@'localhost' identified by 'vapt';"
-fi
+#mysql -u root --password=$mrpass -e "show databases" | grep osvdb
+#if [ $? -eq 1 ] ; then
+#mysqladmin -u root --password=$mrpass create osvdb
+#mysql -u root --password=$mrpass -e "grant all privileges on osvdb.* to 'vapt'@'localhost' identified by 'vapt';"
+#fi
 
-cd /pentest/temp
-echo "Updating the OSVDB Database"
-wget http://osvdb.org/file/get_latest_mysql/UaBc6bGFQZgJHYEvZhQ3kg2Pak/osvdb-mysql.latest.tar.gz
-gunzip osvdb-mysql.latest.tar.gz && sudo chown mysql osvdb-mysql.latest.tar
-mysql -u root --password=$mrpass --compress osvdb < osvdb-mysql.latest.tar && rm -rf /pentest/temp/osvdb-mysql.latest.tar
-rm -rf /pentest/temp/osvdb-mysql.latest.tar
+#cd /pentest/temp
+#echo "Updating the OSVDB Database"
+#wget http://osvdb.org/file/get_latest_mysql/UaBc6bGFQZgJHYEvZhQ3kg2Pak/osvdb-mysql.latest.tar.gz
+#gunzip osvdb-mysql.latest.tar.gz && sudo chown mysql osvdb-mysql.latest.tar
+#mysql -u root --password=$mrpass --compress osvdb < osvdb-mysql.latest.tar && rm -rf /pentest/temp/osvdb-mysql.latest.tar
+#rm -rf /pentest/temp/osvdb-mysql.latest.tar
 #
 # exploitdb update
 echo "Updating the ExploitDB Database"
