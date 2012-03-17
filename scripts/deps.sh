@@ -22,7 +22,7 @@ sudo apt-get install -y flashplugin-installer jftp virtualbox-ose virtualbox-gue
 sudo apt-get install -y revelation python-impacket expat php-pear gpsd gpsd-dbg libgps-dev snmp python-svn python-pypdf python-beautifulsoup python-pysqlite2
 sudo apt-get install -y bkhive xprobe2 safecopy ptunnel ngrep btscanner cabextract chntpw cmospwd cdpr dcfldd dc3dd ddrescue disktype fcrackzip
 sudo apt-get install -y galleta pasco vinetto autopsy wine1.3-dev rifiuti2 recover extundelete recoverdm ext3grep python-gtksourceview2 zlib1g-dev liblzo2-dev
-sudo apt-get install -y libasound2-dev libbz2-dev vlc libvlc-dev gtk2-engines-pixbuf perl-doc ike-scan
+sudo apt-get install -y libasound2-dev libbz2-dev vlc libvlc-dev gtk2-engines-pixbuf perl-doc ike-scan xchat
 
 #Installing google earth
 #sudo apt-get install googleearth-package
