@@ -321,7 +321,7 @@ cp /pentest/web/skipfish/dictionaries/complete.wl /pentest/web/skipfish/dictiona
 fi
 if [ ! -d /pentest/web/whatweb ] ; then
 echo "Installing WhatWeb"
-cd /pentest/temp/ && wget http://www.morningstarsecurity.com/downloads/whatweb-0.4.7.tar.gz --proxy=off
+cd /pentest/temp/ && wget -U "Mozilla/5.0 (X11; Ubuntu; Linux i686; rv:11.0) Gecko/20100101 Firefox/11.0" http://www.morningstarsecurity.com/downloads/whatweb-0.4.7.tar.gz --proxy=off
 tar zxvf whatweb-0.4.7.tar.gz && rm -rf whatweb-0.4.7.tar.gz
 mv whatweb-0.4.7 /pentest/web/whatweb
 fi
