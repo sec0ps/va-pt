@@ -46,6 +46,17 @@ sudo make install
 fi
 
 echo "Installing PERL Libraries"
+if [ ! -d /usr/local/lib/perl/5.12.4/Math/ ] ; then
+cd /pentest/temp && wget ftp://megrez.math.u-bordeaux.fr/pub/pari/unix/OLD/pari-2.1.7.tar.gz --proxy=off
+tar xvf pari-2.1.7.tar.gz && rm -rf pari-2.1.7.tar.gz
+cd pari-2.1.7/ && wget http://search.cpan.org/CPAN/authors/id/I/IL/ILYAZ/modules/Math-Pari-2.01080605.tar.gz --proxy=off
+#&& ./Configure
+#make all && make install
+#cd /pentest/temp && 
+tar xvf Math-Pari-2.01080605.tar.gz && rm -rf Math-Pari-2.01080605.tar.gz
+cd Math-Pari-2.01080605 && perl Makefile.PL
+sudo make install
+fi
 sudo cpanm Cisco::CopyConfig
 sudo cpanm Net::Whois::IP
 sudo cpanm W3C::LinkChecker
@@ -140,18 +151,6 @@ echo "Installing crunch"
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/Crack/crunch.cpp --proxy=off
 gcc -o crunch crunch.cpp -lstdc++ && sudo mv crunch /usr/bin/
 rm -rf crunch.cpp
-fi
-if [ ! -d /pentest/cisco/torch ] ; then
-echo "Installing static compiled dependancy packages needed for Cisco Torch"
-cd /pentest/temp && wget ftp://megrez.math.u-bordeaux.fr/pub/pari/unix/OLD/pari-2.3.0.tar.gz --proxy=off
-tar xvf pari-2.3.0.tar.gz && rm -rf pari-2.3.0.tar.gz
-cd pari-2.3.0/ && ./Configure
-make all && make install
-cd /pentest/temp && wget http://search.cpan.org/CPAN/authors/id/I/IL/ILYAZ/modules/Math-Pari-2.01080605.tar.gz --proxy=off
-tar xvf Math-Pari-2.01080605.tar.gz && rm -rf Math-Pari-2.01080605.tar.gz
-cd Math-Pari-2.01080605 && perl Makefile.PL
-sudo make install
-sudo cpanm Net::SSH::Perl
 fi
 
 echo "enabling default ssl site for portal if needed"
