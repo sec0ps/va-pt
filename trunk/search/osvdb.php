@@ -24,7 +24,7 @@ require 'incs/define.php';
 </div>
 
 <div class="search">
-<p><a href="nvd.php">NVD</a> | <a href="exploitdb.php">Exploit DB Results</a> | <a href="search.php">New Search</a></p>
+<p><a href="nvd.php">NVD</a> | <a href="exploitdb.php">Exploit DB Results</a> | <a href="index.php">New Search</a></p>
 
 <?php
 // connect to the database
