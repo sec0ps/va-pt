@@ -23,7 +23,7 @@ sudo apt-get install -y revelation python-impacket expat php-pear gpsd gpsd-dbg 
 sudo apt-get install -y bkhive xprobe2 safecopy ptunnel ngrep btscanner cabextract chntpw cmospwd cdpr dcfldd dc3dd ddrescue disktype fcrackzip
 sudo apt-get install -y galleta pasco vinetto autopsy wine1.3-dev rifiuti2 recover extundelete recoverdm ext3grep python-gtksourceview2 zlib1g-dev liblzo2-dev
 sudo apt-get install -y libasound2-dev libbz2-dev vlc libvlc-dev gtk2-engines-pixbuf perl-doc ike-scan xchat outguess steghide python-septic snowdrop
-sudo apt-get install -y flex libidn11-dev zlib-bin zlibc
+sudo apt-get install -y flex libidn11-dev zlib-bin zlibc ruby-openssl texlive-latex-extra
 
 #Installing google earth
 #sudo apt-get install googleearth-package
@@ -168,57 +168,6 @@ fi
 
 echo "Updating locate database"
 sudo updatedb
-
-#OpenVAS and Greenbone Packages - still need to get to this one day...work in progress
-#Install WMI
-#if [ ! -d /
-#wget http://www.openvas.org/download/wmi/wmi-1.3.14.tar.bz2 && bunzip2 wmi-1.3.14.tar.bz2
-#tar xvf wmi-1.3.14.tar && cd wmi-1.3.14
-#wget http://www.openvas.org/download/wmi/openvas-wmi-1.3.14.patch
-#
-#Install Libraries
-#wget http://wald.intevation.org/frs/download.php/1053/openvas-libraries-4.0.7.tar.gz
-#tar xvf openvas-libraries-4.0.7.tar.gz && cd openvas-libraries-4.0.7
-#
-#Install Scanner
-#wget http://wald.intevation.org/frs/download.php/983/openvas-scanner-3.2.5.tar.gz
-#
-#Install Manager
-#wget http://wald.intevation.org/frs/download.php/871/openvas-manager-2.0.4.tar.gz
-#
-#Install Administrator
-#wget http://wald.intevation.org/frs/download.php/987/openvas-administrator-1.1.2.tar.gz
-#
-#Install GSA (Greenbone Security Assistant)
-#wget http://wald.intevation.org/frs/download.php/857/greenbone-security-assistant-2.0.1.tar.gz
-#
-#Install GSD (Greenbone Security Desktop)
-#wget http://wald.intevation.org/frs/download.php/1020/gsd-1.2.1.tar.gz
-#
-#Install OpenVAS CLI (Command Line Interface)
-#wget http://wald.intevation.org/frs/download.php/1016/openvas-cli-1.1.4.tar.gz
-#
-#Setup Verifier
-#wget https://svn.wald.intevation.org/svn/openvas/trunk/tools/openvas-check-setup
-
-#wget http://www.openvas.org/download/wmi/wmi-1.3.14.tar.bz2
-#wget http://www.openvas.org/download/wmi/openvas-wmi-1.3.14.patch
-#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/greenbone-security-assistant_2.0.1.orig.tar.gz
-#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/gsd_1.2.1.orig.tar.gz
-#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/libopenvas_4.0.6.orig.tar.gz
-#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/openvas-administrator_1.1.2.orig.tar.gz
-#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/openvas-cli_1.1.3.orig.tar.gz
-#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/openvas-manager_2.0.4.orig.tar.gz
-#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/openvas-scanner_3.2.5.orig.tar.gz
-#wget http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/libmicrohttpd_0.9.17.orig.tar.gz
-#sudo openvas-nvt-sync
-#test -e /var/lib/openvas/users/om || sudo openvas-mkcert-client -n om -i
-#sudo openvassd
-#sudo openvasmd --migrate
-#sudo openvasmd --rebuild
-#sudo killall openvassd
-#test -e /var/lib/openvas/users/admin || sudo openvasad -c add_user -n user -w pass -r Admin
-#http://download.opensuse.org/repositories/security:/OpenVAS:/STABLE:/v4/xUbuntu_11.10/
 
 #Misc crap I`m not sure where it came from, need to review/remove
 #cd /pentest/temp && wget http://search.cpan.org/CPAN/authors/id/S/SA/SAPER/Net-Pcap-0.16.tar.gz
