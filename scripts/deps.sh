@@ -82,6 +82,8 @@ sudo cpanm XML::LibXML
 sudo cpanm DBI
 sudo cpanm DBD::SQLite
 sudo cpanm Net::Telnet::Cisco
+sudo cpanm IO::Socket::SSL
+sudo cpanm NetPacket::ICMP
 
 #if [ ! -d /pentest/misc/nmap-parser ] ; then 
 #cd /pentest/temp && wget http://search.cpan.org/CPAN/authors/id/A/AP/APERSAUD/Nmap-Parser-1.21.tar.gz

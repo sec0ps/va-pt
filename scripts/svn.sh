@@ -111,7 +111,6 @@ fi
 if [ ! -d /pentest/database/sqlninja ] ; then
 echo "Installing SQL Ninja"
 cd /pentest/database && svn co https://sqlninja.svn.sourceforge.net/svnroot/sqlninja
-sudo cpanm IO::Socket::SSL && sudo cpanm NetPacket::ICMP
 fi
 if [ ! -d /pentest/web/laudanum ] ; then
 echo "Installing Laudanum"
