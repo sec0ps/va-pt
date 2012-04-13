@@ -340,10 +340,10 @@ fi
 if [ ! -d /pentest/exploits/windows-tools ] ; then
 echo "Installing Windows Tools"
 cd /pentest/exploits && mkdir windows-tools
-cd windows-tools && wget http://download.sysinternals.com/files/PSTools.zip --proxy=off
+cd windows-tools && wget http://download.sysinternals.com/files/PSTools.zip
 unzip PSTools.zip && rm -rf PSTools.zip
-wget http://dl.packetstormsecurity.net/groups/checksum/nc.exe --proxy=off
-cd /pentest/temp && wget http://swamp.foofus.net/fizzgig/fgdump/fgdump-2.1.0-exeonly.tar.bz2 --proxy=off
+wget http://dl.packetstormsecurity.net/groups/checksum/nc.exe
+cd /pentest/temp && wget http://swamp.foofus.net/fizzgig/fgdump/fgdump-2.1.0-exeonly.tar.bz2
 bunzip2 fgdump-2.1.0-exeonly.tar.bz2 && rm -rf fgdump-2.1.0-exeonly.tar.bz2
 tar xvf fgdump-2.1.0-exeonly.tar && rm -rf fgdump-2.1.0-exeonly.tar
 mv Release/fgdump.exe /pentest/exploits/windows-tools/ && rm -rf Release/
