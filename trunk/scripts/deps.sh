@@ -1,5 +1,5 @@
 echo "Installing Ubuntu Packages"
-sudo apt-get install -y ncftp rar python-setuptools python-configobj python-flickrapi gnome-common gtk-doc-tools libsoup2.4 python-pyexiv2 registry-tools
+sudo apt-get install -y ncftp rar python-setuptools python-configobj python-flickrapi gnome-common gtk-doc-tools libsoup2.4 python-pyexiv2 
 sudo apt-get install -y libxml-libxml-perl libdbi-perl libdbd-sqlite3-perl alien librpmbuild1 lsb-core ncurses-term pax rpm rpm2cpio nfs-common
 sudo apt-get install -y libgd2-xpm-dev flasm unetbootin unetbootin-translations open-iscsi open-iscsi-utils ldap-utils upx python-pymssql
 sudo apt-get install -y gtk-recordmydesktop postgresql libpq-dev p7zip-full iw make ethtool dos2unix gcc subversion gip mysql-server
@@ -14,16 +14,17 @@ sudo apt-get install -y python-qt3 libmysql++-dev libxml-smart-perl libextractor
 sudo apt-get install -y python-svn python-dev sqlite3 nbtscan dsniff libapache2-mod-php5 python-mysqldb pyqt-tools sox rezound macchanger-gtk
 sudo apt-get install -y webhttrack smbclient httping libnl2 libcap2-bin ndisgtk python-wxtools libdigest-hmac-perl rake doxygen libgnutls-dev
 sudo apt-get install -y irpas python-bluetooth libstdc++5 smb4k kate libssh2-1-dev libimage-exiftool-perl vim rubygems libgpgme11-dev uuid-dev
-sudo apt-get install -y texlive libcrypt-blowfish-perl libdigest-sha-perl libcrypt-cbc-perl libsort-versions-perl libcrypt-des-perl libdigest-* libreadline-dev
+sudo apt-get install -y texlive libcrypt-blowfish-perl libdigest-sha-perl libcrypt-cbc-perl libsort-versions-perl libcrypt-des-perl libdigest-* 
 sudo apt-get install -y qt4-qmake qt4-dev-tools libcurl3-dbg libxmlrpc-core-c3-dev libperl-dev libruby omt libgraphviz-dev libpcre3-dev libsvn-dev
-sudo apt-get install -y libfbclient2 firebird2.1-dev libncp-dev jxplorer bluefish bluefish-data bluefish-plugins tcpdump python-gnuplot python-qt3 inguma
-sudo apt-get install -y python-pytools pdfcrack gzrt ophcrack ophcrack-cli sipcrack virtualbox-ose quicksynergy ngorca smb-nat libnet-nbname-perl libnet-netmask-perl
-sudo apt-get install -y flashplugin-installer jftp virtualbox-ose virtualbox-guest-additions wipe reglookup libxmlrpc-c3-dev httrack finger rusers sslsniff
-sudo apt-get install -y revelation python-impacket expat php-pear gpsd gpsd-dbg libgps-dev snmp python-svn python-pypdf python-beautifulsoup python-pysqlite2
+sudo apt-get install -y libfbclient2 firebird2.1-dev libncp-dev jxplorer bluefish bluefish-data bluefish-plugins tcpdump python-gnuplot python-qt3
+sudo apt-get install -y python-pytools pdfcrack gzrt ophcrack ophcrack-cli sipcrack virtualbox-ose quicksynergy ngorca smb-nat libnet-nbname-perl 
+sudo apt-get install -y flashplugin-installer jftp virtualbox-ose virtualbox-guest-additions wipe reglookup libxmlrpc-c3-dev httrack finger rusers
+sudo apt-get install -y revelation python-impacket expat php-pear gpsd gpsd-dbg libgps-dev snmp python-svn python-pypdf python-beautifulsoup
 sudo apt-get install -y bkhive xprobe2 safecopy ptunnel ngrep btscanner cabextract chntpw cmospwd cdpr dcfldd dc3dd ddrescue disktype fcrackzip
-sudo apt-get install -y galleta pasco vinetto autopsy wine1.3-dev rifiuti2 recover extundelete recoverdm ext3grep python-gtksourceview2 zlib1g-dev liblzo2-dev
+sudo apt-get install -y galleta pasco vinetto autopsy wine1.3-dev rifiuti2 recover extundelete recoverdm ext3grep python-gtksourceview2 zlib1g-dev 
 sudo apt-get install -y libasound2-dev libbz2-dev vlc libvlc-dev gtk2-engines-pixbuf perl-doc ike-scan xchat outguess steghide python-septic snowdrop
-sudo apt-get install -y flex libidn11-dev zlib-bin zlibc ruby-openssl texlive-latex-extra
+sudo apt-get install -y flex libidn11-dev zlib-bin zlibc ruby-openssl texlive-latex-extra liblzo2-dev python-pysqlite2 sslsniff libnet-netmask-perl
+sudo apt-get install -y inguma libreadline-dev registry-tools
 
 #Installing google earth
 #sudo apt-get install googleearth-package
@@ -82,8 +83,7 @@ sudo cpanm XML::LibXML
 sudo cpanm DBI
 sudo cpanm DBD::SQLite
 sudo cpanm Net::Telnet::Cisco
-sudo cpanm IO::Socket::SSL
-sudo cpanm NetPacket::ICMP
+sudo cpanm Net::Pcap
 
 #if [ ! -d /pentest/misc/nmap-parser ] ; then 
 #cd /pentest/temp && wget http://search.cpan.org/CPAN/authors/id/A/AP/APERSAUD/Nmap-Parser-1.21.tar.gz
