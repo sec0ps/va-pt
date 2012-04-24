@@ -24,7 +24,7 @@ sudo apt-get install -y bkhive xprobe2 safecopy ptunnel ngrep btscanner cabextra
 sudo apt-get install -y galleta pasco vinetto autopsy wine1.3-dev rifiuti2 recover extundelete recoverdm ext3grep python-gtksourceview2 zlib1g-dev 
 sudo apt-get install -y libasound2-dev libbz2-dev vlc libvlc-dev gtk2-engines-pixbuf perl-doc ike-scan xchat outguess steghide python-septic snowdrop
 sudo apt-get install -y flex libidn11-dev zlib-bin zlibc ruby-openssl texlive-latex-extra liblzo2-dev python-pysqlite2 sslsniff libnet-netmask-perl
-sudo apt-get install -y inguma libreadline-dev registry-tools
+sudo apt-get install -y inguma libreadline-dev registry-tools flamerobin
 
 #Installing google earth
 #sudo apt-get install googleearth-package
