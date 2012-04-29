@@ -2,10 +2,10 @@ echo "Static software package installation beginning"
 if [ ! -d /pentest/scanners/snmp ] ; then
 echo "Installing OneSixtyOne & snmpcheck"
 mkdir /pentest/scanners/snmp
-cd /pentest/temp && wget http://freshmeat.net/urls/2a758cc469ce124b21de08a87ae1dd48 --proxy=off -O onesixtyone.tar.gz
-tar zxvf onesixtyone.tar.gz && rm -rf onesixtyone.tar.gz
-mv onesixtyone-0.3.2/ /pentest/scanners/snmp/onesixtyone
-cd /pentest/scanners/snmp/onesixtyone && make
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/onesixtyone-0.3.tar.gz
+gunzip onesixtyone-0.3.tar.gz && tar xvf onesixtyone-0.3.tar.gz && rm -rf onesixtyone-0.3.tar.gz
+mv onesixtyone-0.3/ /pentest/scanners/snmp/onesixtyone
+cd /pentest/scanners/snmp/onesixtyone && gcc -o onesixtyone onesixtyone.c
 cd /pentest/scanners/snmp && wget http://www.nothink.org/perl/snmpcheck/downloads/snmpcheck-1.8.pl -O snmpcheck.pl --proxy=off
 chmod 700 /pentest/scanners/snmp/snmpcheck.pl
 fi
