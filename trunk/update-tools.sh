@@ -86,8 +86,10 @@ cd /var/www/search && sudo svn up
 echo "Updating HTTPrint"
 cd /pentest/enumeration/httprint && mv signatures.txt signatures.txt.old
 wget http://net-square.com/httprint/signatures.txt --proxy=off
+if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
-sudo openvas-nvt-sync
+sudo /usr/sbin/openvas-nvt-sync --wget
+fi
 if [ -f /opt/nessus/sbin/nessus-update-plugins ] ; then
 echo "Updating Nessus Plugins"
 sudo /opt/nessus/sbin/nessus-update-plugins
