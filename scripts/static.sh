@@ -364,16 +364,12 @@ cd /pentest/misc/dradis && ./reset.sh
 fi
 if [ ! -d /opt/xplico ] ; then
 echo "Installing Xplico"
-cd /pentest/temp && wget http://prdownloads.sourceforge.net/xplico/xplico-0.7.0.tgz --proxy=off
-tar zxvf xplico-0.7.0.tgz && rm -rf xplico-0.7.0.tgz
-cd /pentest/temp/xplico-0.7.0 && make
-echo "To complete the installation, sudo su then make install"
-echo ""
-echo "Xplico was installed for the first time"
-echo "There are additional configurations needed"
-echo "to Apache, visit the following URL for more info."
-echo "http://wiki.xplico.org/doku.php?id=interface"
-sleep 10
+sudo bash -c 'echo "deb http://repo.xplico.org/ $(lsb_release -s -c) main" >> /etc/apt/sources.list'
+sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 791C25CE
+sudo apt-get update
+sudo apt-get install xplico
+sudo service apache2 restart
+echo "Xplico by default is now running on 9876 - http://localhost:9876"
 fi
 if [ ! -d /pentest/enumeration/netglub ] ; then
 cd /pentest/enumeration && wget http://redmine.lab.diateam.net/attachments/download/1/netglub-1.0.tar.gz --proxy=off
