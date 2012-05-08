@@ -45,6 +45,7 @@ cat *  >> /pentest/passwords/mass1 && strings /pentest/passwords/mass1 >> /pente
 rm -rf mass1 && cat /pentest/passwords/strings | sort -bi | uniq >> /pentest/passwords/combinedwordlist
 rm -rf strings && rm -rf /pentest/passwords/wordlists/merged.txt
 #
+fi
 if [ ! -d /pentest/passwords/vendor ] ; then
 mkdir /pentest/passwords/vendor && cd /pentest/passwords/vendor
 wget -nc -q http://vulnerabilityassessment.co.uk/default_oracle_passwords.htm
