@@ -1,5 +1,5 @@
-[ ! -d /pentest/passwords/wordlists ] && mkdir /pentest/passwords/wordlists
-cd /pentest/passwords/wordlists
+if [ ! -d /pentest/passwords/wordlists ]; then
+mkdir /pentest/passwords/wordlists && cd /pentest/passwords/wordlists
 wget -q -U "Mozilla/5.0 (Linux; U; Android 2.1; en-us; Nexus One Build/ERD62) AppleWebKit/530.17 (KHTML, like Gecko) Version/4.0 Mobile Safari/530.17" -O- "http://packetstormsecurity.org/Crackers/wordlists/dictionaries"| grep -o '<a href="/files/download/[^"]*"' |sed 's/<a href="\/files\/download/http:\/\/dl.packetstormsecurity.org\/Crackers\/wordlists\/dictionaries/;s/"$//'|cut -d "/" -f 1-6,8 >file.txt
 wget -q -U "Mozilla/5.0 (Linux; U; Android 2.1; en-us; Nexus One Build/ERD62) AppleWebKit/530.17 (KHTML, like Gecko) Version/4.0 Mobile Safari/530.17" -O- "http://packetstormsecurity.org/Crackers/wordlists/names"| grep -o 'href="/files/download/[^"]*"' |sed 's/href="\/files\/download/http:\/\/dl.packetstormsecurity.org\/Crackers\/wordlists\/names/;s/"$//'|cut -d "/" -f 1-6,8 >>file.txt
 wget -q -U "Mozilla/5.0 (Linux; U; Android 2.1; en-us; Nexus One Build/ERD62) AppleWebKit/530.17 (KHTML, like Gecko) Version/4.0 Mobile Safari/530.17" -O- "http://packetstormsecurity.org/Crackers/wordlists/computing"| grep -o 'href="/files/download/[^"]*"' |sed 's/href="\/files\/download/http:\/\/dl.packetstormsecurity.org\/Crackers\/wordlists\/computing/;s/"$//'|cut -d "/" -f 1-6,8 >>file.txt
@@ -14,23 +14,36 @@ wget -q -U "Mozilla/5.0 (Linux; U; Android 2.1; en-us; Nexus One Build/ERD62) Ap
 wget -q -U "Mozilla/5.0 (Linux; U; Android 2.1; en-us; Nexus One Build/ERD62) AppleWebKit/530.17 (KHTML, like Gecko) Version/4.0 Mobile Safari/530.17" -O- "http://packetstormsecurity.net/Crackers/wordlists/movies_tv"| grep -o 'href="/files/download/[^"]*"' |sed 's/href="\/files\/download/http:\/\/dl.packetstormsecurity.org\/Crackers\/wordlists\/movies_tv/;s/"$//'|cut -d "/" -f 1-6,8 >>file.txt
 wget -q -U "Mozilla/5.0 (Linux; U; Android 2.1; en-us; Nexus One Build/ERD62) AppleWebKit/530.17 (KHTML, like Gecko) Version/4.0 Mobile Safari/530.17" -O- "http://packetstormsecurity.net/Crackers/wordlists/utilities"| grep -o 'href="/files/download/[^"]*"' |sed 's/href="\/files\/download/http:\/\/dl.packetstormsecurity.org\/Crackers\/wordlists\/utilities/;s/"$//'|cut -d "/" -f 1-6,8 >>file.txt
 wget -nc -q -i file.txt && rm -rf file.txt
-cp /pentest/exploits/framework3/data/wordlists/namelist.txt /pentest/passwords/wordlists/dns1.txt
-cp /pentest/enumeration/fierce2/hosts.txt /pentest/passwords/wordlists/dns2.txt
-cp /pentest/enumeration/dnsmap/wordlist_TLAs.txt /pentest/passwords/wordlists/dns3.txt
-cp /pentest/enumeration/dnsenum/dns.txt /pentest/passwords/wordlists/dns4.txt
-cp /pentest/enumeration/dnsenum/dnsbig.txt /pentest/passwords/wordlists/dns4.txt
-cp /pentest/passwords/john/run/password.lst /pentest/passwords/wordlists/
+#Get/Process remote stuff
+mv wordlist50.pl /pentest/passwords/
+cd /pentest/passwords/wordlists && wget http://erikmusick.com/content/dl/WholeLottaPasswords.7z
+7za e WholeLottaPasswords.7z && rm -rf WholeLottaPasswords.hash WholeLottaPasswords.7z*
 #
 gunzip *.gz && tar xvf fixed-length.tar
 rm -rf fixed-length.tar && rm -rf *.zip
 rm -rf *.tgz && rm -rf *.c
 rm -rf *.tar
-mv wordlist50.pl /pentest/passwords/
-cp /pentest/passwords/oclhashcat/example.dict /pentest/passwords/wordlists/
-cd /pentest/passwords/wordlists && wget http://erikmusick.com/content/dl/WholeLottaPasswords.7z
-7za e WholeLottaPasswords.7z && rm -rf WholeLottaPasswords.hash
-cat * | grep -v "#" | grep -v ":" | sort -bi | uniq >> /pentest/passwords/combinedwordlist
-#rm -rf *
+#Get local stuff
+cat /pentest/exploits/framework3/data/wordlists/namelist.txt >> /pentest/passwords/wordlists/merged.txt
+cat /pentest/exploits/framework3/data/wordlists/db2_default_pass.txt >> /pentest/passwords/wordlists/merged.txt
+cat /pentest/exploits/framework3/data/wordlists/http_default_pass.txt >> /pentest/passwords/wordlists/merged.txt
+cat /pentest/exploits/framework3/data/wordlists/postgres_default_pass.txt >> /pentest/passwords/wordlists/merged.txt
+cat /pentest/exploits/framework3/data/wordlists/sid.txt >> /pentest/passwords/wordlists/merged.txt
+cat /pentest/exploits/framework3/data/wordlists/snmp_default_pass.txt >> /pentest/passwords/wordlists/merged.txt
+cat /pentest/exploits/framework3/data/wordlists/tomcat_mgr_default_pass.txt >> /pentest/passwords/wordlists/merged.txt
+cat /pentest/exploits/framework3/data/wordlists/unix_passwords.txt >> /pentest/passwords/wordlists/merged.txt
+cat /pentest/exploits/framework3/data/wordlists/vnc_passwords.txt >> /pentest/passwords/wordlists/merged.txt
+cat /pentest/exploits/framework3/data/wordlists/unix_users.txt >> /pentest/passwords/wordlists/merged.txt
+cat /pentest/enumeration/fierce2/hosts.txt >> /pentest/passwords/wordlists/merged.txt
+cat /pentest/enumeration/dnsmap/wordlist_TLAs.txt >> /pentest/passwords/wordlists/merged.txt
+cat /pentest/enumeration/dnsenum/dns.txt >> /pentest/passwords/wordlists/merged.txt
+cat /pentest/enumeration/dnsenum/dnsbig.txt >> /pentest/passwords/wordlists/merged.txt
+cat /pentest/passwords/john/run/password.lst >> /pentest/passwords/wordlists/merged.txt
+#
+cd /pentest/passwords
+cat *  >> /pentest/passwords/mass1 && strings /pentest/passwords/mass1 >> /pentest/passwords/strings
+rm -rf mass1 && cat /pentest/passwords/strings | sort -bi | uniq >> /pentest/passwords/combinedwordlist
+rm -rf strings && rm -rf /pentest/passwords/wordlists/merged.txt
 #
 if [ ! -d /pentest/passwords/vendor ] ; then
 mkdir /pentest/passwords/vendor && cd /pentest/passwords/vendor
