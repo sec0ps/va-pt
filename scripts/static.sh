@@ -235,6 +235,7 @@ cd /pentest/temp && wget http://dl.packetstormsecurity.net/cisco/nipper-0.11.7.t
 tar zxvf nipper-0.11.7.tgz && rm -rf nipper-0.11.7.tgz
 mv nipper-0.11.7/ /pentest/audit/nipper
 cd /pentest/audit/nipper && make
+sudo make install
 fi
 if [ ! -d /pentest/audit/rat ] ; then
 cd /pentest/temp && wget --no-check-certificate https://community.cisecurity.org/download/?redir=/cisco/rat-2.2-dist.sh.gz -O rat.gz --proxy=off
@@ -313,9 +314,9 @@ sudo /pentest/exploits/set/set
 fi
 if [ ! -d /pentest/web/skipfish ] ; then
 echo "Installing skipfish"
-cd /pentest/web/ && wget http://skipfish.googlecode.com/files/skipfish-2.03b.tgz --proxy=off
-tar zxvf skipfish-2.03b.tgz && rm -rf skipfish-2.03b.tgz
-mv skipfish-2.03b skipfish
+cd /pentest/web/ && wget http://skipfish.googlecode.com/files/skipfish-2.06b.tgz --proxy=off
+tar zxvf skipfish-2.06b.tgz && rm -rf skipfish-2.06b.tgz
+mv skipfish-2.06b skipfish
 cd skipfish && make
 cp /pentest/web/skipfish/dictionaries/complete.wl /pentest/web/skipfish/dictionaries/skipfish.wl
 fi

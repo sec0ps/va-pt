@@ -95,7 +95,7 @@ echo "Updating Nessus Plugins"
 sudo /opt/nessus/sbin/nessus-update-plugins
 fi
 /pentest/web/skipfish/skipfish -h | grep "version"
-if [ $? != "2.03b" ] ; then
+if [ $? != "2.06b" ] ; then
 echo "skipfish is up to date"
 else
 echo "skipfish is not up to date, updating now."
@@ -108,7 +108,7 @@ else
 echo "john the ripper is not up to date, updating now."
 rm -rf /pentest/passwords/john && /pentest/misc/va-pt/scripts/static.sh
 fi
-/pentest/enumeration/hydra/hydra | grep "v7.2"
+/usr/local/bin/hydra | grep "v7.3"
 if [ $? -eq 0 ] ; then
 echo "THC Hydra is up to date"
 else
