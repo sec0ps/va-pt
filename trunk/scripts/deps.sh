@@ -26,9 +26,22 @@ sudo apt-get install -y libasound2-dev libbz2-dev vlc libvlc-dev gtk2-engines-pi
 sudo apt-get install -y flex libidn11-dev zlib-bin zlibc ruby-openssl texlive-latex-extra liblzo2-dev python-pysqlite2 sslsniff libnet-netmask-perl
 sudo apt-get install -y inguma libreadline-dev registry-tools flamerobin
 
-#Installing google earth
-#sudo apt-get install googleearth-package
-#cd /pentest/temp && sudo make-googleearth-package --force
+#Oracle dependencies for metasploit, hydra, etc
+#if [ ! -d /opt/oracle ] ; then
+#cd /opt && mkdir oracle
+#cd /pentest/temp
+#wget basic-10.2.0.5.0-linux.zip && mv basic-10.2.0.5.0-linux.zip /opt/oracle
+#wget sdk-10.2.0.5.0-linux.zip && mv sdk-10.2.0.5.0-linux.zip /opt/oracle
+#wget sqlplus-10.2.0.5.0-linux.zip && mv sqlplus-10.2.0.5.0-linux.zip /opt/oracle
+#cd /opt/oracle && unzip basic-10.2.0.5.0-linux.zip
+#unzip sdk-10.2.0.5.0-linux.zip && sqlplus-10.2.0.5.0-linux.zip
+#cd /pentest/temp && wget kubo-ruby-oci8-ruby-oci8-2.1.2-0-g012e146.zip
+#unzip kubo-ruby-oci8-ruby-oci8-2.1.2-0-g012e146.zip && /pentest/temp/kubo-ruby-oci8-012e146
+#insert remainder of the ruby/oracle crap here needed for metasploit
+#metasploit oracle modules should work now
+#./configure --with-oracle=/opt/oracle/instantclient_10_2/sdk/include/ --with-oracle-lib=/opt/oracle/instantclient_10_2/
+#hydra segments on compile..no idea, will play with it more at some point..
+#fi
 
 echo "Installing Pear Database Libraries"
 sudo pear install DB
@@ -83,14 +96,6 @@ sudo cpanm Net::Telnet::Cisco
 sudo cpanm Net::Pcap
 sudo cpanm XML::Twig
 
-#if [ ! -d /pentest/misc/nmap-parser ] ; then 
-#cd /pentest/temp && wget http://search.cpan.org/CPAN/authors/id/A/AP/APERSAUD/Nmap-Parser-1.21.tar.gz
-#tar xvf Nmap-Parser-1.21.tar.gz && rm -rf Nmap-Parser-1.21.tar.gz
-#mv Nmap-Parser-1.21/ /pentest/misc/nmap-parser && cd /pentest/misc/nmap-parser
-#perl Makefile.PL && make
-#sudo make install && chmod 755 *.pl
-#fi
-
 echo "Installing Ruby Gems"
 #need to add dep checking for this, wastes time on rechecks
 sudo gem install em-resolv-replace
@@ -131,7 +136,6 @@ sudo gem install mini_exiftool
 sudo gem install hpricot
 cd && echo "export PATH=/var/lib/gems/1.8/bin/:$PATH" >> .bashrc
 source ~/.bashrc
-#
 #
 if [ ! -f /usr/local/lib/python2.6/dist-packages/pybloomfiltermmap-0.2.0.egg-info ] ; then
 cd /pentest/temp && wget http://pypi.python.org/packages/source/p/pybloomfiltermmap/pybloomfiltermmap-0.2.0.tar.gz
@@ -194,4 +198,3 @@ sudo updatedb
 #cd xmlrpc-c-1.16.34
 #./configure
 #make && sudo make install
-
