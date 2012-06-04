@@ -390,4 +390,10 @@ qmake && make
 cd tools/ && sudo ./install.sh
 echo "When starting netglub for the first time use the code 2222-4567-89ab-cdef"
 fi
+if [ ! -d /pentest/enumeration/gggooglescan ] ; then
+echo "Installing gggooglescan"
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/gggooglescan-0.4.tar.gz
+tar zxvf gggooglescan-0.4.tar.gz && rm -rf gggooglescan-0.4.tar.gz
+mv gggooglescan-0.4 /pentest/enumeration/gggooglescan
+fi
 echo "Static Code installation complete"
