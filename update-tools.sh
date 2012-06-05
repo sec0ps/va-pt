@@ -75,6 +75,7 @@ echo "Updating Wifite"
 cd /pentest/wireless/wifite && svn up
 echo "Updating nmap - you will need to recompile if needed"
 cd /pentest/scanners/nmap && svn up
+sudo nmap --script-updatedb
 echo "Updating ncat - you will need to recompile if needed"
 cd /pentest/scanners/nmap/ncat && svn up
 echo "Updating ncrack - you will need to recompile if needed"
