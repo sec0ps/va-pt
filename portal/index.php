@@ -6,12 +6,7 @@ session_destroy();
 unset($_SESSION);
 session_start();
 require 'incs/define.php';
-
-if ($_SERVER['REMOTE_ADDR'] != '127.0.0.1') {
-echo "<meta http-equiv='refresh' content='5; URL=http://www.google.com'>";
-echo "Remote connections to this portal are not permitted at this time..redirecting you elsewhere";
-exit;
-}
+require 'incs/remote.php';
 ?>
 
 <html>
@@ -38,8 +33,5 @@ exit;
  </form>
 </center>
 </div>
-
-<?php require 'incs/footer.php' ?>
-
 </body>
 </html>
