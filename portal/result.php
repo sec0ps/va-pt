@@ -34,6 +34,10 @@ Logged in as: <?php echo $_SESSION['username'] ?> | <a href="incs/logout.php">lo
 <p><a href="nvd.php">NVD</a> | OSVDB (Offline) | <a href="search.php">New Search</a></p>
 
 <?php
+if ( !$_POST['dbstring'] ) {
+        echo "You must enter a search parameter.";
+  exit;
+}
 // connect to the database
 include('incs/vcon.php');
 // search string
