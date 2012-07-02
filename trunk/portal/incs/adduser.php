@@ -17,6 +17,7 @@ if ( !$username ) {
   exit;
 }
 
+// will be included in later version
 //if ( !$realname ) {
 //        echo "You must enter your full name in the Full Name field";
 //        echo "<p><a href='javascript:history.back(1);'>Back</a></p>";
@@ -36,7 +37,6 @@ if (!eregi("^[_a-z0-9-]+(\.[_a-z0-9-]+)*@[a-z0-9-]+(\.[a-z0-9-]+)*(\.[a-z]{2,3})
 }
 
  if ( $password !== $password1 ) {
- //password must match
         echo "Entered Password do not match. Please go back and re-enter your passwords.";
         echo "<p><a href='javascript:history.back(1);'>Back</a></p>";
   exit;
@@ -48,6 +48,7 @@ if (!eregi("^[_a-z0-9-]+(\.[_a-z0-9-]+)*@[a-z0-9-]+(\.[a-z0-9-]+)*(\.[a-z]{2,3})
     exit;
 }
 
+// will be included in the ready for prime time version
 //if (!(ereg("[A-Z]",$_POST['password']) &&
 //      ereg("[a-z]",$_POST['password']) &&
 //      ereg("[0-9]",$_POST['password']) &&
@@ -65,13 +66,10 @@ if (!eregi("^[_a-z0-9-]+(\.[_a-z0-9-]+)*@[a-z0-9-]+(\.[a-z0-9-]+)*(\.[a-z]{2,3})
         $num = mysqli_num_rows ($result);
 
         if ($num == 1) {
-        echo "The username you have selected has already been taken, please go back and select a new name";
+        echo "The username you have selected has already been taken, please select a new name";
         echo "<p><a href='javascript:history.back(1);'>Back</a></p>";
     exit;
 }
-
-// hash the password with sha1
-//$shapass = sha1($_POST['password1']);
 
 // insert user record into the database
      
