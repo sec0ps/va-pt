@@ -4,6 +4,7 @@ session_start();
 session_regenerate_id();
 
 require 'incs/define.php';
+require 'incs/remote.php';
 ?>
 
 <html>
@@ -24,7 +25,7 @@ require 'incs/define.php';
 </div>
 
 <div class="search">
-<p><a href="nvd.php">NVD</a> | <a href="osvdb.php">OSVDB Results</a> | <a href="index.php">New Search</a></p>
+<p><a href="nvd.php">NVD</a> | OSVDB (Offline) | <a href="index.php">New Search</a></p>
 
 <?php
 // connect to the database
@@ -70,7 +71,7 @@ else
 echo "Error: " . $conn->error;
 }
 // close database connection
-$conn->close();
+$conn1->close();
 ?>
 </div>
 

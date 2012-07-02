@@ -1,12 +1,9 @@
 <?php
-    if ($_SERVER['REMOTE_ADDR'] != '127.0.0.1')
-    exit( print "Connections to this portal are not permitted from remote systems" );
-?>
-<?php
 session_start();
 session_regenerate_id();
 
 require 'incs/define.php';
+require 'incs/remote.php';
 ?>
 
 <html>
