@@ -1,4 +1,4 @@
-#The Assessment Management Portal
+The Assessment Management Portal
 
 = Introduction =
 
