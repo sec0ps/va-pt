@@ -16,7 +16,7 @@ require 'incs/sessman.inc';
 </head>
 <body>
 
-        <div class="application">
+<div class="application">
                 <h1><?php echo title; ?></h1>
                 <hr />
                 <p><?php echo description; ?></p>

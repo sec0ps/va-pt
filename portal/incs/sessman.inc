@@ -1,11 +1,5 @@
 <?php
 
-//if($_SERVER["HTTPS"] != "on") {
-//    $newurl = "https://" . $_SERVER["SERVER_NAME"] . $_SERVER["REQUEST_URI"];
-//    header("Location: $newurl");
-//    exit();
-//} 
-
 if ($_SERVER['REMOTE_ADDR'] != '127.0.0.1')
 exit( print "Connections to this portal are not permitted at this time from remote systems" );
 
