@@ -3,7 +3,7 @@
 $host = "localhost";
 $user = "vapt";
 $pass = "vapt";
-$db = "osvdb";
+// $db = "osvdb";
 $db1 = "exploitdb";
 $db2 = "nvd";
 
