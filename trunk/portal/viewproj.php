@@ -37,7 +37,7 @@ if ($result = $conn->query("select * from projects ORDER by id"))
 // display records in a table
 echo "<table border='1' cellpadding='5'>";
 // set table headers
-echo "<tr><th>Description</th><th>Platform</th><th>Type</th><th>File</th></tr>";
+echo "<tr><th>Project Name</th><th>Customer Contact</th><th>Customer Phone</th><th>Customer Email</th></tr>";
 
 while ($row = $result->fetch_object())
 {

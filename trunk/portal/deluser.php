@@ -32,7 +32,5 @@ Logged in as: <?php echo $_SESSION['username'] ?> | <a href="incs/logout.php">lo
 
 <?php require 'incs/menu.inc' ?>
 
-<!-- <?php require 'incs/footer.php' ?> -->
-
 </body>
 </html>

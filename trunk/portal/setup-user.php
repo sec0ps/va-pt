@@ -4,7 +4,6 @@ session_start();
 session_regenerate_id();
 
 require 'incs/define.php';
-// require 'incs/sessman.inc';
 ?>
 
 <html>

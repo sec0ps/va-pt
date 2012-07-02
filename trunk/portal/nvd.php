@@ -31,7 +31,7 @@ Logged in as: <?php echo $_SESSION['username'] ?> | <a href="incs/logout.php">lo
 <?php require 'incs/menu.inc' ?>
 
 <div class="search">
-<p><a href="osvdb.php">OSVDB</a> | <a href="exploitdb.php">ExploitDB</a> | <a href="search.php">New Search</a></p>
+<p>OSVDB (Offline) | <a href="exploitdb.php">ExploitDB</a> | <a href="search.php">New Search</a></p>
 
 <?php
 // connect to the database
@@ -69,14 +69,11 @@ else
 // show an error if there is an issue with the database query
 else
 {
-echo "Error: " . $conn->error;
+echo "Error: " . $conn2->error;
 }
 // close database connection
-$conn->close();
+$conn2->close();
 ?>
 </div>
-
-<!-- <?php require 'incs/footer.php' ?> -->
-
 </body>
 </html>
