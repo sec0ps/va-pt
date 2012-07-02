@@ -28,6 +28,11 @@ require 'incs/remote.php';
 <p><a href="nvd.php">NVD</a> | OSVDB (Offline) | <a href="index.php">New Search</a></p>
 
 <?php
+if ( !$_POST['dbstring'] ) {
+        echo "You must enter a search parameter.";
+  exit;
+}
+
 // connect to the database
 include('incs/vcon.php');
 // search string
