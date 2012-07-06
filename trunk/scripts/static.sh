@@ -108,11 +108,10 @@ sudo make install
 fi
 if [ ! -d /pentest/enumeration/thc-ipv6 ] ; then
 echo "Installing THC IPv6"
-cd /pentest/temp && wget http://freeworld.thc.org/releases/thc-ipv6-1.8.tar.gz --proxy=off
-tar zxvf thc-ipv6-1.8.tar.gz && rm -rf thc-ipv6-1.8.tar.gz
-cd thc-ipv6-1.8
-make all && cd /pentest/temp
-mv thc-ipv6-1.8/ /pentest/enumeration/thc-ipv6
+cd /pentest/temp && wget http://www.thc.org/releases/thc-ipv6-1.9.tar.gz
+tar zxvf thc-ipv6-1.9.tar.gz && rm -rf thc-ipv6-1.9.tar.gz
+mv thc-ipv6-1.9 /pentest/enumeration/thc-ipv6 && cd /pentest/enumeration/thc-ipv6
+make all
 fi
 if [ ! -d /pentest/enumeration/seat ] ; then
 echo "Installing SEAT"
