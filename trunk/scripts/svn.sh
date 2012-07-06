@@ -17,6 +17,10 @@ if [ ! -d /pentest/exploits/framework3 ] ; then
 echo "Installing Metasploit"
 cd /pentest/exploits && svn co https://www.metasploit.com/svn/framework3/trunk/ framework3
 fi
+if [ ! -d /pentest/exploits/warvox ] ; then
+echo "Installing Warvox"
+cd /pentest/exploits && svn co http://metasploit.com/svn/warvox/trunk/ warvox
+fi
 if [ ! -d /pentest/web/wapiti ] ; then
 echo "Installing Wapiti"
 cd /pentest/web && svn co https://wapiti.svn.sourceforge.net/svnroot/wapiti wapiti
