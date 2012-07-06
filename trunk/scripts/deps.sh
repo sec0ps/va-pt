@@ -68,6 +68,12 @@ tar xvf Math-Pari-2.01080605.tar.gz && rm -rf Math-Pari-2.01080605.tar.gz
 cd Math-Pari-2.01080605 && perl Makefile.PL
 sudo make install
 fi
+if [ ! -f /usr/local/lib/python2.6/dist-packages/pybloomfilter.so ] ; then
+cd /pentest/temp && wget http://c.pypi.python.org/packages/source/p/pybloomfiltermmap/pybloomfiltermmap-0.2.0.tar.gz
+tar zxvf pybloomfiltermmap-0.2.0.tar.gz && rm -rf pybloomfiltermmap-0.2.0.tar.gz
+cd pybloomfiltermmap-0.2.0/ && sudo python setup.py install
+cd /pentest/temp/ && sudo rm -rf pybloomfiltermmap-0.2.0/
+fi
 sudo cpanm Cisco::CopyConfig
 sudo cpanm Net::Whois::IP
 sudo cpanm W3C::LinkChecker
