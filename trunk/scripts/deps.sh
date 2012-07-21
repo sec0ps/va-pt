@@ -101,6 +101,7 @@ sudo cpanm DBD::SQLite
 sudo cpanm Net::Telnet::Cisco
 sudo cpanm Net::Pcap
 sudo cpanm XML::Twig
+sudo cpanm Encoding::BER
 
 echo "Installing Ruby Gems"
 #need to add dep checking for this, wastes time on rechecks

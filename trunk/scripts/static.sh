@@ -395,4 +395,10 @@ cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/gggoogl
 tar zxvf gggooglescan-0.4.tar.gz && rm -rf gggooglescan-0.4.tar.gz
 mv gggooglescan-0.4 /pentest/enumeration/gggooglescan
 fi
+if [ ! -d /pentest/enumeration/rdp-sec-check ] ; then
+echo "Installing RDP Security Checker"
+cd /pentest/temp && wget http://labs.portcullis.co.uk/download/rdp-sec-check-0.8.tar.gz
+tar xvf rdp-sec-check-0.8.tar.gz && rm -rf rdp-sec-check-0.8.tar.gz
+mv rdp-sec-check-0.8 /pentest/enumeration/rdp-sec-check
+fi
 echo "Static Code installation complete"
