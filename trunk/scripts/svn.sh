@@ -59,6 +59,10 @@ if [ ! -d /pentest/web/nikto ] ; then
 echo "Installing Nikto"
 cd /pentest/web && svn co http://svn2.assembla.com/svn/Nikto_2/trunk nikto
 fi
+if [ ! -d /pentest/web/joomscan ] ; thenif [ ! -d /pentest/web/
+echo "Instaling Joomla Scanner"
+cd /pentest/web/ && svn co https://joomscan.svn.sourceforge.net/svnroot/joomscan joomscan
+fi
 if [ ! -d /pentest/enumeration/theharvester ] ; then
 echo "Installing the Harvester"
 cd /pentest/enumeration && svn checkout http://theharvester.googlecode.com/svn/trunk/ theharvester
