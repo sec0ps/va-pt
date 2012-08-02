@@ -10,9 +10,9 @@ cd /pentest/web/wapiti && svn up
 echo "Updating ZED Attack Proxy"
 cd /pentest/web/zap && svn up
 echo "Updating w3af"
-cd /pentest/web/w3af && svn update --force
+cd /pentest/web/w3af && svn up
 echo "Updating waffit"
-cd /pentest/web/waffit && svn update
+cd /pentest/web/waffit && svn up
 echo "Updating Sulley"
 cd /pentest/fuzzers/sulley && svn up
 echo "Updating Nikto"
@@ -40,7 +40,7 @@ cd /pentest/wireless/airgraph-ng && svn up
 echo "Updating fimap"
 cd /pentest/web/fimap && svn up
 echo "Updating SQL Map"
-cd /pentest/database/sqlmap && svn up
+cd /pentest/database/sqlmap && git pull
 echo "Updatign FuzzDB"
 cd /pentest/fuzzers/fuzzdb && svn up
 echo "Updating Monkeyfist"
