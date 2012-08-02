@@ -13,7 +13,7 @@ if [ ! -d /pentest/exploits/set ] ; then
 echo "Installing SET"
 cd /pentest/exploits && svn co http://svn.secmaniac.com/social_engineering_toolkit set
 cd set && svn checkout http://pefile.googlecode.com/svn/trunk/ pefile
-cd pefile && sudo python2.6 setup.py install
+cd pefile && sudo python setup.py install
 fi
 if [ ! -d /pentest/exploits/framework3 ] ; then
 echo "Installing Metasploit"
