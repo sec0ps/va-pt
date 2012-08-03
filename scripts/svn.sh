@@ -102,6 +102,12 @@ if [ ! -d /pentest/wireless/airgraph-ng ] ; then
 cd /pentest/wireless && svn co http://trac.aircrack-ng.org/svn/trunk/scripts/airgraph-ng airgraph-ng
 cd /pentest/wireless/airgraph-ng && chmod 755 airgraph-ng
 fi
+if [ ! -d /pentest/wireless/reaver ] ; then
+echo "Installing Reaver"
+cd /pentest/wireless && svn checkout http://reaver-wps.googlecode.com/svn/trunk/ reaver
+cd reaver/src && configure
+make
+fi
 if [ ! -d /pentest/web/captcha-breaker ] ; then
 echo "Installing Captcha Breaker"
 cd /pentest/web && svn checkout http://captcha-breaker.googlecode.com/svn/trunk/ captcha-breaker
@@ -155,8 +161,8 @@ fi
 if [ ! -d /pentest/wireless/pyrit ] ; then
 echo "Installing Pyrit"
 cd /pentest/wireless && svn co http://pyrit.googlecode.com/svn/trunk/ pyrit
-cd /pentest/wireless/pyrit/pyrit && python setup.py build 
-sudo python setup.py install
+cd /pentest/wireless/pyrit/pyrit && python2.6 setup.py build 
+sudo python2.6 setup.py install
 fi
 if [ ! -d /pentest/exploits/middler ] ; then
 echo "Installing Middler"
