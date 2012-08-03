@@ -331,12 +331,12 @@ cd /pentest/misc && mkdir flare
 cd /pentest/misc/flare && wget http://www.nowrap.de/download/flare06linux.tgz
 tar xvf flare06linux.tgz && rm -rf flare06linux.tgz
 fi
-#if [ ! -d /pentest/passwords/hashcat ] ; then
-#echo "Installing Hashcat"
-#cd /pentest/temp && wget http://hashcat.net/files/hashcat-0.37.7z?d=tdtp3vc5qs2a47ied8dbv5a271 -O hashcat-0.37.7z
-#7za x hashcat-0.37.7z && rm -rf hashcat-0.37.7z
-#mv hashcat-0.37/ /pentest/passwords/hashcat
-#fi
+if [ ! -d /pentest/passwords/hashcat ] ; then
+echo "Installing Hashcat"
+cd /pentest/temp && wget http://hashcat.net/files/oclHashcat-plus-0.081-64.7z
+7za oclHashcat-plus-0.081-64.7z && rm -rf oclHashcat-plus-0.081-64.7z
+mv oclHashcat-plus-0.08 /pentest/passwords/hashcat
+fi
 if [ ! -d /pentest/exploits/windows-tools ] ; then
 echo "Installing Windows Tools"
 cd /pentest/exploits && mkdir windows-tools
