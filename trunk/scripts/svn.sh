@@ -119,7 +119,7 @@ cd /pentest/enumeration/dnsmap && wget http://dnsmap.googlecode.com/files/wordli
 fi
 if [ ! -d /pentest/database/sqlmap ] ; then
 echo "Installing SQL Map"
-cd /pentest/database && https://github.com/sqlmapproject/sqlmap.git
+cd /pentest/database && git clone https://github.com/sqlmapproject/sqlmap.git
 fi
 if [ ! -d /pentest/database/sqlninja ] ; then
 echo "Installing SQL Ninja"

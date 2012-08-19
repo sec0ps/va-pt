@@ -255,11 +255,6 @@ mv cowpatty-4.6/ /pentest/wireless/cowpatty && cd /pentest/wireless/cowpatty
 make clean && make all
 sudo make install
 fi
-if [ ! -f /pentest/enumeration/dnsrecon.rb ] ; then
-echo "Installing DNS Recon"
-cd /pentest/enumeration/ && wget http://www.darkoperator.com/tools-and-scripts/dnsrecon.rb
-chmod 700 /pentest/enumeration/dnsrecon.rb
-fi
 if [ ! -d /pentest/enumeration/dirbuster ] ; then
 cd /pentest/temp && wget http://prdownloads.sourceforge.net/dirbuster/DirBuster-0.12.tar.bz2
 bunzip2 DirBuster-0.12.tar.bz2 && tar xvf DirBuster-0.12.tar
