@@ -87,7 +87,7 @@ sudo make install
 fi
 if [ ! -d /pentest/wireless/kismet ] ; then
 echo "Installing Kismet"
-cd /pentest/wireless && svn co https://www.kismetwireless.net/code/svn/trunk kismet
+cd /pentest/wireless && git clone https://www.kismetwireless.net/kismet.git
 cd /pentest/wireless/kismet
 ./configure && make dep
 make && sudo make install
@@ -105,7 +105,7 @@ fi
 if [ ! -d /pentest/wireless/reaver ] ; then
 echo "Installing Reaver"
 cd /pentest/wireless && svn checkout http://reaver-wps.googlecode.com/svn/trunk/ reaver
-cd reaver/src && configure
+cd reaver/src && ./configure
 make
 fi
 if [ ! -d /pentest/web/captcha-breaker ] ; then
