@@ -141,6 +141,7 @@ sudo gem install http_configuration
 sudo gem install mime-types
 sudo gem install mini_exiftool
 sudo gem install hpricot
+sudo gem install zip
 cd && echo "export PATH=/var/lib/gems/1.8/bin/:$PATH" >> .bashrc
 source ~/.bashrc
 #
