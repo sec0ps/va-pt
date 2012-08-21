@@ -105,7 +105,7 @@ fi
 if [ ! -d /pentest/wireless/reaver ] ; then
 echo "Installing Reaver"
 cd /pentest/wireless && svn checkout http://reaver-wps.googlecode.com/svn/trunk/ reaver
-cd reaver/src && ./configure
+cd /pentest/wireless/reaver/src && ./configure
 make
 fi
 if [ ! -d /pentest/web/captcha-breaker ] ; then
