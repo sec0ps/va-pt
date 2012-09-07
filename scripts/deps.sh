@@ -5,7 +5,7 @@ sudo apt-get install -y libgd2-xpm-dev flasm unetbootin unetbootin-translations 
 sudo apt-get install -y gtk-recordmydesktop postgresql libpq-dev p7zip-full iw make ethtool dos2unix gcc subversion gip mysql-server
 sudo apt-get install -y libmysqlclient-dev gem arp-scan libmysql-ruby php5-mysql libapache2-mod-auth-mysql sqlite3 hping3 openssh-server
 sudo apt-get install -y uClibc++ libncurses-dev libidn11-dev libssl-dev libssh-dev cmake python-scapy python-sqlalchemy python2.6-dev
-sudo apt-get install -y libpcap0.8 libnl-dev ruby cdpr p0f xprobe rdoc bluez-hcidump ruby1.8-dev wine liberror-perl git-core apache2 mono-2.0-devel
+sudo apt-get install -y libpcap0.8 libnl-dev ruby cdpr p0f xprobe rdoc bluez-hcidump ruby1.8-dev wine liberror-perl git-core apache2 mono-devel
 sudo apt-get install -y openjdk-6-jre openjdk-6-jre-lib python-lxml graphviz autoconf sqlmap libsqlite3-0 libsqlite3-dev sslscan sqlfairy
 sudo apt-get install -y libcamlimages-ocaml libcamlimages-ocaml-dev libcamlimages-ocaml-dev libocamlgsl-ocaml libocamlgsl-ocaml-dev
 sudo apt-get install -y ocaml-findlib ocaml-native-compilers m4 maven2 libxslt1.1 libxslt1-dev xsltproc ettercap-gtk libgmp3-dev xmltoman
@@ -24,7 +24,7 @@ sudo apt-get install -y bkhive xprobe2 safecopy ptunnel ngrep btscanner cabextra
 sudo apt-get install -y galleta pasco vinetto autopsy wine1.3-dev rifiuti2 recover extundelete recoverdm ext3grep python-gtksourceview2 zlib1g-dev 
 sudo apt-get install -y libasound2-dev libbz2-dev vlc libvlc-dev gtk2-engines-pixbuf perl-doc ike-scan xchat outguess steghide python-septic snowdrop
 sudo apt-get install -y flex libidn11-dev zlib-bin zlibc ruby-openssl texlive-latex-extra liblzo2-dev python-pysqlite2 sslsniff libnet-netmask-perl
-sudo apt-get install -y inguma libreadline-dev registry-tools flamerobin dsniff cryptcat virtualbox-guest-additions
+sudo apt-get install -y inguma libreadline-dev registry-tools flamerobin dsniff cryptcat virtualbox-guest-additions 
 
 #Oracle dependencies for metasploit, hydra, etc
 #if [ ! -d /opt/oracle ] ; then
@@ -105,6 +105,7 @@ sudo cpanm Encoding::BER
 
 echo "Installing Ruby Gems"
 #need to add dep checking for this, wastes time on rechecks
+sudo gem install rubygems-update
 sudo gem install em-resolv-replace
 sudo gem install mongo
 sudo gem install rchardet
