@@ -294,7 +294,7 @@ chmod 700 proxyscan.pl
 fi
 if [ ! -d /pentest/enumeration/httprint ] ; then
 echo "Installing HTTPrint"
-cd /pentest/temp && wget http://net-square.com/httprint/httprint_linux_301.zip
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/httprint_linux_301.zip 
 unzip httprint_linux_301.zip && rm -rf httprint_linux_301.zip
 mv httprint_301/linux /pentest/enumeration/httprint
 cd /pentest/temp && rm -rf httprint_301/
