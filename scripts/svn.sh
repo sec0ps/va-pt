@@ -176,6 +176,10 @@ if [ ! -d /pentest/audit/routerdefense ] ; then
 echo "Installing Router Defense"
 cd /pentest/audit && svn checkout http://routerdefense.googlecode.com/svn/trunk/ routerdefense
 fi
+if [ ! -d /pentest/web/wpscan ] ; then
+echo "Installing Wordpress Scanner"
+cd /pentest/web && git clone https://github.com/wpscanteam/wpscan.git
+fi
 if [ ! -d /pentest/misc/redmine ] ; then
 echo "Installing Redmine"
 cd /pentest/misc && svn co http://redmine.rubyforge.org/svn/branches/1.2-stable redmine

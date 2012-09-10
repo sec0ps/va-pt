@@ -98,7 +98,7 @@ echo "Updating Nessus Plugins"
 sudo /opt/nessus/sbin/nessus-update-plugins
 fi
 /pentest/web/skipfish/skipfish -h | grep "version"
-if [ $? != "2.06b" ] ; then
+if [ $? != "2.09b" ] ; then
 echo "skipfish is up to date"
 else
 echo "skipfish is not up to date, updating now."
