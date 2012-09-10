@@ -23,6 +23,8 @@ echo "updating htshells"
 cd /pentest/web/htshells && git pull
 echo "Updating SSLyze"
 cd /pentest/web/sslyze && svn up
+echo "Updating WPScanner"
+cd /pentest/web/wpscan && git pull
 #echo "Updating Dradis"
 #cd /pentest/misc/dradis && svn up
 echo "Updating wfuzz"
