@@ -308,9 +308,9 @@ sudo /pentest/exploits/set/set
 fi
 if [ ! -d /pentest/web/skipfish ] ; then
 echo "Installing skipfish"
-cd /pentest/web/ && wget http://skipfish.googlecode.com/files/skipfish-2.06b.tgz
-tar zxvf skipfish-2.06b.tgz && rm -rf skipfish-2.06b.tgz
-mv skipfish-2.06b skipfish
+cd /pentest/web/ && wget http://skipfish.googlecode.com/files/skipfish-2.09b.tgz
+tar zxvf skipfish-2.09b.tgz && rm -rf skipfish-2.09b.tgz
+mv skipfish-2.09b skipfish
 cd skipfish && make
 cp /pentest/web/skipfish/dictionaries/complete.wl /pentest/web/skipfish/dictionaries/skipfish.wl
 fi
