@@ -60,6 +60,12 @@ perl Makefile.PL && make
 sudo make install
 fi
 
+if [ ! -f /usr/local/lib/python2.7/dist-packages/cHeatmap.so ] ; then
+echo "Installing Heatmap"
+cd /pentest/temp && wget http://jjguy.com/heatmap/heatmap-2.2.tar.gz
+cd heatmap-2.2 && sudo python setup.py install
+fi
+
 echo "Installing PERL Libraries"
 if [ ! -d /usr/local/lib/perl/5.12.4/Math/ ] ; then
 cd /pentest/temp && wget ftp://megrez.math.u-bordeaux.fr/pub/pari/unix/OLD/pari-2.1.7.tgz --proxy=off
