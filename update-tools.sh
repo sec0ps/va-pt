@@ -119,6 +119,13 @@ else
 echo "THC Hydra is not up to date, updating now."
 rm -rf /pentest/enumeration/hydra && /pentest/misc/va-pt/scripts/static.sh
 fi
+/pentest/enumeration/thc-ipv6/thcping6 | grep "v2.0"
+if [ $? -eq 0 ] ; then
+echo "THC IPv6 Attack Suite is up to date"
+else
+echo "THC IPv6 Attack Suite is not up to date, updating now"
+rm -rf /pentest/enumeration/thc-ipv6 && /pentest/misc/va-pt/scripts/static.sh
+fi
 echo "Updating Local Exploit Repository"
 cd /pentest/exploits && rm -rf exploitdb/
 /pentest/misc/va-pt/scripts/exploits.sh
