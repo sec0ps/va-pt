@@ -53,6 +53,13 @@ tar zxvf ratproxy-1.58.tar.gz && rm -rf ratproxy-1.58.tar.gz
 mv ratproxy/ /pentest/web/ && cd /pentest/web/ratproxy
 make
 fi
+
+if [ ! -d /pentest/wireless/asleap ] ; then
+echo "Installing asleap"
+cd /pentest/temp && wget http://prdownloads.sourceforge.net/project/asleap/asleap/asleap-1.4/asleap-1.4.tgz
+tar xvf asleap-1.4.tgz && mv asleap/ /pentest/wireless
+cd /pentest/wireless/asleap && make
+fi
 #if [ ! -d /pentest/voip/smap ] ; then
 #echo "Installing SMAP"
 #cd /pentest/temp && wget http://www.protectors.cc/blog/uploads/vapt/smap.tar.gz
@@ -108,9 +115,9 @@ sudo make install
 fi
 if [ ! -d /pentest/enumeration/thc-ipv6 ] ; then
 echo "Installing THC IPv6"
-cd /pentest/temp && wget http://www.thc.org/releases/thc-ipv6-1.9.tar.gz
-tar zxvf thc-ipv6-1.9.tar.gz && rm -rf thc-ipv6-1.9.tar.gz
-mv thc-ipv6-1.9 /pentest/enumeration/thc-ipv6 && cd /pentest/enumeration/thc-ipv6
+cd /pentest/temp && wget http://www.thc.org/releases/thc-ipv6-2.0.tar.gz
+tar zxvf thc-ipv6-2.0.tar.gz && rm -rf thc-ipv6-2.0.tar.gz
+mv thc-ipv6-2.0 /pentest/enumeration/thc-ipv6 && cd /pentest/enumeration/thc-ipv6
 make all
 fi
 if [ ! -d /pentest/enumeration/seat ] ; then
