@@ -127,9 +127,9 @@ bunzip2 seat-0.3.tar.bz2 &&  tar xvf seat-0.3.tar
 rm -rf seat-0.3.tar && mv seat/ /pentest/enumeration
 fi
 if [ ! -d /pentest/voip/voiphopper ] ; then
-cd /pentest/temp && wget http://prdownloads.sourceforge.net/voiphopper/voiphopper-1.02.tar.gz
-tar zxvf voiphopper-1.02.tar.gz && rm -rf voiphopper-1.02.tar.gz
-mv voiphopper-1.02 /pentest/voip/voiphopper && cd /pentest/voip/voiphopper
+cd /pentest/temp && wget http://prdownloads.sourceforge.net/voiphopper/voiphopper-2.0/voiphopper-2.04.tar.gz
+tar zxvf voiphopper-2.04.tar.gz && rm -rf voiphopper-2.04.tar.gz
+mv voiphopper-2.04 /pentest/voip/voiphopper && cd /pentest/voip/voiphopper
 cd /pentest/voip/voiphopper && make
 fi
 if [ ! -d /pentest/enumeration/burpsuite ] ; then
