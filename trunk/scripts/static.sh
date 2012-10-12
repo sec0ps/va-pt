@@ -350,47 +350,6 @@ bunzip2 fgdump-2.1.0-exeonly.tar.bz2 && rm -rf fgdump-2.1.0-exeonly.tar.bz2
 tar xvf fgdump-2.1.0-exeonly.tar && rm -rf fgdump-2.1.0-exeonly.tar
 mv Release/fgdump.exe /pentest/exploits/windows-tools/ && rm -rf Release/
 fi
-#if [ ! -d /pentest/passwords/oclhashcat ] ; then
-#echo "Installing oclhashcat"
-#cd /pentest/temp &&  wget http://hashcat.net/files/oclHashcat-0.25.7z?d=5knt7juet7tih11fu5l28fftf2 -O oclHashcat-0.25.7z
-#7za x oclHashcat-0.25.7z && rm -rf oclHashcat-0.25.7z
-#mv oclHashcat-0.25/ /pentest/passwords/oclhashcat
-#fi
-if [ ! -d /pentest/misc/dradis ] ; then
-echo "Installing Dradis"
-cd /pentest/temp && wget http://sourceforge.net/projects/dradis/files/dradis/v2.8.0/dradis-v2.8.0.tar.bz2/download -O dradis-v2.8.0.tar.bz2
-bunzip2 dradis-v2.8.0.tar.bz2 && tar xvf dradis-v2.8.0.tar
-rm -rf dradis-v2.8.0.tar && mv dradis-2.8/ /pentest/misc/dradis
-cd /pentest/misc/dradis/server && /var/lib/gems/1.8/bin/bundle install
-cd /pentest/misc/dradis && ./reset.sh
-fi
-if [ ! -d /opt/xplico ] ; then
-echo "Installing Xplico"
-sudo bash -c 'echo "deb http://repo.xplico.org/ $(lsb_release -s -c) main" >> /etc/apt/sources.list'
-sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 791C25CE
-sudo apt-get update
-sudo apt-get install xplico
-sudo service apache2 restart
-echo "Xplico by default is now running on 9876 - http://localhost:9876"
-fi
-if [ ! -d /pentest/enumeration/netglub ] ; then
-cd /pentest/enumeration && wget http://redmine.lab.diateam.net/attachments/download/1/netglub-1.0.tar.gz
-tar -xzvf netglub-1.0.tar.gz && rm -rf netglub-1.0.tar.gz
-mv netglub-1.0 netglub
-cd /pentest/enumeration/netglub/qng/
-qmake && make
-echo "Enter the root mysql password to create the netglub user and databases"
-mysqladmin create netglub -u root -p
-mysql -u root -p -e "grant all privileges on netglub.* to 'netglub'@'localhost' identified by 'netglub'"
-mysql -u root -p netglub < /pentest/enumeration/netglub/master/tools/sql/netglub.sql  
-cd /pentest/enumeration/netglub/master
-qmake && make
-cd tools/ && sudo ./install.sh
-cd /pentest/enumeration/netglub/slave
-qmake && make
-cd tools/ && sudo ./install.sh
-echo "When starting netglub for the first time use the code 2222-4567-89ab-cdef"
-fi
 if [ ! -d /pentest/enumeration/gggooglescan ] ; then
 echo "Installing gggooglescan"
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/gggooglescan-0.4.tar.gz
@@ -403,4 +362,50 @@ cd /pentest/temp && wget http://labs.portcullis.co.uk/download/rdp-sec-check-0.8
 tar xvf rdp-sec-check-0.8.tar.gz && rm -rf rdp-sec-check-0.8.tar.gz
 mv rdp-sec-check-0.8 /pentest/enumeration/rdp-sec-check
 fi
+if [ ! -d /pentest/misc/dradis ] ; then
+echo "Installing Dradis"
+cd /pentest/temp && wget http://sourceforge.net/projects/dradis/files/dradis/v2.8.0/dradis-v2.8.0.tar.bz2/download -O dradis-v2.8.0.tar.bz2
+bunzip2 dradis-v2.8.0.tar.bz2 && tar xvf dradis-v2.8.0.tar
+rm -rf dradis-v2.8.0.tar && mv dradis-2.8/ /pentest/misc/dradis
+cd /pentest/misc/dradis/server && /var/lib/gems/1.8/bin/bundle install
+cd /pentest/misc/dradis && ./reset.sh
+fi
+if [ ! -d /pentest/wireless/hwk ] ; then
+echo "Installing HWK Wireless Auditing Tool"
+cd /pentest/temp && wget http://prdownloads.sourceforge.net/project/hwk/hwk_0.3.2.tar.gz
+tar xvf hwk_0.3.2.tar.gz && mv hwk_0.3.2 /pentest/wireless/hwk
+cd /pentest/wireless/hwk && make
+fi
+if [ ! -f /pentest/cisco/cisc0wn.sh ] ; then
+echo "Installing Cisco 0wn"
+cd /pentest/cisco && wget http://www.commonexploits.com/tools/cisc0wn/cisc0wn.sh
+chmod 755 cisc0wn.sh
+fi
+if [ ! -d /opt/xplico ] ; then
+echo "Installing Xplico"
+sudo bash -c 'echo "deb http://repo.xplico.org/ $(lsb_release -s -c) main" >> /etc/apt/sources.list'
+sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 791C25CE
+sudo apt-get update
+sudo apt-get install xplico
+sudo service apache2 restart
+echo "Xplico by default is now running on 9876 - http://localhost:9876"
+fi
+#if [ ! -d /pentest/enumeration/netglub ] ; then
+#cd /pentest/enumeration && wget http://redmine.lab.diateam.net/attachments/download/1/netglub-1.0.tar.gz
+#tar -xzvf netglub-1.0.tar.gz && rm -rf netglub-1.0.tar.gz
+#mv netglub-1.0 netglub
+#cd /pentest/enumeration/netglub/qng/
+#qmake && make
+#echo "Enter the root mysql password to create the netglub user and databases"
+#mysqladmin create netglub -u root -p
+#mysql -u root -p -e "grant all privileges on netglub.* to 'netglub'@'localhost' identified by 'netglub'"
+#mysql -u root -p netglub < /pentest/enumeration/netglub/master/tools/sql/netglub.sql  
+#cd /pentest/enumeration/netglub/master
+#qmake && make
+#cd tools/ && sudo ./install.sh
+#cd /pentest/enumeration/netglub/slave
+#qmake && make
+#cd tools/ && sudo ./install.sh
+#echo "When starting netglub for the first time use the code 2222-4567-89ab-cdef"
+#fi
 echo "Static Code installation complete"
