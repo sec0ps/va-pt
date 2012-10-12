@@ -212,6 +212,10 @@ make clean
 ./configure && make
 sudo make install
 fi
+if [ ! -d /pentest/passwords/ntlmsspparse ] ; then
+echo "Installing NTLMS Parse"
+cd /pentest/passwords && git clone https://github.com/psychomario/ntlmsspparse.git
+fi
 # install Vuln Portal
 if [ ! -d /var/www/search ] ; then
 echo "Installing Vulnerability Database Portal"
