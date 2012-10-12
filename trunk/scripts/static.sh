@@ -381,6 +381,12 @@ echo "Installing Cisco 0wn"
 cd /pentest/cisco && wget http://www.commonexploits.com/tools/cisc0wn/cisc0wn.sh
 chmod 755 cisc0wn.sh
 fi
+if [ ! -d /pentest/exploits/smbexec ] ; then
+echo "Installing smbexec"
+cd /pentest/temp && wget http://prdownloads.sourceforge.net/project/smbexec/smbexec-1.1.0.tar.gz
+tar xvf smbexec-1.1.0.tar.gz && rm -rf smbexec-1.1.0.tar.gz
+mv smbexec/ /pentest/exploits
+fi
 if [ ! -d /opt/xplico ] ; then
 echo "Installing Xplico"
 sudo bash -c 'echo "deb http://repo.xplico.org/ $(lsb_release -s -c) main" >> /etc/apt/sources.list'
