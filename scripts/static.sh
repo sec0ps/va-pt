@@ -350,6 +350,14 @@ bunzip2 fgdump-2.1.0-exeonly.tar.bz2 && rm -rf fgdump-2.1.0-exeonly.tar.bz2
 tar xvf fgdump-2.1.0-exeonly.tar && rm -rf fgdump-2.1.0-exeonly.tar
 mv Release/fgdump.exe /pentest/exploits/windows-tools/ && rm -rf Release/
 fi
+if [ ! -d /pentest/enumeration/ike ] ; then
+echo "Installing VPN Tools"
+cd /pentest/temp && wget http://www.ernw.de/download/ikeprobe.zip --no-check-certificate
+unzip ikeprobe.zip && rm -rf ikeprobe.zip
+mkdir /pentest/enumeration/ike
+mv ikeprobe.exe /pentest/enumeration/ike/ && mv libeay32.dll /pentest/enumeration/ike/
+cd /pentest/enumeration/vpn && wget wget http://prdownloads.sourceforge.net/project/ikecrack/ikecrack-perl/1.00/ikecrack-snarf-1.00.pl
+fi
 if [ ! -d /pentest/enumeration/gggooglescan ] ; then
 echo "Installing gggooglescan"
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/gggooglescan-0.4.tar.gz
