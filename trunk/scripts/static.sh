@@ -356,7 +356,7 @@ cd /pentest/temp && wget http://www.ernw.de/download/ikeprobe.zip --no-check-cer
 unzip ikeprobe.zip && rm -rf ikeprobe.zip
 mkdir /pentest/enumeration/ike
 mv ikeprobe.exe /pentest/enumeration/ike/ && mv libeay32.dll /pentest/enumeration/ike/
-cd /pentest/enumeration/vpn && wget wget http://prdownloads.sourceforge.net/project/ikecrack/ikecrack-perl/1.00/ikecrack-snarf-1.00.pl
+cd /pentest/enumeration/ike && wget http://prdownloads.sourceforge.net/project/ikecrack/ikecrack-perl/1.00/ikecrack-snarf-1.00.pl
 fi
 if [ ! -d /pentest/enumeration/gggooglescan ] ; then
 echo "Installing gggooglescan"
