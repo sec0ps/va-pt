@@ -162,10 +162,10 @@ if [ ! -d /pentest/fuzzers/wsfuzzer ] ; then
 echo "Installing WSFuzzer"
 cd /pentest/fuzzers && svn co https://wsfuzzer.svn.sourceforge.net/svnroot/wsfuzzer wsfuzzer
 fi
-if [ ! -d /pentest/wireless/pyrit ] ; then
+if [ ! -d /pentest/passwords/pyrit ] ; then
 echo "Installing Pyrit"
-cd /pentest/wireless && svn co http://pyrit.googlecode.com/svn/trunk/ pyrit
-cd /pentest/wireless/pyrit/pyrit && python2.6 setup.py build 
+cd /pentest/passwords && svn co http://pyrit.googlecode.com/svn/trunk/ pyrit
+cd /pentest/passwords/pyrit/pyrit && python2.6 setup.py build 
 sudo python2.6 setup.py install
 fi
 if [ ! -d /pentest/exploits/middler ] ; then
