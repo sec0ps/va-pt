@@ -88,9 +88,6 @@ echo "Updating the Vulnerability Database Portal"
 cd /var/www/search && sudo svn up
 echo "Updating Warvox"
 cd /pentest/exploits/warvox && svn up
-echo "Updating Kisheat"
-cd /pentest/wireless/kisheat && svn up
-if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
 sudo /usr/sbin/openvas-nvt-sync --wget
 fi

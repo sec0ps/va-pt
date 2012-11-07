@@ -25,7 +25,7 @@ sudo apt-get install -y galleta pasco vinetto autopsy wine1.3-dev rifiuti2 recov
 sudo apt-get install -y libasound2-dev libbz2-dev vlc libvlc-dev gtk2-engines-pixbuf perl-doc ike-scan xchat outguess steghide python-septic snowdrop
 sudo apt-get install -y flex libidn11-dev zlib-bin zlibc ruby-openssl texlive-latex-extra liblzo2-dev python-pysqlite2 sslsniff libnet-netmask-perl
 sudo apt-get install -y inguma libreadline-dev registry-tools flamerobin dsniff cryptcat virtualbox-guest-additions gtk2-engines-pixbuf libcurl3-dev
-sudo apt-get install -y yersinia proxychains
+sudo apt-get install -y yersinia proxychains libavahi-common-dev
 
 #Oracle dependencies for metasploit, hydra, etc
 #if [ ! -d /opt/oracle ] ; then
@@ -58,12 +58,6 @@ cd cpanminus
 #sudo ./cpanm --installdeps .
 perl Makefile.PL && make
 sudo make install
-fi
-
-if [ ! -f /usr/local/lib/python2.7/dist-packages/cHeatmap.so ] ; then
-echo "Installing Heatmap"
-cd /pentest/temp && wget http://jjguy.com/heatmap/heatmap-2.2.tar.gz
-cd heatmap-2.2 && sudo python setup.py install
 fi
 
 echo "Installing PERL Libraries"
