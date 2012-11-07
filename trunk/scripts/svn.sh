@@ -92,10 +92,6 @@ cd /pentest/wireless/kismet
 ./configure && make dep
 make && sudo make install
 fi
-if [ ! -d /pentest/wireless/kisheat ] ; then
-echo "Installing Kismet"
-cd /pentest/wireless && svn checkout http://kisheat.googlecode.com/svn/trunk/ kisheat
-fi
 if [ ! -d /pentest/wireless/aircrack-ng ] ; then
 echo "Installing Aircrack Tools"
 cd /pentest/wireless && svn co http://trac.aircrack-ng.org/svn/trunk aircrack-ng

@@ -395,6 +395,23 @@ cd /pentest/temp && wget http://prdownloads.sourceforge.net/project/smbexec/smbe
 tar xvf smbexec-1.1.0.tar.gz && rm -rf smbexec-1.1.0.tar.gz
 mv smbexec/ /pentest/exploits
 fi
+
+if [ ! -d /pentest/web/mantra ] ; then
+echo "Installing OWASP Mantra"
+cd /pentest/temp && wget http://getmantra.googlecode.com/files/Mantra%20Lexicon%20Lin32%20EN.tar.bz2 -O MantraLexicon.tar.bz2
+bunzip2 MantraLexicon.tar.bz2 && tar xvf MantraLexicon.tar
+mv OWASP\ Mantra\ -\ Lexicon\ -en\ 32\ bit\ Linux/ /pentest/web/mantra
+fi
+
+if [ ! -f /pentest/enumeration/mdns.py ] ; then
+echo "Installing mDNS Scanner"
+cd /pentest/enumeration && wget http://www.gnucitizen.org/static/blog/2008/01/mdns.py
+cd /pentest/temp && wget http://pybonjour.googlecode.com/files/pybonjour-1.1.1.tar.gz
+tar xvf pybonjour-1.1.1.tar.gz && rm -rf pybonjour-1.1.1.tar.gz
+cd pybonjour-1.1.1/ && sudo python setup.py install
+cd /pentest/temp && rm -rf pybonjour-1.1.1
+fi
+
 if [ ! -d /opt/xplico ] ; then
 echo "Installing Xplico"
 sudo bash -c 'echo "deb http://repo.xplico.org/ $(lsb_release -s -c) main" >> /etc/apt/sources.list'
