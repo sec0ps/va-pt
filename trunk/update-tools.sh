@@ -90,7 +90,6 @@ echo "Updating Warvox"
 cd /pentest/exploits/warvox && svn up
 echo "Updating OpenVAS"
 sudo /usr/sbin/openvas-nvt-sync --wget
-fi
 if [ -f /opt/nessus/sbin/nessus-update-plugins ] ; then
 echo "Updating Nessus Plugins"
 sudo /opt/nessus/sbin/nessus-update-plugins
