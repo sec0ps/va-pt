@@ -34,7 +34,7 @@ cd /pentest/fuzzers/wfuzz && svn up
 echo "Updating Fierce2"
 cd /pentest/enumeration/fierce2 && svn update
 echo "Updating Kismet"
-cd /pentest/wireless/kismet && svn up
+cd /pentest/wireless/kismet && git pull
 echo "Updating Aircrack Tools"
 cd /pentest/wireless/aircrack-ng && svn up
 echo "Updating Airgraph-NG"
@@ -64,7 +64,7 @@ cd /pentest/web/phpshell && svn up
 echo "Updating DNS Enum"
 cd /pentest/enumeration/dnsenum && svn up
 echo "Updating Pyrit"
-cd /pentest/wireless/pyrit && svn up
+cd /pentest/passwords/pyrit && svn up
 echo "Updating Middler"
 cd /pentest/exploits/middler && svn up
 echo "Updating keimpx"
