@@ -180,6 +180,11 @@ if [ ! -d /pentest/web/wpscan ] ; then
 echo "Installing Wordpress Scanner"
 cd /pentest/web && git clone https://github.com/wpscanteam/wpscan.git
 fi
+if [ ! -f /usr/local/bin/smbclient.py ] ; then
+echo "Installing Impacket"
+cd /pentest/temp && svn checkout http://impacket.googlecode.com/svn/trunk/ impacket
+cd impacket && sudo python setup.py install
+fi
 if [ ! -d /pentest/misc/redmine ] ; then
 echo "Installing Redmine"
 cd /pentest/misc && svn co http://redmine.rubyforge.org/svn/branches/1.2-stable redmine
