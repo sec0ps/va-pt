@@ -150,13 +150,6 @@ echo "Installing Cisco Torch"
 wget http://www.hackingciscoexposed.com/tools/cisco-torch-0.4b.tar.gz && tar zxvf cisco-torch-0.4b.tar.gz
 mv cisco-torch-0.4b /pentest/cisco/torch && rm cisco-torch-0.4b.tar.gz
 fi
-#if [ ! -d /pentest/scanners/halfscan6 ] ; then
-#echo "Installing Halfscan"
-#cd /pentest/temp && wget http://freshmeat.net/urls/14cf8e84c44c52c3045936e7c3d23f71 -O halfscan6-0.2.tar.gz
-#tar zxvf halfscan6-0.2.tar.gz && cd halfscan6-0.2
-#make && cd ../
-#mv halfscan6-0.2 /pentest/scanners/halfscan6 && rm -rf rm -rf /pentest/temp/halfscan6-0.2.tar.gz
-#fi
 if [ ! -d /pentest/scanners/snmp/snmpenum ] ; then
 echo "Installing SNMPenum"
 cd /pentest/scanners/snmp && mkdir snmpenum
@@ -171,13 +164,6 @@ tar zxvf ADMsnmp.0.1.tgz && rm -rf ADMsnmp.0.1.tgz
 mv ADMsnmp/ /pentest/enumeration/admsnmp  && cd /pentest/enumeration/admsnmp
 gcc snmp.c -o ADMsnmp && rm -rf snmp.c ADMsnmp.README
 fi
-#removed as it is currently not working
-#if [ ! -d /pentest/enumeration/metagoofil ] ; then
-#echo "Installing Metagoofil"
-#cd /pentest/temp && wget http://www.edge-security.com/soft/metagoofil-1.4b.tar
-#tar xvf metagoofil-1.4b.tar && rm metagoofil-1.4b.tar
-#mv metagoofil/ /pentest/enumeration/
-#fi
 if [ ! -d /pentest/enumeration/firewalk ] ; then
 echo "Installing Firewalk"
 cd /pentest/temp && wget http://packetfactory.openwall.net/firewalk/dist/firewalk.tar.gz
@@ -335,9 +321,9 @@ tar xvf flare06linux.tgz && rm -rf flare06linux.tgz
 fi
 if [ ! -d /pentest/passwords/hashcat ] ; then
 echo "Installing Hashcat"
-cd /pentest/temp && wget http://hashcat.net/files/oclHashcat-plus-0.081-32.7z
-7za x oclHashcat-plus-0.081-32.7z && rm -rf oclHashcat-plus-0.081-32.7z
-mv oclHashcat-plus-0.08 /pentest/passwords/hashcat
+cd /pentest/temp && wget http://hashcat.net/files/oclHashcat-plus-0.09.7z
+7za x oclHashcat-plus-0.09.7z && rm -rf oclHashcat-plus-0.09.7z
+mv oclHashcat-plus-0.09 /pentest/passwords/hashcat
 fi
 if [ ! -d /pentest/exploits/windows-tools ] ; then
 echo "Installing Windows Tools"
@@ -395,14 +381,12 @@ cd /pentest/temp && wget http://prdownloads.sourceforge.net/project/smbexec/smbe
 tar xvf smbexec-1.1.0.tar.gz && rm -rf smbexec-1.1.0.tar.gz
 mv smbexec/ /pentest/exploits
 fi
-
 if [ ! -d /pentest/web/mantra ] ; then
 echo "Installing OWASP Mantra"
 cd /pentest/temp && wget http://getmantra.googlecode.com/files/Mantra%20Lexicon%20Lin32%20EN.tar.bz2 -O MantraLexicon.tar.bz2
 bunzip2 MantraLexicon.tar.bz2 && tar xvf MantraLexicon.tar
 mv OWASP\ Mantra\ -\ Lexicon\ -en\ 32\ bit\ Linux/ /pentest/web/mantra
 fi
-
 if [ ! -f /pentest/enumeration/mdns.py ] ; then
 echo "Installing mDNS Scanner"
 cd /pentest/enumeration && wget http://www.gnucitizen.org/static/blog/2008/01/mdns.py
@@ -411,7 +395,12 @@ tar xvf pybonjour-1.1.1.tar.gz && rm -rf pybonjour-1.1.1.tar.gz
 cd pybonjour-1.1.1/ && sudo python setup.py install
 cd /pentest/temp && rm -rf pybonjour-1.1.1
 fi
-
+if [ ! -d /pentest/enumeration/win-enum ] ; then
+echo "Installing Windows Enum Tools"
+cd /pentest/temp && wget http://labs.portcullis.co.uk/download/enum4linux-0.8.8.tar.gz
+tar xvf enum4linux-0.8.8.tar.gz && rm -rf enum4linux-0.8.8.tar.gz
+mv enum4linux-0.8.8 /pentest/enumeration/win-enum
+fi
 if [ ! -d /opt/xplico ] ; then
 echo "Installing Xplico"
 sudo bash -c 'echo "deb http://repo.xplico.org/ $(lsb_release -s -c) main" >> /etc/apt/sources.list'
