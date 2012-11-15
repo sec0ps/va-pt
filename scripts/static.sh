@@ -383,7 +383,7 @@ cd /pentest/enumeration && wget http://www.gnucitizen.org/static/blog/2008/01/md
 cd /pentest/temp && wget http://pybonjour.googlecode.com/files/pybonjour-1.1.1.tar.gz
 tar xvf pybonjour-1.1.1.tar.gz && rm -rf pybonjour-1.1.1.tar.gz
 cd pybonjour-1.1.1/ && sudo python setup.py install
-cd /pentest/temp && rm -rf pybonjour-1.1.1
+cd /pentest/temp && sudo rm -rf pybonjour-1.1.1
 fi
 if [ ! -d /pentest/enumeration/win-enum ] ; then
 echo "Installing Windows Enum Tools"
