@@ -391,6 +391,18 @@ cd /pentest/temp && wget http://labs.portcullis.co.uk/download/enum4linux-0.8.8.
 tar xvf enum4linux-0.8.8.tar.gz && rm -rf enum4linux-0.8.8.tar.gz
 mv enum4linux-0.8.8 /pentest/enumeration/win-enum
 fi
+if [ ! -f /pentest/database/bsqlbf-v2.pl ] ; then
+echo "Installing Blind SQL Brute Forcer"
+cd /pentest/temp && wget http://labs.portcullis.co.uk/download/bsqlbfv2.zip
+unzip bsqlbfv2.zip && rm -rf bsqlbfv2.zip
+mv bsqlbf-v2/bsqlbf-v2.pl /pentest/database/ && rm -rf bsqlbf-v2/
+fi
+if [ ! -d /pentest/enumeration/apache_userdir ] ; then
+echo "Installing Apache UserDir Enumerator"
+cd /pentest/temp && wget http://labs.portcullis.co.uk/download/apache_users-2.1.tar.gz
+tar xvf apache_users-2.1.tar.gz && rm -rf apache_users-2.1.tar.gz
+mv apache_users /pentest/enumeration/apache_userdir
+fi
 if [ ! -d /opt/xplico ] ; then
 echo "Installing Xplico"
 sudo bash -c 'echo "deb http://repo.xplico.org/ $(lsb_release -s -c) main" >> /etc/apt/sources.list'
