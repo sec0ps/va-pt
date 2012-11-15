@@ -88,6 +88,8 @@ echo "Updating the Vulnerability Database Portal"
 cd /var/www/search && sudo svn up
 echo "Updating Warvox"
 cd /pentest/exploits/warvox && svn up
+echo "Updating WhatWeb"
+cd /pentest/web/WhatWeb && git pull
 echo "Updating OpenVAS"
 sudo /usr/sbin/openvas-nvt-sync --wget
 if [ -f /opt/nessus/sbin/nessus-update-plugins ] ; then

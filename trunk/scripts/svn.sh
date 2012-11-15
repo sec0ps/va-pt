@@ -184,6 +184,11 @@ if [ ! -f /usr/local/bin/smbclient.py ] ; then
 echo "Installing Impacket"
 cd /pentest/temp && svn checkout http://impacket.googlecode.com/svn/trunk/ impacket
 cd impacket && sudo python setup.py install
+cd /pentest/temp && sudo rm -rf impacket
+fi
+if [ ! -d /pentest/web/WhatWeb ] ; then
+echo "Installing WhatWeb"
+cd /pentest/web && git clone git://github.com/urbanadventurer/WhatWeb.git
 fi
 if [ ! -d /pentest/misc/redmine ] ; then
 echo "Installing Redmine"
