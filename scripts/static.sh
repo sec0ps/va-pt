@@ -3,7 +3,7 @@ if [ ! -d /pentest/scanners/snmp ] ; then
 echo "Installing OneSixtyOne & snmpcheck"
 mkdir /pentest/scanners/snmp
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/onesixtyone-0.3.tar.gz
-gunzip onesixtyone-0.3.tar.gz && tar xvf onesixtyone-0.3.tar.gz && rm -rf onesixtyone-0.3.tar.gz
+tar zxvf onesixtyone-0.3.tar.gz && rm -rf onesixtyone-0.3.tar.gz
 mv onesixtyone-0.3/ /pentest/scanners/snmp/onesixtyone
 cd /pentest/scanners/snmp/onesixtyone && gcc -o onesixtyone onesixtyone.c
 cd /pentest/scanners/snmp && wget http://www.nothink.org/perl/snmpcheck/downloads/snmpcheck-1.8.pl -O snmpcheck.pl
@@ -12,19 +12,13 @@ fi
 if [ ! -d /pentest/cisco/cge ] ; then
 echo "Installing Cisco Global Exploiter"
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/0405-exploits/cge-13.tar.gz
-tar zxvf cge-13.tar.gz && mv cge-13/ /pentest/cisco/cge
-cd /pentest/cisco/cge && chmod 700 cge.pl
-rm -rf /pentest/temp/cge-13.tar.gz && dos2unix cge.pl
+tar zxvf cge-13.tar.gz && cge-13.tar.gz
+mv cge-13/ /pentest/cisco/cge && cd /pentest/cisco/cge
+chmod 700 cge.pl && dos2unix cge.pl
 fi
 if [ ! -f /pentest/cisco/copy-router-config.pl ] ; then
 cd /pentest/cisco && wget http://littlehacker.persiangig.com/cisco/copy-router-config.pl
 chmod 755 copy-router-config.pl
-fi
-if [ ! -d /pentest/misc/freacs ] ; then
-echo "Installing Fuzzy Risk Calculator Evaluation And Calculation System"
-cd /pentest/temp && wget http://www.ictsc.it/site/IT/projects/freacs/freacs.tar.gz
-tar zxvf freacs.tar.gz && rm -rf freacs.tar.gz
-mv freacs/ /pentest/misc/
 fi
 if [ ! -d /pentest/voip/sipvicious ] ; then
 echo "Installing SIPVicious"
@@ -57,8 +51,9 @@ fi
 if [ ! -d /pentest/wireless/asleap ] ; then
 echo "Installing asleap"
 cd /pentest/temp && wget http://prdownloads.sourceforge.net/project/asleap/asleap/asleap-1.4/asleap-1.4.tgz
-tar xvf asleap-1.4.tgz && mv asleap/ /pentest/wireless
-cd /pentest/wireless/asleap && make
+tar xvf asleap-1.4.tgz && rm -rf asleap-1.4.tgz
+mv asleap/ /pentest/wireless && cd /pentest/wireless/asleap
+make
 fi
 #if [ ! -d /pentest/voip/smap ] ; then
 #echo "Installing SMAP"
@@ -147,8 +142,9 @@ rm -rf thc-pptp-bruter-0.1.4.tar.gz && cd /pentest/enumeration/thc-pptp-bruter/s
 fi
 if [ ! -d /pentest/cisco/torch ] ; then
 echo "Installing Cisco Torch"
-wget http://www.hackingciscoexposed.com/tools/cisco-torch-0.4b.tar.gz && tar zxvf cisco-torch-0.4b.tar.gz
-mv cisco-torch-0.4b /pentest/cisco/torch && rm cisco-torch-0.4b.tar.gz
+cd /pentest/temp && wget http://www.hackingciscoexposed.com/tools/cisco-torch-0.4b.tar.gz
+tar zxvf cisco-torch-0.4b.tar.gz && rm -rf cisco-torch-0.4b.tar.gz
+mv cisco-torch-0.4b /pentest/cisco/torch
 fi
 if [ ! -d /pentest/scanners/snmp/snmpenum ] ; then
 echo "Installing SNMPenum"
@@ -276,7 +272,7 @@ if [ ! -d /pentest/passwords/cewl ] ; then
 echo "Installing Cewl"
 cd /pentest/temp && wget http://www.digininja.org/files/cewl_4.1.tar.bz2
 bunzip2 cewl_4.1.tar.bz2 && tar xvf cewl_4.1.tar
-mv cewl/ /pentest/passwords/ && rm -rf cewl*
+mv cewl/ /pentest/passwords/ && rm -rf cewl_4.1.tar
 fi
 if [ ! -d /pentest/enumeration/bile ] ; then
 echo "Installing Bile"
@@ -306,12 +302,6 @@ tar zxvf skipfish-2.09b.tgz && rm -rf skipfish-2.09b.tgz
 mv skipfish-2.09b skipfish
 cd skipfish && make
 cp /pentest/web/skipfish/dictionaries/complete.wl /pentest/web/skipfish/dictionaries/skipfish.wl
-fi
-if [ ! -d /pentest/web/whatweb ] ; then
-echo "Installing WhatWeb"
-cd /pentest/temp/ && wget -U "Mozilla/5.0 (X11; Ubuntu; Linux i686; rv:11.0) Gecko/20100101 Firefox/11.0" http://www.morningstarsecurity.com/downloads/whatweb-0.4.7.tar.gz
-tar zxvf whatweb-0.4.7.tar.gz && rm -rf whatweb-0.4.7.tar.gz
-mv whatweb-0.4.7 /pentest/web/whatweb
 fi
 if [ ! -d /pentest/misc/flare ] ; then
 echo "Installing Flare"
@@ -385,7 +375,7 @@ if [ ! -d /pentest/web/mantra ] ; then
 echo "Installing OWASP Mantra"
 cd /pentest/temp && wget http://getmantra.googlecode.com/files/Mantra%20Lexicon%20Lin32%20EN.tar.bz2 -O MantraLexicon.tar.bz2
 bunzip2 MantraLexicon.tar.bz2 && tar xvf MantraLexicon.tar
-mv OWASP\ Mantra\ -\ Lexicon\ -en\ 32\ bit\ Linux/ /pentest/web/mantra
+rm -rf MantraLexicon.tar && mv OWASP\ Mantra\ -\ Lexicon\ -en\ 32\ bit\ Linux/ /pentest/web/mantra
 fi
 if [ ! -f /pentest/enumeration/mdns.py ] ; then
 echo "Installing mDNS Scanner"
