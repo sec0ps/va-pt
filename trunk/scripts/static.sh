@@ -390,6 +390,10 @@ echo "Installing Windows Enum Tools"
 cd /pentest/temp && wget http://labs.portcullis.co.uk/download/enum4linux-0.8.8.tar.gz
 tar xvf enum4linux-0.8.8.tar.gz && rm -rf enum4linux-0.8.8.tar.gz
 mv enum4linux-0.8.8 /pentest/enumeration/win-enum
+cd /pentest/temp && wget http://labs.portcullis.co.uk/download/polenum-0.2.tar.bz2
+bunzip2 polenum-0.2.tar.bz2 && tar xvf polenum-0.2.tar
+rm -rf polenum-0.2.tar && sudo mv polenum-0.2/polenum.py /usr/local/bin/
+sudo chmod 755 /usr/local/bin/polenum.py && rm -rf rm -rf polenum-0.2/
 fi
 if [ ! -f /pentest/database/bsqlbf-v2.pl ] ; then
 echo "Installing Blind SQL Brute Forcer"
