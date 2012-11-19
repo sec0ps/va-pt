@@ -22,7 +22,7 @@ cd /pentest/enumeration/theharvester && svn up
 echo "updating htshells"
 cd /pentest/web/htshells && git pull
 echo "Updating SSLyze"
-cd /pentest/web/sslyze && svn up
+cd /pentest/web/sslyze && git pull
 echo "Updating WPScanner"
 cd /pentest/web/wpscan && git pull
 #echo "Updating Dradis"

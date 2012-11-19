@@ -72,7 +72,7 @@ cd /pentest/enumeration && svn checkout http://theharvester.googlecode.com/svn/t
 cd /pentest/enumeration/theharvester && chmod 755 theHarvester.py
 fi
 if [ ! -d /pentest/web/sslyze ] ; then
-cd /pentest/web && svn checkout http://sslyze.googlecode.com/svn/trunk/ sslyze
+cd /pentest/web && git clone https://github.com/iSECPartners/sslyze.git
 fi
 if [ ! -d /var/www/beef/.svn/ ] ; then
 echo "Installing Beef"
