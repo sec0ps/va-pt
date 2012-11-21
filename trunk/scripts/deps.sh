@@ -120,8 +120,9 @@ sudo gem install bson_ext
 sudo gem install rake
 sudo gem install rails
 sudo gem install RedCloth
-sudo gem install bundle
+sudo gem install bundler
 sudo gem install sqlite3
+sudo gem install sqlite3-ruby
 sudo gem install wxruby
 sudo gem install rake-compiler
 sudo gem install jeweler
