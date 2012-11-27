@@ -407,15 +407,6 @@ cd /pentest/temp && wget http://labs.portcullis.co.uk/download/apache_users-2.1.
 tar xvf apache_users-2.1.tar.gz && rm -rf apache_users-2.1.tar.gz
 mv apache_users /pentest/enumeration/apache_userdir
 fi
-if [ ! -d /opt/xplico ] ; then
-echo "Installing Xplico"
-sudo bash -c 'echo "deb http://repo.xplico.org/ $(lsb_release -s -c) main" >> /etc/apt/sources.list'
-sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 791C25CE
-sudo apt-get update
-sudo apt-get install xplico
-sudo service apache2 restart
-echo "Xplico by default is now running on 9876 - http://localhost:9876"
-fi
 #if [ ! -d /pentest/enumeration/netglub ] ; then
 #cd /pentest/enumeration && wget http://redmine.lab.diateam.net/attachments/download/1/netglub-1.0.tar.gz
 #tar -xzvf netglub-1.0.tar.gz && rm -rf netglub-1.0.tar.gz
