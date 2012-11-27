@@ -27,6 +27,16 @@ sudo apt-get install -y flex libidn11-dev zlib-bin zlibc ruby-openssl texlive-la
 sudo apt-get install -y inguma libreadline-dev registry-tools flamerobin dsniff cryptcat virtualbox-guest-additions gtk2-engines-pixbuf libcurl3-dev
 sudo apt-get install -y yersinia proxychains libavahi-common-dev libavahi-compat-libdnssd-dev
 
+if [ ! -d /opt/xplico ] ; then
+echo "Installing Xplico"
+sudo bash -c 'echo "deb http://repo.xplico.org/ $(lsb_release -s -c) main" >> /etc/apt/sources.list'
+sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 791C25CE
+sudo apt-get update
+sudo apt-get install xplico
+sudo service apache2 restart
+echo "Xplico by default is now running on 9876 - http://localhost:9876"
+fi
+
 #Oracle dependencies for metasploit, hydra, etc
 #if [ ! -d /opt/oracle ] ; then
 #cd /opt && mkdir oracle
@@ -72,7 +82,7 @@ fi
 if [ ! -f /usr/local/lib/python2.6/dist-packages/pybloomfilter.so ] ; then
 cd /pentest/temp && wget http://c.pypi.python.org/packages/source/p/pybloomfiltermmap/pybloomfiltermmap-0.2.0.tar.gz
 tar zxvf pybloomfiltermmap-0.2.0.tar.gz && rm -rf pybloomfiltermmap-0.2.0.tar.gz
-cd pybloomfiltermmap-0.2.0/ && sudo python setup.py install
+cd pybloomfiltermmap-0.2.0/ && sudo python2.6 setup.py install
 cd /pentest/temp/ && sudo rm -rf pybloomfiltermmap-0.2.0/
 fi
 sudo cpanm Cisco::CopyConfig
@@ -182,11 +192,9 @@ sudo a2ensite ssl
 sudo a2enmod rewrite
 sudo service apache2 force-reload
 fi
-
 echo "Updating locate database"
 sudo updatedb
-
-#Misc crap I`m not sure where it came from, need to review/remove
+#Misc crap, need to review/remove
 #cd /pentest/temp && wget http://search.cpan.org/CPAN/authors/id/S/SA/SAPER/Net-Pcap-0.16.tar.gz
 #tar xvf Net-Pcap-0.16.tar.gz && rm -rf Net-Pcap-0.16.tar.gz
 #cd Net-Pcap-0.16/ && perl Makefile.PL
