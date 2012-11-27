@@ -85,6 +85,7 @@ tar zxvf pybloomfiltermmap-0.2.0.tar.gz && rm -rf pybloomfiltermmap-0.2.0.tar.gz
 cd pybloomfiltermmap-0.2.0/ && sudo python2.6 setup.py install
 cd /pentest/temp/ && sudo rm -rf pybloomfiltermmap-0.2.0/
 fi
+echo "Checking and Installing PERL Deps"
 sudo cpanm Cisco::CopyConfig
 sudo cpanm Net::Whois::IP
 sudo cpanm W3C::LinkChecker
@@ -115,49 +116,168 @@ sudo cpanm XML::Twig
 sudo cpanm Encoding::BER
 sudo cpanm Parallel::ForkManager
 
-echo "Installing Ruby Gems"
+echo "Checking and Installing Ruby Gems"
 #need to add dep checking for this, wastes time on rechecks
+gem list | grep -w rubygems-update
+if [ ! $? -eq 0 ] ; then
 sudo gem install rubygems-update
+fi
+gem list | grep -w em-resolv-replace
+if [ ! $? -eq 0 ] ; then
 sudo gem install em-resolv-replace
+fi
+gem list | grep -w mongo
+if [ ! $? -eq 0 ] ; then
 sudo gem install mongo
+fi
+gem list | grep -w rchardet
+if [ ! $? -eq 0 ] ; then
 sudo gem install rchardet
-sudo gem install SystemTimer
+fi
+gem list | grep -w i18n
+if [ ! $? -eq 0 ] ; then
 sudo gem install -v=0.4.2 i18n
-sudo gem install -v=2.3.11 rails
-sudo gem install rake -v=0.8.7
+fi
+gem list | grep -w SystemTimer
+if [ ! $? -eq 0 ] ; then
+sudo gem install SystemTimer
+fi
+gem list | grep -w postgres
+if [ ! $? -eq 0 ] ; then
 sudo gem install postgres
+fi
+gem list | grep -w bson_ext
+if [ ! $? -eq 0 ] ; then
 sudo gem install bson_ext
-sudo gem install rake
-sudo gem install rails
-sudo gem install RedCloth
-sudo gem install bundler
-sudo gem install sqlite3
-sudo gem install sqlite3-ruby
-sudo gem install wxruby
-sudo gem install rake-compiler
-sudo gem install jeweler
-sudo gem install pNet-DNS
-sudo gem install fxruby
-sudo gem install ip
+fi
+gem list | grep -w httpclient
+if [ ! $? -eq 0 ] ; then
 sudo gem install httpclient
+fi
+gem list | grep -w thor
+if [ ! $? -eq 0 ] ; then
 sudo gem install thor
+fi
+gem list | grep -w factory_girl
+if [ ! $? -eq 0 ] ; then
 sudo gem install factory_girl
-sudo gem install dm-core
-sudo gem install dm-migrations
-sudo gem install json
-sudo gem install ansi
-sudo gem install term-ansicolor
-sudo gem install dm-sqlite-adapter
-sudo gem install mysql
-sudo gem install spider
-sudo gem install rubyzip
-sudo gem install http_configuration
-sudo gem install mime-types
+fi
+gem list | grep -w mini_exiftool
+if [ ! $? -eq 0 ] ; then
 sudo gem install mini_exiftool
+fi
+gem list | grep -w hpricot
+if [ ! $? -eq 0 ] ; then
 sudo gem install hpricot
+fi
+gem list | grep -w zip
+if [ ! $? -eq 0 ] ; then
 sudo gem install zip
+fi
+gem list | grep -w spider
+if [ ! $? -eq 0 ] ; then
+sudo gem install spider
+fi
+gem list | grep -w rubyzip
+if [ ! $? -eq 0 ] ; then
+sudo gem install rubyzip
+fi
+gem list | grep -w typhoeus
+if [ ! $? -eq 0 ] ; then
 sudo gem install typhoeus
+fi
+gem list | grep -w mysql
+if [ ! $? -eq 0 ] ; then
+sudo gem install mysql
+fi
+gem list | grep -w term-ansicolor
+if [ ! $? -eq 0 ] ; then
+sudo gem install term-ansicolor
+fi
+gem list | grep -w ansi
+if [ ! $? -eq 0 ] ; then
+sudo gem install ansi
+fi
+gem list | grep -w http_configuration
+if [ ! $? -eq 0 ] ; then
+sudo gem install http_configuration
+fi
+gem list | grep -w nokogiri
+if [ ! $? -eq 0 ] ; then
 sudo gem install nokogiri
+fi
+gem list | grep -w mime-types
+if [ ! $? -eq 0 ] ; then
+sudo gem install mime-types
+fi
+gem list | grep -w dm-sqlite-adapter
+if [ ! $? -eq 0 ] ; then
+sudo gem install dm-sqlite-adapter
+fi
+gem list | grep -w json
+if [ ! $? -eq 0 ] ; then
+sudo gem install json
+fi
+gem list | grep -w dm-migrations
+if [ ! $? -eq 0 ] ; then
+sudo gem install dm-migrations
+fi
+gem list | grep -w dm-core
+if [ ! $? -eq 0 ] ; then
+sudo gem install dm-core
+fi
+gem list | grep -w ip
+if [ ! $? -eq 0 ] ; then
+sudo gem install ip
+fi
+gem list | grep -w fxruby
+if [ ! $? -eq 0 ] ; then
+sudo gem install fxruby
+fi
+gem list | grep -w pNet-DNS
+if [ ! $? -eq 0 ] ; then
+sudo gem install pNet-DNS
+fi
+gem list | grep -w jeweler
+if [ ! $? -eq 0 ] ; then
+sudo gem install jeweler
+fi
+gem list | grep -w rake-compiler
+if [ ! $? -eq 0 ] ; then
+sudo gem install rake-compiler
+fi
+gem list | grep -w wxruby
+if [ ! $? -eq 0 ] ; then
+sudo gem install wxruby
+fi
+gem list | grep -w sqlite3
+if [ ! $? -eq 0 ] ; then
+sudo gem install sqlite3
+fi
+gem list | grep -w sqlite3-ruby
+if [ ! $? -eq 0 ] ; then
+sudo gem install sqlite3-ruby
+fi
+gem list | grep -w bundler
+if [ ! $? -eq 0 ] ; then
+sudo gem install bundler
+fi
+gem list | grep -w RedCloth
+if [ ! $? -eq 0 ] ; then
+sudo gem install RedCloth
+fi
+gem list | grep -w rake
+if [ ! $? -eq 0 ] ; then
+sudo gem install rake -v=0.8.7
+fi
+gem list | grep -w rails
+if [ ! $? -eq 0 ] ; then
+sudo gem install -v=2.3.11 rails
+fi
+#gem list | grep -w 
+#if [ ! $? -eq 0 ] ; then
+#
+#fi
 cd && echo "export PATH=/var/lib/gems/1.8/bin/:$PATH" >> .bashrc
 source ~/.bashrc
 #
