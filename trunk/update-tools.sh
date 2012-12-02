@@ -124,15 +124,16 @@ else
 echo "THC IPv6 Attack Suite is not up to date, updating now"
 rm -rf /pentest/enumeration/thc-ipv6 && /pentest/misc/va-pt/scripts/static.sh
 fi
-echo "Downloading latest exploitdb archive"
+echo "Downloading latest ExploitDB archive"
 cd /pentest/temp && wget http://www.exploit-db.com/archive.tar.bz2
-if [ -f archive.tar.bz2 ] ; then
 bunzip2 archive.tar.bz2 && tar xvf archive.tar
+if [ -f files.csv ] ; then
+echo "ExploitDB Download Complete - Moving contents to /pentest/exploits/exploitdb "
 rm -rf /pentest/exploits/exploitdb && mkdir /pentest/exploits/exploitdb
 mv platforms/ /pentest/exploits/exploitdb/ && mv files.csv /pentest/exploits/exploitdb/
-rm -rf archive.tar && chmod 666 /pentest/exploits/exploitdb/files.csv
+rm -rf archive.tar && chmod 666 /pentest/exploits/exploitdb/*
 else
-echo "Exploitdb Update Failed - Repo appears to be down"
+echo "ExploitDB Update Failed - Repo appears to be down"
 fi
 #
 while true; do
