@@ -19,6 +19,20 @@ wget -nc -q -i file.txt && rm -rf file.txt
 mv wordlist50.pl /pentest/passwords/
 cd /pentest/passwords/wordlists && wget http://erikmusick.com/content/dl/WholeLottaPasswords.7z
 7za e WholeLottaPasswords.7z && rm -rf WholeLottaPasswords.hash WholeLottaPasswords.7z*
+wget http://downloads.skullsecurity.org/passwords/rockyou.txt.bz2 && bunzip2 rockyou.txt.bz2
+wget http://downloads.skullsecurity.org/passwords/phpbb.txt.bz2 && bunzip2 phpbb.txt.bz2
+wget http://downloads.skullsecurity.org/passwords/myspace.txt.bz2 && bunzip2 myspace.txt.bz2
+wget http://downloads.skullsecurity.org/passwords/hotmail.txt.bz2 && bunzip2 hotmail.txt.bz2
+wget http://downloads.skullsecurity.org/passwords/faithwriters.txt.bz2 && bunzip2 faithwriters.txt.bz2
+wget http://downloads.skullsecurity.org/passwords/elitehacker.txt.bz2 && bunzip2 elitehacker.txt.bz2
+wget http://downloads.skullsecurity.org/passwords/hak5.txt.bz2 && bunzip2 hak5.txt.bz2
+wget http://downloads.skullsecurity.org/passwords/alypaa.txt.bz2 && bunzip2 alypaa.txt.bz2
+wget http://downloads.skullsecurity.org/passwords/facebook-pastebay.txt.bz2 && bunzip2 facebook-pastebay.txt.bz2
+wget http://downloads.skullsecurity.org/passwords/porn-unknown.txt.bz2 && bunzip2 porn-unknown.txt.bz2 
+wget http://downloads.skullsecurity.org/passwords/tuscl.txt.bz2 && bunzip2 tuscl.txt.bz2
+wget http://downloads.skullsecurity.org/passwords/facebook-phished.txt.bz2 && bunzip2 facebook-phished.txt.bz2
+wget http://downloads.skullsecurity.org/passwords/carders.cc.txt.bz2 && bunzip2 carders.cc.txt.bz2
+wget http://downloads.skullsecurity.org/passwords/singles.org.txt.bz2 && bunzip2 singles.org.txt.bz2 
 #
 gunzip *.gz && tar xvf fixed-length.tar
 rm -rf fixed-length.tar && rm -rf *.zip
