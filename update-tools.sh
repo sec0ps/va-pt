@@ -90,11 +90,17 @@ echo "Updating Warvox"
 cd /pentest/exploits/warvox && svn up
 echo "Updating WhatWeb"
 cd /pentest/web/WhatWeb && git pull
+if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
 sudo /usr/sbin/openvas-nvt-sync --wget
+else
+echo "OpenVAS is not installed, skipping"
+fi
 if [ -f /opt/nessus/sbin/nessus-update-plugins ] ; then
 echo "Updating Nessus Plugins"
 sudo /opt/nessus/sbin/nessus-update-plugins
+else
+echo "Nessus is not installed, skipping"
 fi
 /pentest/web/skipfish/skipfish -h | grep "version"
 if [ $? != "2.09b" ] ; then
@@ -131,7 +137,7 @@ if [ -f files.csv ] ; then
 echo "ExploitDB Download Complete - Moving contents to /pentest/exploits/exploitdb "
 rm -rf /pentest/exploits/exploitdb && mkdir /pentest/exploits/exploitdb
 mv platforms/ /pentest/exploits/exploitdb/ && mv files.csv /pentest/exploits/exploitdb/
-rm -rf archive.tar && chmod 666 /pentest/exploits/exploitdb/*
+rm -rf archive.tar && sudo chmod -R 755 /pentest/exploits/exploitdb
 else
 echo "ExploitDB Update Failed - Repo appears to be down"
 fi
