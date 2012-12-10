@@ -10,8 +10,8 @@ echo "Installing Wifitie"
 cd /pentest/wireless && svn checkout http://wifite.googlecode.com/svn/trunk/ wifite
 fi
 if [ ! -d /pentest/exploits/set ] ; then
-echo "Installing SET"
-cd /pentest/exploits && svn co http://svn.secmaniac.com/social_engineering_toolkit set
+echo "Installing the Social Engineering Toolkit"
+cd /pentest/exploits && svn co http://svn.trustedsec.com/social_engineering_toolkit set
 cd set && svn checkout http://pefile.googlecode.com/svn/trunk/ pefile
 cd pefile && sudo python setup.py install
 fi
