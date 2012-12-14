@@ -72,9 +72,9 @@ fi
 
 echo "Installing PERL Libraries"
 if [ ! -d /usr/local/lib/perl/5.12.4/Math/ ] ; then
-cd /pentest/temp && wget ftp://megrez.math.u-bordeaux.fr/pub/pari/unix/OLD/pari-2.1.7.tgz --proxy=off
+cd /pentest/temp && wget wget http://pari.math.u-bordeaux.fr/pub/pari/unix/OLD/pari-2.1.7.tgz
 tar xvf pari-2.1.7.tgz && rm -rf pari-2.1.7.tgz
-cd pari-2.1.7/ && wget http://search.cpan.org/CPAN/authors/id/I/IL/ILYAZ/modules/Math-Pari-2.01080605.tar.gz --proxy=off
+cd pari-2.1.7/ && wget http://search.cpan.org/CPAN/authors/id/I/IL/ILYAZ/modules/Math-Pari-2.01080605.tar.gz
 tar xvf Math-Pari-2.01080605.tar.gz && rm -rf Math-Pari-2.01080605.tar.gz
 cd Math-Pari-2.01080605 && perl Makefile.PL
 sudo make install
