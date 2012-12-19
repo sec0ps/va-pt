@@ -73,6 +73,12 @@ tar xvf ace-1.10.tar.gz && rm -rf ace-1.10.tar.gz
 mv ace-1.10 /pentest/voip/ace
 cd /pentest/voip/ace && make
 fi
+if [ ! -d /pentest/database/tnspoison ] ; then
+echo "Installing TNS Poison"
+cd /pentest/database && mkdir tnspoison
+cd tnspoison/ && wget http://www.joxeankoret.com/download/tnspoison.zip
+unzip tnspoison.zip && rm -rf tnspoison.zip
+fi
 #if [ ! -d /pentest/voip/ucsniff ] ; then
 #cd /pentest/temp && wget http://prdownloads.sourceforge.net/ucsniff/ucsniff-3.10.tar.gz
 #tar xvf ucsniff-3.10.tar.gz && rm -rf ucsniff-3.10.tar.gz
