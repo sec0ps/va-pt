@@ -2,7 +2,7 @@ echo "Beginning package updates"
 echo "Updating gisKismet"
 cd /pentest/wireless/giskismet && svn up
 echo "Updating SET"
-cd /pentest/exploits/set && svn up
+cd /pentest/exploits/set && git pull
 echo "Updating Metasploit"
 cd /pentest/exploits/framework3 && svn up
 echo "Updating Wapiti"
@@ -32,7 +32,7 @@ cd /pentest/fuzzers/wfuzz && svn up
 #echo "Updating Beef"
 #cd /var/www/beef && sudo svn update
 echo "Updating Fierce2"
-cd /pentest/enumeration/fierce2 && svn update
+cd /pentest/enumeration/fierce2 && svn up
 echo "Updating Kismet"
 cd /pentest/wireless/kismet && git pull
 echo "Updating Aircrack Tools"
@@ -116,7 +116,7 @@ else
 echo "john the ripper is not up to date, updating now."
 rm -rf /pentest/passwords/john && /pentest/misc/va-pt/scripts/static.sh
 fi
-/usr/local/bin/hydra | grep "v7.3"
+/usr/local/bin/hydra | grep "v7.4.1"
 if [ $? -eq 0 ] ; then
 echo "THC Hydra is up to date"
 else
