@@ -115,6 +115,8 @@ sudo cpanm Net::Pcap
 sudo cpanm XML::Twig
 sudo cpanm Encoding::BER
 sudo cpanm Parallel::ForkManager
+sudo cpanm Net::CIDR
+sudo cpanm Exception::Class
 
 echo "Checking and Installing Ruby Gems"
 #need to add dep checking for this, wastes time on rechecks
