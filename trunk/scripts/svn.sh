@@ -11,7 +11,7 @@ cd /pentest/wireless && svn checkout http://wifite.googlecode.com/svn/trunk/ wif
 fi
 if [ ! -d /pentest/exploits/set ] ; then
 echo "Installing the Social Engineering Toolkit"
-cd /pentest/exploits && svn co http://svn.trustedsec.com/social_engineering_toolkit set
+cd /pentest/exploits && git clone https://github.com/trustedsec/social-engineer-toolkit/ set/
 cd set && svn checkout http://pefile.googlecode.com/svn/trunk/ pefile
 cd pefile && sudo python setup.py install
 fi
