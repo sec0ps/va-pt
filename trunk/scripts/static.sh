@@ -101,12 +101,14 @@ mv enumiax-1.0 /pentest/voip/enumiax && cd /pentest/voip/enumiax
 make
 fi
 if [ ! -d /pentest/voip/rtpbreak ] ; then
+echo "Installing RTP Break"
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/sniffers/rtpbreak-1.3a.tgz
 tar zxvf rtpbreak-1.3a.tgz && rm -rf rtpbreak-1.3a.tgz
 mv rtpbreak-1.3a /pentest/voip/rtpbreak 
 cd /pentest/voip/rtpbreak && make
 fi
 if [ ! -d /pentest/voip/voipong ] ; then
+echo "Installing VOIPong"
 cd /pentest/temp && wget http://www.enderunix.org/voipong/voipong-2.0.tar.gz
 tar zxvf voipong-2.0.tar.gz && rm -rf voipong-2.0.tar.gz
 mv voipong-2.0/ /pentest/voip/voipong
@@ -128,6 +130,7 @@ bunzip2 seat-0.3.tar.bz2 &&  tar xvf seat-0.3.tar
 rm -rf seat-0.3.tar && mv seat/ /pentest/enumeration
 fi
 if [ ! -d /pentest/voip/voiphopper ] ; then
+echo "Installing VOIP Hopper"
 cd /pentest/temp && wget http://prdownloads.sourceforge.net/voiphopper/voiphopper-2.0/voiphopper-2.04.tar.gz
 tar zxvf voiphopper-2.04.tar.gz && rm -rf voiphopper-2.04.tar.gz
 mv voiphopper-2.04 /pentest/voip/voiphopper && cd /pentest/voip/voiphopper
@@ -258,6 +261,7 @@ cd /pentest/enumeration/dirbuster
 echo "java -jar DirBuster-0.12.jar" >> start-dirbuster.sh && chmod 700 start-dirbuster.sh
 fi
 if [ ! -d /pentest/web/webscarab ] ; then
+echo "Installing WebScarab"
 mkdir /pentest/web/webscarab && cd /pentest/web/webscarab
 wget http://webscarab-ng.googlecode.com/files/WebScarab-ng-0.2.1.one-jar.zip && unzip WebScarab-ng-0.2.1.one-jar.zip
 rm -rf WebScarab-ng-0.2.1.one-jar.zip && chmod 700 start.sh
@@ -304,9 +308,9 @@ sudo /pentest/exploits/set/set
 fi
 if [ ! -d /pentest/web/skipfish ] ; then
 echo "Installing skipfish"
-cd /pentest/web/ && wget http://skipfish.googlecode.com/files/skipfish-2.09b.tgz
-tar zxvf skipfish-2.09b.tgz && rm -rf skipfish-2.09b.tgz
-mv skipfish-2.09b skipfish
+cd /pentest/web/ && wget http://skipfish.googlecode.com/files/skipfish-2.10b.tgz
+tar zxvf skipfish-2.10b.tgz && rm -rf skipfish-2.10b.tgz
+mv skipfish-2.10b skipfish
 cd skipfish && make
 cp /pentest/web/skipfish/dictionaries/complete.wl /pentest/web/skipfish/dictionaries/skipfish.wl
 fi

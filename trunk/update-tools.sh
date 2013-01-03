@@ -103,7 +103,7 @@ else
 echo "Nessus is not installed, skipping"
 fi
 /pentest/web/skipfish/skipfish -h | grep "version"
-if [ $? != "2.09b" ] ; then
+if [ $? != "2.10b" ] ; then
 echo "skipfish is up to date"
 else
 echo "skipfish is not up to date, updating now."
