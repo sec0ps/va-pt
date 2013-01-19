@@ -418,6 +418,12 @@ cd /pentest/temp && wget http://labs.portcullis.co.uk/download/apache_users-2.1.
 tar xvf apache_users-2.1.tar.gz && rm -rf apache_users-2.1.tar.gz
 mv apache_users /pentest/enumeration/apache_userdir
 fi
+if [ ! -d /pentest/web/aspshell ] ; then
+echo "Installing ASPshell"
+cd /pentest/web && mkdir aspshell
+cd aspshell && wget http://downloads.sourceforge.net/project/aspshell/aspshell/aspshell%200.2/aspshell-0.2.zip
+unzip aspshell-0.2.zip && rm -rf aspshell-0.2.zip
+fi
 #if [ ! -d /pentest/enumeration/netglub ] ; then
 #cd /pentest/enumeration && wget http://redmine.lab.diateam.net/attachments/download/1/netglub-1.0.tar.gz
 #tar -xzvf netglub-1.0.tar.gz && rm -rf netglub-1.0.tar.gz
