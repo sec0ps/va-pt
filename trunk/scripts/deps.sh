@@ -25,7 +25,8 @@ sudo apt-get install -y galleta pasco vinetto autopsy wine1.3-dev rifiuti2 recov
 sudo apt-get install -y libasound2-dev libbz2-dev vlc libvlc-dev gtk2-engines-pixbuf perl-doc ike-scan xchat outguess steghide python-septic snowdrop
 sudo apt-get install -y flex libidn11-dev zlib-bin zlibc ruby-openssl texlive-latex-extra liblzo2-dev python-pysqlite2 sslsniff libnet-netmask-perl
 sudo apt-get install -y inguma libreadline-dev registry-tools flamerobin dsniff cryptcat virtualbox-guest-additions gtk2-engines-pixbuf libcurl3-dev
-sudo apt-get install -y yersinia proxychains libavahi-common-dev libavahi-compat-libdnssd-dev network-manager-vpnc
+sudo apt-get install -y yersinia proxychains libavahi-common-dev libavahi-compat-libdnssd-dev network-manager-vpnc libmagick9-dev python-pexpect
+sudo apt-get install -y python-pefile python-crypto python-openssl xrsh
 
 if [ ! -d /opt/xplico ] ; then
 echo "Installing Xplico"
@@ -275,6 +276,10 @@ fi
 gem list | grep -w rails
 if [ ! $? -eq 0 ] ; then
 sudo gem install -v=2.3.11 rails
+fi
+gem list | grep -w activerecord-mysql-adapter
+if [ ! $? -eq 0 ] ; then
+gem install activerecord-mysql-adapter
 fi
 #gem list | grep -w 
 #if [ ! $? -eq 0 ] ; then
