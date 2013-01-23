@@ -1,5 +1,5 @@
 echo "Starting Redmine"
-cd /pentest/misc/redmine && ruby script/server -e production -d
+cd /pentest/misc/redmine && ruby script/rails server webrick -e production -d 
 echo "Starting OpenVAS"
 sudo openvassd
 sudo openvasmd

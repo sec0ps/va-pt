@@ -12,8 +12,8 @@ fi
 if [ ! -d /pentest/exploits/set ] ; then
 echo "Installing the Social Engineering Toolkit"
 cd /pentest/exploits && git clone https://github.com/trustedsec/social-engineer-toolkit/ set/
-cd set && svn checkout http://pefile.googlecode.com/svn/trunk/ pefile
-cd pefile && sudo python setup.py install
+#cd set && svn checkout http://pefile.googlecode.com/svn/trunk/ pefile
+#cd pefile && sudo python setup.py install
 fi
 if [ ! -d /pentest/exploits/framework3 ] ; then
 echo "Installing Metasploit"
@@ -221,6 +221,10 @@ fi
 if [ ! -d /pentest/passwords/ntlmsspparse ] ; then
 echo "Installing NTLMS Parse"
 cd /pentest/passwords && git clone https://github.com/psychomario/ntlmsspparse.git
+fi
+if [ ! -d /pentest/enumeration/ptscripts ] ; then
+echo "Installing recon-ng"
+cd /pentest/enumeration && svn checkout http://ptscripts.googlecode.com/svn/trunk/ ptscripts
 fi
 # install Vuln Portal
 if [ ! -d /var/www/search ] ; then
