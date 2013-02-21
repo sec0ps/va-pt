@@ -90,6 +90,8 @@ echo "Updating Warvox"
 cd /pentest/exploits/warvox && svn up
 echo "Updating WhatWeb"
 cd /pentest/web/WhatWeb && git pull
+echo "Updating Responder"
+cd /pentest/exploits/Responder && git pull
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
 sudo /usr/sbin/openvas-nvt-sync --wget
