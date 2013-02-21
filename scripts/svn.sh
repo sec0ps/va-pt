@@ -224,6 +224,10 @@ if [ ! -d /pentest/enumeration/ptscripts ] ; then
 echo "Installing recon-ng"
 cd /pentest/enumeration && svn checkout http://ptscripts.googlecode.com/svn/trunk/ ptscripts
 fi
+if [ ! -d /pentest/exploits/Responder ] ; then
+echo "Installing Spiderlabs Resonder"
+cd /pentest/exploits/ && git clone https://github.com/SpiderLabs/Responder.git
+fi
 # install Vuln Portal
 if [ ! -d /var/www/search ] ; then
 echo "Installing Vulnerability Database Portal"
