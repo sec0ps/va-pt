@@ -28,11 +28,11 @@ mv sipvicious/ /pentest/voip/ && cd /pentest/voip/sipvicious
 fi
 if [ ! -d /pentest/enumeration/hydra ] ; then
 echo "Installing THC Hydra"
-cd /pentest/temp && wget http://www.thc.org/releases/hydra-7.4.1.tar.gz
-tar zxvf hydra-7.4.1.tar.gz && rm -rf hydra-7.4.1.tar.gz
-cd hydra-7.4.1 && ./configure && make
+cd /pentest/temp && wget http://www.thc.org/releases/hydra-7.4.2.tar.gz
+tar zxvf hydra-7.4.2.tar.gz && rm -rf hydra-7.4.2.tar.gz
+mv hydra-7.4.2 /pentest/enumeration/hydra && cd /pentest/enumeration/hydra/
+./configure && make
 sudo make install
-cd /pentest/temp/ && mv hydra-7.4.1 /pentest/enumeration/hydra
 fi
 if [ ! -d /pentest/web/stompy ] ; then
 echo "Installing Stompy"
