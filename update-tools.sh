@@ -30,7 +30,7 @@ cd /pentest/web/wpscan && git pull
 echo "Updating wfuzz"
 cd /pentest/fuzzers/wfuzz && svn up
 #echo "Updating Beef"
-#cd /var/www/beef && sudo svn update
+#cd /var/www/beef && git pull
 echo "Updating Fierce2"
 cd /pentest/enumeration/fierce2 && svn up
 echo "Updating Kismet"
