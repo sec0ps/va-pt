@@ -72,9 +72,9 @@ fi
 if [ ! -d /pentest/web/sslyze ] ; then
 cd /pentest/web && git clone https://github.com/iSECPartners/sslyze.git
 fi
-if [ ! -d /var/www/beef/.svn/ ] ; then
+if [ ! -d /var/www/beef/.git/ ] ; then
 echo "Installing Beef"
-cd /var/www && sudo svn co http://beef.googlecode.com/svn/trunk/ beef/
+cd /var/www && sudo git clone https://github.com/beefproject/beef.git
 fi
 if [ ! -d /pentest/enumeration/fierce2 ] ; then
 echo "Installing Fierce2"
