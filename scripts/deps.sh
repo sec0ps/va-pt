@@ -65,10 +65,9 @@ sudo pear upgrade-all
 if [ ! -f /usr/local/bin/cpanm ] ; then
 echo "Installing CPANimus"
 cd /pentest/temp && git clone git://github.com/miyagawa/cpanminus.git
-cd cpanminus
-#sudo ./cpanm --installdeps .
-perl Makefile.PL && make
-sudo make install
+cd cpanminus && perl Makefile.PL
+make && sudo make install
+cd /pentest/temp && rm -rf cpanminus/
 fi
 
 echo "Installing PERL Libraries"
@@ -295,10 +294,10 @@ sudo python2.6 setup.py install
 fi
 if [ ! -f /usr/bin/waveplay ] ; then
 echo "Installing waveplay"
-cd /pentest/temp && wget ftp://ftp.eenet.ee/pub/FreeBSD/distfiles/waveplay-20010924.tar.gz --proxy=off
+cd /pentest/temp && wget ftp://ftp.eenet.ee/pub/FreeBSD/distfiles/waveplay-20010924.tar.gz
 tar zxvf waveplay-20010924.tar.gz && cd waveplay-20010924
 make && sudo mv waveplay /usr/bin/
-rm -rf /pentest/temp/waveplay-20010924
+sudo rm -rf /pentest/temp/waveplay*
 fi
 if [ ! -f /usr/bin/crunch ] ; then
 echo "Installing crunch"

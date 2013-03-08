@@ -15,6 +15,7 @@ cd /pentest/temp && wget http://dl.packetstormsecurity.net/0405-exploits/cge-13.
 tar zxvf cge-13.tar.gz && cge-13.tar.gz
 mv cge-13/ /pentest/cisco/cge && cd /pentest/cisco/cge
 chmod 700 cge.pl && dos2unix cge.pl
+rm -rf /pentest/temp/cge-13.tar.gz
 fi
 if [ ! -f /pentest/cisco/copy-router-config.pl ] ; then
 cd /pentest/cisco && wget http://littlehacker.persiangig.com/cisco/copy-router-config.pl
@@ -118,9 +119,9 @@ sudo make install
 fi
 if [ ! -d /pentest/enumeration/thc-ipv6 ] ; then
 echo "Installing THC IPv6"
-cd /pentest/temp && wget http://www.thc.org/releases/thc-ipv6-2.0.tar.gz
-tar zxvf thc-ipv6-2.0.tar.gz && rm -rf thc-ipv6-2.0.tar.gz
-mv thc-ipv6-2.0 /pentest/enumeration/thc-ipv6 && cd /pentest/enumeration/thc-ipv6
+cd /pentest/temp && wget http://www.thc.org/releases/thc-ipv6-2.1.tar.gz
+tar zxvf thc-ipv6-2.1.tar.gz && rm -rf thc-ipv6-2.1.tar.gz
+mv thc-ipv6-2.1 /pentest/enumeration/thc-ipv6 && cd /pentest/enumeration/thc-ipv6
 make all
 fi
 if [ ! -d /pentest/enumeration/seat ] ; then
@@ -136,11 +137,10 @@ tar zxvf voiphopper-2.04.tar.gz && rm -rf voiphopper-2.04.tar.gz
 mv voiphopper-2.04 /pentest/voip/voiphopper && cd /pentest/voip/voiphopper
 cd /pentest/voip/voiphopper && make
 fi
-if [ ! -d /pentest/enumeration/burpsuite ] ; then
+if [ ! -d /pentest/enumeration/burp ] ; then
 echo "Installing Burp Suite"
-cd /pentest/temp && wget http://portswigger.net/burp/burpsuite_v1.4.zip
-unzip burpsuite_v1.4.zip && rm -rf burpsuite_v1.4.zip
-mv burpsuite_v1.4 /pentest/enumeration/burpsuite
+mkdir /pentest/enumeration/burp && cd /pentest/enumeration/burp
+wget http://portswigger.net/burp/burpsuite_free_v1.5.jar
 fi
 if [ ! -d /pentest/enumeration/thc-pptp-bruter ] ; then
 echo "Installing THC PPTP Bruteforcer"
@@ -235,10 +235,12 @@ cd /pentest/audit/nipper && make
 sudo make install
 fi
 if [ ! -d /pentest/audit/rat ] ; then
+echo "Installing CIS Router Auditing Tool"
 cd /pentest/temp && wget --no-check-certificate https://community.cisecurity.org/download/?redir=/cisco/rat-2.2-dist.sh.gz -O rat.gz
-gunzip rat.gz && rm -rf rat.gz 
+gunzip rat.gz && rm -rf rat.gz
 chmod 700 rat
 ./rat && mv rat-2.2P/ /pentest/audit/rat
+rm -rf rat
 fi
 if [ ! -d /pentest/audit/rips ] ; then
 echo "Downloading RIPS PHP Static Source Code Analyzer"
@@ -368,7 +370,8 @@ fi
 if [ ! -d /pentest/wireless/hwk ] ; then
 echo "Installing HWK Wireless Auditing Tool"
 cd /pentest/temp && wget http://prdownloads.sourceforge.net/project/hwk/hwk_0.3.2.tar.gz
-tar xvf hwk_0.3.2.tar.gz && mv hwk_0.3.2 /pentest/wireless/hwk
+tar xvf hwk_0.3.2.tar.gz && rm -rf hwk_0.3.2.tar.gz
+mv hwk_0.3.2 /pentest/wireless/hwk
 cd /pentest/wireless/hwk && make
 fi
 if [ ! -f /pentest/cisco/cisc0wn.sh ] ; then
