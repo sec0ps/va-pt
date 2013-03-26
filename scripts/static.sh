@@ -12,10 +12,9 @@ fi
 if [ ! -d /pentest/cisco/cge ] ; then
 echo "Installing Cisco Global Exploiter"
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/0405-exploits/cge-13.tar.gz
-tar zxvf cge-13.tar.gz && cge-13.tar.gz
+tar zxvf cge-13.tar.gz && rm -rf cge-13.tar.gz
 mv cge-13/ /pentest/cisco/cge && cd /pentest/cisco/cge
 chmod 700 cge.pl && dos2unix cge.pl
-rm -rf /pentest/temp/cge-13.tar.gz
 fi
 if [ ! -f /pentest/cisco/copy-router-config.pl ] ; then
 cd /pentest/cisco && wget http://littlehacker.persiangig.com/cisco/copy-router-config.pl
@@ -65,7 +64,7 @@ fi
 #fi
 if [ ! -f /pentest/database/sqlbrute.py ] ; then
 echo "Installing SQLBrute"
-cd /pentest/database && wget http://packetstormsecurity.org/files/view/44881/sqlbrute.py.txt -O sqlbrute.py
+cd /pentest/database && wget http://packetstorm.foofus.com/UNIX/scanners/sqlbrute.py.txt -O sqlbrute.py
 cd /pentest/database && chmod 700 sqlbrute.py
 fi
 if [ ! -d /pentest/voip/ace ] ; then
@@ -89,12 +88,12 @@ fi
 #
 #videosnarf pending
 #
-if [ ! -d /pentest/voip/sipcrack ] ; then
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/Crackers/SIPcrack-0.2.tar.gz
-tar zxvf SIPcrack-0.2.tar.gz && rm -rf SIPcrack-0.2.tar.gz
-mv SIPcrack-0.2 /pentest/voip/sipcrack && cd /pentest/voip/sipcrack 
-make
-fi
+#if [ ! -d /pentest/voip/sipcrack ] ; then
+#cd /pentest/temp && wget http://dl.packetstormsecurity.net/Crackers/SIPcrack-0.2.tar.gz
+#tar zxvf SIPcrack-0.2.tar.gz && rm -rf SIPcrack-0.2.tar.gz
+#mv SIPcrack-0.2 /pentest/voip/sipcrack && cd /pentest/voip/sipcrack 
+#make
+#fi
 if [ ! -d /pentest/voip/enumiax ] ; then
 cd /pentest/temp && wget http://prdownloads.sourceforge.net/enumiax/enumiax-1.0.tar.gz
 tar zxvf enumiax-1.0.tar.gz && rm -rf enumiax-1.0.tar.gz
@@ -124,12 +123,12 @@ tar zxvf thc-ipv6-2.1.tar.gz && rm -rf thc-ipv6-2.1.tar.gz
 mv thc-ipv6-2.1 /pentest/enumeration/thc-ipv6 && cd /pentest/enumeration/thc-ipv6
 make all
 fi
-if [ ! -d /pentest/enumeration/seat ] ; then
-echo "Installing SEAT"
-cd /pentest/temp && wget http://midnightresearch.com/common/seat/seat-0.3.tar.bz2
-bunzip2 seat-0.3.tar.bz2 &&  tar xvf seat-0.3.tar
-rm -rf seat-0.3.tar && mv seat/ /pentest/enumeration
-fi
+#if [ ! -d /pentest/enumeration/seat ] ; then
+#echo "Installing SEAT"
+#cd /pentest/temp && wget http://midnightresearch.com/common/seat/seat-0.3.tar.bz2
+#bunzip2 seat-0.3.tar.bz2 &&  tar xvf seat-0.3.tar
+#rm -rf seat-0.3.tar && mv seat/ /pentest/enumeration
+#fi
 if [ ! -d /pentest/voip/voiphopper ] ; then
 echo "Installing VOIP Hopper"
 cd /pentest/temp && wget http://prdownloads.sourceforge.net/voiphopper/voiphopper-2.0/voiphopper-2.04.tar.gz
@@ -146,7 +145,7 @@ if [ ! -d /pentest/enumeration/thc-pptp-bruter ] ; then
 echo "Installing THC PPTP Bruteforcer"
 cd /pentest/temp && wget wget http://freeworld.thc.org/releases/thc-pptp-bruter-0.1.4.tar.gz
 tar zxvf thc-pptp-bruter-0.1.4.tar.gz && mv THC-pptp-bruter-0.1.4/ /pentest/enumeration/thc-pptp-bruter
-rm -rf thc-pptp-bruter-0.1.4.tar.gz && cd /pentest/enumeration/thc-pptp-bruter/src
+rm -rf thc-pptp-bruter-0.1.4.tar.gz && cd /pentest/enumeration/thc-pptp-bruter/
 ./configure && make
 fi
 if [ ! -d /pentest/cisco/torch ] ; then
@@ -252,8 +251,7 @@ echo "Installing CowPatty"
 cd /pentest/temp && wget http://www.wirelessdefence.org/Contents/Files/cowpatty-4.6.tgz
 tar zxvf cowpatty-4.6.tgz && rm -rf cowpatty-4.6.tgz
 mv cowpatty-4.6/ /pentest/wireless/cowpatty && cd /pentest/wireless/cowpatty
-make clean && make all
-sudo make install
+make && sudo make install
 fi
 if [ ! -d /pentest/enumeration/dirbuster ] ; then
 cd /pentest/temp && wget http://prdownloads.sourceforge.net/dirbuster/DirBuster-0.12.tar.bz2
@@ -262,13 +260,13 @@ rm -rf DirBuster-0.12.tar && mv DirBuster-0.12 /pentest/enumeration/dirbuster
 cd /pentest/enumeration/dirbuster
 echo "java -jar DirBuster-0.12.jar" >> start-dirbuster.sh && chmod 700 start-dirbuster.sh
 fi
-if [ ! -d /pentest/web/webscarab ] ; then
-echo "Installing WebScarab"
-mkdir /pentest/web/webscarab && cd /pentest/web/webscarab
-wget http://webscarab-ng.googlecode.com/files/WebScarab-ng-0.2.1.one-jar.zip && unzip WebScarab-ng-0.2.1.one-jar.zip
-rm -rf WebScarab-ng-0.2.1.one-jar.zip && chmod 700 start.sh
-dos2unix start.sh
-fi
+#if [ ! -d /pentest/web/webscarab ] ; then
+#echo "Installing WebScarab"
+#mkdir /pentest/web/webscarab && cd /pentest/web/webscarab
+#wget http://webscarab-ng.googlecode.com/files/WebScarab-ng-0.2.1.one-jar.zip && unzip WebScarab-ng-0.2.1.one-jar.zip
+#rm -rf WebScarab-ng-0.2.1.one-jar.zip && chmod 700 start.sh
+#dos2unix start.sh
+#fi
  if [ ! -f /pentest/database/mysqlaudit.py ] ; then
 echo "Installing MySQLAudit"
 cd /pentest/database && wget http://www.darkoperator.com/tools-and-scripts/mysqlaudit.py
@@ -287,13 +285,13 @@ cd /pentest/temp && wget http://www.digininja.org/files/cewl_4.1.tar.bz2
 bunzip2 cewl_4.1.tar.bz2 && tar xvf cewl_4.1.tar
 mv cewl/ /pentest/passwords/ && rm -rf cewl_4.1.tar
 fi
-if [ ! -d /pentest/enumeration/bile ] ; then
-echo "Installing Bile"
-mkdir /pentest/enumeration/bile && cd /pentest/enumeration/bile
-wget http://www.sensepost.com/cms/resources/labs/tools/misc/BiLE-suite.tgz && tar zxvf BiLE-suite.tgz
-rm -rf BiLE-suite.tgz && wget http://www.sensepost.com/cms/resources/labs/tools/misc/go.pl -O proxyscan.pl
-chmod 700 proxyscan.pl
-fi
+#if [ ! -d /pentest/enumeration/bile ] ; then
+#echo "Installing Bile"
+#mkdir /pentest/enumeration/bile && cd /pentest/enumeration/bile
+#wget http://www.sensepost.com/cms/resources/labs/tools/misc/BiLE-suite.tgz && tar zxvf BiLE-suite.tgz
+#rm -rf BiLE-suite.tgz && wget http://www.sensepost.com/cms/resources/labs/tools/misc/go.pl -O proxyscan.pl
+#chmod 700 proxyscan.pl
+#fi
 if [ ! -d /pentest/enumeration/httprint ] ; then
 echo "Installing HTTPrint"
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/httprint_linux_301.zip 
@@ -306,7 +304,6 @@ echo "Installing XSSer"
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/xsser_1.5-1.tar.gz
 tar zxvf xsser_1.5-1.tar.gz && rm -rf xsser_1.5-1.tar.gz
 mv xsser-public/ /pentest/web/xsser && cd /pentest/web/xsser
-sudo /pentest/exploits/set/set
 fi
 if [ ! -d /pentest/web/skipfish ] ; then
 echo "Installing skipfish"
@@ -359,14 +356,14 @@ cd /pentest/temp && wget http://labs.portcullis.co.uk/download/rdp-sec-check-0.8
 tar xvf rdp-sec-check-0.8.tar.gz && rm -rf rdp-sec-check-0.8.tar.gz
 mv rdp-sec-check-0.8 /pentest/enumeration/rdp-sec-check
 fi
-if [ ! -d /pentest/misc/dradis ] ; then
-echo "Installing Dradis"
-cd /pentest/temp && wget http://downloads.sourceforge.net/dradis/dradis-v2.9.0.tar.bz2
-bunzip2 dradis-v2.9.0.tar.bz2 && tar xvf dradis-v2.9.0.tar
-rm -rf dradis-v2.9.0.tar && mv dradis-2.9/ /pentest/misc/dradis
-cd /pentest/misc/dradis/server && bundle install
-cd /pentest/misc/dradis && ./reset.sh
-fi
+#if [ ! -d /pentest/misc/dradis ] ; then
+#echo "Installing Dradis"
+#cd /pentest/temp && wget http://downloads.sourceforge.net/dradis/dradis-v2.9.0.tar.bz2
+#bunzip2 dradis-v2.9.0.tar.bz2 && tar xvf dradis-v2.9.0.tar
+#rm -rf dradis-v2.9.0.tar && mv dradis-2.9/ /pentest/misc/dradis
+#cd /pentest/misc/dradis/server && bundle install
+#cd /pentest/misc/dradis && ./reset.sh
+#fi
 if [ ! -d /pentest/wireless/hwk ] ; then
 echo "Installing HWK Wireless Auditing Tool"
 cd /pentest/temp && wget http://prdownloads.sourceforge.net/project/hwk/hwk_0.3.2.tar.gz

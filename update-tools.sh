@@ -4,7 +4,7 @@ cd /pentest/wireless/giskismet && svn up
 echo "Updating SET"
 cd /pentest/exploits/set && git pull
 echo "Updating Metasploit"
-cd /pentest/exploits/framework3 && svn up
+cd /pentest/exploits/framework3 && git pull
 echo "Updating Wapiti"
 cd /pentest/web/wapiti && svn up
 echo "Updating ZED Attack Proxy"
