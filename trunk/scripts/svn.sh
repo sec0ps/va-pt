@@ -2,8 +2,8 @@ echo "Beginning subverion package installation"
 if [ ! -d /pentest/wireless/giskismet ] ; then
 echo "Installing gisKismet"
 cd /pentest/wireless && svn co https://my-svn.assembla.com/svn/giskismet/trunk giskismet
-cd /pentest/wireless/giskismet && perl Makefile.PL
-make
+cd /pentest/wireless/giskismet && sudo cpanm --installdeps .
+perl Makefile.PL && make
 fi
 if [ ! -d /pentest/wireless/wifite/ ] ; then
 echo "Installing Wifitie"
@@ -11,13 +11,13 @@ cd /pentest/wireless && svn checkout http://wifite.googlecode.com/svn/trunk/ wif
 fi
 if [ ! -d /pentest/exploits/set ] ; then
 echo "Installing the Social Engineering Toolkit"
-cd /pentest/exploits && git clone https://github.com/trustedsec/social-engineer-toolkit/ set/
+cd /pentest/exploits && git clone https://github.com/trustedsec/social-engineer-toolkit/ set
 #cd set && svn checkout http://pefile.googlecode.com/svn/trunk/ pefile
 #cd pefile && sudo python setup.py install
 fi
 if [ ! -d /pentest/exploits/framework3 ] ; then
 echo "Installing Metasploit"
-cd /pentest/exploits && svn co https://www.metasploit.com/svn/framework3/trunk/ framework3
+cd /pentest/exploits && git clone https://github.com/rapid7/metasploit-framework.git framework3
 fi
 if [ ! -d /pentest/exploits/warvox ] ; then
 echo "Installing Warvox"
@@ -44,7 +44,7 @@ mv ZAP_2.0.0/ /pentest/web/zap && cd /pentest/web && svn checkout --force http:/
 fi
 if [ ! -d /pentest/web/w3af ] ; then
 echo "Installing w3af"
-cd /pentest/web && svn co https://w3af.svn.sourceforge.net/svnroot/w3af/trunk w3af/
+cd /pentest/web && svn co https://w3af.svn.sourceforge.net/svnroot/w3af/trunk w3af
 fi
 if [ ! -d /pentest/web/waffit/.svn ] ; then
 echo "Installing waffit"
@@ -78,7 +78,7 @@ cd /var/www && sudo git clone https://github.com/beefproject/beef.git
 fi
 if [ ! -d /pentest/enumeration/fierce2 ] ; then
 echo "Installing Fierce2"
-cd /pentest/enumeration && svn co https://svn.assembla.com/svn/fierce/fierce2/trunk/ fierce2/
+cd /pentest/enumeration && svn co https://svn.assembla.com/svn/fierce/fierce2/trunk/ fierce2
 cd fierce2 && sudo cpanm --installdeps .
 perl Makefile.PL && make
 sudo make install
@@ -113,7 +113,7 @@ fi
 if [ ! -d /pentest/enumeration/dnsmap ] ; then
 echo "Installing DNSMap"
 cd /pentest/enumeration && svn checkout http://dnsmap.googlecode.com/svn/trunk/ dnsmap
-cd /pentest/enumeration/dnsmap && wget http://dnsmap.googlecode.com/files/wordlist_TLAs.txt
+cd /pentest/enumeration/dnsmap && gcc -o dnsmap dnsmap.c
 fi
 if [ ! -d /pentest/database/sqlmap ] ; then
 echo "Installing SQL Map"
@@ -121,7 +121,7 @@ cd /pentest/database && git clone https://github.com/sqlmapproject/sqlmap.git
 fi
 if [ ! -d /pentest/database/sqlninja ] ; then
 echo "Installing SQL Ninja"
-cd /pentest/database && svn co https://sqlninja.svn.sourceforge.net/svnroot/sqlninja
+cd /pentest/database && svn co https://sqlninja.svn.sourceforge.net/svnroot/sqlninja sqlninja
 fi
 if [ ! -d /pentest/web/laudanum ] ; then
 echo "Installing Laudanum"
@@ -177,8 +177,10 @@ fi
 if [ ! -d /pentest/web/wpscan ] ; then
 echo "Installing Wordpress Scanner"
 cd /pentest/web && git clone https://github.com/wpscanteam/wpscan.git
+bundle install --without test development
 fi
 if [ ! -f /usr/local/bin/smbclient.py ] ; then
+####################
 echo "Installing Impacket"
 cd /pentest/temp && svn checkout http://impacket.googlecode.com/svn/trunk/ impacket
 cd impacket && sudo python setup.py install
@@ -188,33 +190,29 @@ if [ ! -d /pentest/web/WhatWeb ] ; then
 echo "Installing WhatWeb"
 cd /pentest/web && git clone git://github.com/urbanadventurer/WhatWeb.git
 fi
-if [ ! -d /pentest/misc/redmine ] ; then
-echo "Installing Redmine"
-cd /pentest/misc && svn co http://redmine.rubyforge.org/svn/branches/1.2-stable redmine
-echo "Enter the root mysql password to create the redmine database and user"
-mysql -u root -p -e "create database redmine character set utf8;"
-mysql -u root -p -e "grant all privileges on redmine.* to 'redmine'@'localhost' identified by 'redminelocal';"
-cd /pentest/misc/redmine && cp config/database.yml.example config/database.yml
-echo ""
-echo "enter the correct username/password for the redmine install in config/database.yml before attempting start"
-echo "If this fails make sure require 'rake/dsl_definition' is in the Rakefile ands you setup database.yml"
-echo "Once you have entered the correct user/pass migrate the db rake db:migrate RAILS_ENV="production""
-fi
+#if [ ! -d /pentest/misc/redmine ] ; then
+#echo "Installing Redmine"
+#cd /pentest/misc && svn co http://redmine.rubyforge.org/svn/branches/1.2-stable redmine
+#echo "Enter the root mysql password to create the redmine database and user"
+#mysql -u root -p -e "create database redmine character set utf8;"
+#mysql -u root -p -e "grant all privileges on redmine.* to 'redmine'@'localhost' identified by 'redminelocal';"
+#cd /pentest/misc/redmine && cp config/database.yml.example config/database.yml
+#echo ""
+#echo "enter the correct username/password for the redmine install in config/database.yml before attempting start"
+#echo "If this fails make sure require 'rake/dsl_definition' is in the Rakefile ands you setup database.yml"
+#echo "Once you have entered the correct user/pass migrate the db rake db:migrate RAILS_ENV="production""
+#fi
 if [ ! -d /pentest/scanners/nmap ] ; then
 echo "Installing and compiling nmap"
 cd /pentest/scanners && svn co https://svn.nmap.org/nmap nmap
-cd /pentest/scanners/nmap
-make clean
-./configure && make
-sudo make install
+cd /pentest/scanners/nmap && ./configure
+make && sudo make install
 fi
 if [ ! -d /pentest/scanners/ncrack ] ; then
 echo "Installing and compiling ncrack"
 cd /pentest/scanners && svn co https://svn.nmap.org/ncrack ncrack
-cd /pentest/scanners/ncrack
-make clean
-./configure && make
-sudo make install
+cd /pentest/scanners/ncrack && ./configure
+make && sudo make install
 fi
 if [ ! -d /pentest/passwords/ntlmsspparse ] ; then
 echo "Installing NTLMS Parse"
