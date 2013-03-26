@@ -84,6 +84,10 @@ gem list | grep -w zip
 if [ ! $? -eq 0 ] ; then
 sudo gem install zip
 fi
+gem list | grep -w pg
+if [ ! $? -eq 0 ] ; then
+sudo gem install pg
+fi
 #need to add dep checking for this, wastes time on rechecks
 #gem list | grep -w 
 #if [ ! $? -eq 0 ] ; then
