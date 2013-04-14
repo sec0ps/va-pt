@@ -28,9 +28,9 @@ mv sipvicious/ /pentest/voip/ && cd /pentest/voip/sipvicious
 fi
 if [ ! -d /pentest/enumeration/hydra ] ; then
 echo "Installing THC Hydra"
-cd /pentest/temp && wget http://www.thc.org/releases/hydra-7.4.2.tar.gz
-tar zxvf hydra-7.4.2.tar.gz && rm -rf hydra-7.4.2.tar.gz
-mv hydra-7.4.2 /pentest/enumeration/hydra && cd /pentest/enumeration/hydra/
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/hydra-7.4.tar.gz
+tar zxvf hydra-7.4.tar.gz && rm -rf hydra-7.4.tar.gz
+mv hydra-7.4 /pentest/enumeration/hydra && cd /pentest/enumeration/hydra/
 ./configure && make
 sudo make install
 fi
@@ -118,7 +118,7 @@ sudo make install
 fi
 if [ ! -d /pentest/enumeration/thc-ipv6 ] ; then
 echo "Installing THC IPv6"
-cd /pentest/temp && wget http://www.thc.org/releases/thc-ipv6-2.1.tar.gz
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/thc-ipv6-2.1.tar.gz
 tar zxvf thc-ipv6-2.1.tar.gz && rm -rf thc-ipv6-2.1.tar.gz
 mv thc-ipv6-2.1 /pentest/enumeration/thc-ipv6 && cd /pentest/enumeration/thc-ipv6
 make all
@@ -143,8 +143,8 @@ wget http://portswigger.net/burp/burpsuite_free_v1.5.jar
 fi
 if [ ! -d /pentest/enumeration/thc-pptp-bruter ] ; then
 echo "Installing THC PPTP Bruteforcer"
-cd /pentest/temp && wget wget http://freeworld.thc.org/releases/thc-pptp-bruter-0.1.4.tar.gz
-tar zxvf thc-pptp-bruter-0.1.4.tar.gz && mv THC-pptp-bruter-0.1.4/ /pentest/enumeration/thc-pptp-bruter
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/thc-pptp-bruter-0.1.4.tar.gz
+tar xvf thc-pptp-bruter-0.1.4.tar.gz && mv THC-pptp-bruter-0.1.4/ /pentest/enumeration/thc-pptp-bruter
 rm -rf thc-pptp-bruter-0.1.4.tar.gz && cd /pentest/enumeration/thc-pptp-bruter/
 ./configure && make
 fi
