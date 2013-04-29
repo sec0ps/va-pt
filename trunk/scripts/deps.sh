@@ -9,6 +9,16 @@ sudo apt-get install -y libssh-dev libmysqlclient-dev libpcre3-dev Firebird2.1-d
 sudo apt-get install -y libopenssl-ruby libxslt1-dev ruby-dev sipcrack libgmp3-dev python-mysqldb libnet1-dev flasm registry-tools
 sudo apt-get install -y libavahi-compat-libdnssd-dev gip ldap-utils bkhive ophcrack macchanger-gtk cdpr flamerobin dsniff sipsak
 sudo apt-get install -y ddrescue ike-scan nfs-common httping ptunnel recover recoverdm extundelete ext3grep libaspell-dev autoconf
+sudo apt-get install -y libyaml-dev
+
+gem -v | grep 1.9.3
+if [ ! $? -eq 0 ] ; then
+echo "Installing Ruby 1.9.3"
+cd /pentest/temp && wget ftp://ftp.ruby-lang.org/pub/ruby/1.9/ruby-1.9.3-p392.tar.gz
+tar xvf ruby-1.9.3-p392.tar.gz && rm -rf ruby-1.9.3-p392.tar.gz
+cd ruby-1.9.3-p392 && ./configure && make
+sudo make install
+fi
 
 #if [ ! -d /opt/xplico ] ; then
 #echo "Installing Xplico"
