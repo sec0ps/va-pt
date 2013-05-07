@@ -76,6 +76,7 @@ sudo cpanm Term::ANSIColor
 sudo cpanm Getopt::Long
 sudo cpanm XML::Writer
 sudo cpanm Socket
+sudo cpanm Net::Whois::IP
 
 echo "Checking and Installing Ruby Gems"
 gem list | grep -w bundler
