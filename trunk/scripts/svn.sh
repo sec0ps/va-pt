@@ -177,7 +177,7 @@ fi
 if [ ! -d /pentest/web/wpscan ] ; then
 echo "Installing Wordpress Scanner"
 cd /pentest/web && git clone https://github.com/wpscanteam/wpscan.git
-bundle install --without test development
+sudo bundle install --without test development
 fi
 if [ ! -f /usr/local/bin/smbclient.py ] ; then
 echo "Installing Impacket"
