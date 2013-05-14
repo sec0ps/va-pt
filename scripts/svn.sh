@@ -38,9 +38,9 @@ cd /pentest/web && svn checkout http://fimap.googlecode.com/svn/trunk/ fimap
 fi
 if [ ! -d /pentest/web/zap ] ; then
 echo "Installing ZED Attack Proxy"
-cd /pentest/temp && wget http://zaproxy.googlecode.com/files/ZAP_2.0.0_Linux.tar.gz
-tar xvf ZAP_2.0.0_Linux.tar.gz && rm -rf ZAP_2.0.0_Linux.tar.gz
-mv ZAP_2.0.0/ /pentest/web/zap && cd /pentest/web && svn checkout --force http://zaproxy.googlecode.com/svn/trunk/ zap 
+cd /pentest/temp && wget http://zaproxy.googlecode.com/files/ZAP_2.1.0_Linux.tar.gz
+tar xvf ZAP_2.1.0_Linux.tar.gz && rm -rf ZAP_2.1.0_Linux.tar.gz
+mv ZAP_2.1.0/ /pentest/web/zap && cd /pentest/web && svn checkout --force http://zaproxy.googlecode.com/svn/trunk/ zap 
 fi
 if [ ! -d /pentest/web/w3af ] ; then
 echo "Installing w3af"
