@@ -1,5 +1,5 @@
 echo "Installing Ubuntu Packages"
-sudo apt-get install -y wine1.3 wine1.3-dev mysql-server subversion git ncftp rar p7zip-full iw ethtool dos2unix gtk-recordmydesktop postgresql
+sudo apt-get install -y wine wine-dev mysql-server subversion git ncftp rar p7zip-full iw ethtool dos2unix gtk-recordmydesktop postgresql
 sudo apt-get install -y sqlite3 nbtscan dsniff uClibc++ libncurses-dev libpcap-dev libnl-dev libssl-dev hping3 openssh-server
 sudo apt-get intsall -y python2.6-dev autoconf open-iscsi open-iscsi-utils virtualbox-ose virtualbox-guest-additions wireshark chntpw
 sudo apt-get install -y webhttrack httrack finger rusers snmp reglookup gpsd gpsd-dbg libgps-dev apache2 libapache2-mod-auth-mysql
@@ -9,10 +9,10 @@ sudo apt-get install -y libssh-dev libmysqlclient-dev libpcre3-dev Firebird2.1-d
 sudo apt-get install -y libopenssl-ruby libxslt1-dev ruby-dev sipcrack libgmp3-dev python-mysqldb libnet1-dev flasm registry-tools
 sudo apt-get install -y libavahi-compat-libdnssd-dev gip ldap-utils bkhive ophcrack macchanger-gtk cdpr flamerobin dsniff sipsak
 sudo apt-get install -y ddrescue ike-scan nfs-common httping ptunnel recover recoverdm extundelete ext3grep libaspell-dev autoconf
-sudo apt-get install -y libyaml-dev openjdk-7-jre openjdk-7-jre-lib
+sudo apt-get install -y libyaml-dev openjdk-7-jre openjdk-7-jre-lib libreadline-dev
 
-gem -v | grep 1.9.3
-if [ ! $? -eq 0 ] ; then
+ruby -v | grep "1.9.3"
+if [ $? -eq 1 ] ; then
 echo "Installing Ruby 1.9.3"
 cd /pentest/temp && wget ftp://ftp.ruby-lang.org/pub/ruby/1.9/ruby-1.9.3-p392.tar.gz
 tar xvf ruby-1.9.3-p392.tar.gz && rm -rf ruby-1.9.3-p392.tar.gz
