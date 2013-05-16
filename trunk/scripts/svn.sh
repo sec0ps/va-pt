@@ -12,8 +12,7 @@ fi
 if [ ! -d /pentest/exploits/set ] ; then
 echo "Installing the Social Engineering Toolkit"
 cd /pentest/exploits && git clone https://github.com/trustedsec/social-engineer-toolkit/ set
-#cd set && svn checkout http://pefile.googlecode.com/svn/trunk/ pefile
-#cd pefile && sudo python setup.py install
+cd set && sudo python setup.py install
 fi
 if [ ! -d /pentest/exploits/framework3 ] ; then
 echo "Installing Metasploit"
@@ -45,7 +44,7 @@ mv ZAP_2.1.0/ /pentest/web/zap && cd /pentest/web && svn checkout --force http:/
 fi
 if [ ! -d /pentest/web/w3af ] ; then
 echo "Installing w3af"
-cd /pentest/web && svn co https://w3af.svn.sourceforge.net/svnroot/w3af/trunk w3af
+cd /pentest/web && git clone https://github.com/andresriancho/w3af.git w3af 
 fi
 if [ ! -d /pentest/web/waffit/.svn ] ; then
 echo "Installing waffit"

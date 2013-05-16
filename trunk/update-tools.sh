@@ -10,7 +10,7 @@ cd /pentest/web/wapiti && svn up
 echo "Updating ZED Attack Proxy"
 cd /pentest/web/zap && svn up
 echo "Updating w3af"
-cd /pentest/web/w3af && svn up
+cd /pentest/web/w3af && git pull 
 echo "Updating waffit"
 cd /pentest/web/waffit && svn up
 echo "Updating Sulley"
