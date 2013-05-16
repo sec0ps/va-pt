@@ -270,6 +270,7 @@ fi
  if [ ! -f /pentest/database/mysqlaudit.py ] ; then
 echo "Installing MySQLAudit"
 cd /pentest/database && wget http://www.darkoperator.com/tools-and-scripts/mysqlaudit.py
+chmod 755 mysqlaudit.py
 fi
 if [ ! -d /pentest/passwords/john ] ; then
 echo "Installing John the Ripper"

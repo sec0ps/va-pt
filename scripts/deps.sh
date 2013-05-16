@@ -9,7 +9,7 @@ sudo apt-get install -y libssh-dev libmysqlclient-dev libpcre3-dev Firebird2.1-d
 sudo apt-get install -y libopenssl-ruby libxslt1-dev ruby-dev sipcrack libgmp3-dev python-mysqldb libnet1-dev flasm registry-tools
 sudo apt-get install -y libavahi-compat-libdnssd-dev gip ldap-utils bkhive ophcrack macchanger-gtk cdpr flamerobin dsniff sipsak
 sudo apt-get install -y ddrescue ike-scan nfs-common httping ptunnel recover recoverdm extundelete ext3grep libaspell-dev autoconf
-sudo apt-get install -y libyaml-dev openjdk-7-jre openjdk-7-jre-lib libreadline-dev
+sudo apt-get install -y libyaml-dev openjdk-7-jre openjdk-7-jre-lib libreadline-dev python2.7-dev python-pip python-beautifulsoup tshark
 
 ruby -v | grep "1.9.3"
 if [ $? -eq 1 ] ; then
@@ -77,6 +77,9 @@ sudo cpanm Getopt::Long
 sudo cpanm XML::Writer
 sudo cpanm Socket
 sudo cpanm Net::Whois::IP
+sudo cpanm Number::Bytes::Human
+sudo cpanm Parallel::ForkManager
+sudo cpanm NetPacket::ICMP
 
 echo "Checking and Installing Ruby Gems"
 gem list | grep -w bundler
