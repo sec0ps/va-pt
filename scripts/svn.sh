@@ -239,4 +239,8 @@ fi
 #echo "adding default user account - vapt/vapt"
 #echo "The VA-PT Portal is now available at http://localhost/portal"
 #fi
+echo "Installing local tools"
+cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
+cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
+cp /pentest/misc/va-pt/tools/dnsrecon.rb /pentest/enumeration/
 echo "Subversion package installation complete"
