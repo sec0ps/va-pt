@@ -45,6 +45,8 @@ fi
 if [ ! -d /pentest/web/w3af ] ; then
 echo "Installing w3af"
 cd /pentest/web && git clone https://github.com/andresriancho/w3af.git w3af 
+sudo pip install PyGithub GitPython pybloomfiltermmap esmre pdfminer futures guess-language cluster msgpack-python python-ntlm
+sudo pip install -e git+git://github.com/ramen/phply.git#egg=phply
 fi
 if [ ! -d /pentest/web/waffit/.svn ] ; then
 echo "Installing waffit"
@@ -159,8 +161,8 @@ fi
 if [ ! -d /pentest/passwords/pyrit ] ; then
 echo "Installing Pyrit"
 cd /pentest/passwords && svn co http://pyrit.googlecode.com/svn/trunk/ pyrit
-cd /pentest/passwords/pyrit/pyrit && python2.6 setup.py build 
-sudo python2.6 setup.py install
+cd /pentest/passwords/pyrit/pyrit && python setup.py build 
+sudo python setup.py install
 fi
 if [ ! -d /pentest/exploits/middler ] ; then
 echo "Installing Middler"
