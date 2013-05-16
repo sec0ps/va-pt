@@ -18,6 +18,7 @@ fi
 if [ ! -d /pentest/exploits/framework3 ] ; then
 echo "Installing Metasploit"
 cd /pentest/exploits && git clone https://github.com/rapid7/metasploit-framework.git framework3
+sudo bundle install
 fi
 if [ ! -d /pentest/exploits/warvox ] ; then
 echo "Installing Warvox"
@@ -96,10 +97,10 @@ cd /pentest/wireless && svn co http://trac.aircrack-ng.org/svn/trunk aircrack-ng
 cd /pentest/wireless/aircrack-ng && make
 sudo make install && airodump-ng-oui-update
 fi
-if [ ! -d /pentest/wireless/airgraph-ng ] ; then
-cd /pentest/wireless && svn co http://trac.aircrack-ng.org/svn/trunk/scripts/airgraph-ng airgraph-ng
-cd /pentest/wireless/airgraph-ng && chmod 755 airgraph-ng
-fi
+#if [ ! -d /pentest/wireless/airgraph-ng ] ; then
+#cd /pentest/wireless && svn co http://trac.aircrack-ng.org/svn/trunk/scripts/airgraph-ng airgraph-ng
+#cd /pentest/wireless/airgraph-ng && chmod 755 airgraph-ng
+#fi
 if [ ! -d /pentest/wireless/reaver ] ; then
 echo "Installing Reaver"
 cd /pentest/wireless && svn checkout http://reaver-wps.googlecode.com/svn/trunk/ reaver
