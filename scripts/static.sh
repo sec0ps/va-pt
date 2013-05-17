@@ -1,4 +1,24 @@
 echo "Static software package installation beginning"
+if [ ! -d /pentest/wireless/aircrack-ng ] ; then
+echo "Installing Aircrack Tools"
+cd /pentest/wireless && wget http://download.aircrack-ng.org/aircrack-ng-1.1.tar.gz
+tar xvf aircrack-ng-1.1.tar.gz && mv aircrack-ng-1.1 aircrack-ng
+rm -rf aircrack-ng-1.1.tar.gz
+cd aircrack-ng && cd /pentest/wireless/aircrack-ng
+echo "-------------------------------------------"
+echo "-------------------------------------------"
+echo "Modify the following"
+echo "CFLAGS          ?= -g -W -Wall -Werror -O3"
+echo "Change to:"
+echo "CFLAGS          ?= -g -W -Wall -O3"
+echo "-------------------------------------------"
+echo "-------------------------------------------"
+sleep 10
+gedit common.mak
+sleep 60
+make && sudo make install
+sudo airodump-ng-oui-update
+fi
 if [ ! -d /pentest/scanners/snmp ] ; then
 echo "Installing OneSixtyOne & snmpcheck"
 mkdir /pentest/scanners/snmp
@@ -321,10 +341,10 @@ cd /pentest/misc/flare && wget http://www.nowrap.de/download/flare06linux.tgz
 tar xvf flare06linux.tgz && rm -rf flare06linux.tgz
 fi
 if [ ! -d /pentest/passwords/hashcat ] ; then
-echo "Installing Hashcat"
-cd /pentest/temp && wget http://hashcat.net/files/oclHashcat-plus-0.09.7z
-7za x oclHashcat-plus-0.09.7z && rm -rf oclHashcat-plus-0.09.7z
-mv oclHashcat-plus-0.09 /pentest/passwords/hashcat
+echo "Installing oclHashcat+"
+cd /pentest/temp && wget http://hashcat.net/files/oclHashcat-plus-0.14.7z
+7za x oclHashcat-plus-0.14.7z && rm -rf oclHashcat-plus-0.14.7z
+mv oclHashcat-plus-0.14 /pentest/passwords/hashcat
 fi
 if [ ! -d /pentest/exploits/windows-tools ] ; then
 echo "Installing Windows Tools"

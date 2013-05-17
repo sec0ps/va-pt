@@ -1,10 +1,10 @@
 The set of scripts included in this package will create a Backtrack/SamuraiWTF type environment for the performing of
 Vulnerability Assessments and Penetration Testing.
 
-The goal of this project was to allow a portable set of tools to be easily installed onto any release of Ubuntu at a
+The goal of this project was to allow a portable set of tools to be easily installed onto Ubuntu at a
 moments notice, allowing the tester to be free of distribution release specific constraints.
 
-Note: Ubuntu 11 does not come with Konsole installed, you will need to install it prior to running these scripts.
+These scripts were designed specifically for Ubuntu 12.04 LTS.
 
 Contents of Files
 -----------------
@@ -32,13 +32,15 @@ create database msf owner <your username>;
 ./msfconsole
 db_connect <username>:<password>@localhost/msf
 
+Add the db_connect statement into the msfconsole file for simplicity
+-- .msf4/msfconsole.rc
+-- db_connect username:password@localhost:port/msf
+
 If you are running, or are planning on running, Nexpose on the same system. You will need to change the listening port on the postgresql database.
 
 /etc/postgresql/8.4/main/postgresql.conf
 
-Make sure your msf rc files reference the port number you set.
--- .msf4/msfconsole.rc
--- db_connect username:password@localhost:port/msf
+
 
 All tools are loaded into the /pentest directory.
 

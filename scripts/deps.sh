@@ -111,15 +111,7 @@ fi
 #if [ ! $? -eq 0 ] ; then
 #
 #fi
-cd && echo "export PATH=/var/lib/gems/1.8/bin/:$PATH" >> .bashrc
-source ~/.bashrc
 #
-if [ ! -f /usr/local/lib/python2.6/dist-packages/pybloomfilter.so ] ; then
-cd /pentest/temp && wget http://c.pypi.python.org/packages/source/p/pybloomfiltermmap/pybloomfiltermmap-0.2.0.tar.gz
-tar zxvf pybloomfiltermmap-0.2.0.tar.gz && rm -rf pybloomfiltermmap-0.2.0.tar.gz
-cd pybloomfiltermmap-0.2.0/ && sudo python2.6 setup.py install
-cd /pentest/temp/ && sudo rm -rf pybloomfiltermmap-0.2.0/
-fi
 #if [ ! -f /usr/bin/waveplay ] ; then
 #echo "Installing waveplay"
 #cd /pentest/temp && wget ftp://ftp.eenet.ee/pub/FreeBSD/distfiles/waveplay-20010924.tar.gz

@@ -92,12 +92,6 @@ cd /pentest/wireless/kismet
 ./configure && make dep
 make && sudo make install
 fi
-if [ ! -d /pentest/wireless/aircrack-ng ] ; then
-echo "Installing Aircrack Tools"
-cd /pentest/wireless && svn co http://trac.aircrack-ng.org/svn/trunk aircrack-ng
-cd /pentest/wireless/aircrack-ng && make
-sudo make install && airodump-ng-oui-update
-fi
 #if [ ! -d /pentest/wireless/airgraph-ng ] ; then
 #cd /pentest/wireless && svn co http://trac.aircrack-ng.org/svn/trunk/scripts/airgraph-ng airgraph-ng
 #cd /pentest/wireless/airgraph-ng && chmod 755 airgraph-ng
