@@ -45,7 +45,7 @@ fi
 if [ ! -d /pentest/web/w3af ] ; then
 echo "Installing w3af"
 cd /pentest/web && git clone https://github.com/andresriancho/w3af.git w3af 
-sudo pip install PyGithub GitPython pybloomfiltermmap esmre pdfminer futures guess-language cluster msgpack-python python-ntlm
+sudo pip install PyGithub GitPython pybloomfiltermmap esmre pdfminer futures guess-language cluster msgpack-python python-ntlm clamd xdot
 sudo pip install -e git+git://github.com/ramen/phply.git#egg=phply
 fi
 if [ ! -d /pentest/web/waffit/.svn ] ; then
