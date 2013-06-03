@@ -294,11 +294,11 @@ chmod 755 mysqlaudit.py
 fi
 if [ ! -d /pentest/passwords/john ] ; then
 echo "Installing John the Ripper"
-cd /pentest/temp && wget http://www.openwall.com/john/g/john-1.7.9-jumbo-7.tar.gz
-tar zxvf john-1.7.9-jumbo-7.tar.gz && rm -rf john-1.7.9-jumbo-7.tar.gz
-mv john-1.7.9-jumbo-7 /pentest/passwords/john && cd /pentest/passwords/john/src
-echo "Compiling for generic, this is not the best option unless you are running ancient hardware"
-make generic
+cd /pentest/temp && wget http://www.openwall.com/john/j/john-1.8.0.tar.gz
+tar xvf john-1.8.0.tar.gz && rm -rf john-1.8.0.tar.gz
+mv john-1.8.0 /pentest/passwords/john && cd /pentest/passwords/john/src
+echo "Compiling for linux-x86-64, if this fails you will need to figure out which works on your system manually."
+make linux-x86-64
 fi
 if [ ! -d /pentest/passwords/cewl ] ; then
 echo "Installing Cewl"
