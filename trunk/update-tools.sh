@@ -111,7 +111,7 @@ else
 echo "skipfish is not up to date, updating now."
 rm -rf /pentest/web/skipfish && /pentest/misc/va-pt/scripts/static.sh
 fi
-/pentest/passwords/john/run/john | grep "ver:"
+/pentest/passwords/john/run/john | grep "version"
 if [ $? != "1.8.0" ] ; then
 echo "john the ripper is up to date"
 else
