@@ -107,6 +107,10 @@ gem list | grep -w pg
 if [ ! $? -eq 0 ] ; then
 sudo gem install pg
 fi
+gem list | grep -w sqlite3
+if [ ! $? -eq 0 ] ; then
+sudo gem install sqlite3
+fi
 #need to add dep checking for this, wastes time on rechecks
 #gem list | grep -w 
 #if [ ! $? -eq 0 ] ; then
