@@ -21,7 +21,7 @@ sudo bundle install
 fi
 if [ ! -d /pentest/exploits/warvox ] ; then
 echo "Installing Warvox"
-cd /pentest/exploits && svn co http://www.metasploit.com/svn/warvox/trunk warvox
+cd /pentest/exploits && git clone https://github.com/rapid7/warvox.git
 fi
 if [ ! -d /pentest/web/wapiti ] ; then
 echo "Installing Wapiti"

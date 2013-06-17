@@ -10,6 +10,7 @@ sudo apt-get install -y libopenssl-ruby libxslt1-dev ruby-dev sipcrack libgmp3-d
 sudo apt-get install -y libavahi-compat-libdnssd-dev gip ldap-utils bkhive ophcrack macchanger-gtk cdpr flamerobin dsniff sipsak
 sudo apt-get install -y ddrescue ike-scan nfs-common httping ptunnel recover recoverdm extundelete ext3grep libaspell-dev autoconf
 sudo apt-get install -y libyaml-dev openjdk-7-jre openjdk-7-jre-lib libreadline-dev python2.7-dev python-pip python-beautifulsoup tshark
+sudo apt-get install -y openvas-server openvas-client samba libpam-smbpass
 
 ruby -v | grep "1.9.3"
 if [ $? -eq 1 ] ; then
