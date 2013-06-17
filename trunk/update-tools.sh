@@ -35,10 +35,10 @@ echo "Updating Fierce2"
 cd /pentest/enumeration/fierce2 && svn up
 echo "Updating Kismet"
 cd /pentest/wireless/kismet && git pull
-echo "Updating Aircrack Tools"
-cd /pentest/wireless/aircrack-ng && svn up
-echo "Updating Airgraph-NG"
-cd /pentest/wireless/airgraph-ng && svn up
+#echo "Updating Aircrack Tools"
+#cd /pentest/wireless/aircrack-ng && svn up
+#echo "Updating Airgraph-NG"
+#cd /pentest/wireless/airgraph-ng && svn up
 echo "Updating fimap"
 cd /pentest/web/fimap && svn up
 echo "Updating SQL Map"
@@ -87,7 +87,7 @@ cd /pentest/misc/va-pt && svn up
 echo "Updating the Vulnerability Database Portal"
 cd /var/www/search && sudo svn up
 echo "Updating Warvox"
-cd /pentest/exploits/warvox && svn up
+cd /pentest/exploits/warvox && git pull
 echo "Updating WhatWeb"
 cd /pentest/web/WhatWeb && git pull
 echo "Updating Responder"

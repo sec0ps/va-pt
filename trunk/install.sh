@@ -53,8 +53,7 @@ until [ "$selection" = "0" ]; do
      echo "5 - Install/Update wordlist Repositories"
      echo "6 - Install/Update Vulnerability/Exploit Databases"
      echo "7 - Update all tool packages"
-     echo "8 - Start all services"
-     echo "9 - Install Firefox Extensions"
+     echo "8 - Install Firefox Extensions"
      echo ""
      echo "0 - Exit program"
      echo ""
@@ -69,8 +68,7 @@ until [ "$selection" = "0" ]; do
          5 ) /pentest/misc/va-pt/scripts/wordlists.sh;;
          6 ) /pentest/misc/va-pt/scripts/db-update.sh;;
          7 ) /pentest/misc/va-pt/update-tools.sh;;
-         8 ) /pentest/misc/va-pt/scripts/services.sh;;
-         9 ) firefox https://addons.mozilla.org/en-US/firefox/collections/sec0ps/vapt/;;
+         8 ) firefox https://addons.mozilla.org/en-US/firefox/collections/sec0ps/vapt/ &;;
          0 ) exit;;
          * ) echo "Please enter your selection"
      esac
