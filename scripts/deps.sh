@@ -20,34 +20,6 @@ tar xvf ruby-1.9.3-p392.tar.gz && rm -rf ruby-1.9.3-p392.tar.gz
 cd ruby-1.9.3-p392 && ./configure && make
 sudo make install
 fi
-
-#if [ ! -d /opt/xplico ] ; then
-#echo "Installing Xplico"
-#sudo bash -c 'echo "deb http://repo.xplico.org/ $(lsb_release -s -c) main" >> /etc/apt/sources.list'
-#sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 791C25CE
-#sudo apt-get update
-#sudo apt-get install xplico
-#sudo service apache2 restart
-#echo "Xplico by default is now running on 9876 - http://localhost:9876"
-#fi
-
-#Oracle dependencies for metasploit, hydra, etc
-#if [ ! -d /opt/oracle ] ; then
-#cd /opt && mkdir oracle
-#cd /pentest/temp
-#wget basic-10.2.0.5.0-linux.zip && mv basic-10.2.0.5.0-linux.zip /opt/oracle
-#wget sdk-10.2.0.5.0-linux.zip && mv sdk-10.2.0.5.0-linux.zip /opt/oracle
-#wget sqlplus-10.2.0.5.0-linux.zip && mv sqlplus-10.2.0.5.0-linux.zip /opt/oracle
-#cd /opt/oracle && unzip basic-10.2.0.5.0-linux.zip
-#unzip sdk-10.2.0.5.0-linux.zip && sqlplus-10.2.0.5.0-linux.zip
-#cd /pentest/temp && wget kubo-ruby-oci8-ruby-oci8-2.1.2-0-g012e146.zip
-#unzip kubo-ruby-oci8-ruby-oci8-2.1.2-0-g012e146.zip && /pentest/temp/kubo-ruby-oci8-012e146
-#insert remainder of the ruby/oracle crap here needed for metasploit
-#metasploit oracle modules should work now
-#./configure --with-oracle=/opt/oracle/instantclient_10_2/sdk/include/ --with-oracle-lib=/opt/oracle/instantclient_10_2/
-#hydra segments on compile..no idea, will play with it more at some point..
-#fi
-
 if [ ! -f /usr/local/bin/cpanm ] ; then
 echo "Installing CPANimus"
 cd /pentest/temp && git clone git://github.com/miyagawa/cpanminus.git
@@ -55,14 +27,16 @@ cd cpanminus && perl Makefile.PL
 make && sudo make install
 cd /pentest/temp && rm -rf cpanminus/
 fi
+if [ $? -eq 1 ] ; then
 echo "Installing PERL Libraries"
-if [ ! -d /usr/local/lib/perl/5.12.4/Math/ ] ; then
 cd /pentest/temp && wget http://pari.math.u-bordeaux.fr/pub/pari/unix/OLD/pari-2.1.7.tgz
 tar xvf pari-2.1.7.tgz && rm -rf pari-2.1.7.tgz
 cd pari-2.1.7/ && wget http://search.cpan.org/CPAN/authors/id/I/IL/ILYAZ/modules/Math-Pari-2.01080605.tar.gz
 tar xvf Math-Pari-2.01080605.tar.gz && rm -rf Math-Pari-2.01080605.tar.gz
 cd Math-Pari-2.01080605 && perl Makefile.PL
 sudo make install
+else
+echo "Pari is installed, moving on"
 fi
 
 echo "Checking and Installing PERL Deps"
@@ -117,13 +91,6 @@ fi
 #
 #fi
 #
-#if [ ! -f /usr/bin/waveplay ] ; then
-#echo "Installing waveplay"
-#cd /pentest/temp && wget ftp://ftp.eenet.ee/pub/FreeBSD/distfiles/waveplay-20010924.tar.gz
-#tar zxvf waveplay-20010924.tar.gz && cd waveplay-20010924
-#make && sudo mv waveplay /usr/bin/
-#sudo rm -rf /pentest/temp/waveplay*
-#fi
 if [ ! -f /pentest/passwords/crunch ] ; then
 echo "Installing crunch"
 cd /pentest/passwords && wget http://dl.packetstormsecurity.net/Crack/crunch.cpp
@@ -144,29 +111,35 @@ sudo service apache2 force-reload
 fi
 echo "Updating locate database"
 sudo updatedb
-#Misc crap, need to review/remove
-#cd /pentest/temp && wget http://search.cpan.org/CPAN/authors/id/S/SA/SAPER/Net-Pcap-0.16.tar.gz
-#tar xvf Net-Pcap-0.16.tar.gz && rm -rf Net-Pcap-0.16.tar.gz
-#cd Net-Pcap-0.16/ && perl Makefile.PL
-#make && sudo make install
-#cd ../ && rm -rf Net-Pcap-0.16/
-#crap from the original netglub install..leaving it here in case I need it for reference
-#wget http://pypi.python.org/packages/source/s/simplejson/simplejson-2.1.5.tar.gz && tar -xzvf simplejson-2.1.5.tar.gz
-#rm -rf simplejson-2.1.5.tar.gz && cd simplejson-2.1.5
-#sudo python setup.py build && sudo python setup.py install 
+#if [ ! -d /opt/xplico ] ; then
+#echo "Installing Xplico"
+#sudo bash -c 'echo "deb http://repo.xplico.org/ $(lsb_release -s -c) main" >> /etc/apt/sources.list'
+#sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 791C25CE
+#sudo apt-get update
+#sudo apt-get install xplico
+#sudo service apache2 restart
+#echo "Xplico by default is now running on 9876 - http://localhost:9876"
+#fi
+#if [ ! -f /usr/bin/waveplay ] ; then
+#echo "Installing waveplay"
+#cd /pentest/temp && wget ftp://ftp.eenet.ee/pub/FreeBSD/distfiles/waveplay-20010924.tar.gz
+#tar zxvf waveplay-20010924.tar.gz && cd waveplay-20010924
+#make && sudo mv waveplay /usr/bin/
+#sudo rm -rf /pentest/temp/waveplay*
+#fi
+#Oracle dependencies for metasploit, hydra, etc
+#if [ ! -d /opt/oracle ] ; then
+#cd /opt && mkdir oracle
 #cd /pentest/temp
-#wget http://sourceforge.net/projects/pyxml/files/pyxml/0.8.4/PyXML-0.8.4.tar.gz
-#tar -xvzf PyXML-0.8.4.tar.gz && rm -rf PyXML-0.8.4.tar.gz
-#cd PyXML-0.8.4 && wget http://launchpadlibrarian.net/31786748/0001-Patch-for-Python-2.6.patch
-#patch -p1 < 0001-Patch-for-Python-2.6.patch && sudo python setup.py install 
-#cd /pentest/temp
-#wget http://www.graphviz.org/pub/graphviz/stable/SOURCES/graphviz-2.26.3.tar.gz
-#tar -xzvf graphviz-2.26.3.tar.gz
-#cd graphviz-2.26.3 && ./configure
-#make && sudo make install
-#cd /pentest/temp
-#wget http://sourceforge.net/projects/xmlrpc-c/files/Xmlrpc-c%20Super%20Stable/1.16.34/xmlrpc-c-1.16.34.tgz
-#tar -zxvf xmlrpc-c-1.16.34.tgz && rm -rf xmlrpc-c-1.16.34.tgz
-#cd xmlrpc-c-1.16.34
-#./configure
-#make && sudo make install
+#wget basic-10.2.0.5.0-linux.zip && mv basic-10.2.0.5.0-linux.zip /opt/oracle
+#wget sdk-10.2.0.5.0-linux.zip && mv sdk-10.2.0.5.0-linux.zip /opt/oracle
+#wget sqlplus-10.2.0.5.0-linux.zip && mv sqlplus-10.2.0.5.0-linux.zip /opt/oracle
+#cd /opt/oracle && unzip basic-10.2.0.5.0-linux.zip
+#unzip sdk-10.2.0.5.0-linux.zip && sqlplus-10.2.0.5.0-linux.zip
+#cd /pentest/temp && wget kubo-ruby-oci8-ruby-oci8-2.1.2-0-g012e146.zip
+#unzip kubo-ruby-oci8-ruby-oci8-2.1.2-0-g012e146.zip && /pentest/temp/kubo-ruby-oci8-012e146
+#insert remainder of the ruby/oracle crap here needed for metasploit
+#metasploit oracle modules should work now
+#./configure --with-oracle=/opt/oracle/instantclient_10_2/sdk/include/ --with-oracle-lib=/opt/oracle/instantclient_10_2/
+#hydra segments on compile..no idea, will play with it more at some point..
+#fi
