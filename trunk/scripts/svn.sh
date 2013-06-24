@@ -221,6 +221,10 @@ if [ ! -d /pentest/exploits/Responder ] ; then
 echo "Installing Spiderlabs Resonder"
 cd /pentest/exploits/ && git clone https://github.com/SpiderLabs/Responder.git
 fi
+if [ ! -d /pentest/enumeration/ike/groupenum ] ; then
+echo "Installing Spiderlabs groupenum"
+cd /pentest/enumeration/ike && git clone https://github.com/SpiderLabs/groupenum.git
+fi
 # install Vuln Portal
 if [ ! -d /var/www/search ] ; then
 echo "Installing Vulnerability Database Portal"
