@@ -67,13 +67,16 @@ tar zxvf ratproxy-1.58.tar.gz && rm -rf ratproxy-1.58.tar.gz
 mv ratproxy/ /pentest/web/ && cd /pentest/web/ratproxy
 make
 fi
-
 if [ ! -d /pentest/wireless/asleap ] ; then
 echo "Installing asleap"
 cd /pentest/temp && wget http://prdownloads.sourceforge.net/project/asleap/asleap/asleap-1.4/asleap-1.4.tgz
 tar xvf asleap-1.4.tgz && rm -rf asleap-1.4.tgz
 mv asleap/ /pentest/wireless && cd /pentest/wireless/asleap
 make
+fi
+if [ ! -f /pentest/wireless/eapmd5crack.py ] ; then
+echo "Installing EAP MD5 Crack"
+cd /pentest/wireless && wget http://ptscripts.googlecode.com/svn/trunk/eapmd5crack.py
 fi
 #if [ ! -d /pentest/voip/smap ] ; then
 #echo "Installing SMAP"
