@@ -48,9 +48,9 @@ mv sipvicious/ /pentest/voip/ && cd /pentest/voip/sipvicious
 fi
 if [ ! -d /pentest/enumeration/hydra ] ; then
 echo "Installing THC Hydra"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/hydra-7.4.tar.gz
-tar zxvf hydra-7.4.tar.gz && rm -rf hydra-7.4.tar.gz
-mv hydra-7.4 /pentest/enumeration/hydra && cd /pentest/enumeration/hydra/
+cd /pentest/temp && wget http://www.thc.org/releases/hydra-7.5.tar.gz
+tar zxvf hydra-7.5.tar.gz && rm -rf hydra-7.5.tar.gz
+mv hydra-7.5 /pentest/enumeration/hydra && cd /pentest/enumeration/hydra/
 ./configure && make
 sudo make install
 fi
@@ -141,9 +141,9 @@ sudo make install
 fi
 if [ ! -d /pentest/enumeration/thc-ipv6 ] ; then
 echo "Installing THC IPv6"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/thc-ipv6-2.1.tar.gz
-tar zxvf thc-ipv6-2.1.tar.gz && rm -rf thc-ipv6-2.1.tar.gz
-mv thc-ipv6-2.1 /pentest/enumeration/thc-ipv6 && cd /pentest/enumeration/thc-ipv6
+cd /pentest/temp && wget http://www.thc.org/releases/thc-ipv6-2.3.tar.gz
+tar zxvf thc-ipv6-2.3.tar.gz && rm -rf thc-ipv6-2.3.tar.gz
+mv thc-ipv6-2.3 /pentest/enumeration/thc-ipv6 && cd /pentest/enumeration/thc-ipv6
 make all
 fi
 #if [ ! -d /pentest/enumeration/seat ] ; then
