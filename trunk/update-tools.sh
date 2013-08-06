@@ -118,14 +118,14 @@ else
 echo "john the ripper is not up to date, updating now."
 rm -rf /pentest/passwords/john && /pentest/misc/va-pt/scripts/static.sh
 fi
-/usr/local/bin/hydra | grep "v7.4"
+/usr/local/bin/hydra | grep "v7.5"
 if [ $? -eq 0 ] ; then
 echo "THC Hydra is up to date"
 else
 echo "THC Hydra is not up to date, updating now."
 rm -rf /pentest/enumeration/hydra && /pentest/misc/va-pt/scripts/static.sh
 fi
-/pentest/enumeration/thc-ipv6/thcping6 | grep "v2.1"
+/pentest/enumeration/thc-ipv6/thcping6 | grep "v2.3"
 if [ $? -eq 0 ] ; then
 echo "THC IPv6 Attack Suite is up to date"
 else
