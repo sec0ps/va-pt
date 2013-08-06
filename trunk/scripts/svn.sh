@@ -225,6 +225,10 @@ if [ ! -d /pentest/enumeration/ike/groupenum ] ; then
 echo "Installing Spiderlabs groupenum"
 cd /pentest/enumeration/ike && git clone https://github.com/SpiderLabs/groupenum.git
 fi
+if [ ! -d /pentest/web/watobo ] ; then
+echo "Installing Watobo"
+cd /pentest/web/ && svn checkout http://svn.code.sf.net/p/watobo/code/ watobo
+fi
 # install Vuln Portal
 if [ ! -d /var/www/search ] ; then
 echo "Installing Vulnerability Database Portal"
