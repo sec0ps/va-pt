@@ -92,6 +92,9 @@ echo "Updating WhatWeb"
 cd /pentest/web/WhatWeb && git pull
 echo "Updating Responder"
 cd /pentest/exploits/Responder && git pull
+echo "Updating SSL Split"
+cd /pentest/web/sslsplit && git pull
+#
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
 sudo /usr/sbin/openvas-nvt-sync --wget
