@@ -437,6 +437,12 @@ cd /pentest/temp && wget http://labs.portcullis.co.uk/download/bsqlbfv2.zip
 unzip bsqlbfv2.zip && rm -rf bsqlbfv2.zip
 mv bsqlbf-v2/bsqlbf-v2.pl /pentest/database/ && rm -rf bsqlbf-v2/
 fi
+if [ ! -f /pentest/exploits/windows-tools/wce.exe ] ; then
+echo "Installing Windows Credential Editor"
+cd /pentest/exploits/windows-tools && wget http://www.ampliasecurity.com/research/wce_v1_41beta_x64.zip
+unzip wce_v1_41beta_x64.zipp && rm -rf wce_v1_41beta_x64.zip Changelog LICENSE.txt
+#rm 
+fi
 if [ ! -d /pentest/enumeration/apache_userdir ] ; then
 echo "Installing Apache UserDir Enumerator"
 cd /pentest/temp && wget http://labs.portcullis.co.uk/download/apache_users-2.1.tar.gz
