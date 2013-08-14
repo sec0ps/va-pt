@@ -87,7 +87,7 @@ cd /pentest/misc/va-pt && svn up
 echo "Updating the Vulnerability Database Portal"
 cd /var/www/search && sudo svn up
 echo "Updating Warvox"
-cd /pentest/exploits/warvox && git pull
+cd /pentest/voip/warvox && git pull
 echo "Updating WhatWeb"
 cd /pentest/web/WhatWeb && git pull
 echo "Updating Responder"
@@ -111,8 +111,8 @@ else
 echo "skipfish is not up to date, updating now."
 rm -rf /pentest/web/skipfish && /pentest/misc/va-pt/scripts/static.sh
 fi
-/pentest/passwords/john/run/john | grep "version"
-if [ $? != "1.7.9-jumbo-7" ] ; then
+/pentest/passwords/john/run/john | grep "1.7.9-jumbo-7"
+if [ $? -eq 0 ] ; then
 echo "john the ripper is up to date"
 else
 echo "john the ripper is not up to date, updating now."

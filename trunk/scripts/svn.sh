@@ -19,9 +19,9 @@ echo "Installing Metasploit"
 cd /pentest/exploits && git clone https://github.com/rapid7/metasploit-framework.git framework3
 sudo bundle install
 fi
-if [ ! -d /pentest/exploits/warvox ] ; then
+if [ ! -d /pentest/voip/warvox ] ; then
 echo "Installing Warvox"
-cd /pentest/exploits && git clone https://github.com/rapid7/warvox.git
+cd /pentest/voip && git clone https://github.com/rapid7/warvox.git
 fi
 if [ ! -d /pentest/web/wapiti ] ; then
 echo "Installing Wapiti"
