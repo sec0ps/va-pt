@@ -449,6 +449,11 @@ cd /pentest/web && mkdir aspshell
 cd aspshell && wget http://downloads.sourceforge.net/project/aspshell/aspshell/aspshell%200.2/aspshell-0.2.zip
 unzip aspshell-0.2.zip && rm -rf aspshell-0.2.zip
 fi
+if [ ! -d /pentest/web/wsb ] ; then
+echo "Installing WebShell Backdoor"
+cd /pentest/web && wget http://dl.packetstormsecurity.net/UNIX/penetration/rootkits/wsb.tar.gz
+tar xvf wsb.tar.gz && rm -rf wsb.tar.gz
+fi
 #if [ ! -d /pentest/enumeration/netglub ] ; then
 #cd /pentest/enumeration && wget http://redmine.lab.diateam.net/attachments/download/1/netglub-1.0.tar.gz
 #tar -xzvf netglub-1.0.tar.gz && rm -rf netglub-1.0.tar.gz

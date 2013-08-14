@@ -235,6 +235,12 @@ echo "Installing Vulnerability Database Portal"
 cd /var/www/ && sudo svn co http://va-pt.googlecode.com/svn/trunk/search search
 echo "The vulnerability search portal is now available at http://localhost/search/"
 fi
+if [ ! -d /pentest/web/sslsplit ] ; then
+echo "Installing SSL Split"
+cd /pentest/web && git clone https://github.com/droe/sslsplit.git
+cd sslsplit && make
+sudo make install
+fi
 #if [ ! -d /var/www/portal ] ; then
 #echo "Installing the VA-PT Portal"
 #cd /var/www/ && sudo svn checkout https://va-pt.googlecode.com/svn/trunk/portal portal
