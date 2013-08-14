@@ -359,6 +359,8 @@ cd /pentest/temp && wget http://swamp.foofus.net/fizzgig/fgdump/fgdump-2.1.0-exe
 bunzip2 fgdump-2.1.0-exeonly.tar.bz2 && rm -rf fgdump-2.1.0-exeonly.tar.bz2
 tar xvf fgdump-2.1.0-exeonly.tar && rm -rf fgdump-2.1.0-exeonly.tar
 mv Release/fgdump.exe /pentest/exploits/windows-tools/ && rm -rf Release/
+wget http://www.tarasco.org/security/dnsfun/dnsfun.zip && unzip dnsfun.zip
+rm dnsfun.c dnsfun.zip
 fi
 if [ ! -d /pentest/enumeration/ike ] ; then
 echo "Installing VPN Tools"
