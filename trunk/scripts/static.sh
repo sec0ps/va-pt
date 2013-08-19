@@ -440,7 +440,7 @@ fi
 if [ ! -f /pentest/exploits/windows-tools/wce.exe ] ; then
 echo "Installing Windows Credential Editor"
 cd /pentest/exploits/windows-tools && wget http://www.ampliasecurity.com/research/wce_v1_41beta_x64.zip
-unzip wce_v1_41beta_x64.zipp && rm -rf wce_v1_41beta_x64.zip Changelog LICENSE.txt
+unzip wce_v1_41beta_x64.zip && rm -rf wce_v1_41beta_x64.zip Changelog LICENSE.txt
 #rm 
 fi
 if [ ! -d /pentest/enumeration/apache_userdir ] ; then
