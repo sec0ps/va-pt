@@ -25,7 +25,7 @@ cd /pentest/voip && git clone https://github.com/rapid7/warvox.git
 fi
 if [ ! -d /pentest/web/wapiti ] ; then
 echo "Installing Wapiti"
-cd /pentest/web && svn co https://wapiti.svn.sourceforge.net/svnroot/wapiti wapiti
+cd /pentest/web && svn co https://svn.code.sf.net/p/wapiti/code/ wapiti
 fi
 if [ ! -d /pentest/fuzzers/wfuzz ] ; then
 echo "Installing wfuzz"
