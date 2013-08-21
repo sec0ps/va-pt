@@ -117,11 +117,11 @@ cd /pentest/database && git clone https://github.com/sqlmapproject/sqlmap.git
 fi
 if [ ! -d /pentest/database/sqlninja ] ; then
 echo "Installing SQL Ninja"
-cd /pentest/database && svn co https://sqlninja.svn.sourceforge.net/svnroot/sqlninja sqlninja
+cd /pentest/database && svn co https://svn.code.sf.net/p/sqlninja/code/ sqlninja
 fi
 if [ ! -d /pentest/web/laudanum ] ; then
 echo "Installing Laudanum"
-cd /pentest/web && svn co https://laudanum.svn.sourceforge.net/svnroot/laudanum laudanum
+cd /pentest/web && svn co https://svn.code.sf.net/p/laudanum/code/ laudanum
 fi
 if [ ! -d /pentest/fuzzers/fuzzdb ] ; then
 echo "Installing FuzzDB"
@@ -133,12 +133,12 @@ cd /pentest/enumeration && svn checkout http://monkeyfist.googlecode.com/svn/tru
 fi
 if [ ! -d /pentest/fuzzers/jbrofuzz ] ; then
 echo "Installing JBroFuzz"
-cd /pentest/fuzzers && svn co https://jbrofuzz.svn.sourceforge.net/svnroot/jbrofuzz jbrofuzz
+cd /pentest/fuzzers && svn co https://svn.code.sf.net/p/jbrofuzz/code/ jbrofuzz
 cd /pentest/fuzzers/jbrofuzz/jar && chmod 700 jbrofuzz.sh
 fi
 if [ ! -d /pentest/web/phpshell ] ; then
 echo "Installing PHP Shell"
-cd /pentest/web && svn co https://phpshell.svn.sourceforge.net/svnroot/phpshell phpshell
+cd /pentest/web && svn co https://svn.code.sf.net/p/phpshell/code/ phpshell
 fi
 if [ ! -d /pentest/web/htshells ] ; then
 echo "Installing htshells"
@@ -150,7 +150,7 @@ cd /pentest/enumeration && svn checkout http://dnsenum.googlecode.com/svn/trunk/
 fi
 if [ ! -d /pentest/fuzzers/wsfuzzer ] ; then
 echo "Installing WSFuzzer"
-cd /pentest/fuzzers && svn co https://wsfuzzer.svn.sourceforge.net/svnroot/wsfuzzer wsfuzzer
+cd /pentest/fuzzers && svn co https://svn.code.sf.net/p/wsfuzzer/code/ wsfuzzer
 fi
 if [ ! -d /pentest/passwords/pyrit ] ; then
 echo "Installing Pyrit"
