@@ -1,24 +1,25 @@
 echo "Static software package installation beginning"
-if [ ! -d /pentest/wireless/aircrack-ng ] ; then
-echo "Installing Aircrack Tools"
-cd /pentest/wireless && wget http://download.aircrack-ng.org/aircrack-ng-1.1.tar.gz
-tar xvf aircrack-ng-1.1.tar.gz && mv aircrack-ng-1.1 aircrack-ng
-rm -rf aircrack-ng-1.1.tar.gz
-cd aircrack-ng && cd /pentest/wireless/aircrack-ng
-echo "-------------------------------------------"
-echo "-------------------------------------------"
-echo "Modify the following"
-echo "CFLAGS          ?= -g -W -Wall -Werror -O3"
-echo "Change to:"
-echo "CFLAGS          ?= -g -W -Wall -O3"
-echo "-------------------------------------------"
-echo "-------------------------------------------"
-sleep 10
-gedit common.mak
-sleep 60
-make && sudo make install
-sudo airodump-ng-oui-update
-fi
+#repo back up as of 5 September 2013 - retaining this in case repo dies again
+#if [ ! -d /pentest/wireless/aircrack-ng ] ; then
+#echo "Installing Aircrack Tools"
+#cd /pentest/wireless && wget http://download.aircrack-ng.org/aircrack-ng-1.1.tar.gz
+#tar xvf aircrack-ng-1.1.tar.gz && mv aircrack-ng-1.1 aircrack-ng
+#rm -rf aircrack-ng-1.1.tar.gz
+#cd aircrack-ng && cd /pentest/wireless/aircrack-ng
+#echo "-------------------------------------------"
+#echo "-------------------------------------------"
+#echo "Modify the following"
+#echo "CFLAGS          ?= -g -W -Wall -Werror -O3"
+#echo "Change to:"
+#echo "CFLAGS          ?= -g -W -Wall -O3"
+#echo "-------------------------------------------"
+#echo "-------------------------------------------"
+#sleep 10
+#gedit common.mak
+#sleep 60
+#make && sudo make install
+#sudo airodump-ng-oui-update
+#fi
 if [ ! -d /pentest/scanners/snmp ] ; then
 echo "Installing OneSixtyOne & snmpcheck"
 mkdir /pentest/scanners/snmp

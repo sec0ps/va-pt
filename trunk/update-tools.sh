@@ -35,8 +35,8 @@ echo "Updating Fierce2"
 cd /pentest/enumeration/fierce2 && svn up
 echo "Updating Kismet"
 cd /pentest/wireless/kismet && git pull
-#echo "Updating Aircrack Tools"
-#cd /pentest/wireless/aircrack-ng && svn up
+echo "Updating Aircrack Tools"
+cd /pentest/wireless/aircrack-ng && svn up
 #echo "Updating Airgraph-NG"
 #cd /pentest/wireless/airgraph-ng && svn up
 echo "Updating fimap"
