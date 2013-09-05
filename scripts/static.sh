@@ -346,9 +346,9 @@ tar xvf flare06linux.tgz && rm -rf flare06linux.tgz
 fi
 if [ ! -d /pentest/passwords/hashcat ] ; then
 echo "Installing oclHashcat+"
-cd /pentest/temp && wget http://hashcat.net/files/oclHashcat-plus-0.14.7z
-7za x oclHashcat-plus-0.14.7z && rm -rf oclHashcat-plus-0.14.7z
-mv oclHashcat-plus-0.14 /pentest/passwords/hashcat
+cd /pentest/temp && wget http://hashcat.net/files/oclHashcat-plus-0.15.7z
+7za x oclHashcat-plus-0.15.7z && rm -rf oclHashcat-plus-0.15.7z
+mv oclHashcat-plus-0.15.7z /pentest/passwords/hashcat
 fi
 if [ ! -d /pentest/exploits/windows-tools ] ; then
 echo "Installing Windows Tools"
