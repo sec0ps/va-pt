@@ -92,8 +92,14 @@ cd /pentest/wireless/kismet
 ./configure && make dep
 make && sudo make install
 fi
+if [ ! -d /pentest/wireless/aircrack-ng ] ; then
+echo "Installing Aircrack-NG"
+cd /pentest/wireless && svn co http://svn.aircrack-ng.org/trunk/ aircrack-ng
+cd aircrack-ng && make
+sudo make install && sudo airodump-ng-oui-update
+fi
 #if [ ! -d /pentest/wireless/airgraph-ng ] ; then
-#cd /pentest/wireless && svn co http://trac.aircrack-ng.org/svn/trunk/scripts/airgraph-ng airgraph-ng
+#cd /pentest/wireless && svn co http://svn.aircrack-ng.org/trunk/ aircrack-ng
 #cd /pentest/wireless/airgraph-ng && chmod 755 airgraph-ng
 #fi
 if [ ! -d /pentest/wireless/reaver ] ; then
@@ -133,7 +139,7 @@ cd /pentest/enumeration && svn checkout http://monkeyfist.googlecode.com/svn/tru
 fi
 if [ ! -d /pentest/fuzzers/jbrofuzz ] ; then
 echo "Installing JBroFuzz"
-cd /pentest/fuzzers && https://svn.code.sf.net/p/jbrofuzz/code/ jbrofuzz
+cd /pentest/fuzzers && svn co https://svn.code.sf.net/p/jbrofuzz/code/ jbrofuzz
 cd /pentest/fuzzers/jbrofuzz/jar && chmod 700 jbrofuzz.sh
 fi
 if [ ! -d /pentest/web/phpshell ] ; then
