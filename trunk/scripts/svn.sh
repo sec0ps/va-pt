@@ -123,11 +123,11 @@ cd /pentest/database && git clone https://github.com/sqlmapproject/sqlmap.git
 fi
 if [ ! -d /pentest/database/sqlninja ] ; then
 echo "Installing SQL Ninja"
-cd /pentest/database && svn checkout https://svn.code.sf.net/p/sqlninja/code/ sqlninja
+cd /pentest/database && svn checkout http://svn.code.sf.net/p/sqlninja/code/ sqlninja
 fi
 if [ ! -d /pentest/web/laudanum ] ; then
 echo "Installing Laudanum"
-cd /pentest/web && svn co https://svn.code.sf.net/p/laudanum/code laudanum
+cd /pentest/web && svn co https://svn.code.sf.net/p/laudanum/code/ laudanum
 fi
 if [ ! -d /pentest/fuzzers/fuzzdb ] ; then
 echo "Installing FuzzDB"
@@ -234,6 +234,10 @@ fi
 if [ ! -d /pentest/web/watobo ] ; then
 echo "Installing Watobo"
 cd /pentest/web/ && svn checkout http://svn.code.sf.net/p/watobo/code/ watobo
+fi
+if [ ! -d /pentest/misc/netsniff-ng ] ; then
+echo "Installing Netsniff-ng"
+cd /pentest/misc && git clone git://github.com/borkmann/netsniff-ng.git
 fi
 # install Vuln Portal
 if [ ! -d /var/www/search ] ; then
