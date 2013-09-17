@@ -8,7 +8,11 @@ cd /pentest/exploits/framework3 && git pull
 echo "Updating Wapiti"
 cd /pentest/web/wapiti && svn up
 echo "Updating ZED Attack Proxy"
+if [ ! -f /pentest/web/zap/2.2.1.txt ] ; then
+rm -rf /pentest/web/zap && /pentest/misc/va-pt/scripts/svn.sh
+else
 cd /pentest/web/zap && svn up
+fi
 echo "Updating w3af"
 cd /pentest/web/w3af && git pull 
 echo "Updating waffit"
@@ -29,8 +33,8 @@ cd /pentest/web/wpscan && git pull
 #cd /pentest/misc/dradis && svn up
 echo "Updating wfuzz"
 cd /pentest/fuzzers/wfuzz && svn up
-#echo "Updating Beef"
-#cd /var/www/beef && git pull
+echo "Updating Beef"
+cd /var/www/beef && sudo git pull
 echo "Updating Fierce2"
 cd /pentest/enumeration/fierce2 && svn up
 echo "Updating Kismet"
