@@ -27,7 +27,6 @@ fi
 [ ! -d /pentest/spoofing ] && mkdir /pentest/spoofing
 [ ! -d /pentest/cisco ] && mkdir /pentest/cisco
 [ ! -d /pentest/tunneling ] && mkdir /pentest/tunneling
-[ ! -d /pentest/audit ] && mkdir /pentest/audit
 if [ ! -d /pentest/misc/va-pt ] ; then
 cd /pentest/misc && svn checkout http://va-pt.googlecode.com/svn/trunk/ va-pt
 fi
