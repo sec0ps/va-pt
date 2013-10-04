@@ -13,7 +13,7 @@ sudo mkdir /pentest
 sudo chown -R $USER /pentest && chgrp -R $USER /pentest
 fi
 [ ! -d /pentest/temp ] && mkdir /pentest/temp
-[ ! -d /pentest/wireless ] && mkdir /pentest/wireless
+#[ ! -d /pentest/wireless ] && mkdir /pentest/wireless
 [ ! -d /pentest/exploits ] && mkdir /pentest/exploits
 [ ! -d /pentest/exploits/exploitdb ] && mkdir /pentest/exploits/exploitdb
 [ ! -d /pentest/web ] && mkdir /pentest/web
