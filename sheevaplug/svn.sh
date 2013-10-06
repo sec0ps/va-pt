@@ -39,12 +39,6 @@ echo "Instaling Joomla Scanner"
 cd /pentest/web/ && svn checkout svn://svn.code.sf.net/p/joomscan/code/trunk joomscan
 cd /pentest/web/joomscan/trunk && chmod 755 joomscan.pl
 fi
-if [ ! -d /pentest/wireless/aircrack-ng ] ; then
-echo "Installing Aircrack-NG"
-cd /pentest/wireless && svn co http://svn.aircrack-ng.org/trunk/ aircrack-ng
-cd aircrack-ng && make
-sudo make install && sudo airodump-ng-oui-update
-fi
 if [ ! -d /pentest/database/sqlmap ] ; then
 echo "Installing SQL Map"
 cd /pentest/database && git clone https://github.com/sqlmapproject/sqlmap.git
@@ -92,10 +86,16 @@ if [ ! -d /pentest/misc/netsniff-ng ] ; then
 echo "Installing Netsniff-ng"
 cd /pentest/misc && git clone git://github.com/borkmann/netsniff-ng.git
 fi
-if [ ! -d /pentest/wireless/kismet ] ; then
-echo "Installing Kismet"
-cd /pentest/wireless && git clone https://www.kismetwireless.net/kismet.git
-cd /pentest/wireless/kismet
-./configure && make dep
-make && sudo make install
-fi
+#if [ ! -d /pentest/wireless/kismet ] ; then
+#echo "Installing Kismet"
+#cd /pentest/wireless && git clone https://www.kismetwireless.net/kismet.git
+#cd /pentest/wireless/kismet
+#./configure && make dep
+#make && sudo make install
+#fi
+#if [ ! -d /pentest/wireless/aircrack-ng ] ; then
+#echo "Installing Aircrack-NG"
+#cd /pentest/wireless && svn co http://svn.aircrack-ng.org/trunk/ aircrack-ng
+#cd aircrack-ng && make
+#sudo make install && sudo airodump-ng-oui-update
+#fi
