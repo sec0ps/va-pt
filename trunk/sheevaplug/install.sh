@@ -1,9 +1,12 @@
 #!/bin/bash
-su -c 'apt-get install -y ntpdate subversion' 
 if [[ $EUID -eq 0 ]]; then
 echo "This script must not be run as root.." 1>&2
 exit 1
 fi
+su -c 'apt-get install -y ntpdate subversion'
+echo "Add yourself into sudoers before continuing"
+echo "e.g. myusername ALL=(ALL:ALL) ALL"
+su -c 'vi /etc/sudoers'
 if [ ! -f /etc/network/if-up.d/ntpdate ] ; then
 sudo ntpdate time.nist.gov
 fi
