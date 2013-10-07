@@ -3,23 +3,24 @@ if [[ $EUID -eq 0 ]]; then
 echo "This script must not be run as root.." 1>&2
 exit 1
 fi
-su -c 'apt-get install -y ntpdate subversion'
-echo "Add yourself into sudoers before continuing"
-echo "e.g. myusername ALL=(ALL:ALL) ALL"
-su -c 'vi /etc/sudoers'
-if [ ! -f /etc/network/if-up.d/ntpdate ] ; then
+if [ ! -f /etc/sudoers ] ; then
+su -c 'apt-get install -y sudo'
+/usr/sbin/usermod -a -G sudo $USER
+fi
+if [ ! -f /usr/sbin/ntpdate ] ; then
+sudo apt-get install -y ntpdate
+else
 sudo ntpdate time.nist.gov
 fi
-#sudo echo 1 > /proc/sys/net/ipv4/ip_forward
-#clear
+if [ ! -f /usr/bin/svn ] ; then
+su -c 'apt-get install -y subversion'
+fi
 if [ ! -d /pentest ] ; then
 sudo mkdir /pentest
 sudo chown -R $USER /pentest && chgrp -R $USER /pentest
 fi
 [ ! -d /pentest/temp ] && mkdir /pentest/temp
-#[ ! -d /pentest/wireless ] && mkdir /pentest/wireless
 [ ! -d /pentest/exploits ] && mkdir /pentest/exploits
-[ ! -d /pentest/exploits/exploitdb ] && mkdir /pentest/exploits/exploitdb
 [ ! -d /pentest/web ] && mkdir /pentest/web
 [ ! -d /pentest/scanners ] && mkdir /pentest/scanners
 [ ! -d /pentest/misc ] && mkdir /pentest/misc
@@ -38,14 +39,14 @@ clear
 selection=
 until [ "$selection" = "0" ]; do
      echo ""
-     echo " _   _  ___        ______ _____    __             _____ _                                _             "
-     echo "| | | |/ _ \       | ___ \_   _|  / _|           /  ___| |                              | |            "
-     echo "| | | / /_\ \______| |_/ / | |   | |_ ___  _ __  \ `--.| |__   ___  _____   ____ _ _ __ | |_   _  __ _ "
-     echo "| | | |  _  |______|  __/  | |   |  _/ _ \| '__|  `--. \ '_ \ / _ \/ _ \ \ / / _` | '_ \| | | | |/ _` |"
-     echo "\ \_/ / | | |      | |     | |   | || (_) | |    /\__/ / | | |  __/  __/\ V / (_| | |_) | | |_| | (_| |"
-     echo " \___/\_| |_/      \_|     \_/   |_| \___/|_|    \____/|_| |_|\___|\___| \_/ \__,_| .__/|_|\__,_|\__, |"
-     echo "                                                                                  | |             __/ |"
-     echo "                                                                                  |_|            |___/ "
+     echo "|\     /|(  ___  )       (  ____ )\__   __/"
+     echo "| )   ( || (   ) |       | (    )|   ) (   "
+     echo "| |   | || (___) | _____ | (____)|   | |   "
+     echo "( (   ) )|  ___  |(_____)|  _____)   | |   "
+     echo " \ \_/ / | (   ) |       | (         | |   "
+     echo "  \   /  | )   ( |       | )         | |   "
+     echo "   \_/   |/     \|       |/          )_(   "
+     echo ""
      echo ""
      echo "The Vulnerability Assessment and Penetration Testing Toolkit"
      echo ""
@@ -53,8 +54,7 @@ until [ "$selection" = "0" ]; do
      echo "1 - Install Dependencies"
      echo "2 - Install SVN Toolkits"
      echo "3 - Install Static Code Software"
-     echo "4 - Install/Update Exploit Code Repositories"
-     echo "5 - Update all tool packages"
+     echo "4 - Update all tool packages"
      echo ""
      echo "0 - Exit program"
      echo ""
@@ -65,8 +65,7 @@ until [ "$selection" = "0" ]; do
          1 ) /pentest/misc/va-pt/sheevaplug/deps.sh;;
          2 ) /pentest/misc/va-pt/sheevaplug/svn.sh;;
          3 ) /pentest/misc/va-pt/sheevaplug/static.sh;;
-         4 ) /pentest/misc/va-pt/sheevaplug/exploits.sh;;
-         5 ) /pentest/misc/va-pt/sheevaplug/update-tools.sh;;
+         4 ) /pentest/misc/va-pt/sheevaplug/update-tools.sh;;
          0 ) exit;;
          * ) echo "Please enter your selection"
      esac
