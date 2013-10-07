@@ -4,9 +4,9 @@ cd /pentest/temp && wget http://www.hackingciscoexposed.com/tools/cisco-torch-0.
 tar zxvf cisco-torch-0.4b.tar.gz && rm -rf cisco-torch-0.4b.tar.gz
 mv cisco-torch-0.4b /pentest/cisco/torch
 fi
-if [ ! -d /pentest/scanners/snmp/snmpenum ] ; then
+if [ ! -d /pentest/scanners/snmpenum ] ; then
 echo "Installing SNMPenum"
-cd /pentest/scanners/snmp && mkdir snmpenum
+cd /pentest/scanners/ && mkdir snmpenum
 cd snmpenum && wget http://dl.packetstormsecurity.net/UNIX/scanners/snmpenum.zip
 unzip snmpenum.zip && rm -rf snmpenum.zip
 chmod 700 snmpenum.pl
