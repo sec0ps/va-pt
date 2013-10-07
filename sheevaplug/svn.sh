@@ -82,3 +82,6 @@ if [ ! -d /pentest/misc/netsniff-ng ] ; then
 echo "Installing Netsniff-ng"
 cd /pentest/misc && git clone git://github.com/borkmann/netsniff-ng.git
 fi
+cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
+cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
+cp /pentest/misc/va-pt/tools/dnsrecon.rb /pentest/enumeration/
