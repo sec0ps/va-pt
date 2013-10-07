@@ -335,7 +335,7 @@ cd /pentest/exploits && mkdir windows-tools
 cd windows-tools && wget http://download.sysinternals.com/files/PSTools.zip
 unzip PSTools.zip && rm -rf PSTools.zip
 wget http://dl.packetstormsecurity.net/groups/checksum/nc.exe
-cd /pentest/temp && wget http://swamp.foofus.net/fizzgig/fgdump/fgdump-2.1.0-exeonly.tar.bz2
+cd /pentest/temp && wget http://www.foofus.net/fizzgig/fgdump/fgdump-2.1.0-exeonly.tar.bz2
 bunzip2 fgdump-2.1.0-exeonly.tar.bz2 && rm -rf fgdump-2.1.0-exeonly.tar.bz2
 tar xvf fgdump-2.1.0-exeonly.tar && rm -rf fgdump-2.1.0-exeonly.tar
 mv Release/fgdump.exe /pentest/exploits/windows-tools/ && rm -rf Release/
@@ -383,8 +383,8 @@ chmod 755 cisc0wn.sh
 fi
 if [ ! -d /pentest/exploits/smbexec ] ; then
 echo "Installing smbexec"
-cd /pentest/temp && wget http://prdownloads.sourceforge.net/project/smbexec/smbexec-1.1.0.tar.gz
-tar xvf smbexec-1.1.0.tar.gz && rm -rf smbexec-1.1.0.tar.gz
+cd /pentest/temp && wget wget http://downloads.sourceforge.net/project/smbexec/smbexec_v1.2.9.1.tar.gz
+tar xvf smbexec_v1.2.9.1.tar.gz && rm -rf smbexec_v1.2.9.1.tar.gz
 mv smbexec/ /pentest/exploits
 fi
 if [ ! -d /pentest/web/mantra ] ; then
