@@ -53,9 +53,7 @@ until [ "$selection" = "0" ]; do
      echo "2 - Install SVN Toolkits"
      echo "3 - Install Static Code Software"
      echo "4 - Install/Update Exploit Code Repositories"
-     echo "5 - Install/Update wordlist Repositories"
-     echo "6 - Install/Update Vulnerability/Exploit Databases"
-     echo "7 - Update all tool packages"
+     echo "5 - Update all tool packages"
      echo ""
      echo "0 - Exit program"
      echo ""
@@ -67,9 +65,7 @@ until [ "$selection" = "0" ]; do
          2 ) /pentest/misc/va-pt/sheevaplug/svn.sh;;
          3 ) /pentest/misc/va-pt/sheevaplug/static.sh;;
          4 ) /pentest/misc/va-pt/sheevaplug/exploits.sh;;
-         5 ) /pentest/misc/va-pt/sheevaplug/wordlists.sh;;
-         6 ) /pentest/misc/va-pt/sheevaplug/db-update.sh;;
-         7 ) /pentest/misc/va-pt/sheevaplug/update-tools.sh;;
+         5 ) /pentest/misc/va-pt/sheevaplug/update-tools.sh;;
          0 ) exit;;
          * ) echo "Please enter your selection"
      esac

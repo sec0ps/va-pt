@@ -15,10 +15,6 @@ echo "Installing Metasploit"
 cd /pentest/exploits && git clone https://github.com/rapid7/metasploit-framework.git framework3
 sudo bundle install
 fi
-if [ ! -d /pentest/wireless/wifite/ ] ; then
-echo "Installing Wifitie"
-cd /pentest/wireless && svn checkout http://wifite.googlecode.com/svn/trunk/ wifite
-fi
 if [ ! -d /pentest/exploits/set ] ; then
 echo "Installing the Social Engineering Toolkit"
 cd /pentest/exploits && git clone https://github.com/trustedsec/social-engineer-toolkit/ set
@@ -86,16 +82,3 @@ if [ ! -d /pentest/misc/netsniff-ng ] ; then
 echo "Installing Netsniff-ng"
 cd /pentest/misc && git clone git://github.com/borkmann/netsniff-ng.git
 fi
-#if [ ! -d /pentest/wireless/kismet ] ; then
-#echo "Installing Kismet"
-#cd /pentest/wireless && git clone https://www.kismetwireless.net/kismet.git
-#cd /pentest/wireless/kismet
-#./configure && make dep
-#make && sudo make install
-#fi
-#if [ ! -d /pentest/wireless/aircrack-ng ] ; then
-#echo "Installing Aircrack-NG"
-#cd /pentest/wireless && svn co http://svn.aircrack-ng.org/trunk/ aircrack-ng
-#cd aircrack-ng && make
-#sudo make install && sudo airodump-ng-oui-update
-#fi
