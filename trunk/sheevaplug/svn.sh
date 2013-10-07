@@ -74,9 +74,9 @@ if [ ! -d /pentest/exploits/Responder ] ; then
 echo "Installing Spiderlabs Resonder"
 cd /pentest/exploits/ && git clone https://github.com/SpiderLabs/Responder.git
 fi
-if [ ! -d /pentest/enumeration/ike/groupenum ] ; then
+if [ ! -d /pentest/enumeration/groupenum ] ; then
 echo "Installing Spiderlabs groupenum"
-cd /pentest/enumeration/ike && git clone https://github.com/SpiderLabs/groupenum.git
+cd /pentest/enumeration/ && git clone https://github.com/SpiderLabs/groupenum.git
 fi
 if [ ! -d /pentest/misc/netsniff-ng ] ; then
 echo "Installing Netsniff-ng"
