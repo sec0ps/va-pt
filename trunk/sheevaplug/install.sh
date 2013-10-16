@@ -20,6 +20,7 @@ sudo mkdir /pentest
 sudo chown -R $USER /pentest && chgrp -R $USER /pentest
 fi
 [ ! -d /pentest/temp ] && mkdir /pentest/temp
+[ ! -d /pentest/wireless ] && mkdir /pentest/wireless
 [ ! -d /pentest/exploits ] && mkdir /pentest/exploits
 [ ! -d /pentest/web ] && mkdir /pentest/web
 [ ! -d /pentest/scanners ] && mkdir /pentest/scanners

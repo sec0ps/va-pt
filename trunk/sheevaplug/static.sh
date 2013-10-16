@@ -74,4 +74,24 @@ cd /pentest/temp && wget wget http://downloads.sourceforge.net/project/smbexec/s
 tar xvf smbexec_v1.2.9.1.tar.gz && rm -rf smbexec_v1.2.9.1.tar.gz
 mv smbexec/ /pentest/exploits
 fi
-
+if [ ! -d /pentest/enumeration/hydra ] ; then
+echo "Installing THC Hydra"
+cd /pentest/temp && wget http://www.thc.org/releases/hydra-7.5.tar.gz --no-check-certificate
+tar zxvf hydra-7.5.tar.gz && rm -rf hydra-7.5.tar.gz
+mv hydra-7.5 /pentest/enumeration/hydra && cd /pentest/enumeration/hydra/
+./configure && make
+sudo make install
+fi
+if [ ! -d /pentest/enumeration/thc-ipv6 ] ; then
+echo "Installing THC IPv6"
+cd /pentest/temp && wget http://www.thc.org/releases/thc-ipv6-2.3.tar.gz
+tar zxvf thc-ipv6-2.3.tar.gz && rm -rf thc-ipv6-2.3.tar.gz
+mv thc-ipv6-2.3 /pentest/enumeration/thc-ipv6 && cd /pentest/enumeration/thc-ipv6
+make all
+fi
+if [ ! -d /pentest/database/tnspoison ] ; then
+echo "Installing TNS Poison"
+cd /pentest/database && mkdir tnspoison
+cd tnspoison/ && wget http://www.joxeankoret.com/download/tnspoison.zip
+unzip tnspoison.zip && rm -rf tnspoison.zip
+fi
