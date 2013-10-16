@@ -1,0 +1,7 @@
+To implement the reverse ssh tunnel add the following to crontab
+
+crontab -e
+
+*/5	*	*	*	*	/pentest/misc/va-pt/sheevaplug/watchdog.sh
+
+Make sure to edit the watchdoh.sh script to set the correct system and ports.
