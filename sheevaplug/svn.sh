@@ -39,6 +39,10 @@ if [ ! -d /pentest/database/sqlmap ] ; then
 echo "Installing SQL Map"
 cd /pentest/database && git clone https://github.com/sqlmapproject/sqlmap.git
 fi
+if [ ! -d /pentest/database/sqlninja ] ; then
+echo "Installing SQL Ninja"
+cd /pentest/database && svn checkout http://svn.code.sf.net/p/sqlninja/code/ sqlninja
+fi
 if [ ! -d /pentest/web/phpshell ] ; then
 echo "Installing PHP Shell"
 cd /pentest/web && svn checkout svn://svn.code.sf.net/p/phpshell/code/trunk phpshell
@@ -81,6 +85,44 @@ fi
 if [ ! -d /pentest/misc/netsniff-ng ] ; then
 echo "Installing Netsniff-ng"
 cd /pentest/misc && git clone git://github.com/borkmann/netsniff-ng.git
+fi
+if [ ! -d /pentest/wireless/wifite/ ] ; then
+echo "Installing Wifitie"
+cd /pentest/wireless && svn checkout http://wifite.googlecode.com/svn/trunk/ wifite
+fi
+if [ ! -d /pentest/wireless/kismet ] ; then
+echo "Installing Kismet"
+cd /pentest/wireless && git clone https://www.kismetwireless.net/kismet.git
+cd /pentest/wireless/kismet
+./configure && make dep
+make && sudo make install
+fi
+if [ ! -d /pentest/wireless/aircrack-ng ] ; then
+echo "Installing Aircrack-NG"
+cd /pentest/wireless && svn co http://svn.aircrack-ng.org/trunk/ aircrack-ng
+cd aircrack-ng && make
+sudo make install && sudo airodump-ng-oui-update
+fi
+if [ ! -d /pentest/enumeration/fierce2 ] ; then
+echo "Installing Fierce2"
+cd /pentest/enumeration && svn co https://svn.assembla.com/svn/fierce/fierce2/trunk/ fierce2
+cd fierce2 && sudo cpanm --installdeps .
+perl Makefile.PL && make
+sudo make install
+fi
+if [ ! -d /var/www/beef/.git/ ] ; then
+echo "Installing Beef"
+cd /var/www && sudo git clone https://github.com/beefproject/beef.git
+fi
+if [ ! -d /pentest/exploits/middler ] ; then
+echo "Installing Middler"
+cd /pentest/exploits && svn checkout http://middler.googlecode.com/svn/trunk/ middler
+fi
+if [ ! -d /pentest/web/sslsplit ] ; then
+echo "Installing SSL Split"
+cd /pentest/web && git clone https://github.com/droe/sslsplit.git
+cd sslsplit && make
+sudo make install
 fi
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
