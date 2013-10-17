@@ -8,7 +8,7 @@ cd /pentest/exploits/framework3 && git pull
 echo "Updating Wapiti"
 cd /pentest/web/wapiti && svn up
 echo "Updating ZED Attack Proxy"
-if [ ! -f /pentest/web/zap/2.2.1.txt ] ; then
+if [ ! -f /pentest/web/zap/2.2.2.txt ] ; then
 rm -rf /pentest/web/zap && /pentest/misc/va-pt/scripts/svn.sh
 else
 cd /pentest/web/zap && svn up
