@@ -70,7 +70,7 @@ mv bsqlbf-v2/bsqlbf-v2.pl /pentest/database/ && rm -rf bsqlbf-v2/
 fi
 if [ ! -d /pentest/exploits/smbexec ] ; then
 echo "Installing smbexec"
-cd /pentest/temp && wget wget http://downloads.sourceforge.net/project/smbexec/smbexec_v1.2.9.1.tar.gz
+cd /pentest/temp && wget http://downloads.sourceforge.net/project/smbexec/smbexec_v1.2.9.1.tar.gz
 tar xvf smbexec_v1.2.9.1.tar.gz && rm -rf smbexec_v1.2.9.1.tar.gz
 mv smbexec/ /pentest/exploits
 fi
@@ -84,7 +84,7 @@ sudo make install
 fi
 if [ ! -d /pentest/enumeration/thc-ipv6 ] ; then
 echo "Installing THC IPv6"
-cd /pentest/temp && wget http://www.thc.org/releases/thc-ipv6-2.3.tar.gz
+cd /pentest/temp && wget http://www.thc.org/releases/thc-ipv6-2.3.tar.gz --no-check-certificate
 tar zxvf thc-ipv6-2.3.tar.gz && rm -rf thc-ipv6-2.3.tar.gz
 mv thc-ipv6-2.3 /pentest/enumeration/thc-ipv6 && cd /pentest/enumeration/thc-ipv6
 make all
