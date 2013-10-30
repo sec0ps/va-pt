@@ -28,7 +28,7 @@ mv sipvicious/ /pentest/voip/ && cd /pentest/voip/sipvicious
 fi
 if [ ! -d /pentest/enumeration/hydra ] ; then
 echo "Installing THC Hydra"
-cd /pentest/temp && wget http://www.thc.org/releases/hydra-7.5.tar.gz
+cd /pentest/temp && wget http://www.thc.org/releases/hydra-7.5.tar.gz --no-check-certificate
 tar zxvf hydra-7.5.tar.gz && rm -rf hydra-7.5.tar.gz
 mv hydra-7.5 /pentest/enumeration/hydra && cd /pentest/enumeration/hydra/
 ./configure && make
@@ -121,7 +121,7 @@ sudo make install
 fi
 if [ ! -d /pentest/enumeration/thc-ipv6 ] ; then
 echo "Installing THC IPv6"
-cd /pentest/temp && wget http://www.thc.org/releases/thc-ipv6-2.3.tar.gz
+cd /pentest/temp && wget http://www.thc.org/releases/thc-ipv6-2.3.tar.gz --no-check-certificate
 tar zxvf thc-ipv6-2.3.tar.gz && rm -rf thc-ipv6-2.3.tar.gz
 mv thc-ipv6-2.3 /pentest/enumeration/thc-ipv6 && cd /pentest/enumeration/thc-ipv6
 make all
@@ -383,7 +383,7 @@ chmod 755 cisc0wn.sh
 fi
 if [ ! -d /pentest/exploits/smbexec ] ; then
 echo "Installing smbexec"
-cd /pentest/temp && wget wget http://downloads.sourceforge.net/project/smbexec/smbexec_v1.2.9.1.tar.gz
+cd /pentest/temp && wget http://downloads.sourceforge.net/project/smbexec/smbexec_v1.2.9.1.tar.gz
 tar xvf smbexec_v1.2.9.1.tar.gz && rm -rf smbexec_v1.2.9.1.tar.gz
 mv smbexec/ /pentest/exploits
 fi
