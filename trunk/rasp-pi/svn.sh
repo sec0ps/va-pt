@@ -3,6 +3,7 @@ if [ ! -d /pentest/misc/proxmark3-r651 ] ; then
 echo "Installing Proxmark 3 Reader Software"
 cd /pentest/misc && svn co http://proxmark3.googlecode.com/svn/trunk@r651 proxmark3-r651
 cd proxmark3-r651 && make client
+fi
 #
 if [ ! -d /pentest/scanners/nmap ] ; then
 echo "Installing and compiling nmap"
