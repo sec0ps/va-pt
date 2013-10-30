@@ -11,7 +11,7 @@ sudo apt-get install -y libavahi-compat-libdnssd-dev gip ldap-utils bkhive ophcr
 sudo apt-get install -y ddrescue ike-scan nfs-kernel-server httping ptunnel recover recoverdm extundelete ext3grep libaspell-dev autoconf
 sudo apt-get install -y libyaml-dev openjdk-7-jre openjdk-7-jre-lib libreadline-dev python2.7-dev python-pip python-beautifulsoup tshark
 sudo apt-get install -y openvas-server openvas-client samba libpam-smbpass libevent-dev flex bison libnl-3-dev libnl-genl-3-dev libgeoip-dev
-sudo apt-get install -y libnetfilter-conntrack-dev libncurses6-dev liburcu-dev libnacl-dev zlib1g-dev libcli-dev python-pycurl 
+sudo apt-get install -y libnetfilter-conntrack-dev libncurses6-dev liburcu-dev libnacl-dev zlib1g-dev libcli-dev python-pycurl vpnc
 
 ruby -v | grep "1.9.3"
 if [ $? -eq 1 ] ; then
@@ -28,7 +28,7 @@ cd cpanminus && perl Makefile.PL
 make && sudo make install
 cd /pentest/temp && rm -rf cpanminus/
 fi
-if [ $? -eq 1 ] ; then
+if [ ! -f /usr/local/lib/perl/5.14.2/Math/Pari.pm ] ; then
 echo "Installing PERL Libraries"
 cd /pentest/temp && wget http://pari.math.u-bordeaux.fr/pub/pari/unix/OLD/pari-2.1.7.tgz
 tar xvf pari-2.1.7.tgz && rm -rf pari-2.1.7.tgz
