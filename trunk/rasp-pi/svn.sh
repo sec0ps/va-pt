@@ -20,6 +20,7 @@ fi
 if [ ! -d /pentest/exploits/framework3 ] ; then
 echo "Installing Metasploit"
 cd /pentest/exploits && git clone https://github.com/rapid7/metasploit-framework.git framework3
+cd /pentest/exploits/framework3 && sudo gem install bundler
 sudo bundle install
 fi
 if [ ! -d /pentest/exploits/set ] ; then

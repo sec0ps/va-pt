@@ -6,7 +6,7 @@ sudo apt-get install -y python-mysqldb python-beautifulsoup python-pycurl libidn
 sudo apt-get install -y dsniff ldap-utils hping3 libevent-dev libidn11-dev libavahi-compat-libdnssd-dev libssh-dev
 sudo apt-get install -y libmysqlclient-dev libreadline-dev libusb-dev python-scapy tcpdump tcpreplay ettercap-text-only
 sudo apt-get install -y macchanger udptunnel xprobe wireshark nbtscan sipcrack proxychains httptunnel sipsack sslsniff
-sudo apt-get install -y ike-scan ssldump vpnc openvpn
+sudo apt-get install -y ike-scan ssldump vpnc openvpn ethtool
 
 if [ ! -f /usr/local/bin/cpanm ] ; then
 echo "Installing CPANimus"
