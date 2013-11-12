@@ -132,6 +132,10 @@ cd /pentest/web && git clone https://github.com/droe/sslsplit.git
 cd sslsplit && make
 sudo make install
 fi
+if [ ! -d /pentest/web/wapiti ] ; then
+echo "Installing Wapiti"
+cd /pentest/web && svn co https://svn.code.sf.net/p/wapiti/code/ wapiti
+fi
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/dnsrecon.rb /pentest/enumeration/
