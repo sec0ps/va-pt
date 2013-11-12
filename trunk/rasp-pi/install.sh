@@ -3,9 +3,6 @@ if [[ $EUID -eq 0 ]]; then
 echo "This script must not be run as root.." 1>&2
 exit 1
 fi
-if [ ! -f /etc/network/if-up.d/ntpdate ] ; then
-sudo ntpdate time.nist.gov
-fi
 #sudo echo 1 > /proc/sys/net/ipv4/ip_forward
 #clear
 if [ ! -d /pentest ] ; then
