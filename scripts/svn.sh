@@ -239,6 +239,10 @@ if [ ! -d /pentest/misc/netsniff-ng ] ; then
 echo "Installing Netsniff-ng"
 cd /pentest/misc && git clone git://github.com/borkmann/netsniff-ng.git
 fi
+if [ ! -d /pentest/voip/sipvicious ] ; then
+echo "Installing SIPVicious"
+cd /pentest/voip && svn checkout http://sipvicious.googlecode.com/svn/trunk/ sipvicious
+fi
 # install Vuln Portal
 if [ ! -d /var/www/search ] ; then
 echo "Installing Vulnerability Database Portal"

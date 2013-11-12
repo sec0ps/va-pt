@@ -136,6 +136,10 @@ if [ ! -d /pentest/web/wapiti ] ; then
 echo "Installing Wapiti"
 cd /pentest/web && svn co https://svn.code.sf.net/p/wapiti/code/ wapiti
 fi
+if [ ! -d /pentest/voip/sipvicious ] ; then
+echo "Installing SIPVicious"
+cd /pentest/voip && svn checkout http://sipvicious.googlecode.com/svn/trunk/ sipvicious
+fi
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/dnsrecon.rb /pentest/enumeration/
