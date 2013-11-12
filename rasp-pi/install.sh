@@ -25,6 +25,7 @@ fi
 [ ! -d /pentest/cisco ] && mkdir /pentest/cisco
 if [ ! -d /pentest/misc/va-pt ] ; then
 cd /pentest/misc && svn checkout http://va-pt.googlecode.com/svn/trunk/ va-pt
+sudo cp interfaces /etc/network/
 fi
 clear
 selection=
