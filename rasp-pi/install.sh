@@ -25,12 +25,12 @@ fi
 [ ! -d /pentest/cisco ] && mkdir /pentest/cisco
 if [ ! -d /pentest/misc/va-pt ] ; then
 cd /pentest/misc && svn checkout http://va-pt.googlecode.com/svn/trunk/ va-pt
-fi
 #creating the wireless management interface - recommended the usb wireless adapater be in before running the installer
 sudo cp interfaces /etc/network/
 sudo ifdown wlan0 && sudo ifup wlan0
 #allowing ssh tunneling
 sudo cp sshd_config /etc/ssh/ && sudo service ssh restart
+fi
 
 clear
 selection=
