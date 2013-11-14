@@ -30,6 +30,7 @@ sudo cp interfaces /etc/network/
 sudo ifdown wlan0 && sudo ifup wlan0
 #allowing ssh tunneling
 sudo cp sshd_config /etc/ssh/ && sudo service ssh restart
+sudo cp rsyslog.conf /etc/ && sudo service rsyslog restart
 fi
 
 clear
