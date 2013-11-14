@@ -140,6 +140,11 @@ if [ ! -d /pentest/voip/sipvicious ] ; then
 echo "Installing SIPVicious"
 cd /pentest/voip && svn checkout http://sipvicious.googlecode.com/svn/trunk/ sipvicious
 fi
+if [ ! -d /pentest/enumeration/dnsmap ] ; then
+echo "Installing DNSMap"
+cd /pentest/enumeration && svn checkout http://dnsmap.googlecode.com/svn/trunk/ dnsmap
+cd /pentest/enumeration/dnsmap && gcc -o dnsmap dnsmap.c
+fi
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/dnsrecon.rb /pentest/enumeration/
