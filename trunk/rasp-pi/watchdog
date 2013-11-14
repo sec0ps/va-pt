@@ -7,7 +7,6 @@ createTunnel() {
     echo An error occurred creating a tunnel to jumpbox. RC was $?
   fi
 }
-/bin/pidof ssh
 ps -ef|grep "ssh -N" | grep -v grep
 if [[ $? -ne 0 ]]; then
   echo Creating new tunnel connection

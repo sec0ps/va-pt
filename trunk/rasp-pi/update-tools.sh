@@ -46,8 +46,6 @@ echo "Updating ncrack - you will need to recompile if needed"
 cd /pentest/scanners/ncrack && svn up
 echo "Updating VA-PT"
 cd /pentest/misc/va-pt && svn up
-echo "Updating the Vulnerability Database Portal"
-cd /var/www/search && sudo svn up
 echo "Updating Responder"
 cd /pentest/exploits/Responder && git pull
 echo "Updating SSL Split"
