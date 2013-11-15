@@ -8,7 +8,9 @@ sudo apt-get install -y libmysqlclient-dev libreadline-dev libusb-dev python-sca
 sudo apt-get install -y macchanger udptunnel xprobe wireshark nbtscan sipcrack proxychains httptunnel sipsack sslsniff
 sudo apt-get install -y ike-scan ssldump vpnc openvpn ethtool ruby-dev httrack rusers snmp reglookup gpsd libapache2-mod-php5
 sudo apt-get install -y apache2 ptunnel iodine netmask dnstracer dnswalk locate proxytunnel
+
 sudo ntpdate time.nist.gov
+sudo cp /etc/localtime /etc/localtime.old && sudo cp /usr/share/zoneinfo/US/Eastern /etc/localtime
 
 if [ ! -f /usr/local/bin/cpanm ] ; then
 echo "Installing CPANimus"
