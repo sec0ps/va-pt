@@ -40,7 +40,7 @@ cd /pentest/web && svn co http://svn2.assembla.com/svn/Nikto_2/trunk nikto
 fi
 if [ ! -d /pentest/web/joomscan ] ; then
 echo "Instaling Joomla Scanner"
-cd /pentest/web/ && svn checkout svn://svn.code.sf.net/p/joomscan/code/trunk joomscan
+cd /pentest/web/ && svn co http://svn.code.sf.net/p/joomscan/code/trunk joomscan
 cd /pentest/web/joomscan/ && chmod 755 joomscan.pl
 fi
 if [ ! -d /pentest/database/sqlmap ] ; then
