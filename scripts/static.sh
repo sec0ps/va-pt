@@ -28,9 +28,9 @@ fi
 #fi
 if [ ! -d /pentest/enumeration/hydra ] ; then
 echo "Installing THC Hydra"
-cd /pentest/temp && wget http://www.thc.org/releases/hydra-7.5.tar.gz --no-check-certificate
-tar zxvf hydra-7.5.tar.gz && rm -rf hydra-7.5.tar.gz
-mv hydra-7.5 /pentest/enumeration/hydra && cd /pentest/enumeration/hydra/
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/hydra-7.6.tar.gz
+tar zxvf hydra-7.6.tar.gz && rm -rf hydra-7.6.tar.gz
+mv hydra-7.6 /pentest/enumeration/hydra && cd /pentest/enumeration/hydra/
 ./configure && make
 sudo make install
 fi
@@ -164,13 +164,6 @@ cd snmpenum && wget http://dl.packetstormsecurity.net/UNIX/scanners/snmpenum.zip
 unzip snmpenum.zip && rm -rf snmpenum.zip
 chmod 700 snmpenum.pl
 fi
-if [ ! -d /pentest/enumeration/admsnmp ] ; then
-echo "Installing ADMsnmp"
-cd /pentest/temp && wget http://adm.freelsd.net/ADM/ADMsnmp.0.1.tgz
-tar zxvf ADMsnmp.0.1.tgz && rm -rf ADMsnmp.0.1.tgz
-mv ADMsnmp/ /pentest/enumeration/admsnmp  && cd /pentest/enumeration/admsnmp
-gcc snmp.c -o ADMsnmp && rm -rf snmp.c ADMsnmp.README
-fi
 if [ ! -d /pentest/enumeration/firewalk ] ; then
 echo "Installing Firewalk"
 cd /pentest/temp && wget http://packetfactory.openwall.net/firewalk/dist/firewalk.tar.gz
@@ -257,7 +250,7 @@ mv cowpatty-4.6/ /pentest/wireless/cowpatty && cd /pentest/wireless/cowpatty
 make && sudo make install
 fi
 if [ ! -d /pentest/enumeration/dirbuster ] ; then
-cd /pentest/temp && wget http://prdownloads.sourceforge.net/dirbuster/DirBuster-0.12.tar.bz2
+cd /pentest/temp && wget http://downloads.sourceforge.net/project/dirbuster/DirBuster%20%28jar%20%2B%20lists%29/0.12/DirBuster-0.12.tar.bz2
 bunzip2 DirBuster-0.12.tar.bz2 && tar xvf DirBuster-0.12.tar
 rm -rf DirBuster-0.12.tar && mv DirBuster-0.12 /pentest/enumeration/dirbuster
 cd /pentest/enumeration/dirbuster
