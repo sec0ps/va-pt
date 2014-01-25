@@ -192,6 +192,10 @@ if [ ! -d /pentest/web/WhatWeb ] ; then
 echo "Installing WhatWeb"
 cd /pentest/web && git clone git://github.com/urbanadventurer/WhatWeb.git
 fi
+if [ ! -d /pentest/web/jboss-autopwn ] ; then
+echo "Install Jboss Autopwn"
+cd /pentest/web && git clone https://github.com/SpiderLabs/jboss-autopwn.git
+fi
 #if [ ! -d /pentest/misc/redmine ] ; then
 #echo "Installing Redmine"
 #cd /pentest/misc && svn co http://redmine.rubyforge.org/svn/branches/1.2-stable redmine

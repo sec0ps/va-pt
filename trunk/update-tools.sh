@@ -100,6 +100,8 @@ echo "Updating SSL Split"
 cd /pentest/web/sslsplit && git pull
 echo "Updating netsniff-ng"
 cd /pentest/misc/netsniff-ng && git pull
+echo "Updating Jboss Autopwn"
+cd /pentest/web/jboss-autopwn && git pull
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
