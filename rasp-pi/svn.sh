@@ -145,6 +145,10 @@ echo "Installing DNSMap"
 cd /pentest/enumeration && svn checkout http://dnsmap.googlecode.com/svn/trunk/ dnsmap
 cd /pentest/enumeration/dnsmap && gcc -o dnsmap dnsmap.c
 fi
+if [ ! -d /pentest/web/jboss-autopwn ] ; then
+echo "Install Jboss Autopwn"
+cd /pentest/web && git clone https://github.com/SpiderLabs/jboss-autopwn.git
+fi
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/dnsrecon.rb /pentest/enumeration/
