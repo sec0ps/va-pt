@@ -52,8 +52,10 @@ echo "Updating SSL Split"
 cd /pentest/web/sslsplit && git pull
 echo "Updating netsniff-ng"
 cd /pentest/misc/netsniff-ng && git pull
+echo "Updating Jboss Autopwn"
+cd /pentest/web/jboss-autopwn && git pull
 #
-/usr/local/bin/hydra | grep "v7.5"
+/usr/local/bin/hydra | grep "v7.6"
 if [ $? -eq 0 ] ; then
 echo "THC Hydra is up to date"
 else
