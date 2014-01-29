@@ -42,21 +42,14 @@ echo "Pari is installed, moving on"
 fi
 
 echo "Checking and Installing PERL Deps"
-sudo cpanm Cisco::CopyConfig
-sudo cpanm Net::Telnet
-sudo cpanm Net::SSH::Perl
-sudo cpanm Net::IP
-sudo cpanm Net::Netmask
-sudo cpanm XML::Writer
-sudo cpanm Encoding::BER
-sudo cpanm Term::ANSIColor
-sudo cpanm Getopt::Long
-sudo cpanm XML::Writer
-sudo cpanm Socket
-sudo cpanm Net::Whois::IP
-sudo cpanm Number::Bytes::Human
-sudo cpanm Parallel::ForkManager
-sudo cpanm NetPacket::ICMP
+sudo cpanm Cisco::CopyConfig && sudo cpanm Net::Telnet
+sudo cpanm Net::SSH::Perl && sudo cpanm Net::IP
+sudo cpanm Net::Netmask && sudo cpanm XML::Writer
+sudo cpanm Encoding::BER && sudo cpanm Term::ANSIColor
+sudo cpanm Getopt::Long && sudo cpanm XML::Writer
+sudo cpanm Socket && sudo cpanm Net::Whois::IP
+sudo cpanm Number::Bytes::Human && sudo cpanm Parallel::ForkManager
+sudo cpanm NetPacket::ICMP && sudo cpanm String::Random
 
 echo "Checking and Installing Ruby Gems"
 gem list | grep -w bundler

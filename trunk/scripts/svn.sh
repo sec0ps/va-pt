@@ -151,10 +151,10 @@ if [ ! -d /pentest/web/htshells ] ; then
 echo "Installing htshells"
 cd /pentest/web && git clone git://github.com/wireghoul/htshells.git
 fi
-if [ ! -d /pentest/enumeration/dnsenum ] ; then
-echo "Installing DNSenum"
-cd /pentest/enumeration && svn checkout http://dnsenum.googlecode.com/svn/trunk/ dnsenum
-fi
+#if [ ! -d /pentest/enumeration/dnsenum ] ; then
+#echo "Installing DNSenum"
+#cd /pentest/enumeration && svn checkout http://dnsenum.googlecode.com/svn/trunk/ dnsenum
+#fi
 if [ ! -d /pentest/fuzzers/wsfuzzer ] ; then
 echo "Installing WSFuzzer"
 cd /pentest/fuzzers && svn checkout svn://svn.code.sf.net/p/wsfuzzer/code/trunk wsfuzzer

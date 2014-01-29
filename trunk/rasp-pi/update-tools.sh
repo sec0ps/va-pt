@@ -29,8 +29,8 @@ echo "Updating SQLNinja"
 cd /pentest/database/sqlninja && svn up
 echo "Updating PHP Shell"
 cd /pentest/web/phpshell && svn up
-echo "Updating DNS Enum"
-cd /pentest/enumeration/dnsenum && svn up
+#echo "Updating DNS Enum"
+#cd /pentest/enumeration/dnsenum && svn up
 echo "Updating Middler"
 cd /pentest/exploits/middler && svn up
 echo "Updating SIPVicious"

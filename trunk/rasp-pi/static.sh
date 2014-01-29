@@ -95,3 +95,9 @@ cd /pentest/database && mkdir tnspoison
 cd tnspoison/ && wget http://www.joxeankoret.com/download/tnspoison.zip
 unzip tnspoison.zip && rm -rf tnspoison.zip
 fi
+if [ ! -d /pentest/enumeration/dnsenum ] ; then
+echo "Installing DNSEnum"
+mkdir /pentest/enumeration/dnsenum && cd /pentest/enumeration/dnsenum
+wget http://dl.packetstormsecurity.net/UNIX/scanners/dnsenum-1.2.3.tar.gz && tar xvf dnsenum-1.2.3.tar.gz
+rm -rf dnsenum-1.2.3.tar.gz && rm -rf ._*
+fi

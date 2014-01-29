@@ -256,14 +256,7 @@ rm -rf DirBuster-0.12.tar && mv DirBuster-0.12 /pentest/enumeration/dirbuster
 cd /pentest/enumeration/dirbuster
 echo "java -jar DirBuster-0.12.jar" >> start-dirbuster.sh && chmod 700 start-dirbuster.sh
 fi
-#if [ ! -d /pentest/web/webscarab ] ; then
-#echo "Installing WebScarab"
-#mkdir /pentest/web/webscarab && cd /pentest/web/webscarab
-#wget http://webscarab-ng.googlecode.com/files/WebScarab-ng-0.2.1.one-jar.zip && unzip WebScarab-ng-0.2.1.one-jar.zip
-#rm -rf WebScarab-ng-0.2.1.one-jar.zip && chmod 700 start.sh
-#dos2unix start.sh
-#fi
- if [ ! -f /pentest/database/mysqlaudit.py ] ; then
+if [ ! -f /pentest/database/mysqlaudit.py ] ; then
 echo "Installing MySQLAudit"
 cd /pentest/database && wget http://www.darkoperator.com/tools-and-scripts/mysqlaudit.py
 chmod 755 mysqlaudit.py
@@ -432,6 +425,12 @@ if [ ! -d /pentest/web/wsb ] ; then
 echo "Installing WebShell Backdoor"
 cd /pentest/web && wget http://dl.packetstormsecurity.net/UNIX/penetration/rootkits/wsb.tar.gz
 tar xvf wsb.tar.gz && rm -rf wsb.tar.gz
+fi
+if [ ! -d /pentest/enumeration/dnsenum ] ; then
+echo "Installing DNSEnum"
+mkdir /pentest/enumeration/dnsenum && cd /pentest/enumeration/dnsenum
+wget http://dl.packetstormsecurity.net/UNIX/scanners/dnsenum-1.2.3.tar.gz && tar xvf dnsenum-1.2.3.tar.gz
+rm -rf dnsenum-1.2.3.tar.gz && rm -rf ._*
 fi
 #if [ ! -d /pentest/enumeration/netglub ] ; then
 #cd /pentest/enumeration && wget http://redmine.lab.diateam.net/attachments/download/1/netglub-1.0.tar.gz
