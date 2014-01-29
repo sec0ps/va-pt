@@ -149,6 +149,10 @@ if [ ! -d /pentest/web/jboss-autopwn ] ; then
 echo "Install Jboss Autopwn"
 cd /pentest/web && git clone https://github.com/SpiderLabs/jboss-autopwn.git
 fi
+if [ ! -d /pentest/wireless/weape ] ; then
+echo "Installing Wireless EAP Username Extractor"
+cd /pentest/wireless && git clone https://github.com/commonexploits/weape.git
+fi
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/dnsrecon.rb /pentest/enumeration/
