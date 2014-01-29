@@ -248,17 +248,21 @@ if [ ! -d /pentest/voip/sipvicious ] ; then
 echo "Installing SIPVicious"
 cd /pentest/voip && svn checkout http://sipvicious.googlecode.com/svn/trunk/ sipvicious
 fi
-# install Vuln Portal
-if [ ! -d /var/www/search ] ; then
-echo "Installing Vulnerability Database Portal"
-cd /var/www/ && sudo svn co http://va-pt.googlecode.com/svn/trunk/search search
-echo "The vulnerability search portal is now available at http://localhost/search/"
-fi
 if [ ! -d /pentest/web/sslsplit ] ; then
 echo "Installing SSL Split"
 cd /pentest/web && git clone https://github.com/droe/sslsplit.git
 cd sslsplit && make
 sudo make install
+fi
+if [ ! -d /pentest/wireless/weape ] ; then
+echo "Installing Wireless EAP Username Extractor"
+cd /pentest/wireless && git clone https://github.com/commonexploits/weape.git
+fi
+# install Vuln Portal
+if [ ! -d /var/www/search ] ; then
+echo "Installing Vulnerability Database Portal"
+cd /var/www/ && sudo svn co http://va-pt.googlecode.com/svn/trunk/search search
+echo "The vulnerability search portal is now available at http://localhost/search/"
 fi
 #if [ ! -d /var/www/portal ] ; then
 #echo "Installing the VA-PT Portal"

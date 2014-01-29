@@ -32,12 +32,10 @@ else
 echo "Pari is installed, moving on"
 fi
 
-sudo cpanm Net::SSLeay
-sudo cpanm HTTP::Request::Common
-sudo cpanm LWP::UserAgent
-sudo cpanm WWW::Mechanize
-sudo cpanm Net::Telnet
-sudo cpanm Net::SSH::Perl
+sudo cpanm Net::SSLeay && sudo cpanm HTTP::Request::Common
+sudo cpanm LWP::UserAgent && sudo cpanm WWW::Mechanize
+sudo cpanm Net::Telnet && sudo cpanm Net::SSH::Perl
+sudo cpanm Net::NetMask && sudo cpanm XML::Writer
 
 ruby -v | grep "1.9.3"
 if [ $? -eq 1 ] ; then
