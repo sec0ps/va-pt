@@ -362,12 +362,6 @@ echo "Installing Cisco 0wn"
 cd /pentest/cisco && wget http://www.commonexploits.com/tools/cisc0wn/cisc0wn.sh
 chmod 755 cisc0wn.sh
 fi
-if [ ! -d /pentest/exploits/smbexec ] ; then
-echo "Installing smbexec"
-cd /pentest/temp && wget http://downloads.sourceforge.net/project/smbexec/smbexec_v1.2.9.1.tar.gz
-tar xvf smbexec_v1.2.9.1.tar.gz && rm -rf smbexec_v1.2.9.1.tar.gz
-mv smbexec/ /pentest/exploits
-fi
 if [ ! -d /pentest/web/mantra ] ; then
 echo "Installing OWASP Mantra"
 cd /pentest/temp && wget http://getmantra.googlecode.com/files/Mantra%20Lexicon%20Lin32%20EN.tar.bz2 -O MantraLexicon.tar.bz2

@@ -104,6 +104,8 @@ echo "Updating Jboss Autopwn"
 cd /pentest/web/jboss-autopwn && git pull
 echo "Updating Weape"
 cd /pentest/wireless/weape && git pull
+echo "Updating smbexec"
+cd /pentest/exploits/smbexec && git pull
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"

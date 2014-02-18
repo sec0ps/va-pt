@@ -63,12 +63,6 @@ cd /pentest/temp && wget http://labs.portcullis.co.uk/download/bsqlbfv2.zip
 unzip bsqlbfv2.zip && rm -rf bsqlbfv2.zip
 mv bsqlbf-v2/bsqlbf-v2.pl /pentest/database/ && rm -rf bsqlbf-v2/
 fi
-if [ ! -d /pentest/exploits/smbexec ] ; then
-echo "Installing smbexec"
-cd /pentest/temp && wget http://downloads.sourceforge.net/project/smbexec/smbexec_v1.2.9.1.tar.gz
-tar xvf smbexec_v1.2.9.1.tar.gz && rm -rf smbexec_v1.2.9.1.tar.gz
-mv smbexec/ /pentest/exploits
-fi
 if [ ! -d /pentest/enumeration/hydra ] ; then
 echo "Installing THC Hydra"
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/hydra-7.6.tar.gz
