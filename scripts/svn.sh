@@ -276,4 +276,5 @@ echo "Installing local tools"
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/dnsrecon.rb /pentest/enumeration/
+cp /pentest/misc/va-pt/tools/mysqlaudit.py /pentest/database/
 echo "Subversion package installation complete"
