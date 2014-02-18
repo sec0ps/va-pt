@@ -344,7 +344,7 @@ mv gggooglescan-0.4 /pentest/enumeration/gggooglescan
 fi
 if [ ! -d /pentest/enumeration/rdp-sec-check ] ; then
 echo "Installing RDP Security Checker"
-cd /pentest/temp && wget http://labs.portcullis.co.uk/download/rdp-sec-check-0.8.tar.gz
+cd /pentest/temp && wget http://labs.portcullis.co.uk/download/rdp-sec-check-0.8.tar.gz --no-check-certificate
 tar xvf rdp-sec-check-0.8.tar.gz && rm -rf rdp-sec-check-0.8.tar.gz
 mv rdp-sec-check-0.8 /pentest/enumeration/rdp-sec-check
 fi
@@ -389,17 +389,17 @@ cd /pentest/temp && sudo rm -rf pybonjour-1.1.1
 fi
 if [ ! -d /pentest/enumeration/win-enum ] ; then
 echo "Installing Windows Enum Tools"
-cd /pentest/temp && wget http://labs.portcullis.co.uk/download/enum4linux-0.8.8.tar.gz
+cd /pentest/temp && wget http://labs.portcullis.co.uk/download/enum4linux-0.8.8.tar.gz --no-check-certificate
 tar xvf enum4linux-0.8.8.tar.gz && rm -rf enum4linux-0.8.8.tar.gz
 mv enum4linux-0.8.8 /pentest/enumeration/win-enum
-cd /pentest/temp && wget http://labs.portcullis.co.uk/download/polenum-0.2.tar.bz2
+cd /pentest/temp && wget http://labs.portcullis.co.uk/download/polenum-0.2.tar.bz2 --no-check-certificate
 bunzip2 polenum-0.2.tar.bz2 && tar xvf polenum-0.2.tar
 rm -rf polenum-0.2.tar && sudo mv polenum-0.2/polenum.py /usr/local/bin/
 sudo chmod 755 /usr/local/bin/polenum.py && rm -rf rm -rf polenum-0.2/
 fi
 if [ ! -f /pentest/database/bsqlbf-v2.pl ] ; then
 echo "Installing Blind SQL Brute Forcer"
-cd /pentest/temp && wget http://labs.portcullis.co.uk/download/bsqlbfv2.zip
+cd /pentest/temp && wget http://labs.portcullis.co.uk/download/bsqlbfv2.zip --no-check-certificate
 unzip bsqlbfv2.zip && rm -rf bsqlbfv2.zip
 mv bsqlbf-v2/bsqlbf-v2.pl /pentest/database/ && rm -rf bsqlbf-v2/
 fi
@@ -411,7 +411,7 @@ unzip wce_v1_41beta_x64.zip && rm -rf wce_v1_41beta_x64.zip Changelog LICENSE.tx
 fi
 if [ ! -d /pentest/enumeration/apache_userdir ] ; then
 echo "Installing Apache UserDir Enumerator"
-cd /pentest/temp && wget http://labs.portcullis.co.uk/download/apache_users-2.1.tar.gz
+cd /pentest/temp && wget http://labs.portcullis.co.uk/download/apache_users-2.1.tar.gz --no-check-certificate
 tar xvf apache_users-2.1.tar.gz && rm -rf apache_users-2.1.tar.gz
 mv apache_users /pentest/enumeration/apache_userdir
 fi
