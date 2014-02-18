@@ -256,11 +256,6 @@ rm -rf DirBuster-0.12.tar && mv DirBuster-0.12 /pentest/enumeration/dirbuster
 cd /pentest/enumeration/dirbuster
 echo "java -jar DirBuster-0.12.jar" >> start-dirbuster.sh && chmod 700 start-dirbuster.sh
 fi
-if [ ! -f /pentest/database/mysqlaudit.py ] ; then
-echo "Installing MySQLAudit"
-cd /pentest/database && wget http://www.darkoperator.com/tools-and-scripts/mysqlaudit.py
-chmod 755 mysqlaudit.py
-fi
 if [ ! -d /pentest/passwords/john ] ; then
 echo "Installing John the Ripper"
 cd /pentest/temp && wget http://www.openwall.com/john/g/john-1.7.9-jumbo-7.tar.gz 

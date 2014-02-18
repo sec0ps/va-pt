@@ -11,11 +11,6 @@ cd snmpenum && wget http://dl.packetstormsecurity.net/UNIX/scanners/snmpenum.zip
 unzip snmpenum.zip && rm -rf snmpenum.zip
 chmod 700 snmpenum.pl
 fi
-if [ ! -f /pentest/database/mysqlaudit.py ] ; then
-echo "Installing MySQLAudit"
-cd /pentest/database && wget http://www.darkoperator.com/tools-and-scripts/mysqlaudit.py
-chmod 755 mysqlaudit.py
-fi
 if [ ! -d /pentest/web/xsser ] ; then
 echo "Installing XSSer"
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/xsser_1.5-1.tar.gz
