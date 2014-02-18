@@ -56,6 +56,8 @@ echo "Updating Jboss Autopwn"
 cd /pentest/web/jboss-autopwn && git pull
 echo "Updating Weape"
 cd /pentest/wireless/weape && git pull
+echo "Updating smbexec"
+cd /pentest/exploits/smbexec && git pull
 #
 /usr/local/bin/hydra | grep "v7.6"
 if [ $? -eq 0 ] ; then

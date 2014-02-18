@@ -153,6 +153,10 @@ if [ ! -d /pentest/wireless/weape ] ; then
 echo "Installing Wireless EAP Username Extractor"
 cd /pentest/wireless && git clone https://github.com/commonexploits/weape.git
 fi
+if [ ! -d /pentest/exploits/smbexec ] ; then
+echo "Installing smbexec"
+cd /pentest/exploits && git clone https://github.com/pentestgeek/smbexec.git
+fi
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/dnsrecon.rb /pentest/enumeration/
