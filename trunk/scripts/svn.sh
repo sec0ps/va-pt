@@ -260,7 +260,8 @@ cd /pentest/wireless && git clone https://github.com/commonexploits/weape.git
 fi
 if [ ! -d /pentest/exploits/smbexec ] ; then
 echo "Installing smbexec"
-cd /pentest/exploits && git clone https://github.com/pentestgeek/smbexec.git
+cd /pentest/temp && git clone https://github.com/pentestgeek/smbexec.git
+cd smbexec && sudo ./install.sh
 fi
 # install Vuln Portal
 if [ ! -d /var/www/search ] ; then
