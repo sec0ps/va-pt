@@ -1,7 +1,7 @@
 echo "Installing Ubuntu Packages"
 sudo apt-get install -y wine wine-dev mysql-server subversion git ncftp rar p7zip-full iw ethtool dos2unix gtk-recordmydesktop postgresql
 sudo apt-get install -y sqlite3 nbtscan dsniff uClibc++ libncurses-dev libpcap-dev libnl-dev libssl-dev hping3 openssh-server
-sudo apt-get intsall -y python2.6-dev autoconf open-iscsi open-iscsi-utils virtualbox-ose virtualbox-guest-additions wireshark chntpw
+sudo apt-get intsall -y python-dev autoconf open-iscsi open-iscsi-utils virtualbox-ose virtualbox-guest-additions wireshark chntpw
 sudo apt-get install -y webhttrack httrack finger rusers snmp reglookup gpsd gpsd-dbg libgps-dev apache2 libapache2-mod-auth-mysql
 sudo apt-get install -y php5-mysql libapache2-mod-php5 curl sslscan ruby rubygems libpq-dev libxml2-dev vim python-setuptools
 sudo apt-get install -y python-nltk python-soappy python-lxml python-svn python-scapy gtk2-engines-pixbuf graphviz python-gtksourceview2
@@ -9,7 +9,7 @@ sudo apt-get install -y libssh-dev libmysqlclient-dev libpcre3-dev Firebird2.1-d
 sudo apt-get install -y libopenssl-ruby libxslt1-dev ruby-dev sipcrack libgmp3-dev python-mysqldb libnet1-dev flasm registry-tools
 sudo apt-get install -y libavahi-compat-libdnssd-dev gip ldap-utils bkhive ophcrack macchanger-gtk cdpr flamerobin dsniff sipsak
 sudo apt-get install -y ddrescue ike-scan nfs-kernel-server httping ptunnel recover recoverdm extundelete ext3grep libaspell-dev autoconf
-sudo apt-get install -y libyaml-dev openjdk-7-jre openjdk-7-jre-lib libreadline-dev python2.7-dev python-pip python-beautifulsoup tshark
+sudo apt-get install -y libyaml-dev openjdk-7-jre openjdk-7-jre-lib libreadline-dev python-pip python-beautifulsoup tshark
 sudo apt-get install -y samba libpam-smbpass libevent-dev flex bison libnl-3-dev libnl-genl-3-dev libgeoip-dev
 sudo apt-get install -y libnetfilter-conntrack-dev libncurses6-dev liburcu-dev libnacl-dev zlib1g-dev libcli-dev python-pycurl vpnc
 sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk
