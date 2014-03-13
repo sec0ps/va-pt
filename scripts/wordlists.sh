@@ -33,6 +33,7 @@ wget http://downloads.skullsecurity.org/passwords/tuscl.txt.bz2 && bunzip2 tuscl
 wget http://downloads.skullsecurity.org/passwords/facebook-phished.txt.bz2 && bunzip2 facebook-phished.txt.bz2
 wget http://downloads.skullsecurity.org/passwords/carders.cc.txt.bz2 && bunzip2 carders.cc.txt.bz2
 wget http://downloads.skullsecurity.org/passwords/singles.org.txt.bz2 && bunzip2 singles.org.txt.bz2 
+wget http://download.openwall.net/pub/wordlists/all.gz
 #
 gunzip *.gz && tar xvf fixed-length.tar
 rm -rf fixed-length.tar && rm -rf *.zip
