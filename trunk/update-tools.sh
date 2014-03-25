@@ -107,7 +107,7 @@ cd /pentest/wireless/weape && git pull
 echo "Updating smbexec"
 cd /pentest/exploits/smbexec && git pull
 echo "Updating John the Ripper"
-cd /pentest/password/john && git pull
+cd /pentest/passwords/john && git pull
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
