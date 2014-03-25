@@ -263,6 +263,11 @@ echo "Installing smbexec"
 cd /pentest/temp && git clone https://github.com/pentestgeek/smbexec.git
 cd smbexec && sudo ./install.sh
 fi
+if [ ! -d /pentest/password/john ] ; then
+echo "Installing John the Ripper Jumbo Pack"
+cd /pentest/password && git clone https://github.com/magnumripper/JohnTheRipper.git john
+cd john/src && make linux-x86-64
+fi
 # install Vuln Portal
 if [ ! -d /var/www/search ] ; then
 echo "Installing Vulnerability Database Portal"
