@@ -106,6 +106,8 @@ echo "Updating Weape"
 cd /pentest/wireless/weape && git pull
 echo "Updating smbexec"
 cd /pentest/exploits/smbexec && git pull
+echo "Updating John the Ripper"
+cd /pentest/password/john && git pull
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
@@ -126,13 +128,13 @@ else
 echo "skipfish is not up to date, updating now."
 rm -rf /pentest/web/skipfish && /pentest/misc/va-pt/scripts/static.sh
 fi
-/pentest/passwords/john/run/john | grep "1.7.9-jumbo-7"
-if [ $? -eq 0 ] ; then
-echo "john the ripper is up to date"
-else
-echo "john the ripper is not up to date, updating now."
-rm -rf /pentest/passwords/john && /pentest/misc/va-pt/scripts/static.sh
-fi
+#/pentest/passwords/john/run/john | grep "1.7.9-jumbo-7"
+#if [ $? -eq 0 ] ; then
+#echo "john the ripper is up to date"
+#else
+#echo "john the ripper is not up to date, updating now."
+#rm -rf /pentest/passwords/john && /pentest/misc/va-pt/scripts/static.sh
+#fi
 /usr/local/bin/hydra | grep "v7.6"
 if [ $? -eq 0 ] ; then
 echo "THC Hydra is up to date"
