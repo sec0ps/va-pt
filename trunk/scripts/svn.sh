@@ -263,7 +263,7 @@ echo "Installing smbexec"
 cd /pentest/temp && git clone https://github.com/pentestgeek/smbexec.git
 cd smbexec && sudo ./install.sh
 fi
-if [ ! -d /pentest/password/john ] ; then
+if [ ! -d /pentest/passwords/john ] ; then
 echo "Installing John the Ripper Jumbo Pack"
 cd /pentest/passwords && git clone https://github.com/magnumripper/JohnTheRipper.git john
 cd john/src && make linux-x86-64
