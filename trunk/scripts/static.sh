@@ -26,14 +26,6 @@ fi
 #tar zxvf sipvicious-0.2.6.tar.gz && rm -rf sipvicious-0.2.6.tar.gz
 #mv sipvicious/ /pentest/voip/ && cd /pentest/voip/sipvicious
 #fi
-if [ ! -d /pentest/enumeration/hydra ] ; then
-echo "Installing THC Hydra"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/hydra-7.6.tar.gz
-tar zxvf hydra-7.6.tar.gz && rm -rf hydra-7.6.tar.gz
-mv hydra-7.6 /pentest/enumeration/hydra && cd /pentest/enumeration/hydra/
-./configure && make
-sudo make install
-fi
 if [ ! -d /pentest/web/stompy ] ; then
 echo "Installing Stompy"
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/web/stompy.tgz

@@ -128,20 +128,9 @@ else
 echo "skipfish is not up to date, updating now."
 rm -rf /pentest/web/skipfish && /pentest/misc/va-pt/scripts/static.sh
 fi
-#/pentest/passwords/john/run/john | grep "1.7.9-jumbo-7"
-#if [ $? -eq 0 ] ; then
-#echo "john the ripper is up to date"
-#else
-#echo "john the ripper is not up to date, updating now."
-#rm -rf /pentest/passwords/john && /pentest/misc/va-pt/scripts/static.sh
-#fi
-/usr/local/bin/hydra | grep "v7.6"
-if [ $? -eq 0 ] ; then
-echo "THC Hydra is up to date"
-else
-echo "THC Hydra is not up to date, updating now."
-rm -rf /pentest/enumeration/hydra && /pentest/misc/va-pt/scripts/static.sh
-fi
+echo "Updating THC-Hydra"
+cd /pentest/enumeration/hydra && git pull
+#
 /pentest/enumeration/thc-ipv6/thcping6 | grep "v2.3"
 if [ $? -eq 0 ] ; then
 echo "THC IPv6 Attack Suite is up to date"
