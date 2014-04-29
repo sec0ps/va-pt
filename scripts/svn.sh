@@ -196,18 +196,6 @@ if [ ! -d /pentest/web/jboss-autopwn ] ; then
 echo "Install Jboss Autopwn"
 cd /pentest/web && git clone https://github.com/SpiderLabs/jboss-autopwn.git
 fi
-#if [ ! -d /pentest/misc/redmine ] ; then
-#echo "Installing Redmine"
-#cd /pentest/misc && svn co http://redmine.rubyforge.org/svn/branches/1.2-stable redmine
-#echo "Enter the root mysql password to create the redmine database and user"
-#mysql -u root -p -e "create database redmine character set utf8;"
-#mysql -u root -p -e "grant all privileges on redmine.* to 'redmine'@'localhost' identified by 'redminelocal';"
-#cd /pentest/misc/redmine && cp config/database.yml.example config/database.yml
-#echo ""
-#echo "enter the correct username/password for the redmine install in config/database.yml before attempting start"
-#echo "If this fails make sure require 'rake/dsl_definition' is in the Rakefile ands you setup database.yml"
-#echo "Once you have entered the correct user/pass migrate the db rake db:migrate RAILS_ENV="production""
-#fi
 if [ ! -d /pentest/scanners/nmap ] ; then
 echo "Installing and compiling nmap"
 cd /pentest/scanners && svn co https://svn.nmap.org/nmap nmap
@@ -268,7 +256,12 @@ echo "Installing John the Ripper Jumbo Pack"
 cd /pentest/passwords && git clone https://github.com/magnumripper/JohnTheRipper.git john
 cd john/src && make linux-x86-64
 fi
-# install Vuln Portal
+if [ ! -d /pentest/enumeration/hydra ] ; then
+echo "Installing THC-Hydra"
+cd /pentest/enumeration/ && git clone https://github.com/vanhauser-thc/thc-hydra.git hydra
+cd hydra && ./configure
+make && make install
+fi
 if [ ! -d /var/www/search ] ; then
 echo "Installing Vulnerability Database Portal"
 cd /var/www/ && sudo svn co http://va-pt.googlecode.com/svn/trunk/search search
@@ -288,3 +281,17 @@ cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/dnsrecon.rb /pentest/enumeration/
 cp /pentest/misc/va-pt/tools/mysqlaudit.py /pentest/database/
 echo "Subversion package installation complete"
+
+###
+#if [ ! -d /pentest/misc/redmine ] ; then
+#echo "Installing Redmine"
+#cd /pentest/misc && svn co http://redmine.rubyforge.org/svn/branches/1.2-stable redmine
+#echo "Enter the root mysql password to create the redmine database and user"
+#mysql -u root -p -e "create database redmine character set utf8;"
+#mysql -u root -p -e "grant all privileges on redmine.* to 'redmine'@'localhost' identified by 'redminelocal';"
+#cd /pentest/misc/redmine && cp config/database.yml.example config/database.yml
+#echo ""
+#echo "enter the correct username/password for the redmine install in config/database.yml before attempting start"
+#echo "If this fails make sure require 'rake/dsl_definition' is in the Rakefile ands you setup database.yml"
+#echo "Once you have entered the correct user/pass migrate the db rake db:migrate RAILS_ENV="production""
+#fi
