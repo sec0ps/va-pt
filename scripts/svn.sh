@@ -36,13 +36,6 @@ if [ ! -d /pentest/web/fimap ] ; then
 echo "Installing fimap"
 cd /pentest/web && svn checkout http://fimap.googlecode.com/svn/trunk/ fimap
 fi
-if [ ! -d /pentest/web/zap ] ; then
-echo "Installing ZED Attack Proxy"
-cd /pentest/temp && wget http://zaproxy.googlecode.com/files/ZAP_2.2.2_Linux.tar.gz
-tar xvf ZAP_2.2.2_Linux.tar.gz && rm -rf ZAP_2.2.2_Linux.tar.gz
-mv ZAP_2.2.2/ /pentest/web/zap && cd /pentest/web && svn checkout --force http://zaproxy.googlecode.com/svn/trunk/ zap 
-touch /pentest/web/zap/2.2.2.txt
-fi
 if [ ! -d /pentest/web/w3af ] ; then
 echo "Installing w3af"
 cd /pentest/web && git clone https://github.com/andresriancho/w3af.git w3af 
@@ -261,6 +254,10 @@ echo "Installing THC-Hydra"
 cd /pentest/enumeration/ && git clone https://github.com/vanhauser-thc/thc-hydra.git hydra
 cd hydra && ./configure
 make && make install
+fi
+if [ ! -d /pentest/enumeration/spiderfoot ] ; then
+echo "Installing Spiderfoot"
+cd /pentest/enumeration && git clone https://github.com/smicallef/spiderfoot.git spiderfoot
 fi
 if [ ! -d /var/www/search ] ; then
 echo "Installing Vulnerability Database Portal"

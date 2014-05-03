@@ -7,12 +7,12 @@ echo "Updating Metasploit"
 cd /pentest/exploits/framework3 && git pull
 echo "Updating Wapiti"
 cd /pentest/web/wapiti && svn up
-echo "Updating ZED Attack Proxy"
-if [ ! -f /pentest/web/zap/2.2.2.txt ] ; then
-rm -rf /pentest/web/zap && /pentest/misc/va-pt/scripts/svn.sh
-else
-cd /pentest/web/zap && svn up
-fi
+#echo "Updating ZED Attack Proxy"
+#if [ ! -f /pentest/web/zap/2.3.0.1.txt ] ; then
+#rm -rf /pentest/web/zap && /pentest/misc/va-pt/scripts/svn.sh
+#else
+#cd /pentest/web/zap && svn up
+#fi
 echo "Updating w3af"
 cd /pentest/web/w3af && git pull 
 echo "Updating waffit"
@@ -29,8 +29,6 @@ echo "Updating SSLyze"
 cd /pentest/web/sslyze && git pull
 echo "Updating WPScanner"
 cd /pentest/web/wpscan && git pull
-#echo "Updating Dradis"
-#cd /pentest/misc/dradis && svn up
 echo "Updating wfuzz"
 cd /pentest/fuzzers/wfuzz && svn up
 echo "Updating Beef"
@@ -108,6 +106,8 @@ echo "Updating smbexec"
 cd /pentest/exploits/smbexec && git pull
 echo "Updating John the Ripper"
 cd /pentest/passwords/john && git pull
+echo "Updating Spiderfoot"
+cd /pentest/enumeration/spiderfoot && git pull
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"

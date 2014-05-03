@@ -12,7 +12,7 @@ sudo apt-get install -y ddrescue ike-scan nfs-kernel-server httping ptunnel reco
 sudo apt-get install -y libyaml-dev openjdk-7-jre openjdk-7-jre-lib libreadline-dev python-pip python-beautifulsoup tshark
 sudo apt-get install -y samba libpam-smbpass libevent-dev flex bison libnl-3-dev libnl-genl-3-dev libgeoip-dev chntpw
 sudo apt-get install -y libnetfilter-conntrack-dev libncurses6-dev liburcu-dev libnacl-dev zlib1g-dev libcli-dev python-pycurl vpnc
-sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk
+sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk swig
 
 ruby -v | grep "1.9.3"
 if [ $? -eq 1 ] ; then
@@ -50,6 +50,12 @@ sudo cpanm Getopt::Long && sudo cpanm XML::Writer
 sudo cpanm Socket && sudo cpanm Net::Whois::IP
 sudo cpanm Number::Bytes::Human && sudo cpanm Parallel::ForkManager
 sudo cpanm NetPacket::ICMP && sudo cpanm String::Random
+
+echo "Installing Python Deps"
+sudo pip install lxml && sudo pip install netaddr
+sudo pip install M2Crypto && sudo pip install cherrypy
+sudo pip install mako && sudo pip install M2Crypto
+sudo pip install cherrypy && sudo pip install dnspython
 
 echo "Checking and Installing Ruby Gems"
 gem list | grep -w bundler
@@ -121,20 +127,4 @@ sudo updatedb
 #tar zxvf waveplay-20010924.tar.gz && cd waveplay-20010924
 #make && sudo mv waveplay /usr/bin/
 #sudo rm -rf /pentest/temp/waveplay*
-#fi
-#Oracle dependencies for metasploit, hydra, etc
-#if [ ! -d /opt/oracle ] ; then
-#cd /opt && mkdir oracle
-#cd /pentest/temp
-#wget basic-10.2.0.5.0-linux.zip && mv basic-10.2.0.5.0-linux.zip /opt/oracle
-#wget sdk-10.2.0.5.0-linux.zip && mv sdk-10.2.0.5.0-linux.zip /opt/oracle
-#wget sqlplus-10.2.0.5.0-linux.zip && mv sqlplus-10.2.0.5.0-linux.zip /opt/oracle
-#cd /opt/oracle && unzip basic-10.2.0.5.0-linux.zip
-#unzip sdk-10.2.0.5.0-linux.zip && sqlplus-10.2.0.5.0-linux.zip
-#cd /pentest/temp && wget kubo-ruby-oci8-ruby-oci8-2.1.2-0-g012e146.zip
-#unzip kubo-ruby-oci8-ruby-oci8-2.1.2-0-g012e146.zip && /pentest/temp/kubo-ruby-oci8-012e146
-#insert remainder of the ruby/oracle crap here needed for metasploit
-#metasploit oracle modules should work now
-#./configure --with-oracle=/opt/oracle/instantclient_10_2/sdk/include/ --with-oracle-lib=/opt/oracle/instantclient_10_2/
-#hydra segments on compile..no idea, will play with it more at some point..
 #fi
