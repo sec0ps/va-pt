@@ -323,7 +323,7 @@ mv Release/fgdump.exe /pentest/exploits/windows-tools/ && rm -rf Release/
 wget http://www.tarasco.org/security/dnsfun/dnsfun.zip && unzip dnsfun.zip
 rm dnsfun.zip && mv dnsfun.* /pentest/exploits/windows-tools/
 fi
-if [ ! -d /pentest/enumeration/ike ] ; then
+if [ ! -f /pentest/enumeration/ike/ikeprobe.exe ] ; then
 echo "Installing VPN Tools"
 cd /pentest/temp && wget http://www.ernw.de/download/ikeprobe.zip --no-check-certificate
 unzip ikeprobe.zip && rm -rf ikeprobe.zip
