@@ -1,3 +1,4 @@
+[ ! -d /pentest/enumeration/ike ] && mkdir /pentest/enumeration/ike
 echo "Beginning subverion package installation"
 if [ ! -d /pentest/wireless/giskismet ] ; then
 echo "Installing gisKismet"
@@ -253,7 +254,7 @@ if [ ! -d /pentest/enumeration/hydra ] ; then
 echo "Installing THC-Hydra"
 cd /pentest/enumeration/ && git clone https://github.com/vanhauser-thc/thc-hydra.git hydra
 cd hydra && ./configure
-make && make install
+make && sudo make install
 fi
 if [ ! -d /pentest/enumeration/spiderfoot ] ; then
 echo "Installing Spiderfoot"
