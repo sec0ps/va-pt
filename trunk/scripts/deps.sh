@@ -87,6 +87,10 @@ gem list | grep -w sqlite3
 if [ ! $? -eq 0 ] ; then
 sudo gem install sqlite3
 fi
+gem list | grep -w net-dns
+if [ ! $? -eq 0 ] ; then
+sudo gem install net-dns
+fi
 #need to add dep checking for this, wastes time on rechecks
 #gem list | grep -w 
 #if [ ! $? -eq 0 ] ; then
