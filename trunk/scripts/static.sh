@@ -3,8 +3,9 @@ if [ ! -d /pentest/web/zap ] ; then
 echo "Installing ZED Attack Proxy"
 cd /pentest/temp && wget http://downloads.sourceforge.net/project/zaproxy/2.3.0/ZAP_2.3.0.1_Linux.tar.gz
 tar xvf ZAP_2.3.0.1_Linux.tar.gz && rm -rf ZAP_2.3.0.1_Linux.tar.gz
-mv ZAP_2.3.0.1/ /pentest/web/zap && cd /pentest/web && svn checkout --force http://zaproxy.googlecode.com/svn/trunk/ zap 
+mv ZAP_2.3.0.1/ /pentest/web/zap 
 touch /pentest/web/zap/2.3.0.1.txt
+# && cd /pentest/web && svn checkout --force http://zaproxy.googlecode.com/svn/trunk/ zap
 fi
 if [ ! -d /pentest/scanners/snmp ] ; then
 echo "Installing OneSixtyOne & snmpcheck"
