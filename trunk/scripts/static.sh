@@ -304,12 +304,12 @@ cd /pentest/misc && mkdir flare
 cd /pentest/misc/flare && wget http://www.nowrap.de/download/flare06linux.tgz
 tar xvf flare06linux.tgz && rm -rf flare06linux.tgz
 fi
-if [ ! -d /pentest/passwords/hashcat ] ; then
-echo "Installing oclHashcat+"
-cd /pentest/temp && wget http://hashcat.net/files/oclHashcat-1.01.7z
-7za x oclHashcat-1.01.7z && rm -rf oclHashcat-1.01.7z
-mv oclHashcat-1.01 /pentest/passwords/hashcat
-fi
+#if [ ! -d /pentest/passwords/hashcat ] ; then
+#echo "Installing oclHashcat+"
+#cd /pentest/temp && wget http://hashcat.net/files/oclHashcat-1.01.7z
+#7za x oclHashcat-1.01.7z && rm -rf oclHashcat-1.01.7z
+#mv oclHashcat-1.01 /pentest/passwords/hashcat
+#fi
 if [ ! -d /pentest/exploits/windows-tools ] ; then
 echo "Installing Windows Tools"
 cd /pentest/exploits && mkdir windows-tools
@@ -321,7 +321,7 @@ bunzip2 fgdump-2.1.0-exeonly.tar.bz2 && rm -rf fgdump-2.1.0-exeonly.tar.bz2
 tar xvf fgdump-2.1.0-exeonly.tar && rm -rf fgdump-2.1.0-exeonly.tar
 mv Release/fgdump.exe /pentest/exploits/windows-tools/ && rm -rf Release/
 wget http://www.tarasco.org/security/dnsfun/dnsfun.zip && unzip dnsfun.zip
-rm dnsfun.c dnsfun.zip
+rm dnsfun.zip && mv dnsfun.* /pentest/exploits/windows-tools/
 fi
 if [ ! -d /pentest/enumeration/ike ] ; then
 echo "Installing VPN Tools"
