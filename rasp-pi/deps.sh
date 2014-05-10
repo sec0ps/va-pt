@@ -1,5 +1,5 @@
 echo "Installing Ubuntu Packages"
-sudo apt-get install -y wine wine-dev mysql-server subversion git ncftp rar p7zip-full iw ethtool dos2unix gtk-recordmydesktop postgresql
+sudo apt-get install -y mysql-server subversion git ncftp rar p7zip-full iw ethtool dos2unix gtk-recordmydesktop postgresql
 sudo apt-get install -y sqlite3 nbtscan dsniff uClibc++ libncurses-dev libpcap-dev libnl-dev libssl-dev hping3 openssh-server
 sudo apt-get intsall -y python-dev python2.7-dev autoconf open-iscsi open-iscsi-utils wireshark dhcp3-server locate libusb-dev
 sudo apt-get install -y webhttrack httrack finger rusers snmp reglookup gpsd gpsd-dbg libgps-dev apache2 libapache2-mod-auth-mysql
