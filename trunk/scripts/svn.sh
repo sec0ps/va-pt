@@ -240,11 +240,6 @@ if [ ! -d /pentest/wireless/weape ] ; then
 echo "Installing Wireless EAP Username Extractor"
 cd /pentest/wireless && git clone https://github.com/commonexploits/weape.git
 fi
-if [ ! -d /pentest/exploits/smbexec ] ; then
-echo "Installing smbexec"
-cd /pentest/temp && git clone https://github.com/pentestgeek/smbexec.git
-cd smbexec && sudo ./install.sh
-fi
 if [ ! -d /pentest/passwords/john ] ; then
 echo "Installing John the Ripper Jumbo Pack"
 cd /pentest/passwords && git clone https://github.com/magnumripper/JohnTheRipper.git john
@@ -278,8 +273,14 @@ cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/dnsrecon.rb /pentest/enumeration/
 cp /pentest/misc/va-pt/tools/mysqlaudit.py /pentest/database/
+#
+if [ ! -d /pentest/exploits/smbexec ] ; then
+echo "Installing smbexec"
+cd /pentest/temp && git clone https://github.com/pentestgeek/smbexec.git
+cd smbexec && sudo ./install.sh
+fi
+#
 echo "Subversion package installation complete"
-
 ###
 #if [ ! -d /pentest/misc/redmine ] ; then
 #echo "Installing Redmine"
