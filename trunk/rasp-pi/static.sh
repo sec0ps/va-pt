@@ -90,3 +90,8 @@ mkdir /pentest/enumeration/dnsenum && cd /pentest/enumeration/dnsenum
 wget http://dl.packetstormsecurity.net/UNIX/scanners/dnsenum-1.2.3.tar.gz && tar xvf dnsenum-1.2.3.tar.gz
 rm -rf dnsenum-1.2.3.tar.gz && rm -rf ._*
 fi
+if [ ! -d /pentest/web/svn-extractor ] ; then
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/svn-extractor-master.zip
+unzip svn-extractor-master.zip && mv svn-extractor-master/ /pentest/web/svn-extractor
+rm -rf svn-extractor-master*
+fi

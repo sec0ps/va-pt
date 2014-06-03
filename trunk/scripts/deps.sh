@@ -57,6 +57,7 @@ sudo pip install lxml && sudo pip install netaddr
 sudo pip install M2Crypto && sudo pip install cherrypy
 sudo pip install mako && sudo pip install M2Crypto
 sudo pip install cherrypy && sudo pip install dnspython
+sudo pip install requests
 
 echo "Checking and Installing Ruby Gems"
 gem list | grep -w bundler
