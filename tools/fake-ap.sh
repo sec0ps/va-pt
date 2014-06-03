@@ -37,7 +37,7 @@ iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
 
 #echo &gt; '/var/lib/dhcp3/dhcpd.leases'
 #ln -s /var/run/dhcp3-server/dhcpd.pid /var/run/dhcpd.pid
-dhcpd3 -d -f -cf /etc/dhcp3/dhcpd.conf at0 &
+dhcpd -d -f -cf /etc/dhcp/dhcpd.conf at0 &
 
 sleep 5
 
