@@ -58,6 +58,16 @@ if [ ! -f /pentest/wireless/eapmd5crack.py ] ; then
 echo "Installing EAP MD5 Crack"
 cd /pentest/wireless && wget http://ptscripts.googlecode.com/svn/trunk/eapmd5crack.py
 fi
+if [ ! -d /pentest/wireless/freeradius-wpe ] ; then
+echo "Installing FreeRADIUS WPE"
+cd /pentest/temp && wget ftp://ftp.freeradius.org/pub/radius/old/freeradius-server-2.1.12.tar.bz2
+bunzip2 freeradius-server-2.1.12.tar.bz2 && tar xvf freeradius-server-2.1.12.tar
+rm -rf tar xvf freeradius-server-2.1.12.tar && mv freeradius-server-2.1.12/ freeradius-wpe
+cd freeradius-wpe/ && wget https://raw.github.com/brad-anton/freeradius-wpe/master/freeradius-wpe.patch
+patch -p1 < freeradius-wpe.patch && ./configure
+make && sudo make install
+sudo ldconfig && sudo /usr/local/etc/raddb/certs/bootstrap
+fi
 #if [ ! -d /pentest/voip/smap ] ; then
 #echo "Installing SMAP"
 #cd /pentest/temp && wget http://www.protectors.cc/blog/uploads/vapt/smap.tar.gz
@@ -91,12 +101,6 @@ fi
 #
 #videosnarf pending
 #
-#if [ ! -d /pentest/voip/sipcrack ] ; then
-#cd /pentest/temp && wget http://dl.packetstormsecurity.net/Crackers/SIPcrack-0.2.tar.gz
-#tar zxvf SIPcrack-0.2.tar.gz && rm -rf SIPcrack-0.2.tar.gz
-#mv SIPcrack-0.2 /pentest/voip/sipcrack && cd /pentest/voip/sipcrack 
-#make
-#fi
 if [ ! -d /pentest/voip/enumiax ] ; then
 cd /pentest/temp && wget http://prdownloads.sourceforge.net/enumiax/enumiax-1.0.tar.gz
 tar zxvf enumiax-1.0.tar.gz && rm -rf enumiax-1.0.tar.gz
@@ -126,12 +130,6 @@ tar zxvf thc-ipv6-2.3.tar.gz && rm -rf thc-ipv6-2.3.tar.gz
 mv thc-ipv6-2.3 /pentest/enumeration/thc-ipv6 && cd /pentest/enumeration/thc-ipv6
 make all
 fi
-#if [ ! -d /pentest/enumeration/seat ] ; then
-#echo "Installing SEAT"
-#cd /pentest/temp && wget http://midnightresearch.com/common/seat/seat-0.3.tar.bz2
-#bunzip2 seat-0.3.tar.bz2 &&  tar xvf seat-0.3.tar
-#rm -rf seat-0.3.tar && mv seat/ /pentest/enumeration
-#fi
 if [ ! -d /pentest/voip/voiphopper ] ; then
 echo "Installing VOIP Hopper"
 cd /pentest/temp && wget http://prdownloads.sourceforge.net/voiphopper/voiphopper-2.0/voiphopper-2.04.tar.gz
@@ -169,14 +167,6 @@ echo "Installing Firewalk"
 cd /pentest/temp && wget http://packetfactory.openwall.net/firewalk/dist/firewalk.tar.gz
 tar zxvf firewalk.tar.gz && rm -rf firewalk.tar.gz
 mv Firewalk/ /pentest/enumeration/firewalk 
-#cd /pentest/temp && git clone http://git.libssh.org/projects/libssh.git libssh 
-#cd libssh/built && ./build_make.sh
-#make && make install
-#cd /pentest/temp && wget http://prdownloads.sourceforge.net/libdnet/libdnet-1.11.tar.gz
-#tar zxvf libdnet-1.11.tar.gz && rm -rf libdnet-1.11.tar.gz
-#cd libdnet-1.11/ && ./configure
-#make && sudo make install
-#sudo ln -s /usr/lib/libdumbnet.so /usr/lib/libdnet.so && sudo ln -s /usr/include/dumbnet.h /usr/include/dnet.h
 cd /pentest/enumeration/firewalk
 touch src/firewalk.good && touch include/firewalk.h.1
 touch include/firewalk.h.2 && touch  configure.1
