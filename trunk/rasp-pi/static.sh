@@ -99,7 +99,7 @@ if [ ! -d /pentest/wireless/freeradius-wpe ] ; then
 echo "Installing FreeRADIUS WPE"
 cd /pentest/temp && wget ftp://ftp.freeradius.org/pub/radius/old/freeradius-server-2.1.12.tar.bz2
 bunzip2 freeradius-server-2.1.12.tar.bz2 && tar xvf freeradius-server-2.1.12.tar
-rm -rf tar xvf freeradius-server-2.1.12.tar && mv freeradius-server-2.1.12/ freeradius-wpe
+rm -rf tar xvf freeradius-server-2.1.12.tar && mv freeradius-server-2.1.12/ /pentest/wireless/freeradius-wpe
 cd freeradius-wpe/ && wget https://raw.github.com/brad-anton/freeradius-wpe/master/freeradius-wpe.patch
 patch -p1 < freeradius-wpe.patch && ./configure
 make && sudo make install

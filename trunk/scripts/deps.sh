@@ -13,7 +13,7 @@ sudo apt-get install -y libyaml-dev openjdk-7-jre openjdk-7-jre-lib libreadline-
 sudo apt-get install -y samba libpam-smbpass libevent-dev flex bison libnl-3-dev libnl-genl-3-dev libgeoip-dev chntpw
 sudo apt-get install -y libnetfilter-conntrack-dev libncurses6-dev liburcu-dev libnacl-dev zlib1g-dev libcli-dev python-pycurl vpnc
 sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk swig cmake libtalloc-dev libtevent-dev libpopt-dev
-sudo apt-get install -y libbsd-dev
+sudo apt-get install -y libbsd-dev hostapd
 
 ruby -v | grep "1.9.3"
 if [ $? -eq 1 ] ; then
