@@ -49,9 +49,9 @@ cd /pentest/temp && sudo rm -rf pybonjour-1.1.1
 fi
 if [ ! -d /pentest/enumeration/win-enum ] ; then
 echo "Installing Windows Enum Tools"
-cd /pentest/temp && wget http://labs.portcullis.co.uk/download/enum4linux-0.8.8.tar.gz
-tar xvf enum4linux-0.8.8.tar.gz && rm -rf enum4linux-0.8.8.tar.gz
-mv enum4linux-0.8.8 /pentest/enumeration/win-enum
+cd /pentest/temp && wget http://labs.portcullis.co.uk/download/enum4linux-0.8.9.tar.gz
+tar xvf enum4linux-0.8.9.tar.gz && rm -rf enum4linux-0.8.9.tar.gz
+mv enum4linux-0.8.9 /pentest/enumeration/win-enum
 cd /pentest/temp && wget http://labs.portcullis.co.uk/download/polenum-0.2.tar.bz2
 bunzip2 polenum-0.2.tar.bz2 && tar xvf polenum-0.2.tar
 rm -rf polenum-0.2.tar && sudo mv polenum-0.2/polenum.py /usr/local/bin/
