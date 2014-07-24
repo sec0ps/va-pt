@@ -153,6 +153,12 @@ if [ ! -d /pentest/wireless/weape ] ; then
 echo "Installing Wireless EAP Username Extractor"
 cd /pentest/wireless && git clone https://github.com/commonexploits/weape.git
 fi
+if [ ! -d /pentest/enumeration/hydra ] ; then
+echo "Installing THC-Hydra"
+cd /pentest/enumeration/ && git clone https://github.com/vanhauser-thc/thc-hydra.git hydra
+cd hydra && ./configure
+make && sudo make install
+fi
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/dnsrecon.rb /pentest/enumeration/
