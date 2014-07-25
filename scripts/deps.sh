@@ -92,6 +92,10 @@ gem list | grep -w net-dns
 if [ ! $? -eq 0 ] ; then
 sudo gem install net-dns
 fi
+gem list | grep -w bundler
+if [ ! $? -eq 0 ] ; then
+sudo gem install bundler
+fi
 #need to add dep checking for this, wastes time on rechecks
 #gem list | grep -w 
 #if [ ! $? -eq 0 ] ; then
