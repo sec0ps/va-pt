@@ -5,6 +5,7 @@ echo "Updating SET"
 cd /pentest/exploits/set && git pull
 echo "Updating Metasploit"
 cd /pentest/exploits/framework3 && git pull
+bundle install
 echo "Updating Wapiti"
 cd /pentest/web/wapiti && svn up
 #echo "Updating ZED Attack Proxy"
@@ -104,6 +105,7 @@ echo "Updating Weape"
 cd /pentest/wireless/weape && git pull
 echo "Updating smbexec"
 cd /pentest/exploits/smbexec && git pull
+bundle install
 echo "Updating John the Ripper"
 cd /pentest/passwords/john && git pull
 echo "Updating Spiderfoot"
