@@ -20,6 +20,17 @@ echo "Installing Metasploit"
 cd /pentest/exploits && git clone https://github.com/rapid7/metasploit-framework.git framework3
 cd /pentest/exploits/framework3 && bundle install
 fi
+if [ ! -d /pentest/exploits/Veil-Catapult ] ; then
+cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Catapult.git 
+sudo /pentest/exploits/Veil-Catapult/setup.sh
+fi
+if [ ! -d /pentest/exploits/Veil-Evasion ] ; then
+cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Evasion.git 
+sudo /pentest/exploits/Veil-Evasion/setup/setup.sh
+fi
+if [ ! -d /pentest/exploits/Veil-PowerView ] ; then
+cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-PowerView.git
+fi
 if [ ! -d /pentest/voip/warvox ] ; then
 echo "Installing Warvox"
 cd /pentest/voip && git clone https://github.com/rapid7/warvox.git
@@ -280,6 +291,8 @@ echo "Installing smbexec"
 cd /pentest/temp && git clone https://github.com/pentestgeek/smbexec.git
 cd smbexec && sudo ./install.sh
 fi
+#
+#echo "Installing additional msf modules
 #
 echo "Subversion package installation complete"
 ###
