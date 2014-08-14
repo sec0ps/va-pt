@@ -24,7 +24,7 @@ fi
 [ ! -d /pentest/spoofing ] && mkdir /pentest/spoofing
 [ ! -d /pentest/cisco ] && mkdir /pentest/cisco
 #creating the wireless management interface - recommended the usb wireless adapater be in before running the installer
-sudo cp interfaces /etc/network/ && sleep 2
+sudo mv interfaces /etc/network/ && sleep 2
 sudo ifdown wlan0 && sudo ifup wlan0
 sleep 2
 #
@@ -32,7 +32,6 @@ if [ ! -d /pentest/misc/va-pt ] ; then
 cd /pentest/misc && svn checkout http://va-pt.googlecode.com/svn/trunk/ va-pt
 #allowing ssh tunneling
 sudo cp sshd_config /etc/ssh/ && sudo service ssh restart
-#sudo cp rsyslog.conf /etc/ && sudo service rsyslog restart
 fi
 
 clear
