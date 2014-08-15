@@ -8,12 +8,6 @@ cd /pentest/exploits/framework3 && git pull
 bundle install
 echo "Updating Wapiti"
 cd /pentest/web/wapiti && svn up
-#echo "Updating ZED Attack Proxy"
-#if [ ! -f /pentest/web/zap/2.3.0.1.txt ] ; then
-#rm -rf /pentest/web/zap && /pentest/misc/va-pt/scripts/svn.sh
-#else
-#cd /pentest/web/zap && svn up
-#fi
 echo "Updating w3af"
 cd /pentest/web/w3af && git pull 
 echo "Updating waffit"
@@ -110,6 +104,8 @@ echo "Updating John the Ripper"
 cd /pentest/passwords/john && git pull
 echo "Updating Spiderfoot"
 cd /pentest/enumeration/spiderfoot && git pull
+echo "Updating THC-Hydra"
+cd /pentest/enumeration/hydra && git pull
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
@@ -130,8 +126,6 @@ else
 echo "skipfish is not up to date, updating now."
 rm -rf /pentest/web/skipfish && /pentest/misc/va-pt/scripts/static.sh
 fi
-echo "Updating THC-Hydra"
-cd /pentest/enumeration/hydra && git pull
 #
 /pentest/enumeration/thc-ipv6/thcping6 | grep "v2.3"
 if [ $? -eq 0 ] ; then
