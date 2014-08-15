@@ -267,6 +267,10 @@ if [ ! -d /pentest/enumeration/spiderfoot ] ; then
 echo "Installing Spiderfoot"
 cd /pentest/enumeration && git clone https://github.com/smicallef/spiderfoot.git spiderfoot
 fi
+if [ ! -d /pentest/wireless/wifijammer ] ; then
+echo "Installing wifijammer"
+cd /pentest/wireless && git clone https://github.com/DanMcInerney/wifijammer.git
+fi
 if [ ! -d /var/www/search ] ; then
 echo "Installing Vulnerability Database Portal"
 cd /var/www/ && sudo svn co http://va-pt.googlecode.com/svn/trunk/search search

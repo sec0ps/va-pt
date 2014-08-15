@@ -106,6 +106,8 @@ echo "Updating Spiderfoot"
 cd /pentest/enumeration/spiderfoot && git pull
 echo "Updating THC-Hydra"
 cd /pentest/enumeration/hydra && git pull
+echo "Updating wifijammer"
+cd /pentest/wireless/wifijammer && git pull
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
