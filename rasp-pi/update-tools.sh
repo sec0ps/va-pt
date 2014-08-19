@@ -58,6 +58,12 @@ echo "Updating Weape"
 cd /pentest/wireless/weape && git pull
 echo "Updating smbexec"
 cd /pentest/exploits/smbexec && git pull
+echo "Updating Veil Catapult"
+cd /pentest/exploits/Veil-Catapult && git pull
+echo "Updating Veil Evasion"
+cd /pentest/exploits/Veil-Evasion && git pull
+echo "Updating Veil PowerView"
+cd /pentest/exploits/Veil-PowerView && git pull
 #
 /usr/local/bin/hydra | grep "v7.6"
 if [ $? -eq 0 ] ; then

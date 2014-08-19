@@ -158,13 +158,27 @@ cd /pentest/enumeration/ && git clone https://github.com/vanhauser-thc/thc-hydra
 cd hydra && ./configure
 make && sudo make install
 fi
-cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
-cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
-cp /pentest/misc/va-pt/tools/dnsrecon.rb /pentest/enumeration/
-cp /pentest/misc/va-pt/tools/mysqlaudit.py /pentest/database/
-#
 if [ ! -d /pentest/exploits/smbexec ] ; then
 echo "Installing smbexec"
 cd /pentest/temp && git clone https://github.com/pentestgeek/smbexec.git
 cd smbexec && sudo ./install.sh
 fi
+if [ ! -d /pentest/exploits/Veil-Catapult ] ; then
+echo "Installing Veil Catapult"
+cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Catapult.git 
+sudo /pentest/exploits/Veil-Catapult/setup.sh
+fi
+if [ ! -d /pentest/exploits/Veil-Evasion ] ; then
+echo "Installing Veil Evasion"
+cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Evasion.git 
+sudo /pentest/exploits/Veil-Evasion/setup/setup.sh
+fi
+if [ ! -d /pentest/exploits/Veil-PowerView ] ; then
+echo "Installing Veil PowerView"
+cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-PowerView.git
+fi
+#
+cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
+cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
+cp /pentest/misc/va-pt/tools/dnsrecon.rb /pentest/enumeration/
+cp /pentest/misc/va-pt/tools/mysqlaudit.py /pentest/database/
