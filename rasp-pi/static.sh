@@ -57,11 +57,11 @@ bunzip2 polenum-0.2.tar.bz2 && tar xvf polenum-0.2.tar
 rm -rf polenum-0.2.tar && sudo mv polenum-0.2/polenum.py /usr/local/bin/
 sudo chmod 755 /usr/local/bin/polenum.py && rm -rf rm -rf polenum-0.2/
 fi
-if [ ! -f /pentest/database/bsqlbf-v2.pl ] ; then
+if [ ! -d /pentest/database/bsqlbf/ ] ; then
 echo "Installing Blind SQL Brute Forcer"
-cd /pentest/temp && wget http://labs.portcullis.co.uk/download/bsqlbfv2.zip
-unzip bsqlbfv2.zip && rm -rf bsqlbfv2.zip
-mv bsqlbf-v2/bsqlbf-v2.pl /pentest/database/ && rm -rf bsqlbf-v2/
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/bsqlbf-v2.1.zip
+unzip bsqlbf-v2.1.zip && bsqlbf-v2.1.zip
+mv bsqlbf-v2.1/ /pentest/database/bsqlbf
 fi
 if [ ! -d /pentest/enumeration/hydra ] ; then
 echo "Installing THC Hydra"
