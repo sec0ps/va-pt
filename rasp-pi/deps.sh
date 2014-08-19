@@ -10,10 +10,14 @@ sudo apt-get install -y libopenssl-ruby libxslt1-dev ruby-dev sipcrack libgmp3-d
 sudo apt-get install -y libavahi-compat-libdnssd-dev gip ldap-utils bkhive ophcrack macchanger-gtk cdpr flamerobin dsniff sipsak
 sudo apt-get install -y ddrescue ike-scan nfs-kernel-server httping ptunnel recover recoverdm extundelete ext3grep libaspell-dev
 sudo apt-get install -y libyaml-dev openjdk-7-jre openjdk-7-jre-lib libreadline-dev python-pip python-beautifulsoup tshark
-sudo apt-get install -y samba libpam-smbpass libevent-dev flex bison libnl-3-dev libnl-genl-3-dev libgeoip-dev chntpw hostapd
-sudo apt-get install -y libnetfilter-conntrack-dev liburcu-dev zlib1g-dev libcli-dev python-pycurl vpnc
+sudo apt-get install -y samba libpam-smbpass libevent-dev flex bison libnl-3-dev libnl-genl-3-dev libgeoip-dev hostapd
+sudo apt-get install -y libnetfilter-conntrack-dev liburcu-dev zlib1g-dev libcli-dev python-pycurl vpnc lsof tightvncserver
 sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk swig cmake libtalloc-dev libtevent-dev libpopt-dev
-
+#
+#disabling mysql and apache
+sudo update-rc.d -f apache2 remove
+sudo update-rc.d -f mysql remove
+#
 ruby -v | grep "1.9.3"
 if [ $? -eq 1 ] ; then
 echo "Installing Ruby 1.9.3"
