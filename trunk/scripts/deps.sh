@@ -51,13 +51,13 @@ sudo cpanm Getopt::Long && sudo cpanm XML::Writer
 sudo cpanm Socket && sudo cpanm Net::Whois::IP
 sudo cpanm Number::Bytes::Human && sudo cpanm Parallel::ForkManager
 sudo cpanm NetPacket::ICMP && sudo cpanm String::Random
+sudo cpanm LWP::UserAgent
 
 echo "Installing Python Deps"
-sudo pip install lxml && sudo pip install netaddr
-sudo pip install M2Crypto && sudo pip install cherrypy
-sudo pip install mako && sudo pip install M2Crypto
-sudo pip install cherrypy && sudo pip install dnspython
-sudo pip install requests
+sudo pip install lxml netaddr M2Crypto cherrypy mako M2Crypto dnspython requests
+sudo pip install PyGithub GitPython pybloomfiltermmap esmre pdfminer futures guess-language 
+sudo pip install cluster msgpack-python python-ntlm clamd xdot
+sudo pip install -e git+git://github.com/ramen/phply.git#egg=phply
 
 echo "Checking and Installing Ruby Gems"
 gem list | grep -w bundler
