@@ -21,14 +21,17 @@ cd /pentest/exploits && git clone https://github.com/rapid7/metasploit-framework
 cd /pentest/exploits/framework3 && bundle install
 fi
 if [ ! -d /pentest/exploits/Veil-Catapult ] ; then
+echo "Installing Veil Catapult"
 cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Catapult.git 
 sudo /pentest/exploits/Veil-Catapult/setup.sh
 fi
 if [ ! -d /pentest/exploits/Veil-Evasion ] ; then
+echo "Installing Veil Evasion"
 cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Evasion.git 
 sudo /pentest/exploits/Veil-Evasion/setup/setup.sh
 fi
 if [ ! -d /pentest/exploits/Veil-PowerView ] ; then
+echo "Installing Veil PowerView"
 cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-PowerView.git
 fi
 if [ ! -d /pentest/voip/warvox ] ; then
