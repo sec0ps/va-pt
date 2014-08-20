@@ -177,6 +177,12 @@ if [ ! -d /pentest/exploits/Veil-PowerView ] ; then
 echo "Installing Veil PowerView"
 cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-PowerView.git
 fi
+if [ ! -d /pentest/wireless/fruitwifi ] ; then
+cd /pentest/temp && wget https://github.com/xtr4nge/FruityWifi/archive/master.zip
+unzip master.zip  && rm -rf unzip master.zip
+mv FruityWifi-master/ /pentest/wireless/fruitwifi && cd /pentest/wireless/fruitwifi
+sudo ./install-FruityWifi.sh 
+fi
 #
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
