@@ -13,7 +13,7 @@ sudo apt-get install -y libyaml-dev openjdk-7-jre openjdk-7-jre-lib libreadline-
 sudo apt-get install -y samba libpam-smbpass libevent-dev flex bison libnl-3-dev libnl-genl-3-dev libgeoip-dev hostapd
 sudo apt-get install -y libnetfilter-conntrack-dev liburcu-dev zlib1g-dev libcli-dev python-pycurl vpnc lsof tightvncserver
 sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk swig cmake libtalloc-dev libtevent-dev
-sudo apt-get install -y autofs libpopt-dev
+sudo apt-get install -y autofs libpopt-dev remmina remmina-common remmina-plugin-rdp remmina-plugin-vnc squid
 #
 #disabling mysql and apache
 sudo update-rc.d -f apache2 remove
@@ -55,7 +55,10 @@ sudo cpanm Getopt::Long && sudo cpanm XML::Writer
 sudo cpanm Socket && sudo cpanm Net::Whois::IP
 sudo cpanm Number::Bytes::Human && sudo cpanm Parallel::ForkManager
 sudo cpanm NetPacket::ICMP && sudo cpanm String::Random
-sudo cpanm LWP::UserAgent
+sudo cpanm LWP::UserAgent && sudo cpanm Object::InsideOut
+sudo cpanm  Test::Class && sudo cpanm WWW::Mechanize
+sudo cpanm Net::Whois::ARIN && sudo cpanm Test::MockObject
+sudo cpanm Template && sudo cpanm Net::CIDR
 
 echo "Installing Python Deps"
 sudo pip install lxml netaddr M2Crypto cherrypy mako M2Crypto dnspython requests

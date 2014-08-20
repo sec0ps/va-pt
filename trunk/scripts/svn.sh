@@ -279,6 +279,12 @@ echo "Installing Vulnerability Database Portal"
 cd /var/www/ && sudo svn co http://va-pt.googlecode.com/svn/trunk/search search
 echo "The vulnerability search portal is now available at http://localhost/search/"
 fi
+if [ ! -d /pentest/wireless/fruitwifi ] ; then
+cd /pentest/temp && wget https://github.com/xtr4nge/FruityWifi/archive/master.zip
+unzip master.zip  && rm -rf unzip master.zip
+mv FruityWifi-master/ /pentest/wireless/fruitwifi && cd /pentest/wireless/fruitwifi
+sudo ./install-FruityWifi.sh 
+fi
 #if [ ! -d /var/www/portal ] ; then
 #echo "Installing the VA-PT Portal"
 #cd /var/www/ && sudo svn checkout https://va-pt.googlecode.com/svn/trunk/portal portal

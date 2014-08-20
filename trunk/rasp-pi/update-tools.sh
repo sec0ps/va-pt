@@ -64,6 +64,8 @@ echo "Updating Veil Evasion"
 cd /pentest/exploits/Veil-Evasion && git pull
 echo "Updating Veil PowerView"
 cd /pentest/exploits/Veil-PowerView && git pull
+echo "Updating FruitWifi"
+cd /pentest/wireless/fruitwifi && git pull
 #
 /usr/local/bin/hydra | grep "v7.6"
 if [ $? -eq 0 ] ; then
