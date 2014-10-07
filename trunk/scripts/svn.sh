@@ -276,7 +276,7 @@ cd /pentest/wireless && git clone https://github.com/DanMcInerney/wifijammer.git
 fi
 if [ ! -d /var/www/search ] ; then
 echo "Installing Vulnerability Database Portal"
-cd /var/www/ && sudo svn co http://va-pt.googlecode.com/svn/trunk/search search
+cd /var/www/html && sudo svn co http://va-pt.googlecode.com/svn/trunk/search search
 echo "The vulnerability search portal is now available at http://localhost/search/"
 fi
 if [ ! -d /pentest/wireless/fruitwifi ] ; then
@@ -304,6 +304,9 @@ echo "Installing smbexec"
 cd /pentest/temp && git clone https://github.com/pentestgeek/smbexec.git
 cd smbexec && sudo ./install.sh
 fi
+#default apache site
+sudo cp /pentest/misc/va-pt/images/fire-dragon-wallpaper.png /var/www/html/
+sudo cp /pentest/misc/tools/index.html /var/www/html/
 #
 #echo "Installing additional msf modules
 #
