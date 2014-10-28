@@ -13,7 +13,7 @@ sudo apt-get install -y libyaml-dev openjdk-7-jre openjdk-7-jre-lib libreadline-
 sudo apt-get install -y samba libpam-smbpass libevent-dev flex bison libnl-3-dev libnl-genl-3-dev libgeoip-dev hostapd
 sudo apt-get install -y libnetfilter-conntrack-dev liburcu-dev zlib1g-dev libcli-dev python-pycurl vpnc lsof tightvncserver
 sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk swig cmake libtalloc-dev libtevent-dev
-sudo apt-get install -y autofs libpopt-dev remmina remmina-common remmina-plugin-rdp remmina-plugin-vnc squid
+sudo apt-get install -y autofs libpopt-dev remmina remmina-common remmina-plugin-rdp remmina-plugin-vnc squid stunnel openvpn
 #
 #disabling mysql and apache
 sudo update-rc.d -f apache2 remove
