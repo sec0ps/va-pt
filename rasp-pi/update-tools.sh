@@ -2,7 +2,8 @@ echo "Beginning package updates"
 echo "Updating SET"
 cd /pentest/exploits/set && git pull
 echo "Updating Metasploit"
-cd /pentest/exploits/framework3 && git pull
+cd /pentest/exploits/framework3 && git remote prune origin
+git pull && bundle install
 echo "Updating Wapiti"
 cd /pentest/web/wapiti && svn up
 echo "Updating w3af"
