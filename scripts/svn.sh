@@ -188,7 +188,7 @@ fi
 if [ ! -d /pentest/web/wpscan ] ; then
 echo "Installing Wordpress Scanner"
 cd /pentest/web && git clone https://github.com/wpscanteam/wpscan.git
-sudo bundle install --without test development
+bundle install --without test development
 fi
 if [ ! -f /usr/local/bin/smbclient.py ] ; then
 echo "Installing Impacket"
@@ -306,7 +306,7 @@ cd smbexec && sudo ./install.sh
 fi
 #default apache site
 sudo cp /pentest/misc/va-pt/images/fire-dragon-wallpaper.png /var/www/html/
-sudo cp /pentest/misc/tools/index.html /var/www/html/
+sudo cp /pentest/misc/va-pt/tools/index.html /var/www/html/
 #
 #echo "Installing additional msf modules
 #
