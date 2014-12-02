@@ -14,7 +14,7 @@ sudo apt-get install -y samba libpam-smbpass libevent-dev flex bison libnl-3-dev
 sudo apt-get install -y libnetfilter-conntrack-dev libncurses6-dev liburcu-dev libnacl-dev zlib1g-dev libcli-dev python-pycurl vpnc
 sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk swig cmake libtalloc-dev libtevent-dev libpopt-dev
 sudo apt-get install -y libbsd-dev hostapd unixodbc unixodbc-dev freetds-dev sqsh tdsodbc autofs remmina remmina-plugin-rdp remmina-plugin-vnc
-sudo apt-get install -y squid
+sudo apt-get install -y squid python-libpcap
 
 ruby -v | grep "1.9.3"
 if [ $? -eq 1 ] ; then
@@ -60,7 +60,7 @@ sudo cpanm Template && sudo cpanm Net::CIDR
 echo "Installing Python Deps"
 sudo pip install lxml netaddr M2Crypto cherrypy mako M2Crypto dnspython requests
 sudo pip install PyGithub GitPython pybloomfiltermmap esmre pdfminer futures guess-language 
-sudo pip install cluster msgpack-python python-ntlm clamd xdot
+sudo pip install cluster msgpack-python python-ntlm clamd xdot netifaces
 sudo pip install -e git+git://github.com/ramen/phply.git#egg=phply
 
 echo "Checking and Installing Ruby Gems"
