@@ -14,6 +14,7 @@ sudo apt-get install -y samba libpam-smbpass libevent-dev flex bison libnl-3-dev
 sudo apt-get install -y libnetfilter-conntrack-dev liburcu-dev zlib1g-dev libcli-dev python-pycurl vpnc lsof tightvncserver
 sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk swig cmake libtalloc-dev libtevent-dev
 sudo apt-get install -y autofs libpopt-dev remmina remmina-common remmina-plugin-rdp remmina-plugin-vnc squid stunnel openvpn
+sudo apt-get install -y python-libpcap
 #
 #disabling mysql and apache
 sudo update-rc.d -f apache2 remove
@@ -63,7 +64,7 @@ sudo cpanm Template && sudo cpanm Net::CIDR
 echo "Installing Python Deps"
 sudo pip install lxml netaddr M2Crypto cherrypy mako M2Crypto dnspython requests
 sudo pip install PyGithub GitPython pybloomfiltermmap esmre pdfminer futures guess-language 
-sudo pip install cluster msgpack-python python-ntlm clamd xdot
+sudo pip install cluster msgpack-python python-ntlm clamd xdot netifaces
 sudo pip install -e git+git://github.com/ramen/phply.git#egg=phply
 
 echo "Checking and Installing Ruby Gems"

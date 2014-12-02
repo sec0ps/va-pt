@@ -274,7 +274,7 @@ if [ ! -d /pentest/wireless/wifijammer ] ; then
 echo "Installing wifijammer"
 cd /pentest/wireless && git clone https://github.com/DanMcInerney/wifijammer.git
 fi
-if [ ! -d /var/www/search ] ; then
+if [ ! -d /var/www/html/search ] ; then
 echo "Installing Vulnerability Database Portal"
 cd /var/www/html && sudo svn co http://va-pt.googlecode.com/svn/trunk/search search
 echo "The vulnerability search portal is now available at http://localhost/search/"
@@ -285,7 +285,11 @@ unzip master.zip  && rm -rf unzip master.zip
 mv FruityWifi-master/ /pentest/wireless/fruitwifi && cd /pentest/wireless/fruitwifi
 sudo ./install-FruityWifi.sh 
 fi
-#if [ ! -d /var/www/portal ] ; then
+if [ ! -d /pentest/passwords/PCredz ] ; then
+echo "Installing PCredz"
+cd /pentest/passwords && git clone https://github.com/lgandx/PCredz.git
+fi
+#if [ ! -d /var/www/html/portal ] ; then
 #echo "Installing the VA-PT Portal"
 #cd /var/www/ && sudo svn checkout https://va-pt.googlecode.com/svn/trunk/portal portal
 #echo Creating necessary database and structure, enter the root mysql password

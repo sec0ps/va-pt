@@ -177,6 +177,10 @@ if [ ! -d /pentest/exploits/Veil-PowerView ] ; then
 echo "Installing Veil PowerView"
 cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-PowerView.git
 fi
+if [ ! -d /pentest/passwords/PCredz ] ; then
+echo "Installing PCredz"
+cd /pentest/passwords && git clone https://github.com/lgandx/PCredz.git
+fi
 #
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/

@@ -116,6 +116,8 @@ echo "Updating Veil PowerView"
 cd /pentest/exploits/Veil-PowerView && git pull
 echo "Updating FruitWifi"
 cd /pentest/wireless/fruitwifi && git pull
+echo "Updating PCredz"
+cd /pentest/passwords/PCredz && git pull
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
