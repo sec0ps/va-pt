@@ -69,6 +69,8 @@ echo "Updating FruitWifi"
 cd /pentest/wireless/fruitwifi && git pull
 echo "Updating PCredz"
 cd /pentest/passwords/PCredz && git pull
+echo "Updating Viproxy"
+cd /pentest/voip/viproy && git pull
 #
 /usr/local/bin/hydra | grep "v7.6"
 if [ $? -eq 0 ] ; then

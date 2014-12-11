@@ -289,6 +289,18 @@ if [ ! -d /pentest/passwords/PCredz ] ; then
 echo "Installing PCredz"
 cd /pentest/passwords && git clone https://github.com/lgandx/PCredz.git
 fi
+if [ ! -d /pentest/voip/viproy ] ; then
+echo "Installing Viproy"
+cd /pentest/voip/ && git clone https://github.com/fozavci/viproy-voipkit.git viproy
+cd /pentest/voip/viproy
+cp lib/msf/core/auxiliary/* /pentest/exploits/framework3/lib/msf/core/auxiliary/
+echo "require 'msf/core/auxiliary/sip'" >> /pentest/exploits/framework3/lib/msf/core/auxiliary/mixins.rb
+echo "require 'msf/core/auxiliary/skinny'" >> /pentest/exploits/framework3/lib/msf/core/auxiliary/mixins.rb
+cp modules/auxiliary/voip/viproy* /pentest/exploits/framework3/modules/auxiliary/voip/
+cp modules/auxiliary/spoof/cisco/viproy_cdp.rb /pentest/exploits/framework3/modules/auxiliary/spoof/cisco/
+echo "You can execute msfconsole now. Viproy modules placed under auxiliary/voip/viproy*"
+fi
+
 #if [ ! -d /var/www/html/portal ] ; then
 #echo "Installing the VA-PT Portal"
 #cd /var/www/ && sudo svn checkout https://va-pt.googlecode.com/svn/trunk/portal portal
