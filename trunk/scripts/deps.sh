@@ -14,7 +14,19 @@ sudo apt-get install -y samba libpam-smbpass libevent-dev flex bison libnl-3-dev
 sudo apt-get install -y libnetfilter-conntrack-dev libncurses6-dev liburcu-dev libnacl-dev zlib1g-dev libcli-dev python-pycurl vpnc
 sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk swig cmake libtalloc-dev libtevent-dev libpopt-dev
 sudo apt-get install -y libbsd-dev hostapd unixodbc unixodbc-dev freetds-dev sqsh tdsodbc autofs remmina remmina-plugin-rdp remmina-plugin-vnc
-sudo apt-get install -y squid python-libpcap
+sudo apt-get install -y squid python-libpcap ntpdate
+
+#disabling unneeded services
+sudo update-rc.d -f apache2 remove
+sudo update-rc.d -f mysql remove
+sudo update-rc.d -f ntp remove
+sudo update-rc.d -f avahi-daemon remove
+sudo update-rc.d -f php5-fpm remove
+sudo update-rc.d -f nginx remove
+sudo update-rc.d -f samba remove
+sudo update-rc.d -f ntp remove
+sudo update-rc.d -f tightvnc remove
+sudo update-rc.d -f dnsmasq remove
 
 ruby -v | grep "1.9.3"
 if [ $? -eq 1 ] ; then
