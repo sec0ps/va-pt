@@ -16,24 +16,12 @@ sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dn
 sudo apt-get install -y libbsd-dev hostapd unixodbc unixodbc-dev freetds-dev sqsh tdsodbc autofs remmina remmina-plugin-rdp remmina-plugin-vnc
 sudo apt-get install -y squid python-libpcap ntpdate
 
-#disabling unneeded services
-sudo update-rc.d -f apache2 remove
-sudo update-rc.d -f mysql remove
-sudo update-rc.d -f ntp remove
-sudo update-rc.d -f avahi-daemon remove
-sudo update-rc.d -f php5-fpm remove
-sudo update-rc.d -f nginx remove
-sudo update-rc.d -f samba remove
-sudo update-rc.d -f ntp remove
-sudo update-rc.d -f tightvnc remove
-sudo update-rc.d -f dnsmasq remove
-
-ruby -v | grep "1.9.3"
+ruby -v | grep "2.1.5"
 if [ $? -eq 1 ] ; then
-echo "Installing Ruby 1.9.3"
-cd /pentest/temp && wget ftp://ftp.ruby-lang.org/pub/ruby/1.9/ruby-1.9.3-p392.tar.gz
-tar xvf ruby-1.9.3-p392.tar.gz && rm -rf ruby-1.9.3-p392.tar.gz
-cd ruby-1.9.3-p392 && ./configure && make
+echo "Installing Ruby 2.1.5"
+cd /pentest/temp && wget http://cache.ruby-lang.org/pub/ruby/2.1/ruby-2.1.5.tar.gz
+tar xvf ruby-2.1.5.tar.gz && rm -rf ruby-2.1.5.tar.gz
+cd ruby-2.1.5 && ./configure && make
 sudo make install
 fi
 if [ ! -f /usr/local/bin/cpanm ] ; then
