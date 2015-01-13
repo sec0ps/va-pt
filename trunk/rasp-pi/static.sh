@@ -63,14 +63,6 @@ cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/bsqlbf-
 unzip bsqlbf-v2.1.zip && bsqlbf-v2.1.zip
 mv bsqlbf-v2.1/ /pentest/database/bsqlbf
 fi
-if [ ! -d /pentest/enumeration/hydra ] ; then
-echo "Installing THC Hydra"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/hydra-7.6.tar.gz
-tar zxvf hydra-7.6.tar.gz && rm -rf hydra-7.6.tar.gz
-mv hydra-7.6 /pentest/enumeration/hydra && cd /pentest/enumeration/hydra/
-./configure && make
-sudo make install
-fi
 if [ ! -d /pentest/enumeration/thc-ipv6 ] ; then
 echo "Installing THC IPv6"
 cd /pentest/temp && wget http://www.thc.org/releases/thc-ipv6-2.3.tar.gz --no-check-certificate

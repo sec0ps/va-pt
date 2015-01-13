@@ -181,6 +181,12 @@ if [ ! -d /pentest/passwords/PCredz ] ; then
 echo "Installing PCredz"
 cd /pentest/passwords && git clone https://github.com/lgandx/PCredz.git
 fi
+if [ ! -d /pentest/enumeration/hydra ] ; then
+echo "Installing THC-Hydra"
+cd /pentest/enumeration/ && git clone https://github.com/vanhauser-thc/thc-hydra.git hydra
+cd hydra && ./configure
+make && sudo make install
+fi
 if [ ! -d /pentest/voip/viproy ] ; then
 echo "Installing Viproy"
 cd /pentest/voip/ && git clone https://github.com/fozavci/viproy-voipkit.git viproy
