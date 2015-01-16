@@ -126,9 +126,9 @@ sudo make install
 fi
 if [ ! -d /pentest/enumeration/thc-ipv6 ] ; then
 echo "Installing THC IPv6"
-cd /pentest/temp && wget http://www.thc.org/releases/thc-ipv6-2.3.tar.gz --no-check-certificate
-tar zxvf thc-ipv6-2.3.tar.gz && rm -rf thc-ipv6-2.3.tar.gz
-mv thc-ipv6-2.3 /pentest/enumeration/thc-ipv6 && cd /pentest/enumeration/thc-ipv6
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/thc-ipv6-2.7.tar.gz 
+tar zxvf thc-ipv6-2.7.tar.gz && rm -rf thc-ipv6-2.7.tar.gz
+mv thc-ipv6-2.7 /pentest/enumeration/thc-ipv6 && cd /pentest/enumeration/thc-ipv6
 make all
 fi
 if [ ! -d /pentest/voip/voiphopper ] ; then
@@ -409,6 +409,16 @@ if [ ! -d /pentest/web/svn-extractor ] ; then
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/svn-extractor-master.zip
 unzip svn-extractor-master.zip && mv svn-extractor-master/ /pentest/web/svn-extractor
 rm -rf svn-extractor-master*
+fi
+if [ ! -f /pentest/enumeration/shodan.pl ] ; then
+cd /pentest/enumeration && wget http://dl.packetstormsecurity.net/UNIX/scanners/Shodan_Tool.zip
+unzip Shodan_Tool.zip && rm -rf Shodan_Tool.zip
+fi
+if [ ! -d /pentest/exploits/armitage ] ; then
+echo "Installing Armitage"
+cd /pentest/temp && wget http://www.fastandeasyhacking.com/download/armitage141120.tgz
+tar xvf armitage141120.tgz  && mv armitage/ /pentest/exploits
+echo "Be sure to edit the database.yml file in /opt/metasploit/apps/pro/ui/config/"
 fi
 
 #if [ ! -d /pentest/enumeration/netglub ] ; then

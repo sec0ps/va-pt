@@ -56,6 +56,7 @@ sudo cpanm LWP::UserAgent && sudo cpanm Object::InsideOut
 sudo cpanm  Test::Class && sudo cpanm WWW::Mechanize
 sudo cpanm Net::Whois::ARIN && sudo cpanm Test::MockObject
 sudo cpanm Template && sudo cpanm Net::CIDR
+sudo cpanm JSON && sudo cpanm Color::Output
 
 echo "Installing Python Deps"
 sudo pip install lxml netaddr M2Crypto cherrypy mako M2Crypto dnspython requests

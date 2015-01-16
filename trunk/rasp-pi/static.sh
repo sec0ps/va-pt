@@ -65,9 +65,9 @@ mv bsqlbf-v2.1/ /pentest/database/bsqlbf
 fi
 if [ ! -d /pentest/enumeration/thc-ipv6 ] ; then
 echo "Installing THC IPv6"
-cd /pentest/temp && wget http://www.thc.org/releases/thc-ipv6-2.3.tar.gz --no-check-certificate
-tar zxvf thc-ipv6-2.3.tar.gz && rm -rf thc-ipv6-2.3.tar.gz
-mv thc-ipv6-2.3 /pentest/enumeration/thc-ipv6 && cd /pentest/enumeration/thc-ipv6
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/thc-ipv6-2.7.tar.gz
+tar zxvf thc-ipv6-2.7.tar.gz && rm -rf thc-ipv6-2.7.tar.gz
+mv thc-ipv6-2.7 /pentest/enumeration/thc-ipv6 && cd /pentest/enumeration/thc-ipv6
 make all
 fi
 if [ ! -d /pentest/database/tnspoison ] ; then
@@ -102,4 +102,8 @@ cd freeradius-wpe/ && wget https://raw.github.com/brad-anton/freeradius-wpe/mast
 patch -p1 < freeradius-wpe.patch && ./configure
 make && sudo make install
 sudo ldconfig && sudo /usr/local/etc/raddb/certs/bootstrap
+fi
+if [ ! -f /pentest/enumeration/shodan.pl ] ; then
+cd /pentest/enumeration && wget http://dl.packetstormsecurity.net/UNIX/scanners/Shodan_Tool.zip
+unzip Shodan_Tool.zip && rm -rf Shodan_Tool.zip
 fi
