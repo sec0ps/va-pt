@@ -78,10 +78,6 @@ echo "Updating ncat - you will need to recompile if needed"
 cd /pentest/scanners/nmap/ncat && svn up
 echo "Updating ncrack - you will need to recompile if needed"
 cd /pentest/scanners/ncrack && svn up
-echo "Updating VA-PT"
-cd /pentest/misc/va-pt && svn up
-echo "Updating the Vulnerability Database Portal"
-cd /var/www/search && sudo svn up
 echo "Updating Warvox"
 cd /pentest/voip/warvox && git pull
 echo "Updating WhatWeb"
@@ -138,7 +134,7 @@ echo "skipfish is not up to date, updating now."
 rm -rf /pentest/web/skipfish && /pentest/misc/va-pt/scripts/static.sh
 fi
 #
-/pentest/enumeration/thc-ipv6/thcping6 | grep "v2.3"
+/pentest/enumeration/thc-ipv6/thcping6 | grep "v2.7"
 if [ $? -eq 0 ] ; then
 echo "THC IPv6 Attack Suite is up to date"
 else
@@ -156,6 +152,11 @@ rm -rf archive.tar && sudo chmod -R 755 /pentest/exploits/exploitdb
 else
 echo "ExploitDB Update Failed - Repo appears to be down"
 fi
+#
+echo "Updating VA-PT"
+cd /pentest/misc/va-pt && svn up
+echo "Updating the Vulnerability Database Portal"
+cd /var/www/html/search && sudo svn up
 #
 while true; do
     read -p "Do you want to update the local exploit database? (y/n)" yn
