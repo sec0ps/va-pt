@@ -19,6 +19,7 @@ if [ ! -d /pentest/exploits/framework3 ] ; then
 echo "Installing Metasploit"
 cd /pentest/exploits && git clone https://github.com/rapid7/metasploit-framework.git framework3
 cd /pentest/exploits/framework3 && bundle install
+sudo chmod o+r /usr/local/lib/ruby/gems/2.1.0/gems/robots-0.10.1/lib/robots.rb
 fi
 if [ ! -d /pentest/exploits/Veil-Catapult ] ; then
 echo "Installing Veil Catapult"
