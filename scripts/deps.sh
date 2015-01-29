@@ -14,7 +14,7 @@ sudo apt-get install -y samba libpam-smbpass libevent-dev flex bison libnl-3-dev
 sudo apt-get install -y libnetfilter-conntrack-dev libncurses6-dev liburcu-dev libnacl-dev zlib1g-dev libcli-dev python-pycurl vpnc
 sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk swig cmake libtalloc-dev libtevent-dev libpopt-dev
 sudo apt-get install -y libbsd-dev hostapd unixodbc unixodbc-dev freetds-dev sqsh tdsodbc autofs remmina remmina-plugin-rdp remmina-plugin-vnc
-sudo apt-get install -y squid python-libpcap ntpdate
+sudo apt-get install -y squid python-libpcap ntpdate screen
 
 ruby -v | grep "2.1.5"
 if [ $? -eq 1 ] ; then
