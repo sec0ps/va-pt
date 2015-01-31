@@ -105,8 +105,8 @@ echo "Updating wifijammer"
 cd /pentest/wireless/wifijammer && git pull
 #echo "Updating Veil Catapult"
 #cd /pentest/exploits/Veil-Catapult && git pull
-#echo "Updating Veil Evasion"
-#cd /pentest/exploits/Veil-Evasion && git pull
+echo "Updating Veil Evasion"
+cd /pentest/exploits/Veil-Evasion && git pull
 #echo "Updating Veil PowerView"
 #cd /pentest/exploits/Veil-PowerView && git pull
 echo "Updating FruitWifi"
