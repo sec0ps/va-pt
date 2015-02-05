@@ -14,7 +14,7 @@ sudo apt-get install -y samba libpam-smbpass libevent-dev flex bison libnl-3-dev
 sudo apt-get install -y libnetfilter-conntrack-dev liburcu-dev zlib1g-dev libcli-dev python-pycurl vpnc lsof tightvncserver
 sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk swig cmake libtalloc-dev libtevent-dev
 sudo apt-get install -y autofs libpopt-dev remmina remmina-common remmina-plugin-rdp remmina-plugin-vnc squid stunnel openvpn
-sudo apt-get install -y python-libpcap ntpdate screen
+sudo apt-get install -y python-libpcap ntpdate screen samba-common-bin
 
 #disabling unneeded services
 sudo update-rc.d -f apache2 remove
