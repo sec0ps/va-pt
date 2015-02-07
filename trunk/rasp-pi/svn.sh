@@ -162,6 +162,7 @@ if [ ! -d /pentest/exploits/smbexec ] ; then
 echo "Installing smbexec"
 cd /pentest/temp && git clone https://github.com/pentestgeek/smbexec.git
 cd smbexec && sudo ./install.sh
+bundle install
 fi
 if [ ! -d /pentest/exploits/Veil-Catapult ] ; then
 echo "Installing Veil Catapult"

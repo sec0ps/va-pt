@@ -320,6 +320,7 @@ if [ ! -d /pentest/exploits/smbexec ] ; then
 echo "Installing smbexec"
 cd /pentest/temp && git clone https://github.com/pentestgeek/smbexec.git
 cd smbexec && sudo ./install.sh
+bundle install
 fi
 #default apache site
 sudo cp /pentest/misc/va-pt/images/fire-dragon-wallpaper.png /var/www/html/
