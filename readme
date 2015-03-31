@@ -18,6 +18,8 @@ update.sh - The script that makes it all happen
 readme - You're looking at it
 search/ - the PHP Files for the local vulnerability and exploitdb search interface
 
+All tools are loaded into the /pentest directory.
+
 How To
 ------
 To start, run the installer: sudo ./install.sh
@@ -40,9 +42,9 @@ If you are running, or are planning on running, Nexpose on the same system. You 
 
 /etc/postgresql/8.4/main/postgresql.conf
 
+An installer for the Raspberry PI has been added. The installer was created specifically for the Raspbian distro. All Pi scripts can be found in va-pt/rasp-pi directory. I would strongly recommend installing the PI kit to a single PI then dd'ing the card to an image. After that, use the image to write the additional PI's.
 
-
-All tools are loaded into the /pentest directory.
+e.g.: sudo dd if=/dev/sdc bs=4M | pv -s 8G | sudo dd of=penpi.img bs=4M
 
 Future Major Release to include
 -------------------------
@@ -51,6 +53,8 @@ Security Assessment Management Portal
 -- ISO Assessment
 -- NIST 800-53a Assessment
 -- Vulnerability Assessment & Penetration Testing Management
+
+Any problems, comments or requests, feel free to contact me here or on twitter. 
 
 Keith Pachulski
 Security Consultant
