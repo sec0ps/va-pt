@@ -4,7 +4,7 @@ Vulnerability Assessments and Penetration Testing.
 The goal of this project was to allow a portable set of tools to be easily installed onto Ubuntu at a
 moments notice, allowing the tester to be free of distribution release specific constraints.
 
-These scripts were designed specifically for Ubuntu 12.04 LTS.
+These scripts were designed specifically for Ubuntu 12.04 LTS and Raspbian.
 
 Contents of Files
 -----------------
