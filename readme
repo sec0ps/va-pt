@@ -44,7 +44,29 @@ If you are running, or are planning on running, Nexpose on the same system. You 
 
 An installer for the Raspberry PI has been added. The installer was created specifically for the Raspbian distro. All Pi scripts can be found in va-pt/rasp-pi directory. I would strongly recommend installing the PI kit to a single PI then dd'ing the card to an image. After that, use the image to write the additional PI's.
 
-e.g.: sudo dd if=/dev/sdc bs=4M | pv -s 8G | sudo dd of=penpi.img bs=4M
+PI Image Creation Example
+
+Use gparted to shrink the PI image once you have the initial card completed. Using DD, create the image 
+
+sudo dd if=/dev/sdc bs=4M | pv -s 8G | sudo dd of=penpi.img bs=4M
+
+After the image has completed, use fdisk and truncate to remove the unallocated space
+
+$ fdisk -lu penpi.img 
+
+Disk penpi.img: 31.9 GB, 31914983424 bytes
+255 heads, 63 sectors/track, 3880 cylinders, total 62333952 sectors
+Units = sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes
+Disk identifier: 0x0002c262
+
+    Device Boot      Start         End      Blocks   Id  System
+penpi.img1            8192      122879       57344    c  W95 FAT32 (LBA)
+penpi.img2          122880    20762623    10319872   83  Linux
+
+$ truncate --size=$[(20762623+1)*512] penpi.img 
+$ sudo truncate --size=$[(20762623+1)*512] penpi.img 
 
 Future Major Release to include
 -------------------------
