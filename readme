@@ -65,7 +65,6 @@ Disk identifier: 0x0002c262
 penpi.img1            8192      122879       57344    c  W95 FAT32 (LBA)
 penpi.img2          122880    20762623    10319872   83  Linux
 
-$ truncate --size=$[(20762623+1)*512] penpi.img 
 $ sudo truncate --size=$[(20762623+1)*512] penpi.img 
 
 Future Major Release to include
