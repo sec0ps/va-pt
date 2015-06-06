@@ -58,16 +58,15 @@ if [ ! -f /pentest/wireless/eapmd5crack.py ] ; then
 echo "Installing EAP MD5 Crack"
 cd /pentest/wireless && wget http://ptscripts.googlecode.com/svn/trunk/eapmd5crack.py
 fi
-if [ ! -d /pentest/wireless/freeradius-wpe ] ; then
-echo "Installing FreeRADIUS WPE"
-cd /pentest/temp && wget ftp://ftp.freeradius.org/pub/radius/old/freeradius-server-2.1.12.tar.bz2
-bunzip2 freeradius-server-2.1.12.tar.bz2 && tar xvf freeradius-server-2.1.12.tar
-tar xvf freeradius-server-2.1.12.tar && mv freeradius-server-2.1.12/ /pentest/wireless/freeradius-wpe
-rm -rf freeradius-server-2.1.12.tar && cd /pentest/wireless/freeradius-wpe 
-wget https://raw.github.com/brad-anton/freeradius-wpe/master/freeradius-wpe.patch && patch -p1 < freeradius-wpe.patch
-./configure && make
-sudo make install && sudo ldconfig
-sudo /usr/local/etc/raddb/certs/bootstrap
+if [ ! -d /pentest/wireless/hostapd-2.2 ] ; then
+echo "Installing Hostapd-WPE"
+git clone https://github.com/OpenSecurityResearch/hostapd-wpe && wget http://hostap.epitest.fi/releases/hostapd-2.2.tar.gz
+tar -zxf hostapd-2.2.tar.gz && rm -rf hostapd-2.2.tar.gz
+cd hostapd-2.2 && patch -p1 < ../hostapd-wpe/hostapd-wpe.patch 
+cd hostapd && make
+cd ../../hostapd-wpe/certs && ./bootstrap
+echo "Backgrounding the hostapd process to continue with the installer."
+cd ../../hostapd-2.2/hostapd && sudo ./hostapd-wpe hostapd-wpe.conf &
 fi
 #if [ ! -d /pentest/voip/smap ] ; then
 #echo "Installing SMAP"
@@ -76,6 +75,7 @@ fi
 #mv smap/ /pentest/voip/smap
 #cd /pentest/voip/smap && make
 #fi
+
 if [ ! -f /pentest/database/sqlbrute.py ] ; then
 echo "Installing SQLBrute"
 cd /pentest/database && wget http://packetstorm.foofus.com/UNIX/scanners/sqlbrute.py.txt -O sqlbrute.py
