@@ -49,9 +49,9 @@ make
 fi
 if [ ! -d /pentest/wireless/asleap ] ; then
 echo "Installing asleap"
-cd /pentest/temp && wget http://prdownloads.sourceforge.net/project/asleap/asleap/asleap-1.4/asleap-1.4.tgz
-tar xvf asleap-1.4.tgz && rm -rf asleap-1.4.tgz
-mv asleap/ /pentest/wireless && cd /pentest/wireless/asleap
+cd /pentest/wireless/ && wget http://www.willhackforsushi.com/code/asleap/2.2/asleap-2.2.tgz --no-check-certificate
+tar zxvf asleap-2.2.tgz && rm -rf asleap-2.2.tgz
+mv asleap-2.2/ asleap/ && cd asleap/
 make
 fi
 if [ ! -f /pentest/wireless/eapmd5crack.py ] ; then
