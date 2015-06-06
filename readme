@@ -67,6 +67,22 @@ penpi.img2          122880    20762623    10319872   83  Linux
 
 $ sudo truncate --size=$[(20762623+1)*512] penpi.img 
 
+Wireless Testing
+----------------
+if you are having issues with Airbase or Hostapd-WPE where you are getting errors on startup similar to the following:
+
+Configuration file: hostapd-wpe.conf
+rfkill: WLAN hard blocked
+rfkill: WLAN hard blocked
+nl80211: Could not configure driver mode
+nl80211 driver initialization failed.
+hostapd_free_hapd_data: Interface wlan0 wasn't started
+
+Trying issuing one, or both, of the following commands to remediate the errors:
+
+sudo nmcli nm wifi off
+sudo rfkill unblock wlan
+
 Future Major Release to include
 -------------------------
 Security Assessment Management Portal
