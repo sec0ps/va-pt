@@ -301,7 +301,17 @@ cp modules/auxiliary/voip/viproy* /pentest/exploits/framework3/modules/auxiliary
 cp modules/auxiliary/spoof/cisco/viproy_cdp.rb /pentest/exploits/framework3/modules/auxiliary/spoof/cisco/
 echo "You can execute msfconsole now. Viproy modules placed under auxiliary/voip/viproy*"
 fi
-
+if [ ! -d /pentest/exploits/pth-toolkit ] ; then
+cd /pentest/exploits && git clone https://github.com/byt3bl33d3r/pth-toolkit.git
+else
+echo "PTH-Toolkit is already installed."
+fi
+if [ ! -d /pentest/exploits/smbexec ] ; then
+echo "Installing smbexec"
+cd /pentest/temp && git clone https://github.com/pentestgeek/smbexec.git
+cd smbexec && sudo ./install.sh
+bundle install
+fi
 #if [ ! -d /var/www/html/portal ] ; then
 #echo "Installing the VA-PT Portal"
 #cd /var/www/ && sudo svn checkout https://va-pt.googlecode.com/svn/trunk/portal portal
@@ -315,30 +325,4 @@ cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/dnsrecon.rb /pentest/enumeration/
 cp /pentest/misc/va-pt/tools/mysqlaudit.py /pentest/database/
-#
-if [ ! -d /pentest/exploits/smbexec ] ; then
-echo "Installing smbexec"
-cd /pentest/temp && git clone https://github.com/pentestgeek/smbexec.git
-cd smbexec && sudo ./install.sh
-bundle install
-fi
-#default apache site
-sudo cp /pentest/misc/va-pt/images/fire-dragon-wallpaper.png /var/www/html/
-sudo cp /pentest/misc/va-pt/tools/index.html /var/www/html/
-#
-#echo "Installing additional msf modules
-#
-echo "Subversion package installation complete"
-###
-#if [ ! -d /pentest/misc/redmine ] ; then
-#echo "Installing Redmine"
-#cd /pentest/misc && svn co http://redmine.rubyforge.org/svn/branches/1.2-stable redmine
-#echo "Enter the root mysql password to create the redmine database and user"
-#mysql -u root -p -e "create database redmine character set utf8;"
-#mysql -u root -p -e "grant all privileges on redmine.* to 'redmine'@'localhost' identified by 'redminelocal';"
-#cd /pentest/misc/redmine && cp config/database.yml.example config/database.yml
-#echo ""
-#echo "enter the correct username/password for the redmine install in config/database.yml before attempting start"
-#echo "If this fails make sure require 'rake/dsl_definition' is in the Rakefile ands you setup database.yml"
-#echo "Once you have entered the correct user/pass migrate the db rake db:migrate RAILS_ENV="production""
-#fi
+# end installer
