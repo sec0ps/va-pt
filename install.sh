@@ -29,7 +29,7 @@ fi
 [ ! -d /pentest/tunneling ] && mkdir /pentest/tunneling
 [ ! -d /pentest/audit ] && mkdir /pentest/audit
 if [ ! -d /pentest/misc/va-pt ] ; then
-cd /pentest/misc && svn checkout http://va-pt.googlecode.com/svn/trunk/ va-pt
+cd /pentest/misc && git clone https://github.com/sec0ps/va-pt.git 
 fi
 clear
 selection=
