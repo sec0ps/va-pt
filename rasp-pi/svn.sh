@@ -188,6 +188,11 @@ cd /pentest/enumeration/ && git clone https://github.com/vanhauser-thc/thc-hydra
 cd hydra && ./configure
 make && sudo make install
 fi
+if [ ! -d /pentest/exploits/pth-toolkit ] ; then
+cd /pentest/exploits && git clone https://github.com/byt3bl33d3r/pth-toolkit.git
+else
+echo "PTH-Toolkit is already installed."
+fi
 if [ ! -d /pentest/voip/viproy ] ; then
 echo "Installing Viproy"
 cd /pentest/voip/ && git clone https://github.com/fozavci/viproy-voipkit.git viproy
