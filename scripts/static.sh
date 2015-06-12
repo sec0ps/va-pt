@@ -10,7 +10,7 @@ fi
 if [ ! -d /pentest/scanners/snmp ] ; then
 echo "Installing OneSixtyOne & snmpcheck"
 mkdir /pentest/scanners/snmp
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/onesixtyone-0.3.tar.gz
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/onesixtyone-0.3.tar.gz --no-check-certificate
 tar zxvf onesixtyone-0.3.tar.gz && rm -rf onesixtyone-0.3.tar.gz
 mv onesixtyone-0.3/ /pentest/scanners/snmp/onesixtyone
 cd /pentest/scanners/snmp/onesixtyone && gcc -o onesixtyone onesixtyone.c
@@ -19,7 +19,7 @@ chmod 700 /pentest/scanners/snmp/snmpcheck.pl
 fi
 if [ ! -d /pentest/cisco/cge ] ; then
 echo "Installing Cisco Global Exploiter"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/0405-exploits/cge-13.tar.gz
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/0405-exploits/cge-13.tar.gz --no-check-certificate
 tar zxvf cge-13.tar.gz && rm -rf cge-13.tar.gz
 mv cge-13/ /pentest/cisco/cge && cd /pentest/cisco/cge
 chmod 700 cge.pl && dos2unix cge.pl
@@ -30,13 +30,13 @@ chmod 755 copy-router-config.pl
 fi
 #if [ ! -d /pentest/voip/sipvicious ] ; then
 #echo "Installing SIPVicious"
-#cd /pentest/temp && wget http://dl.packetstormsecurity.net/sip/sipvicious-0.2.6.tar.gz
+#cd /pentest/temp && wget http://dl.packetstormsecurity.net/sip/sipvicious-0.2.6.tar.gz --no-check-certificate
 #tar zxvf sipvicious-0.2.6.tar.gz && rm -rf sipvicious-0.2.6.tar.gz
 #mv sipvicious/ /pentest/voip/ && cd /pentest/voip/sipvicious
 #fi
 if [ ! -d /pentest/web/stompy ] ; then
 echo "Installing Stompy"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/web/stompy.tgz
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/web/stompy.tgz --no-check-certificate
 tar zxvf stompy.tgz && rm -rf stompy.tgz
 mv stompy /pentest/web/
 fi
@@ -110,7 +110,7 @@ make
 fi
 if [ ! -d /pentest/voip/rtpbreak ] ; then
 echo "Installing RTP Break"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/sniffers/rtpbreak-1.3a.tgz
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/sniffers/rtpbreak-1.3a.tgz --no-check-certificate
 tar zxvf rtpbreak-1.3a.tgz && rm -rf rtpbreak-1.3a.tgz
 mv rtpbreak-1.3a /pentest/voip/rtpbreak 
 cd /pentest/voip/rtpbreak && make
@@ -126,7 +126,7 @@ sudo make install
 fi
 if [ ! -d /pentest/enumeration/thc-ipv6 ] ; then
 echo "Installing THC IPv6"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/thc-ipv6-2.7.tar.gz 
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/thc-ipv6-2.7.tar.gz --no-check-certificate
 tar zxvf thc-ipv6-2.7.tar.gz && rm -rf thc-ipv6-2.7.tar.gz
 mv thc-ipv6-2.7 /pentest/enumeration/thc-ipv6 && cd /pentest/enumeration/thc-ipv6
 make all
@@ -145,7 +145,7 @@ wget http://portswigger.net/burp/burpsuite_free_v1.5.jar
 fi
 if [ ! -d /pentest/enumeration/thc-pptp-bruter ] ; then
 echo "Installing THC PPTP Bruteforcer"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/thc-pptp-bruter-0.1.4.tar.gz
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/thc-pptp-bruter-0.1.4.tar.gz --no-check-certificate
 tar xvf thc-pptp-bruter-0.1.4.tar.gz && mv THC-pptp-bruter-0.1.4/ /pentest/enumeration/thc-pptp-bruter
 rm -rf thc-pptp-bruter-0.1.4.tar.gz && cd /pentest/enumeration/thc-pptp-bruter/
 ./configure && make
@@ -159,7 +159,7 @@ fi
 if [ ! -d /pentest/scanners/snmp/snmpenum ] ; then
 echo "Installing SNMPenum"
 cd /pentest/scanners/snmp && mkdir snmpenum
-cd snmpenum && wget http://dl.packetstormsecurity.net/UNIX/scanners/snmpenum.zip
+cd snmpenum && wget http://dl.packetstormsecurity.net/UNIX/scanners/snmpenum.zip --no-check-certificate
 unzip snmpenum.zip && rm -rf snmpenum.zip
 chmod 700 snmpenum.pl
 fi
@@ -200,7 +200,7 @@ sudo cp man/firewalk.8 /usr/local/man/man8
 fi
 if [ ! -d /pentest/audit/graudit ] ; then
 echo "Installing Grep Auditing Utility"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/security/graudit-1.9.tar.gz
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/security/graudit-1.9.tar.gz --no-check-certificate
 tar zxvf graudit-1.9.tar.gz && rm graudit-1.9.tar.gz
 mv graudit-1.9/ /pentest/audit/graudit
 fi
@@ -214,7 +214,7 @@ sudo make install
 fi
 if [ ! -d /pentest/audit/nipper ] ; then
 echo "Installing Nipper"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/cisco/nipper-0.11.7.tgz
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/cisco/nipper-0.11.7.tgz --no-check-certificate
 tar zxvf nipper-0.11.7.tgz && rm -rf nipper-0.11.7.tgz
 mv nipper-0.11.7/ /pentest/audit/nipper
 cd /pentest/audit/nipper && make
@@ -270,14 +270,14 @@ fi
 #fi
 if [ ! -d /pentest/enumeration/httprint ] ; then
 echo "Installing HTTPrint"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/httprint_linux_301.zip 
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/httprint_linux_301.zip --no-check-certificate
 unzip httprint_linux_301.zip && rm -rf httprint_linux_301.zip
 mv httprint_301/linux /pentest/enumeration/httprint
 cd /pentest/temp && rm -rf httprint_301/
 fi
 if [ ! -d /pentest/web/xsser ] ; then
 echo "Installing XSSer"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/xsser_1.5-1.tar.gz
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/xsser_1.5-1.tar.gz --no-check-certificate
 tar zxvf xsser_1.5-1.tar.gz && rm -rf xsser_1.5-1.tar.gz
 mv xsser-public/ /pentest/web/xsser && cd /pentest/web/xsser
 fi
@@ -306,7 +306,7 @@ echo "Installing Windows Tools"
 cd /pentest/exploits && mkdir windows-tools
 cd windows-tools && wget http://download.sysinternals.com/files/PSTools.zip
 unzip PSTools.zip && rm -rf PSTools.zip
-wget http://dl.packetstormsecurity.net/groups/checksum/nc.exe
+wget http://dl.packetstormsecurity.net/groups/checksum/nc.exe --no-check-certificate
 cd /pentest/temp && wget http://www.foofus.net/fizzgig/fgdump/fgdump-2.1.0-exeonly.tar.bz2
 bunzip2 fgdump-2.1.0-exeonly.tar.bz2 && rm -rf fgdump-2.1.0-exeonly.tar.bz2
 tar xvf fgdump-2.1.0-exeonly.tar && rm -rf fgdump-2.1.0-exeonly.tar
@@ -324,7 +324,7 @@ cd /pentest/enumeration/ike && wget http://prdownloads.sourceforge.net/project/i
 fi
 if [ ! -d /pentest/enumeration/gggooglescan ] ; then
 echo "Installing gggooglescan"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/gggooglescan-0.4.tar.gz
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/gggooglescan-0.4.tar.gz --no-check-certificate
 tar zxvf gggooglescan-0.4.tar.gz && rm -rf gggooglescan-0.4.tar.gz
 mv gggooglescan-0.4 /pentest/enumeration/gggooglescan
 fi
@@ -372,7 +372,7 @@ sudo chmod 755 /usr/local/bin/polenum.py && rm -rf rm -rf polenum-0.2/
 fi
 if [ ! -d /pentest/database/bsqlbf/ ] ; then
 echo "Installing Blind SQL Brute Forcer"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/bsqlbf-v2.1.zip 
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/bsqlbf-v2.1.zip --no-check-certificate
 unzip bsqlbf-v2.1.zip && bsqlbf-v2.1.zip
 mv bsqlbf-v2.1/ /pentest/database/bsqlbf
 fi
@@ -396,22 +396,22 @@ unzip aspshell-0.2.zip && rm -rf aspshell-0.2.zip
 fi
 if [ ! -d /pentest/web/wsb ] ; then
 echo "Installing WebShell Backdoor"
-cd /pentest/web && wget http://dl.packetstormsecurity.net/UNIX/penetration/rootkits/wsb.tar.gz
+cd /pentest/web && wget http://dl.packetstormsecurity.net/UNIX/penetration/rootkits/wsb.tar.gz --no-check-certificate
 tar xvf wsb.tar.gz && rm -rf wsb.tar.gz
 fi
 if [ ! -d /pentest/enumeration/dnsenum ] ; then
 echo "Installing DNSEnum"
 mkdir /pentest/enumeration/dnsenum && cd /pentest/enumeration/dnsenum
-wget http://dl.packetstormsecurity.net/UNIX/scanners/dnsenum-1.2.3.tar.gz && tar xvf dnsenum-1.2.3.tar.gz
+wget http://dl.packetstormsecurity.net/UNIX/scanners/dnsenum-1.2.3.tar.gz --no-check-certificate && tar xvf dnsenum-1.2.3.tar.gz
 rm -rf dnsenum-1.2.3.tar.gz && rm -rf ._*
 fi
 if [ ! -d /pentest/web/svn-extractor ] ; then
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/svn-extractor-master.zip
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/svn-extractor-master.zip --no-check-certificate
 unzip svn-extractor-master.zip && mv svn-extractor-master/ /pentest/web/svn-extractor
 rm -rf svn-extractor-master*
 fi
 if [ ! -f /pentest/enumeration/shodan.pl ] ; then
-cd /pentest/enumeration && wget http://dl.packetstormsecurity.net/UNIX/scanners/Shodan_Tool.zip
+cd /pentest/enumeration && wget http://dl.packetstormsecurity.net/UNIX/scanners/Shodan_Tool.zip --no-check-certificate
 unzip Shodan_Tool.zip && rm -rf Shodan_Tool.zip
 fi
 if [ ! -d /pentest/exploits/armitage ] ; then
