@@ -189,9 +189,26 @@ cd hydra && ./configure
 make && sudo make install
 fi
 if [ ! -d /pentest/exploits/pth-toolkit ] ; then
+echo "Installing the PTH Toolkit"
 cd /pentest/exploits && git clone https://github.com/byt3bl33d3r/pth-toolkit.git
-else
-echo "PTH-Toolkit is already installed."
+fi
+if [ ! -d /pentest/passwords/gpp-decrypt ] ; then
+echo "Installing gpp-dercypt"
+cd /pentest/passwords && git clone git://git.kali.org/packages/gpp-decrypt.git
+fi
+if [ ! -d /pentest/passwords/hash-identifier ] ; then
+echo "Installing hash identifier"
+cd /pentest/passwords && svn checkout http://hash-identifier.googlecode.com/svn/trunk/ hash-identifier
+fi
+if [ ! -d /pentest/exploits/aesshell ] ; then
+echo "Installing AES Shell"
+cd /pentest/temp && wget https://dl.packetstormsecurity.net/UNIX/penetration/rootkits/aesshell-0.7.tar.bz2 --no-check-certificate
+bunzip2 aesshell-0.7.tar.bz2 && tar xvf aesshell-0.7.tar
+rm -rf aesshell-0.7.tar && mv aesshell/ /pentest/exploits
+fi
+if [ ! -d /pentest/cisco/cisco-snmp-enum ] ; then
+echo "Installing Cisco SNMP Enum"
+cd /pentest/cisco && git clone  https://github.com/nccgroup/cisco-SNMP-enumeration.git
 fi
 if [ ! -d /pentest/voip/viproy ] ; then
 echo "Installing Viproy"
