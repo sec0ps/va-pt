@@ -59,13 +59,13 @@ sudo chmod 755 /usr/local/bin/polenum.py && rm -rf rm -rf polenum-0.2/
 fi
 if [ ! -d /pentest/database/bsqlbf/ ] ; then
 echo "Installing Blind SQL Brute Forcer"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/bsqlbf-v2.1.zip
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/bsqlbf-v2.1.zip --no-check-certificate
 unzip bsqlbf-v2.1.zip && bsqlbf-v2.1.zip
 mv bsqlbf-v2.1/ /pentest/database/bsqlbf
 fi
 if [ ! -d /pentest/enumeration/thc-ipv6 ] ; then
 echo "Installing THC IPv6"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/thc-ipv6-2.7.tar.gz
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/thc-ipv6-2.7.tar.gz --no-check-certificate
 tar zxvf thc-ipv6-2.7.tar.gz && rm -rf thc-ipv6-2.7.tar.gz
 mv thc-ipv6-2.7 /pentest/enumeration/thc-ipv6 && cd /pentest/enumeration/thc-ipv6
 make all
@@ -79,16 +79,16 @@ fi
 if [ ! -d /pentest/enumeration/dnsenum ] ; then
 echo "Installing DNSEnum"
 mkdir /pentest/enumeration/dnsenum && cd /pentest/enumeration/dnsenum
-wget http://dl.packetstormsecurity.net/UNIX/scanners/dnsenum-1.2.3.tar.gz && tar xvf dnsenum-1.2.3.tar.gz
+wget http://dl.packetstormsecurity.net/UNIX/scanners/dnsenum-1.2.3.tar.gz --no-check-certificate && tar xvf dnsenum-1.2.3.tar.gz
 rm -rf dnsenum-1.2.3.tar.gz && rm -rf ._*
 fi
 if [ ! -d /pentest/web/svn-extractor ] ; then
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/svn-extractor-master.zip
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/svn-extractor-master.zip --no-check-certificate
 unzip svn-extractor-master.zip && mv svn-extractor-master/ /pentest/web/svn-extractor
 rm -rf svn-extractor-master*
 fi
 if [ ! -d /pentest/wireless/fruitywifi ] ; then
-cd /pentest/temp && wget https://github.com/xtr4nge/FruityWifi/archive/master.zip
+cd /pentest/temp && wget https://github.com/xtr4nge/FruityWifi/archive/master.zip --no-check-certificate
 unzip master.zip  && rm -rf unzip master.zip
 mv FruityWifi-master/ /pentest/wireless/fruitywifi && cd /pentest/wireless/fruitywifi
 sudo ./install-FruityWifi.sh
@@ -104,6 +104,6 @@ echo "Backgrounding the hostapd process to continue with the installer."
 cd ../../hostapd-2.2/hostapd && sudo ./hostapd-wpe hostapd-wpe.conf &
 fi
 if [ ! -f /pentest/enumeration/shodan.pl ] ; then
-cd /pentest/enumeration && wget http://dl.packetstormsecurity.net/UNIX/scanners/Shodan_Tool.zip
+cd /pentest/enumeration && wget http://dl.packetstormsecurity.net/UNIX/scanners/Shodan_Tool.zip --no-check-certificate
 unzip Shodan_Tool.zip && rm -rf Shodan_Tool.zip
 fi
