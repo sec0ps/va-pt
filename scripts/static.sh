@@ -47,6 +47,7 @@ cd /pentest/wireless && wget http://ptscripts.googlecode.com/svn/trunk/eapmd5cra
 fi
 if [ ! -d /pentest/wireless/hostapd-2.2 ] ; then
 echo "Installing Hostapd-WPE"
+cd /pentest/wireless
 git clone https://github.com/OpenSecurityResearch/hostapd-wpe && wget http://hostap.epitest.fi/releases/hostapd-2.2.tar.gz
 tar -zxf hostapd-2.2.tar.gz && rm -rf hostapd-2.2.tar.gz
 cd hostapd-2.2 && patch -p1 < ../hostapd-wpe/hostapd-wpe.patch 
