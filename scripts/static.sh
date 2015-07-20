@@ -28,24 +28,11 @@ if [ ! -f /pentest/cisco/copy-router-config.pl ] ; then
 cd /pentest/cisco && wget http://littlehacker.persiangig.com/cisco/copy-router-config.pl
 chmod 755 copy-router-config.pl
 fi
-#if [ ! -d /pentest/voip/sipvicious ] ; then
-#echo "Installing SIPVicious"
-#cd /pentest/temp && wget http://dl.packetstormsecurity.net/sip/sipvicious-0.2.6.tar.gz --no-check-certificate
-#tar zxvf sipvicious-0.2.6.tar.gz && rm -rf sipvicious-0.2.6.tar.gz
-#mv sipvicious/ /pentest/voip/ && cd /pentest/voip/sipvicious
-#fi
 if [ ! -d /pentest/web/stompy ] ; then
 echo "Installing Stompy"
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/web/stompy.tgz --no-check-certificate
 tar zxvf stompy.tgz && rm -rf stompy.tgz
 mv stompy /pentest/web/
-fi
-if [ ! -d /pentest/web/ratproxy ] ; then
-echo "Installing Ratproxy"
-cd /pentest/temp && wget http://ratproxy.googlecode.com/files/ratproxy-1.58.tar.gz
-tar zxvf ratproxy-1.58.tar.gz && rm -rf ratproxy-1.58.tar.gz
-mv ratproxy/ /pentest/web/ && cd /pentest/web/ratproxy
-make
 fi
 if [ ! -d /pentest/wireless/asleap ] ; then
 echo "Installing asleap"
@@ -394,12 +381,6 @@ echo "Installing WebShell Backdoor"
 cd /pentest/web && wget http://dl.packetstormsecurity.net/UNIX/penetration/rootkits/wsb.tar.gz --no-check-certificate
 tar xvf wsb.tar.gz && rm -rf wsb.tar.gz
 fi
-if [ ! -d /pentest/enumeration/dnsenum ] ; then
-echo "Installing DNSEnum"
-mkdir /pentest/enumeration/dnsenum && cd /pentest/enumeration/dnsenum
-wget http://dl.packetstormsecurity.net/UNIX/scanners/dnsenum-1.2.3.tar.gz --no-check-certificate && tar xvf dnsenum-1.2.3.tar.gz
-rm -rf dnsenum-1.2.3.tar.gz && rm -rf ._*
-fi
 if [ ! -d /pentest/web/svn-extractor ] ; then
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/svn-extractor-master.zip --no-check-certificate
 unzip svn-extractor-master.zip && mv svn-extractor-master/ /pentest/web/svn-extractor
@@ -417,9 +398,9 @@ echo "Be sure to edit the database.yml file in /opt/metasploit/apps/pro/ui/confi
 fi
 if [ ! -d /pentest/web/arachni ] ; then
 echo "Installing Arachni Web Scanner"
-cd /pentest/temp && wget http://downloads.arachni-scanner.com/arachni-1.1-0.5.7-linux-x86_64.tar.gz --no-check-certificate
-tar zxvf arachni-1.1-0.5.7-linux-x86_64.tar.gz && rm -rf arachni-1.1-0.5.7-linux-x86_64.tar.gz
-mv arachni-1.1-0.5.7/ /pentest/web/arachi
+cd /pentest/temp && wget https://github.com/Arachni/arachni/releases/download/v1.2/arachni-1.2-0.5.7.1-linux-x86_64.tar.gz --no-check-certificate
+tar zxvf arachni-1.2-0.5.7.1-linux-x86_64.tar.gz && rm -rf arachni-1.2-0.5.7.1-linux-x86_64.tar.gz
+mv arachni-1.2-0.5.7.1/ /pentest/web/arachi
 fi
 #if [ ! -d /pentest/enumeration/netglub ] ; then
 #cd /pentest/enumeration && wget http://redmine.lab.diateam.net/attachments/download/1/netglub-1.0.tar.gz
