@@ -264,8 +264,8 @@ cd /pentest/temp && rm -rf httprint_301/
 fi
 if [ ! -d /pentest/web/xsser ] ; then
 echo "Installing XSSer"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/xsser_1.5-1.tar.gz --no-check-certificate
-tar zxvf xsser_1.5-1.tar.gz && rm -rf xsser_1.5-1.tar.gz
+cd /pentest/temp && wget https://dl.packetstormsecurity.net/UNIX/scanners/xsser_1.6-1.tar.gz --no-check-certificate
+tar zxvf xsser_1.6-1.tar.gz && rm -rf xsser_1.6-1.tar.gz
 mv xsser-public/ /pentest/web/xsser && cd /pentest/web/xsser
 fi
 if [ ! -d /pentest/web/skipfish ] ; then
