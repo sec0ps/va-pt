@@ -31,7 +31,7 @@ cd cpanminus && perl Makefile.PL
 make && sudo make install
 cd /pentest/temp && rm -rf cpanminus/
 fi
-if [ ! -f /usr/local/lib/perl/5.14.2/Math/Pari.pm ] ; then
+if [ ! -f /usr/local/lib/perl/5.18.2/Math/Pari.pm ] ; then
 echo "Installing PERL Libraries"
 cd /pentest/temp && wget http://pkgs.fedoraproject.org/repo/pkgs/perl-Math-Pari/pari-2.1.7.tgz/357b7a42e89e2761a5367bbcbfcca5f2/pari-2.1.7.tgz
 tar xvf pari-2.1.7.tgz && rm -rf pari-2.1.7.tgz
