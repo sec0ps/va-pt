@@ -317,7 +317,7 @@ cd /pentest/temp && wget https://dl.packetstormsecurity.net/UNIX/penetration/roo
 bunzip2 aesshell-0.7.tar.bz2 && tar xvf aesshell-0.7.tar
 rm -rf aesshell-0.7.tar && mv aesshell/ /pentest/exploits
 fi
-if [ ! -d /pentest/cisco/cisco-snmp-enum ] ; then
+if [ ! -d /pentest/cisco/cisco-SNMP-enum ] ; then
 echo "Installing Cisco SNMP Enum"
 cd /pentest/cisco && git clone  https://github.com/nccgroup/cisco-SNMP-enumeration.git
 fi
