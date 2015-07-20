@@ -280,12 +280,12 @@ echo "Installing Vulnerability Database Portal"
 cd /var/www/html && sudo svn co http://va-pt.googlecode.com/svn/trunk/search search
 echo "The vulnerability search portal is now available at http://localhost/search/"
 fi
-if [ ! -d /pentest/wireless/fruitwifi ] ; then
-cd /pentest/temp && wget https://github.com/xtr4nge/FruityWifi/archive/master.zip
-unzip master.zip  && rm -rf unzip master.zip
-mv FruityWifi-master/ /pentest/wireless/fruitwifi && cd /pentest/wireless/fruitwifi
-sudo ./install-FruityWifi.sh 
-fi
+#if [ ! -d /pentest/wireless/fruitwifi ] ; then
+#cd /pentest/temp && wget https://github.com/xtr4nge/FruityWifi/archive/master.zip
+#unzip master.zip  && rm -rf unzip master.zip
+#mv FruityWifi-master/ /pentest/wireless/fruitwifi && cd /pentest/wireless/fruitwifi
+#sudo ./install-FruityWifi.sh 
+#fi
 if [ ! -d /pentest/passwords/PCredz ] ; then
 echo "Installing PCredz"
 cd /pentest/passwords && git clone https://github.com/lgandx/PCredz.git
