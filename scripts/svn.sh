@@ -35,10 +35,6 @@ if [ ! -d /pentest/exploits/Veil-PowerView ] ; then
 echo "Installing Veil PowerView"
 cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-PowerView.git
 fi
-if [ ! -d /pentest/voip/warvox ] ; then
-echo "Installing Warvox"
-cd /pentest/voip && git clone https://github.com/rapid7/warvox.git
-fi
 if [ ! -d /pentest/web/wapiti ] ; then
 echo "Installing Wapiti"
 cd /pentest/web && svn co https://svn.code.sf.net/p/wapiti/code/ wapiti
@@ -84,9 +80,9 @@ fi
 if [ ! -d /pentest/web/sslyze ] ; then
 cd /pentest/web && git clone https://github.com/iSECPartners/sslyze.git
 fi
-if [ ! -d /var/www/beef/.git/ ] ; then
+if [ ! -d /var/www/htmlbeef/.git/ ] ; then
 echo "Installing Beef"
-cd /var/www && sudo git clone https://github.com/beefproject/beef.git
+cd /var/www/html && sudo git clone https://github.com/beefproject/beef.git
 fi
 if [ ! -d /pentest/enumeration/fierce2 ] ; then
 echo "Installing Fierce2"
@@ -108,10 +104,6 @@ cd /pentest/wireless && svn co http://svn.aircrack-ng.org/trunk/ aircrack-ng
 cd aircrack-ng && make
 sudo make install && sudo airodump-ng-oui-update
 fi
-#if [ ! -d /pentest/wireless/airgraph-ng ] ; then
-#cd /pentest/wireless && svn co http://svn.aircrack-ng.org/trunk/ aircrack-ng
-#cd /pentest/wireless/airgraph-ng && chmod 755 airgraph-ng
-#fi
 if [ ! -d /pentest/wireless/reaver ] ; then
 echo "Installing Reaver"
 cd /pentest/wireless && svn checkout http://reaver-wps.googlecode.com/svn/trunk/ reaver
@@ -160,10 +152,10 @@ if [ ! -d /pentest/web/htshells ] ; then
 echo "Installing htshells"
 cd /pentest/web && git clone git://github.com/wireghoul/htshells.git
 fi
-#if [ ! -d /pentest/enumeration/dnsenum ] ; then
-#echo "Installing DNSenum"
-#cd /pentest/enumeration && svn checkout http://dnsenum.googlecode.com/svn/trunk/ dnsenum
-#fi
+if [ ! -d /pentest/enumeration/dnsenum ] ; then
+echo "Installing DNSenum"
+cd /pentest/enumeration && git clone https://github.com/fwaeytens/dnsenum.git 
+fi
 if [ ! -d /pentest/fuzzers/wsfuzzer ] ; then
 echo "Installing WSFuzzer"
 cd /pentest/fuzzers && svn checkout svn://svn.code.sf.net/p/wsfuzzer/code/trunk wsfuzzer
