@@ -1,6 +1,6 @@
 #!/bin/bash
 if [[ $EUID -eq 0 ]]; then
-echo "This script must not be run as root.." 1>&2
+echo "This script should not be run as root.." 1>&2
 exit 1
 fi
 if [ ! -f /etc/network/if-up.d/ntpdate ] ; then
@@ -24,9 +24,7 @@ fi
 [ ! -d /pentest/database ] && mkdir /pentest/database
 [ ! -d /pentest/passwords ] && mkdir /pentest/passwords
 [ ! -d /pentest/fuzzers ] && mkdir /pentest/fuzzers
-[ ! -d /pentest/spoofing ] && mkdir /pentest/spoofing
 [ ! -d /pentest/cisco ] && mkdir /pentest/cisco
-[ ! -d /pentest/tunneling ] && mkdir /pentest/tunneling
 [ ! -d /pentest/audit ] && mkdir /pentest/audit
 if [ ! -d /pentest/misc/va-pt ] ; then
 cd /pentest/misc && git clone https://github.com/sec0ps/va-pt.git 
