@@ -15,7 +15,7 @@ cd /pentest/web/htshells && git pull
 echo "Updating WPScanner"
 cd /pentest/web/wpscan && git pull
 echo "Updating Beef"
-cd /var/www/beef && sudo git pull
+cd /var/www/html/beef && sudo git pull
 echo "Updating Fierce2"
 cd /pentest/enumeration/fierce2 && svn up
 echo "Updating Kismet"
@@ -30,8 +30,8 @@ echo "Updating SQLNinja"
 cd /pentest/database/sqlninja && svn up
 echo "Updating PHP Shell"
 cd /pentest/web/phpshell && svn up
-#echo "Updating DNS Enum"
-#cd /pentest/enumeration/dnsenum && svn up
+echo "Updating DNS Enum"
+cd /pentest/enumeration/dnsenum && git pull 
 echo "Updating Middler"
 cd /pentest/exploits/middler && svn up
 echo "Updating SIPVicious"
@@ -65,8 +65,8 @@ echo "Updating Veil Evasion"
 cd /pentest/exploits/Veil-Evasion && git pull
 echo "Updating Veil PowerView"
 cd /pentest/exploits/Veil-PowerView && git pull
-echo "Updating FruitWifi"
-cd /pentest/wireless/fruitwifi && git pull
+#echo "Updating FruitWifi"
+#cd /pentest/wireless/fruitwifi && git pull
 echo "Updating PCredz"
 cd /pentest/passwords/PCredz && git pull
 echo "Updating Viproxy"
