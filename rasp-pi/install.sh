@@ -1,6 +1,6 @@
 #!/bin/bash
 if [[ $EUID -eq 0 ]]; then
-echo "This script must not be run as root.." 1>&2
+echo "This script should not be run as root.." 1>&2
 exit 1
 fi
 #sudo echo 1 > /proc/sys/net/ipv4/ip_forward
@@ -21,7 +21,6 @@ fi
 [ ! -d /pentest/database ] && mkdir /pentest/database
 [ ! -d /pentest/passwords ] && mkdir /pentest/passwords
 [ ! -d /pentest/fuzzers ] && mkdir /pentest/fuzzers
-[ ! -d /pentest/spoofing ] && mkdir /pentest/spoofing
 [ ! -d /pentest/cisco ] && mkdir /pentest/cisco
 #creating the wireless management interface - recommended the usb wireless adapater be in before running the installer
 sudo mv interfaces /etc/network/ && sleep 2
