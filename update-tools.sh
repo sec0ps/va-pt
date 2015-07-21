@@ -103,16 +103,16 @@ echo "Updating THC-Hydra"
 cd /pentest/enumeration/hydra && git pull
 echo "Updating wifijammer"
 cd /pentest/wireless/wifijammer && git pull
-#echo "Updating Veil Catapult"
-#cd /pentest/exploits/Veil-Catapult && git pull
+echo "Updating Veil Catapult"
+cd /pentest/exploits/Veil-Catapult && git pull
 echo "Updating Veil Evasion"
 cd /pentest/exploits/Veil-Evasion && git pull
-#echo "Updating Veil PowerView"
-#cd /pentest/exploits/Veil-PowerView && git pull
-echo "Updating FruitWifi"
-cd /pentest/wireless/fruitwifi && git pull
+echo "Updating Veil PowerView"
+cd /pentest/exploits/Veil-PowerView && git pull
 echo "Updating PCredz"
 cd /pentest/passwords/PCredz && git pull
+echo "Updating the ExploitDB archive"
+cd /pentest/exploits/exploitdb && git pull
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
@@ -120,9 +120,9 @@ sudo /usr/sbin/openvas-nvt-sync --wget
 else
 echo "OpenVAS is not installed, skipping"
 fi
-if [ -f /opt/nessus/sbin/nessus-update-plugins ] ; then
+if [ -f /opt/nessus/sbin/nessuscli ] ; then
 echo "Updating Nessus Plugins"
-sudo /opt/nessus/sbin/nessus-update-plugins
+sudo /opt/nessus/sbin/nessuscli update --all
 else
 echo "Nessus is not installed, skipping"
 fi
@@ -141,22 +141,11 @@ else
 echo "THC IPv6 Attack Suite is not up to date, updating now"
 rm -rf /pentest/enumeration/thc-ipv6 && /pentest/misc/va-pt/scripts/static.sh
 fi
-echo "Downloading latest ExploitDB archive"
-cd /pentest/temp && wget http://www.exploit-db.com/archive.tar.bz2
-bunzip2 archive.tar.bz2 && tar xvf archive.tar
-if [ -f files.csv ] ; then
-echo "ExploitDB Download Complete - Moving contents to /pentest/exploits/exploitdb "
-rm -rf /pentest/exploits/exploitdb && mkdir /pentest/exploits/exploitdb
-mv platforms/ /pentest/exploits/exploitdb/ && mv files.csv /pentest/exploits/exploitdb/
-rm -rf archive.tar && sudo chmod -R 755 /pentest/exploits/exploitdb
-else
-echo "ExploitDB Update Failed - Repo appears to be down"
-fi
 #
 echo "Updating VA-PT"
-cd /pentest/misc/va-pt && svn up
+cd /pentest/misc/va-pt && git pull 
 echo "Updating the Vulnerability Database Portal"
-cd /var/www/html/search && sudo svn up
+cd /var/www/html/search && sudo git pull
 #
 while true; do
     read -p "Do you want to update the local exploit database? (y/n)" yn
