@@ -22,10 +22,7 @@ sudo update-rc.d -f apache2 remove
 sudo update-rc.d -f mysql remove
 sudo update-rc.d -f ntp remove
 sudo update-rc.d -f avahi-daemon remove
-sudo update-rc.d -f php5-fpm remove
-sudo update-rc.d -f nginx remove
 sudo update-rc.d -f samba remove
-sudo update-rc.d -f ntp remove
 sudo update-rc.d -f tightvnc remove
 sudo update-rc.d -f dnsmasq remove
 
