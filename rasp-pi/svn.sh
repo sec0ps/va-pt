@@ -58,10 +58,10 @@ if [ ! -d /pentest/web/htshells ] ; then
 echo "Installing htshells"
 cd /pentest/web && git clone git://github.com/wireghoul/htshells.git
 fi
-#if [ ! -d /pentest/enumeration/dnsenum ] ; then
-#echo "Installing DNSenum"
-#cd /pentest/enumeration && svn checkout http://dnsenum.googlecode.com/svn/trunk/ dnsenum
-#fi
+if [ ! -d /pentest/enumeration/dnsenum ] ; then
+echo "Installing DNSenum"
+cd /pentest/enumeration && git clone https://github.com/fwaeytens/dnsenum.git
+fi
 if [ ! -d /pentest/web/wpscan ] ; then
 echo "Installing Wordpress Scanner"
 cd /pentest/web && git clone https://github.com/wpscanteam/wpscan.git
@@ -163,6 +163,10 @@ echo "Installing smbexec"
 cd /pentest/temp && git clone https://github.com/pentestgeek/smbexec.git
 cd smbexec && sudo ./install.sh
 bundle install
+fi
+if [ ! -d /pentest/exploits/pth-toolkit ] ; then
+echo "Installing the PTH Toolkit"
+cd /pentest/exploits && git clone https://github.com/byt3bl33d3r/pth-toolkit.git
 fi
 if [ ! -d /pentest/exploits/Veil-Catapult ] ; then
 echo "Installing Veil Catapult"
