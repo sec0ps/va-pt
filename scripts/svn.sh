@@ -80,7 +80,7 @@ fi
 if [ ! -d /pentest/web/sslyze ] ; then
 cd /pentest/web && git clone https://github.com/iSECPartners/sslyze.git
 fi
-if [ ! -d /var/www/htmlbeef/.git/ ] ; then
+if [ ! -d /var/www/html/beef/.git/ ] ; then
 echo "Installing Beef"
 cd /var/www/html && sudo git clone https://github.com/beefproject/beef.git
 fi
