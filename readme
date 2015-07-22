@@ -4,7 +4,7 @@ Vulnerability Assessments and Penetration Testing.
 The goal of this project was to allow a portable set of tools to be easily installed onto Ubuntu at a
 moments notice, allowing the tester to be free of distribution release specific constraints.
 
-These scripts were designed specifically for Ubuntu 12.04 LTS and Raspbian.
+These scripts were designed specifically for Ubuntu 14.04 LTS and Raspbian.
 
 Contents of Files
 -----------------
@@ -82,14 +82,6 @@ Trying issuing one, or both, of the following commands to remediate the errors:
 
 sudo nmcli nm wifi off
 sudo rfkill unblock wlan
-
-Future Major Release to include
--------------------------
-Security Assessment Management Portal
--- PCI-DSS Assessment
--- ISO Assessment
--- NIST 800-53a Assessment
--- Vulnerability Assessment & Penetration Testing Management
 
 Any problems, comments or requests, feel free to contact me here or on twitter. 
 
