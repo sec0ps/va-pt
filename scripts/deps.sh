@@ -3,10 +3,10 @@ sudo apt-get install -y wine wine-dev mysql-server subversion git ncftp rar p7zi
 sudo apt-get install -y sqlite3 nbtscan dsniff libncurses-dev libpcap-dev libnl-dev libssl-dev hping3 openssh-server
 sudo apt-get install -y python-dev python2.7-dev autoconf open-iscsi open-iscsi-utils wireshark dhcp3-server locate libusb-dev
 sudo apt-get install -y webhttrack httrack finger rusers snmp reglookup gpsd gpsd-dbg libgps-dev apache2 libapache2-mod-auth-mysql
-sudo apt-get install -y php5-mysql libapache2-mod-php5 curl sslscan ruby libpq-dev libxml2-dev vim python-setuptools
+sudo apt-get install -y php5-mysql libapache2-mod-php5 curl sslscan libpq-dev libxml2-dev vim python-setuptools
 sudo apt-get install -y python-nltk python-soappy python-lxml python-svn python-scapy gtk2-engines-pixbuf graphviz python-gtksourceview2
 sudo apt-get install -y libssh-dev libmysqlclient-dev libpcre3-dev Firebird2.1-dev libsvn-dev libidn11-dev libcurl4-gnutls-dev
-sudo apt-get install -y libxslt1-dev ruby-dev sipcrack libgmp3-dev python-mysqldb libnet1-dev flasm registry-tools
+sudo apt-get install -y libxslt1-dev sipcrack libgmp3-dev python-mysqldb libnet1-dev flasm registry-tools
 sudo apt-get install -y libavahi-compat-libdnssd-dev gip ldap-utils bkhive ophcrack macchanger-gtk cdpr flamerobin dsniff sipsak
 sudo apt-get install -y ike-scan nfs-kernel-server httping ptunnel recoverdm extundelete ext3grep libaspell-dev autoconf
 sudo apt-get install -y libyaml-dev openjdk-7-jre openjdk-7-jre-lib libreadline-dev python-pip python-beautifulsoup tshark
@@ -14,7 +14,7 @@ sudo apt-get install -y samba libpam-smbpass libevent-dev flex bison libnl-3-dev
 sudo apt-get install -y libnetfilter-conntrack-dev libncurses-dev liburcu-dev libnacl-dev zlib1g-dev libcli-dev python-pycurl vpnc
 sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk swig cmake libtalloc-dev libtevent-dev libpopt-dev
 sudo apt-get install -y libbsd-dev unixodbc unixodbc-dev freetds-dev sqsh tdsodbc autofs remmina remmina-plugin-rdp remmina-plugin-vnc
-sudo apt-get install -y squid python-libpcap ntpdate screen samba-common-bin upx whois
+sudo apt-get install -y squid python-libpcap ntpdate screen samba-common-bin upx whois mingw32
 
 ruby -v | grep "2.1.5"
 if [ $? -eq 1 ] ; then
