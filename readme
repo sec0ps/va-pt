@@ -1,7 +1,6 @@
-The set of scripts included in this package will create a Backtrack/SamuraiWTF type environment for the performing of
-Vulnerability Assessments and Penetration Testing.
+The set of scripts included in this package will create a Kali/SamuraiWTF type environment for the performing of Vulnerability Assessments and Penetration Testing.
 
-The goal of this project was to allow a portable set of tools to be easily installed onto Ubuntu allowing the tester to be free of distribution release specific constraints.
+The goal of this project was to allow a portable set of tools to be installed onto an Ubuntu or Raspbian system, allowing the tester to be free of distribution release specific constraints.
 
 These scripts were designed specifically for Ubuntu 14.04 LTS and Raspbian.
 
@@ -24,7 +23,7 @@ How To
 ------
 To start, run the installer: sudo ./install.sh
 Install the dependencies first via option 1) Install/Check Dependencies
-Once the deps scripts has completed, walk through the remaining install options. Install the SVN tools, statics tools, exploit code repo's (packetstorm and exploitdb) and finally the wordlists. Option 6 installs a web based vulnerability/exploit portal, not required but you my find it makes things easier.
+Once the deps scripts has completed, walk through the remaining install options. Install the SVN tools, statics tools, exploit code repo's (packetstorm and exploitdb) and finally the wordlists. Option 6 installs a web based vulnerability/exploit portal, not required but you may find it makes things easier when searching for exploits or vulnerabilities.
 
 --Setup for postgres DB 
 sudo su postgres
@@ -46,7 +45,7 @@ If you are running, or are planning on running, Nexpose on the same system. You 
 An installer for the Raspberry PI has been added. The installer was created specifically for the Raspbian distro. All Pi scripts can be found in va-pt/rasp-pi directory. I would strongly recommend installing the PI kit to a single PI then dd'ing the card to an image. After that, use the image to write the additional PI's.
 
 PI Image Creation Example
-
+-------------------------
 Use gparted to shrink the PI image once you have the initial card completed. Using DD, create the image 
 
 sudo dd if=/dev/sdc bs=4M | pv -s 8G | sudo dd of=penpi.img bs=4M
@@ -70,7 +69,7 @@ $ sudo truncate --size=$[(20762623+1)*512] penpi.img
 
 Wireless Testing
 ----------------
-if you are having issues with Airbase or Hostapd-WPE where you are getting errors on startup similar to the following:
+if you are having issues with Hostapd-WPE where you are getting errors on startup similar to the following:
 
 Configuration file: hostapd-wpe.conf
 rfkill: WLAN hard blocked
@@ -79,13 +78,14 @@ nl80211: Could not configure driver mode
 nl80211 driver initialization failed.
 hostapd_free_hapd_data: Interface wlan0 wasn't started
 
-Trying issuing one, or both, of the following commands to remediate the errors:
+Issue both of the following commands to remediate the errors:
 
 sudo nmcli nm wifi off
 sudo rfkill unblock wlan
 
 Any problems, comments or requests, feel free to contact me here or on twitter. 
 
-Keith Pachulski
-Security Consultant
-keithp@protectors.cc
+Keith A. Pachulski
+Electronic & Physical Security Consultant
+enforce570@gmail.com
+Twitter: @sec0ps
