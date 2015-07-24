@@ -275,10 +275,10 @@ mv skipfish-2.10b skipfish
 cd skipfish && make
 cp /pentest/web/skipfish/dictionaries/complete.wl /pentest/web/skipfish/dictionaries/skipfish.wl
 fi
-if [ ! -d /pentest/misc/flare ] ; then
+if [ ! -d /pentest/web/flare ] ; then
 echo "Installing Flare"
-cd /pentest/misc && mkdir flare
-cd /pentest/misc/flare && wget http://www.nowrap.de/download/flare06linux.tgz
+cd /pentest/web && mkdir flare
+cd /pentest/web/flare && wget http://www.nowrap.de/download/flare06linux.tgz
 tar xvf flare06linux.tgz && rm -rf flare06linux.tgz
 fi
 #if [ ! -d /pentest/passwords/hashcat ] ; then
