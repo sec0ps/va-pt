@@ -61,7 +61,7 @@ sudo cpanm JSON && sudo cpanm Color::Output
 echo "Installing Python Deps"
 sudo pip install lxml netaddr M2Crypto cherrypy mako M2Crypto dnspython requests
 sudo pip install PyGithub GitPython pybloomfiltermmap esmre pdfminer futures guess-language 
-sudo pip install cluster msgpack-python python-ntlm clamd xdot netifaces
+sudo pip install cluster msgpack-python python-ntlm clamd xdot netifaces pyinstaller
 sudo pip install -e git+git://github.com/ramen/phply.git#egg=phply
 
 echo "Checking and Installing Ruby Gems"
