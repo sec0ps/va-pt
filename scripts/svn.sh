@@ -229,7 +229,7 @@ if [ ! -d /pentest/web/watobo ] ; then
 echo "Installing Watobo"
 cd /pentest/web/ && svn checkout http://svn.code.sf.net/p/watobo/code/ watobo
 fi
-if [ ! -d /pentest/misc/netsniff-ng ] ; then
+if [ ! -d /pentest/enumeration/netsniff-ng ] ; then
 echo "Installing Netsniff-ng"
 cd /pentest/misc && git clone git://github.com/borkmann/netsniff-ng.git
 fi
