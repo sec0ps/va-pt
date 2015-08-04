@@ -321,6 +321,11 @@ if [ ! -d /pentest/cisco/cisco-SNMP-enum ] ; then
 echo "Installing Cisco SNMP Enum"
 cd /pentest/cisco && git clone  https://github.com/nccgroup/cisco-SNMP-enumeration.git
 fi
+if [ ! -d /pentest/web/arachni ] ; then
+echo "Installing Arachni Web Scanner"
+cd /pentest/web && git clone https://github.com/Arachni/arachni.git
+cd arachni && bundle install
+fi
 #if [ ! -d /var/www/html/portal ] ; then
 #echo "Installing the VA-PT Portal"
 #cd /var/www/ && sudo svn checkout https://va-pt.googlecode.com/svn/trunk/portal portal
