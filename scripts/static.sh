@@ -395,12 +395,6 @@ cd /pentest/temp && wget http://www.fastandeasyhacking.com/download/armitage1411
 tar xvf armitage141120.tgz  && mv armitage/ /pentest/exploits
 echo "Be sure to edit the database.yml file in /opt/metasploit/apps/pro/ui/config/"
 fi
-if [ ! -d /pentest/web/arachni ] ; then
-echo "Installing Arachni Web Scanner"
-cd /pentest/temp && wget https://github.com/Arachni/arachni/releases/download/v1.2/arachni-1.2-0.5.7.1-linux-x86_64.tar.gz --no-check-certificate
-tar zxvf arachni-1.2-0.5.7.1-linux-x86_64.tar.gz && rm -rf arachni-1.2-0.5.7.1-linux-x86_64.tar.gz
-mv arachni-1.2-0.5.7.1/ /pentest/web/arachni
-fi
 #if [ ! -d /pentest/enumeration/netglub ] ; then
 #cd /pentest/enumeration && wget http://redmine.lab.diateam.net/attachments/download/1/netglub-1.0.tar.gz
 #tar -xzvf netglub-1.0.tar.gz && rm -rf netglub-1.0.tar.gz
