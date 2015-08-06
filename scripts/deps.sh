@@ -1,4 +1,4 @@
-echo "Installing Ubuntu Packages"
+echo "Installing Packages"
 sudo apt-get install -y wine wine-dev mysql-server subversion git ncftp rar p7zip-full iw ethtool dos2unix gtk-recordmydesktop postgresql
 sudo apt-get install -y sqlite3 nbtscan dsniff libncurses-dev libpcap-dev libnl-dev libssl-dev hping3 openssh-server
 sudo apt-get install -y python-dev autoconf open-iscsi open-iscsi-utils wireshark dhcp3-server locate libusb-dev
@@ -17,9 +17,23 @@ sudo apt-get install -y libbsd-dev unixodbc unixodbc-dev freetds-dev sqsh tdsodb
 sudo apt-get install -y squid python-libpcap ntpdate screen samba-common-bin upx whois mingw32 libreadline-gplv2-dev gcc-mingw-w64-x86-64
 sudo apt-get install -y gcc-mingw-w64-i686
 
+#stopping and disabling services
+sudo service apache2 stop && sudo service mysql stop
+sudo service ntp stop && sudo service avahi-daemon stop
+sudo service samba stop && sudo service tighvnc stop
+sudo service dnsmasq stop
+sudo update-rc.d -f apache2 remove
+sudo update-rc.d -f mysql remove
+sudo update-rc.d -f ntp remove
+sudo update-rc.d -f avahi-daemon remove
+sudo update-rc.d -f samba remove
+sudo update-rc.d -f tightvnc remove
+sudo update-rc.d -f dnsmasq remove
+
 ruby -v | grep "2.1.5"
 if [ $? -eq 1 ] ; then
 echo "Installing Ruby 2.1.5"
+echo "This is going to take awhile, take a break..."
 cd /pentest/temp && wget http://cache.ruby-lang.org/pub/ruby/2.1/ruby-2.1.5.tar.gz
 tar xvf ruby-2.1.5.tar.gz && rm -rf ruby-2.1.5.tar.gz
 cd ruby-2.1.5 && ./configure && make
@@ -86,10 +100,6 @@ gem list | grep -w zip
 if [ ! $? -eq 0 ] ; then
 sudo gem install zip
 fi
-gem list | grep -w pg
-if [ ! $? -eq 0 ] ; then
-sudo gem install pg
-fi
 gem list | grep -w sqlite3
 if [ ! $? -eq 0 ] ; then
 sudo gem install sqlite3
@@ -98,49 +108,15 @@ gem list | grep -w net-dns
 if [ ! $? -eq 0 ] ; then
 sudo gem install net-dns
 fi
-gem list | grep -w bundler
-if [ ! $? -eq 0 ] ; then
-sudo gem install bundler
-fi
-#need to add dep checking for this, wastes time on rechecks
-#gem list | grep -w 
-#if [ ! $? -eq 0 ] ; then
-#
-#fi
-#
-if [ ! -f /pentest/passwords/crunch ] ; then
-echo "Installing crunch"
-cd /pentest/passwords && wget http://dl.packetstormsecurity.net/Crack/crunch.cpp
-gcc -o crunch crunch.cpp -lstdc++ && rm -rf crunch.cpp
-fi
-
-echo "enabling default ssl site for portal if needed"
-service='https'
-if sudo lsof -i :443 | grep $service > /dev/null
-then
-echo "$service is there, skipping this step"
-else
-echo "$service is not there, enabling default SSL configuration"
-sudo a2enmod ssl
-sudo a2ensite ssl
-sudo a2enmod rewrite
-sudo service apache2 force-reload
-fi
-echo "Updating locate database"
-sudo updatedb
-#if [ ! -d /opt/xplico ] ; then
-#echo "Installing Xplico"
-#sudo bash -c 'echo "deb http://repo.xplico.org/ $(lsb_release -s -c) main" >> /etc/apt/sources.list'
-#sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 791C25CE
-#sudo apt-get update
-#sudo apt-get install xplico
-#sudo service apache2 restart
-#echo "Xplico by default is now running on 9876 - http://localhost:9876"
-#fi
-#if [ ! -f /usr/bin/waveplay ] ; then
-#echo "Installing waveplay"
-#cd /pentest/temp && wget ftp://ftp.eenet.ee/pub/FreeBSD/distfiles/waveplay-20010924.tar.gz
-#tar zxvf waveplay-20010924.tar.gz && cd waveplay-20010924
-#make && sudo mv waveplay /usr/bin/
-#sudo rm -rf /pentest/temp/waveplay*
+#echo "enabling default ssl site for portal if needed"
+#service='https'
+#if sudo lsof -i :443 | grep $service > /dev/null
+#then
+#echo "$service is there, skipping this step"
+#else
+#echo "$service is not there, enabling default SSL configuration"
+#sudo a2enmod ssl
+#sudo a2ensite ssl
+#sudo a2enmod rewrite
+#sudo service apache2 force-reload
 #fi
