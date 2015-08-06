@@ -395,22 +395,9 @@ cd /pentest/temp && wget http://www.fastandeasyhacking.com/download/armitage1411
 tar xvf armitage141120.tgz  && mv armitage/ /pentest/exploits
 echo "Be sure to edit the database.yml file in /opt/metasploit/apps/pro/ui/config/"
 fi
-#if [ ! -d /pentest/enumeration/netglub ] ; then
-#cd /pentest/enumeration && wget http://redmine.lab.diateam.net/attachments/download/1/netglub-1.0.tar.gz
-#tar -xzvf netglub-1.0.tar.gz && rm -rf netglub-1.0.tar.gz
-#mv netglub-1.0 netglub
-#cd /pentest/enumeration/netglub/qng/
-#qmake && make
-#echo "Enter the root mysql password to create the netglub user and databases"
-#mysqladmin create netglub -u root -p
-#mysql -u root -p -e "grant all privileges on netglub.* to 'netglub'@'localhost' identified by 'netglub'"
-#mysql -u root -p netglub < /pentest/enumeration/netglub/master/tools/sql/netglub.sql  
-#cd /pentest/enumeration/netglub/master
-#qmake && make
-#cd tools/ && sudo ./install.sh
-#cd /pentest/enumeration/netglub/slave
-#qmake && make
-#cd tools/ && sudo ./install.sh
-#echo "When starting netglub for the first time use the code 2222-4567-89ab-cdef"
-#fi
+if [ ! -f /pentest/passwords/crunch ] ; then
+echo "Installing crunch"
+cd /pentest/passwords && wget http://dl.packetstormsecurity.net/Crack/crunch.cpp
+gcc -o crunch crunch.cpp -lstdc++ && rm -rf crunch.cpp
+fi
 echo "Static Code installation complete"
