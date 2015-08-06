@@ -1,23 +1,27 @@
-echo "Installing Ubuntu Packages"
-sudo apt-get install -y mysql-server subversion git ncftp p7zip-full iw ethtool dos2unix postgresql libbsd-dev
-sudo apt-get install -y sqlite3 nbtscan dsniff uClibc++ libncurses-dev libpcap-dev libnl-dev libssl-dev hping3 openssh-server
-sudo apt-get install -y python-dev python2.7-dev autoconf open-iscsi wireshark dhcp3-server locate libusb-dev
-sudo apt-get install -y webhttrack httrack finger rusers snmp reglookup gpsd gpsd-dbg libgps-dev apache2 libapache2-mod-auth-mysql
-sudo apt-get install -y php5-mysql libapache2-mod-php5 curl sslscan ruby rubygems libpq-dev libxml2-dev vim python-setuptools
-sudo apt-get install -y python-soappy python-lxml python-svn python-scapy gtk2-engines-pixbuf graphviz python-gtksourceview2
-sudo apt-get install -y libssh-dev libmysqlclient-dev libpcre3-dev Firebird2.1-dev libsvn-dev libncp-dev libidn11-dev libcurl4-gnutls-dev
-sudo apt-get install -y libopenssl-ruby libxslt1-dev ruby-dev sipcrack libgmp3-dev python-mysqldb libnet1-dev flasm registry-tools
-sudo apt-get install -y libavahi-compat-libdnssd-dev gip ldap-utils bkhive ophcrack macchanger-gtk cdpr flamerobin dsniff sipsak
-sudo apt-get install -y ddrescue ike-scan nfs-kernel-server httping ptunnel recover recoverdm extundelete ext3grep libaspell-dev
+echo "Installing Packages"
+sudo apt-get install -y wine wine-dev mysql-server subversion git ncftp rar p7zip-full iw ethtool dos2unix gtk-recordmydesktop postgresql
+sudo apt-get install -y sqlite3 nbtscan dsniff libncurses-dev libpcap-dev libnl-dev libssl-dev hping3 openssh-server
+sudo apt-get install -y python-dev autoconf open-iscsi open-iscsi-utils wireshark dhcp3-server locate libusb-dev
+sudo apt-get install -y webhttrack finger rusers snmp reglookup gpsd libgps-dev apache2 libapache2-mod-auth-mysql
+sudo apt-get install -y php5-mysql libapache2-mod-php5 curl sslscan libpq-dev libxml2-dev vim python-setuptools
+sudo apt-get install -y python-nltk python-soappy python-lxml python-svn python-scapy gtk2-engines-pixbuf graphviz python-gtksourceview2
+sudo apt-get install -y libssh-dev libmysqlclient-dev libpcre3-dev firebird-dev libsvn-dev libidn11-dev libcurl4-gnutls-dev
+sudo apt-get install -y libxslt1-dev sipcrack libgmp3-dev python-mysqldb libnet1-dev flasm registry-tools
+sudo apt-get install -y libavahi-compat-libdnssd-dev gip ldap-utils bkhive ophcrack macchanger flamerobin dsniff sipsak
+sudo apt-get install -y ike-scan nfs-kernel-server httping ptunnel recoverdm extundelete ext3grep libaspell-dev autoconf
 sudo apt-get install -y libyaml-dev openjdk-7-jre openjdk-7-jre-lib libreadline-dev python-pip python-beautifulsoup tshark
-sudo apt-get install -y samba libpam-smbpass libevent-dev flex bison libnl-3-dev libnl-genl-3-dev libgeoip-dev 
-sudo apt-get install -y libnetfilter-conntrack-dev liburcu-dev zlib1g-dev libcli-dev python-pycurl vpnc lsof tightvncserver
-sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk swig cmake libtalloc-dev libtevent-dev
-sudo apt-get install -y autofs libpopt-dev remmina remmina-common remmina-plugin-rdp remmina-plugin-vnc squid stunnel openvpn
-sudo apt-get install -y python-libpcap ntpdate screen samba-common-bin ppp usb-modeswitch wvdial minicom comgt gammu protobuf-compiler
-sudo apt-get install -y libprotobuf-dev libutempter-dev python-libpca
+sudo apt-get install -y samba libpam-smbpass libevent-dev flex bison libnl-3-dev libnl-genl-3-dev libgeoip-dev chntpw
+sudo apt-get install -y libnetfilter-conntrack-dev libncurses-dev liburcu-dev libnacl-dev zlib1g-dev libcli-dev python-pycurl vpnc
+sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk swig cmake libtalloc-dev libtevent-dev libpopt-dev
+sudo apt-get install -y libbsd-dev unixodbc unixodbc-dev freetds-dev sqsh tdsodbc autofs remmina remmina-plugin-rdp remmina-plugin-vnc
+sudo apt-get install -y squid python-libpcap ntpdate screen samba-common-bin upx whois mingw32 libreadline-gplv2-dev gcc-mingw-w64-x86-64
+sudo apt-get install -y gcc-mingw-w64-i686
 
-#disabling unneeded services
+#stopping and disabling services
+sudo service apache2 stop && sudo service mysql stop
+sudo service ntp stop && sudo service avahi-daemon stop
+sudo service samba stop && sudo service tighvnc stop
+sudo service dnsmasq stop
 sudo update-rc.d -f apache2 remove
 sudo update-rc.d -f mysql remove
 sudo update-rc.d -f ntp remove
@@ -26,10 +30,10 @@ sudo update-rc.d -f samba remove
 sudo update-rc.d -f tightvnc remove
 sudo update-rc.d -f dnsmasq remove
 
-#
 ruby -v | grep "2.1.5"
 if [ $? -eq 1 ] ; then
 echo "Installing Ruby 2.1.5"
+echo "This is going to take awhile, take a break..."
 cd /pentest/temp && wget http://cache.ruby-lang.org/pub/ruby/2.1/ruby-2.1.5.tar.gz
 tar xvf ruby-2.1.5.tar.gz && rm -rf ruby-2.1.5.tar.gz
 cd ruby-2.1.5 && ./configure && make
@@ -42,7 +46,7 @@ cd cpanminus && perl Makefile.PL
 make && sudo make install
 cd /pentest/temp && rm -rf cpanminus/
 fi
-if [ ! -f /usr/local/lib/perl/5.14.2/Math/Pari.pm ] ; then
+if [ ! -f /usr/local/lib/perl/5.18.2/Math/Pari.pm ] ; then
 echo "Installing PERL Libraries"
 cd /pentest/temp && wget http://pkgs.fedoraproject.org/repo/pkgs/perl-Math-Pari/pari-2.1.7.tgz/357b7a42e89e2761a5367bbcbfcca5f2/pari-2.1.7.tgz
 tar xvf pari-2.1.7.tgz && rm -rf pari-2.1.7.tgz
@@ -72,7 +76,7 @@ sudo cpanm JSON && sudo cpanm Color::Output
 echo "Installing Python Deps"
 sudo pip install lxml netaddr M2Crypto cherrypy mako M2Crypto dnspython requests
 sudo pip install PyGithub GitPython pybloomfiltermmap esmre pdfminer futures guess-language 
-sudo pip install cluster msgpack-python python-ntlm clamd xdot netifaces
+sudo pip install cluster msgpack-python python-ntlm clamd xdot netifaces pyinstaller
 sudo pip install -e git+git://github.com/ramen/phply.git#egg=phply
 
 echo "Checking and Installing Ruby Gems"
@@ -96,10 +100,6 @@ gem list | grep -w zip
 if [ ! $? -eq 0 ] ; then
 sudo gem install zip
 fi
-gem list | grep -w pg
-if [ ! $? -eq 0 ] ; then
-sudo gem install pg
-fi
 gem list | grep -w sqlite3
 if [ ! $? -eq 0 ] ; then
 sudo gem install sqlite3
@@ -108,54 +108,15 @@ gem list | grep -w net-dns
 if [ ! $? -eq 0 ] ; then
 sudo gem install net-dns
 fi
-gem list | grep -w bundler
-if [ ! $? -eq 0 ] ; then
-sudo gem install bundler
-fi
-gem list | grep -w pcaprub
-if [ ! $? -eq 0 ] ; then
-sudo gem install pcaprub
-fi
-
-#need to add dep checking for this, wastes time on rechecks
-#gem list | grep -w 
-#if [ ! $? -eq 0 ] ; then
-#
-#fi
-#
-if [ ! -f /pentest/passwords/crunch ] ; then
-echo "Installing crunch"
-cd /pentest/passwords && wget http://dl.packetstormsecurity.net/Crack/crunch.cpp
-gcc -o crunch crunch.cpp -lstdc++ && rm -rf crunch.cpp
-fi
-
-echo "enabling default ssl site for portal if needed"
-service='https'
-if sudo lsof -i :443 | grep $service > /dev/null
-then
-echo "$service is there, skipping this step"
-else
-echo "$service is not there, enabling default SSL configuration"
-sudo a2enmod ssl
-sudo a2ensite ssl
-sudo a2enmod rewrite
-sudo service apache2 force-reload
-fi
-echo "Updating locate database"
-sudo updatedb
-#if [ ! -d /opt/xplico ] ; then
-#echo "Installing Xplico"
-#sudo bash -c 'echo "deb http://repo.xplico.org/ $(lsb_release -s -c) main" >> /etc/apt/sources.list'
-#sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 791C25CE
-#sudo apt-get update
-#sudo apt-get install xplico
-#sudo service apache2 restart
-#echo "Xplico by default is now running on 9876 - http://localhost:9876"
-#fi
-#if [ ! -f /usr/bin/waveplay ] ; then
-#echo "Installing waveplay"
-#cd /pentest/temp && wget ftp://ftp.eenet.ee/pub/FreeBSD/distfiles/waveplay-20010924.tar.gz
-#tar zxvf waveplay-20010924.tar.gz && cd waveplay-20010924
-#make && sudo mv waveplay /usr/bin/
-#sudo rm -rf /pentest/temp/waveplay*
+#echo "enabling default ssl site for portal if needed"
+#service='https'
+#if sudo lsof -i :443 | grep $service > /dev/null
+#then
+#echo "$service is there, skipping this step"
+#else
+#echo "$service is not there, enabling default SSL configuration"
+#sudo a2enmod ssl
+#sudo a2ensite ssl
+#sudo a2enmod rewrite
+#sudo service apache2 force-reload
 #fi
