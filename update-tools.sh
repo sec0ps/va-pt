@@ -40,8 +40,6 @@ echo "Updating SQL Map"
 cd /pentest/database/sqlmap && git pull
 echo "Updatign FuzzDB"
 cd /pentest/fuzzers/fuzzdb && svn up
-echo "Updating Monkeyfist"
-cd /pentest/enumeration/monkeyfist && svn up
 echo "Updating WSFuzzer"
 cd /pentest/fuzzers/wsfuzzer && svn up
 echo "Updating Captcha Breaker"
@@ -56,8 +54,8 @@ echo "Updating JBroFuzz"
 cd /pentest/fuzzers/jbrofuzz && svn up
 echo "Updating PHP Shell"
 cd /pentest/web/phpshell && svn up
-#echo "Updating DNS Enum"
-#cd /pentest/enumeration/dnsenum && svn up
+echo "Updating DNS Enum"
+cd /pentest/enumeration/dnsenum && git pull 
 echo "Updating Pyrit"
 cd /pentest/passwords/pyrit && svn up
 echo "Updating Middler"
