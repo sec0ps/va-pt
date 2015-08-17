@@ -2,7 +2,7 @@
 echo "Beginning subverion package installation"
 if [ ! -d /pentest/wireless/giskismet ] ; then
 echo "Installing gisKismet"
-cd /pentest/wireless && svn co https://my-svn.assembla.com/svn/giskismet/trunk giskismet
+cd /pentest/wireless && git clone git://git.kali.org/packages/giskismet.git 
 cd /pentest/wireless/giskismet && sudo cpanm --installdeps .
 perl Makefile.PL && make
 fi
