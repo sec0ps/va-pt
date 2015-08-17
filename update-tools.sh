@@ -1,6 +1,4 @@
 echo "Beginning package updates"
-echo "Updating gisKismet"
-cd /pentest/wireless/giskismet && svn up
 echo "Updating SET"
 cd /pentest/exploits/set && git pull
 echo "Updating Metasploit"
