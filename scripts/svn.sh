@@ -61,7 +61,7 @@ cd /pentest/web/waffit && chmod 700 wafw00f.py
 fi
 if [ ! -d /pentest/fuzzers/sulley ] ; then
 echo "Installing Sulley"
-cd /pentest/fuzzers && svn checkout http://sulley.googlecode.com/svn/trunk/ sulley
+cd /pentest/fuzzers && git clone https://github.com/OpenRCE/sulley.git 
 fi
 if [ ! -d /pentest/web/nikto ] ; then
 echo "Installing Nikto"
