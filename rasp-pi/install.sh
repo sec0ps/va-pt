@@ -13,6 +13,7 @@ fi
 [ ! -d /pentest/wireless ] && mkdir /pentest/wireless
 [ ! -d /pentest/exploits ] && mkdir /pentest/exploits
 [ ! -d /pentest/exploits/exploitdb ] && mkdir /pentest/exploits/exploitdb
+[ ! -d /pentest/exploits/powershell ] && mkdir /pentest/exploits/powershell
 [ ! -d /pentest/web ] && mkdir /pentest/web
 [ ! -d /pentest/scanners ] && mkdir /pentest/scanners
 [ ! -d /pentest/misc ] && mkdir /pentest/misc
@@ -22,16 +23,16 @@ fi
 [ ! -d /pentest/passwords ] && mkdir /pentest/passwords
 [ ! -d /pentest/fuzzers ] && mkdir /pentest/fuzzers
 [ ! -d /pentest/cisco ] && mkdir /pentest/cisco
+[ ! -d /pentest/audit ] && mkdir /pentest/audit
+#
+cd /pentest/misc && git clone https://github.com/sec0ps/va-pt.git
 #creating the wireless management interface - recommended the usb wireless adapater be in before running the installer
 sudo mv interfaces /etc/network/ && sleep 2
 sudo ifdown wlan0 && sudo ifup wlan0
 sleep 2
 #
-if [ ! -d /pentest/misc/va-pt ] ; then
-cd /pentest/misc && svn checkout http://va-pt.googlecode.com/svn/trunk/ va-pt
 #allowing ssh tunneling
 sudo cp sshd_config /etc/ssh/ && sudo service ssh restart
-fi
 
 clear
 selection=
