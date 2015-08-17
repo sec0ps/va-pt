@@ -326,6 +326,13 @@ if [ ! -d /pentest/web/monkeyfist ] ; then
 echo "Installing Monkeyfist"
 cd /pentest/web && svn co http://monkeyfist.googlecode.com/svn/trunk/ monkeyfist
 fi
+if [ ! -d /pentest/exploits/powershell ] ; then
+cd /pentest/exploits/powershell
+echo "Installing PowerTools"
+git clone https://github.com/PowerShellEmpire/PowerTools.git
+echo "Installing PowerSploit"
+git clone https://github.com/mattifestation/PowerSploit.git
+fi
 #if [ ! -d /var/www/html/portal ] ; then
 #echo "Installing the VA-PT Portal"
 #cd /var/www/ && sudo svn checkout https://va-pt.googlecode.com/svn/trunk/portal portal
