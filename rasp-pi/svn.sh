@@ -225,6 +225,13 @@ cp modules/auxiliary/voip/viproy* /pentest/exploits/framework3/modules/auxiliary
 cp modules/auxiliary/spoof/cisco/viproy_cdp.rb /pentest/exploits/framework3/modules/auxiliary/spoof/cisco/
 echo "You can execute msfconsole now. Viproy modules placed under auxiliary/voip/viproy*"
 fi
+if [ ! -d /pentest/exploits/powershell ] ; then
+cd /pentest/exploits/powershell
+echo "Installing PowerTools"
+git clone https://github.com/PowerShellEmpire/PowerTools.git
+echo "Installing PowerSploit"
+git clone https://github.com/mattifestation/PowerSploit.git
+fi
 #
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
