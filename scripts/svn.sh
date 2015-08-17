@@ -135,10 +135,6 @@ if [ ! -d /pentest/fuzzers/fuzzdb ] ; then
 echo "Installing FuzzDB"
 cd /pentest/fuzzers && svn checkout http://fuzzdb.googlecode.com/svn/trunk/ fuzzdb
 fi
-if [ ! -d /pentest/enumeration/monkeyfist ] ; then
-echo "Installing MonkeyFist"
-cd /pentest/enumeration && svn checkout http://monkeyfist.googlecode.com/svn/trunk/ monkeyfist
-fi
 if [ ! -d /pentest/fuzzers/jbrofuzz ] ; then
 echo "Installing JBroFuzz"
 cd /pentest/fuzzers && svn co https://svn.code.sf.net/p/jbrofuzz/code/ jbrofuzz
@@ -325,6 +321,10 @@ if [ ! -d /pentest/web/arachni ] ; then
 echo "Installing Arachni Web Scanner"
 cd /pentest/web && git clone https://github.com/Arachni/arachni.git
 cd arachni && bundle install
+fi
+if [ ! -d /pentest/web/monkeyfist ] ; then
+echo "Installing Monkeyfist"
+cd /pentest/web && svn co http://monkeyfist.googlecode.com/svn/trunk/ monkeyfist
 fi
 #if [ ! -d /var/www/html/portal ] ; then
 #echo "Installing the VA-PT Portal"
