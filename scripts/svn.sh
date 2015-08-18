@@ -227,7 +227,7 @@ cd /pentest/web/ && svn checkout http://svn.code.sf.net/p/watobo/code/ watobo
 fi
 if [ ! -d /pentest/enumeration/netsniff-ng ] ; then
 echo "Installing Netsniff-ng"
-cd /pentest/misc && git clone git://github.com/borkmann/netsniff-ng.git
+cd /pentest/enumeration && git clone git://github.com/borkmann/netsniff-ng.git
 fi
 if [ ! -d /pentest/voip/sipvicious ] ; then
 echo "Installing SIPVicious"
@@ -313,7 +313,7 @@ cd /pentest/temp && wget https://dl.packetstormsecurity.net/UNIX/penetration/roo
 bunzip2 aesshell-0.7.tar.bz2 && tar xvf aesshell-0.7.tar
 rm -rf aesshell-0.7.tar && mv aesshell/ /pentest/exploits
 fi
-if [ ! -d /pentest/cisco/cisco-SNMP-enum ] ; then
+if [ ! -d /pentest/cisco/cisco-SNMP-enumeration ] ; then
 echo "Installing Cisco SNMP Enum"
 cd /pentest/cisco && git clone  https://github.com/nccgroup/cisco-SNMP-enumeration.git
 fi
