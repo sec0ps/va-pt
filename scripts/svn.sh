@@ -333,14 +333,10 @@ git clone https://github.com/PowerShellEmpire/PowerTools.git
 echo "Installing PowerSploit"
 git clone https://github.com/mattifestation/PowerSploit.git
 fi
-#if [ ! -d /var/www/html/portal ] ; then
-#echo "Installing the VA-PT Portal"
-#cd /var/www/ && sudo svn checkout https://va-pt.googlecode.com/svn/trunk/portal portal
-#echo Creating necessary database and structure, enter the root mysql password
-#mysqladmin create application -u root -p && mysql -u root -p -e "grant all privileges on application.* to 'vapt'@'localhost';"
-#echo "adding default user account - vapt/vapt"
-#echo "The VA-PT Portal is now available at http://localhost/portal"
-#fi
+if [ ! -d /pentest/enumeration/recon-ng ] ; then
+echo "Installing Recon-NG"
+cd /pentest/enumeration/ && git clone https://bitbucket.org/LaNMaSteR53/recon-ng.git
+fi
 echo "Installing local tools"
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
