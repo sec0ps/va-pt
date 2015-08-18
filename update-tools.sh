@@ -91,8 +91,8 @@ cd /pentest/wireless/weape && git pull
 echo "Updating smbexec"
 cd /pentest/exploits/smbexec && git pull
 bundle install
-echo "Updating John the Ripper"
-cd /pentest/passwords/john && git pull
+#echo "Updating John the Ripper"
+#cd /pentest/passwords/john && git pull
 echo "Updating Spiderfoot"
 cd /pentest/enumeration/spiderfoot && git pull
 echo "Updating THC-Hydra"
