@@ -107,6 +107,8 @@ echo "Updating Veil PowerView"
 cd /pentest/exploits/Veil-PowerView && git pull
 echo "Updating PCredz"
 cd /pentest/passwords/PCredz && git pull
+echo "Updating Recon-NG"
+cd /pentest/enumeration/recon-ng/ && git pull
 echo "Updating the ExploitDB archive"
 cd /pentest/exploits/exploitdb && git pull
 #
@@ -118,7 +120,7 @@ echo "OpenVAS is not installed, skipping"
 fi
 if [ -f /opt/nessus/sbin/nessuscli ] ; then
 echo "Updating Nessus Plugins"
-sudo /opt/nessus/sbin/nessuscli update --all
+sudo /opt/nessus/sbin/nessuscli update --plugins-only
 else
 echo "Nessus is not installed, skipping"
 fi
