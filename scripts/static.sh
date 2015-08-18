@@ -400,4 +400,11 @@ echo "Installing crunch"
 cd /pentest/passwords && wget http://dl.packetstormsecurity.net/Crack/crunch.cpp
 gcc -o crunch crunch.cpp -lstdc++ && rm -rf crunch.cpp
 fi
+if [ ! -d /pentest/enumeration/medusa ] ; then
+echo "Installing Medusa"
+cd /pentest/temp && wget https://github.com/jmk-foofus/medusa/releases/download/2.2_rc2/medusa-2.2_rc2.tar.gz
+tar medusa-2.2_rc2.tar.gz && cd medusa-2.2_rc2/
+mv medusa-2.2_rc2/ /pentest/enumeration/medusa
+./configure && make
+fi
 echo "Static Code installation complete"
