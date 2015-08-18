@@ -233,14 +233,14 @@ rm -rf DirBuster-0.12.tar && mv DirBuster-0.12 /pentest/enumeration/dirbuster
 cd /pentest/enumeration/dirbuster
 echo "java -jar DirBuster-0.12.jar" >> start-dirbuster.sh && chmod 700 start-dirbuster.sh
 fi
-#if [ ! -d /pentest/passwords/john ] ; then
-#echo "Installing John the Ripper"
-#cd /pentest/temp && wget http://www.openwall.com/john/g/john-1.7.9-jumbo-7.tar.gz 
-#tar xvf john-1.7.9-jumbo-7.tar.gz && rm -rf john-1.7.9-jumbo-7.tar.gz
-#mv john-1.7.9-jumbo-7/ /pentest/passwords/john && cd /pentest/passwords/john/src
-#echo "Compiling for linux-x86-64, if this fails you will need to figure out which works on your system manually."
-#make linux-x86-64-native
-#fi
+if [ ! -d /pentest/passwords/john ] ; then
+echo "Installing John the Ripper Jumbo 1.8.0"
+cd /pentest/temp && wget http://www.openwall.com/john/j/john-1.8.0-jumbo-1.tar.gz 
+tar zxvf john-1.8.0-jumbo-1.tar.gz && rm -rf john-1.8.0-jumbo-1.tar.gz
+mv john-1.8.0-jumbo-1/ /pentest/passwords/john && cd /pentest/passwords/john/src
+./configure
+make clean && make -s
+fi
 if [ ! -d /pentest/passwords/cewl ] ; then
 echo "Installing Cewl"
 cd /pentest/temp && wget http://www.digininja.org/files/cewl_4.1.tar.bz2
