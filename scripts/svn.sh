@@ -243,12 +243,12 @@ if [ ! -d /pentest/wireless/weape ] ; then
 echo "Installing Wireless EAP Username Extractor"
 cd /pentest/wireless && git clone https://github.com/commonexploits/weape.git
 fi
-if [ ! -d /pentest/passwords/john ] ; then
-echo "Installing John the Ripper Jumbo Pack"
-cd /pentest/passwords && git clone https://github.com/magnumripper/JohnTheRipper.git john
-cd john/src && ./configure && make -s
-sudo make install
-fi
+#if [ ! -d /pentest/passwords/john ] ; then
+#echo "Installing John the Ripper Jumbo Pack"
+#cd /pentest/passwords && git clone https://github.com/magnumripper/JohnTheRipper.git john
+#cd john/src && ./configure && make -s
+#sudo make install
+#fi
 if [ ! -d /pentest/enumeration/hydra ] ; then
 echo "Installing THC-Hydra"
 cd /pentest/enumeration/ && git clone https://github.com/vanhauser-thc/thc-hydra.git hydra
