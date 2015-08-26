@@ -337,6 +337,13 @@ if [ ! -d /pentest/enumeration/recon-ng ] ; then
 echo "Installing Recon-NG"
 cd /pentest/enumeration/ && git clone https://bitbucket.org/LaNMaSteR53/recon-ng.git
 fi
+if [ ! -d /pentest/scanners/arp-scan ] ; then
+echo "Installing arp-scan"
+git clone https://github.com/royhills/arp-scan.git
+cd arp-scan && autoreconf --install
+./configure && make
+sudo make install
+fi
 echo "Installing local tools"
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
