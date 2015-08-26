@@ -232,6 +232,13 @@ git clone https://github.com/PowerShellEmpire/PowerTools.git
 echo "Installing PowerSploit"
 git clone https://github.com/mattifestation/PowerSploit.git
 fi
+if [ ! -d /pentest/scanners/arp-scan ] ; then
+echo "Installing arp-scan"
+git clone https://github.com/royhills/arp-scan.git
+cd arp-scan && autoreconf --install
+./configure && make
+sudo make install
+fi
 #
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
