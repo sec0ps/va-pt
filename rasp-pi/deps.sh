@@ -15,7 +15,7 @@ sudo apt-get install -y libnetfilter-conntrack-dev libncurses-dev liburcu-dev li
 sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk swig cmake libtalloc-dev libtevent-dev libpopt-dev
 sudo apt-get install -y libbsd-dev unixodbc unixodbc-dev freetds-dev sqsh tdsodbc autofs remmina remmina-plugin-rdp remmina-plugin-vnc
 sudo apt-get install -y squid python-libpcap ntpdate screen samba-common-bin upx whois mingw32 libreadline-gplv2-dev gcc-mingw-w64-x86-64
-sudo apt-get install -y gcc-mingw-w64-i686 libsqlite3-dev tftp tftpd libfreerdp-dev libssh2-1-dev arp-scan
+sudo apt-get install -y gcc-mingw-w64-i686 libsqlite3-dev tftp tftpd libfreerdp-dev libssh2-1-dev
 
 #stopping and disabling services
 sudo service apache2 stop && sudo service mysql stop
