@@ -168,20 +168,20 @@ if [ ! -d /pentest/exploits/pth-toolkit ] ; then
 echo "Installing the PTH Toolkit"
 cd /pentest/exploits && git clone https://github.com/byt3bl33d3r/pth-toolkit.git
 fi
-if [ ! -d /pentest/exploits/Veil-Catapult ] ; then
-echo "Installing Veil Catapult"
-cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Catapult.git 
-sudo /pentest/exploits/Veil-Catapult/setup.sh
-fi
-if [ ! -d /pentest/exploits/Veil-Evasion ] ; then
-echo "Installing Veil Evasion"
-cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Evasion.git 
-sudo /pentest/exploits/Veil-Evasion/setup/setup.sh
-fi
-if [ ! -d /pentest/exploits/Veil-PowerView ] ; then
-echo "Installing Veil PowerView"
-cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-PowerView.git
-fi
+#if [ ! -d /pentest/exploits/Veil-Catapult ] ; then
+#echo "Installing Veil Catapult"
+#cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Catapult.git 
+#sudo /pentest/exploits/Veil-Catapult/setup.sh
+#fi
+#if [ ! -d /pentest/exploits/Veil-Evasion ] ; then
+#echo "Installing Veil Evasion"
+#cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Evasion.git 
+#sudo /pentest/exploits/Veil-Evasion/setup/setup.sh
+#fi
+#if [ ! -d /pentest/exploits/Veil-PowerView ] ; then
+#echo "Installing Veil PowerView"
+#cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-PowerView.git
+#fi
 if [ ! -d /pentest/passwords/PCredz ] ; then
 echo "Installing PCredz"
 cd /pentest/passwords && git clone https://github.com/lgandx/PCredz.git
