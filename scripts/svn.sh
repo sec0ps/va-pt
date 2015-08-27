@@ -339,7 +339,7 @@ cd /pentest/enumeration/ && git clone https://bitbucket.org/LaNMaSteR53/recon-ng
 fi
 if [ ! -d /pentest/scanners/arp-scan ] ; then
 echo "Installing arp-scan"
-git clone https://github.com/royhills/arp-scan.git
+cd /pentest/scanners/ && git clone https://github.com/royhills/arp-scan.git
 cd arp-scan && autoreconf --install
 ./configure && make
 sudo make install
