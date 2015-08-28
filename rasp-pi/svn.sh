@@ -6,17 +6,11 @@ cd proxmark3-r651 && make client
 fi
 #
 if [ ! -d /pentest/scanners/nmap ] ; then
-echo "Installing and compiling nmap"
+echo "Installing nmap and ncrack"
 cd /pentest/scanners && svn co https://svn.nmap.org/nmap nmap
 cd /pentest/scanners/nmap && ./configure --without-zenmap --without-ncat
 make && sudo make install
 cd ncat/ && ./configure
-make && sudo make install
-fi
-if [ ! -d /pentest/scanners/ncrack ] ; then
-echo "Installing and compiling ncrack"
-cd /pentest/scanners && svn co https://svn.nmap.org/ncrack ncrack
-cd /pentest/scanners/ncrack && ./configure
 make && sudo make install
 fi
 if [ ! -d /pentest/exploits/framework3 ] ; then
