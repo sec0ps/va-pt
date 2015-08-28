@@ -196,7 +196,9 @@ fi
 if [ ! -d /pentest/scanners/nmap ] ; then
 echo "Installing and compiling nmap"
 cd /pentest/scanners && svn co https://svn.nmap.org/nmap nmap
-cd /pentest/scanners/nmap && ./configure
+cd /pentest/scanners/nmap && ./configure --without-zenmap --without-ncat
+make && sudo make install
+cd ncat/ && ./configure
 make && sudo make install
 fi
 if [ ! -d /pentest/scanners/ncrack ] ; then
