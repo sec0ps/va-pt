@@ -205,10 +205,6 @@ if [ ! -d /pentest/passwords/ntlmsspparse ] ; then
 echo "Installing NTLMS Parse"
 cd /pentest/passwords && git clone https://github.com/psychomario/ntlmsspparse.git
 fi
-if [ ! -d /pentest/enumeration/ptscripts ] ; then
-echo "Installing recon-ng"
-cd /pentest/enumeration && svn checkout http://ptscripts.googlecode.com/svn/trunk/ ptscripts
-fi
 if [ ! -d /pentest/exploits/Responder ] ; then
 echo "Installing Spiderlabs Resonder"
 cd /pentest/exploits/ && git clone https://github.com/SpiderLabs/Responder.git
@@ -293,7 +289,7 @@ if [ ! -d /pentest/exploits/smbexec ] ; then
 echo "Installing smbexec"
 cd /pentest/temp && git clone https://github.com/pentestgeek/smbexec.git
 cd smbexec && sudo ./install.sh
-bundle install
+ln -s /opt/smbexec/ /pentest/exploits/smbexec && bundle install
 fi
 if [ ! -d /pentest/passwords/gpp-decrypt ] ; then
 echo "Installing gpp-dercypt"
@@ -322,10 +318,9 @@ if [ ! -d /pentest/web/monkeyfist ] ; then
 echo "Installing Monkeyfist"
 cd /pentest/web && svn co http://monkeyfist.googlecode.com/svn/trunk/ monkeyfist
 fi
-if [ ! -d /pentest/exploits/powershell ] ; then
-cd /pentest/exploits/powershell
+if [ ! -d /pentest/exploits/powershell/PowerTools ] ; then
 echo "Installing PowerTools"
-git clone https://github.com/PowerShellEmpire/PowerTools.git
+cd /pentest/exploits/powershell && git clone https://github.com/PowerShellEmpire/PowerTools.git
 echo "Installing PowerSploit"
 git clone https://github.com/mattifestation/PowerSploit.git
 fi
