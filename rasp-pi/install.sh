@@ -27,7 +27,7 @@ fi
 #
 cd /pentest/misc && git clone https://github.com/sec0ps/va-pt.git
 #creating the wireless management interface - recommended the usb wireless adapater be in before running the installer
-sudo mv interfaces /etc/network/ && sleep 2
+sudo mv interfaces /etc/network/
 sudo ifdown wlan0 && sudo ifup wlan0
 sleep 2
 #
