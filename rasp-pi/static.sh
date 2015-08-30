@@ -81,12 +81,6 @@ cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/svn-ext
 unzip svn-extractor-master.zip && mv svn-extractor-master/ /pentest/web/svn-extractor
 rm -rf svn-extractor-master*
 fi
-#if [ ! -d /pentest/wireless/fruitywifi ] ; then
-#cd /pentest/temp && wget https://github.com/xtr4nge/FruityWifi/archive/master.zip --no-check-certificate
-#unzip master.zip  && rm -rf unzip master.zip
-#mv FruityWifi-master/ /pentest/wireless/fruitywifi && cd /pentest/wireless/fruitywifi
-#sudo ./install-FruityWifi.sh
-#fi
 if [ ! -d /pentest/wireless/hostapd-2.2 ] ; then
 echo "Installing Hostapd-WPE"
 git clone https://github.com/OpenSecurityResearch/hostapd-wpe && wget http://hostap.epitest.fi/releases/hostapd-2.2.tar.gz
