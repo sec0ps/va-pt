@@ -5,6 +5,12 @@ cd /pentest/misc && svn co http://proxmark3.googlecode.com/svn/trunk@r651 proxma
 cd proxmark3-r651 && make client
 fi
 #
+if [ ! -f /usr/local/bin/smbclient.py ] ; then
+echo "Installing Impacket"
+cd /pentest/temp && svn checkout http://impacket.googlecode.com/svn/trunk/ impacket
+cd impacket && sudo python setup.py install
+cd /pentest/temp && sudo rm -rf impacket
+fi
 if [ ! -d /pentest/scanners/nmap ] ; then
 echo "Installing nmap and ncrack"
 cd /pentest/scanners && svn co https://svn.nmap.org/nmap nmap
@@ -27,8 +33,6 @@ fi
 if [ ! -d /pentest/web/w3af ] ; then
 echo "Installing w3af"
 cd /pentest/web && git clone https://github.com/andresriancho/w3af.git w3af 
-sudo pip install PyGithub GitPython pybloomfiltermmap esmre pdfminer futures guess-language cluster msgpack-python python-ntlm clamd xdot
-sudo pip install -e git+git://github.com/ramen/phply.git#egg=phply
 fi
 if [ ! -d /pentest/web/nikto ] ; then
 echo "Installing Nikto"
@@ -62,21 +66,11 @@ fi
 if [ ! -d /pentest/web/wpscan ] ; then
 echo "Installing Wordpress Scanner"
 cd /pentest/web && git clone https://github.com/wpscanteam/wpscan.git
-sudo bundle install --without test development
-fi
-if [ ! -f /usr/local/bin/smbclient.py ] ; then
-echo "Installing Impacket"
-cd /pentest/temp && svn checkout http://impacket.googlecode.com/svn/trunk/ impacket
-cd impacket && sudo python setup.py install
-cd /pentest/temp && sudo rm -rf impacket
+bundle install --without test development
 fi
 if [ ! -d /pentest/passwords/ntlmsspparse ] ; then
 echo "Installing NTLMS Parse"
 cd /pentest/passwords && git clone https://github.com/psychomario/ntlmsspparse.git
-fi
-if [ ! -d /pentest/enumeration/ptscripts ] ; then
-echo "Installing recon-ng"
-cd /pentest/enumeration && svn checkout http://ptscripts.googlecode.com/svn/trunk/ ptscripts
 fi
 if [ ! -d /pentest/exploits/Responder ] ; then
 echo "Installing Spiderlabs Resonder"
@@ -159,35 +153,15 @@ if [ ! -d /pentest/exploits/smbexec ] ; then
 echo "Installing smbexec"
 cd /pentest/temp && git clone https://github.com/pentestgeek/smbexec.git
 cd smbexec && sudo ./install.sh
-bundle install
+ln -s /opt/smbexec/ /pentest/exploits/smbexec && bundle install
 fi
 if [ ! -d /pentest/exploits/pth-toolkit ] ; then
 echo "Installing the PTH Toolkit"
 cd /pentest/exploits && git clone https://github.com/byt3bl33d3r/pth-toolkit.git
 fi
-#if [ ! -d /pentest/exploits/Veil-Catapult ] ; then
-#echo "Installing Veil Catapult"
-#cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Catapult.git 
-#sudo /pentest/exploits/Veil-Catapult/setup.sh
-#fi
-#if [ ! -d /pentest/exploits/Veil-Evasion ] ; then
-#echo "Installing Veil Evasion"
-#cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Evasion.git 
-#sudo /pentest/exploits/Veil-Evasion/setup/setup.sh
-#fi
-#if [ ! -d /pentest/exploits/Veil-PowerView ] ; then
-#echo "Installing Veil PowerView"
-#cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-PowerView.git
-#fi
 if [ ! -d /pentest/passwords/PCredz ] ; then
 echo "Installing PCredz"
 cd /pentest/passwords && git clone https://github.com/lgandx/PCredz.git
-fi
-if [ ! -d /pentest/enumeration/hydra ] ; then
-echo "Installing THC-Hydra"
-cd /pentest/enumeration/ && git clone https://github.com/vanhauser-thc/thc-hydra.git hydra
-cd hydra && ./configure
-make && sudo make install
 fi
 if [ ! -d /pentest/exploits/pth-toolkit ] ; then
 echo "Installing the PTH Toolkit"
@@ -222,10 +196,9 @@ cp modules/auxiliary/voip/viproy* /pentest/exploits/framework3/modules/auxiliary
 cp modules/auxiliary/spoof/cisco/viproy_cdp.rb /pentest/exploits/framework3/modules/auxiliary/spoof/cisco/
 echo "You can execute msfconsole now. Viproy modules placed under auxiliary/voip/viproy*"
 fi
-if [ ! -d /pentest/exploits/powershell ] ; then
-cd /pentest/exploits/powershell
+if [ ! -d /pentest/exploits/powershell/PowerTools ] ; then
 echo "Installing PowerTools"
-git clone https://github.com/PowerShellEmpire/PowerTools.git
+cd /pentest/exploits/powershell && git clone https://github.com/PowerShellEmpire/PowerTools.git
 echo "Installing PowerSploit"
 git clone https://github.com/mattifestation/PowerSploit.git
 fi
