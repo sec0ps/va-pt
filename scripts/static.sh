@@ -43,9 +43,9 @@ if [ ! -f /pentest/wireless/eapmd5crack.py ] ; then
 echo "Installing EAP MD5 Crack"
 cd /pentest/wireless && wget http://ptscripts.googlecode.com/svn/trunk/eapmd5crack.py
 fi
-if [ ! -d /pentest/wireless/hostapd-2.2 ] ; then
+if [ ! -d /pentest/wireless/hostapd ] ; then
 echo "Installing Hostapd-WPE"
-cd /pentest/wireless
+mkdir /pentest/wireless/hostapd && cd /pentest/wireless/hostapd
 git clone https://github.com/OpenSecurityResearch/hostapd-wpe && wget http://hostap.epitest.fi/releases/hostapd-2.2.tar.gz
 tar -zxf hostapd-2.2.tar.gz && rm -rf hostapd-2.2.tar.gz
 cd hostapd-2.2 && patch -p1 < ../hostapd-wpe/hostapd-wpe.patch 
@@ -115,7 +115,7 @@ echo "Installing THC IPv6"
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/thc-ipv6-2.7.tar.gz --no-check-certificate
 tar zxvf thc-ipv6-2.7.tar.gz && rm -rf thc-ipv6-2.7.tar.gz
 mv thc-ipv6-2.7 /pentest/enumeration/thc-ipv6 && cd /pentest/enumeration/thc-ipv6
-make all
+make all && sudo make install
 fi
 if [ ! -d /pentest/voip/voiphopper ] ; then
 echo "Installing VOIP Hopper"
@@ -354,8 +354,7 @@ fi
 if [ ! -d /pentest/database/bsqlbf/ ] ; then
 echo "Installing Blind SQL Brute Forcer"
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/bsqlbf-v2.1.zip --no-check-certificate
-unzip bsqlbf-v2.1.zip && bsqlbf-v2.1.zip
-mv bsqlbf-v2.1/ /pentest/database/bsqlbf
+unzip bsqlbf-v2.1.zip && mv bsqlbf-v2.1/ /pentest/database/bsqlbf
 fi
 if [ ! -f /pentest/exploits/windows-tools/wce.exe ] ; then
 echo "Installing Windows Credential Editor"
@@ -403,7 +402,7 @@ fi
 if [ ! -d /pentest/enumeration/medusa ] ; then
 echo "Installing Medusa"
 cd /pentest/temp && wget https://github.com/jmk-foofus/medusa/releases/download/2.2_rc2/medusa-2.2_rc2.tar.gz
-tar xvf medusa-2.2_rc2.tar.gz && mv medusa-2.2_rc2/ /pentest/enumeration/medusa
+tar zxvf medusa-2.2_rc2.tar.gz && mv medusa-2.2_rc2/ /pentest/enumeration/medusa
 cd /pentest/enumeration/medusa && ./configure && make
 fi
 echo "Static Code installation complete"
