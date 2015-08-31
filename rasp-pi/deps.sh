@@ -21,7 +21,7 @@ sudo apt-get install -y tftp tftpd libfreerdp-dev libssh2-1-dev mingw32-runtime 
 sudo service apache2 stop && sudo service mysql stop
 sudo service ntp stop && sudo service avahi-daemon stop
 sudo service samba stop && sudo service tighvnc stop
-sudo service dnsmasq stop
+sudo service dnsmasq stop && sudo service squid stop
 sudo update-rc.d -f apache2 remove
 sudo update-rc.d -f mysql remove
 sudo update-rc.d -f ntp remove
@@ -29,6 +29,7 @@ sudo update-rc.d -f avahi-daemon remove
 sudo update-rc.d -f samba remove
 sudo update-rc.d -f tightvnc remove
 sudo update-rc.d -f dnsmasq remove
+sudo update-rc.d -f squid remove
 
 ruby -v | grep "2.1.5"
 if [ $? -eq 1 ] ; then
