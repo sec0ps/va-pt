@@ -13,7 +13,7 @@ chmod 700 snmpenum.pl
 fi
 if [ ! -d /pentest/web/xsser ] ; then
 echo "Installing XSSer"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/xsser_1.5-1.tar.gz
+cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/xsser_1.5-1.tar.gz --no-check-certificate
 tar zxvf xsser_1.5-1.tar.gz && rm -rf xsser_1.5-1.tar.gz
 mv xsser-public/ /pentest/web/xsser && cd /pentest/web/xsser
 sudo python setup.py install
@@ -60,15 +60,14 @@ fi
 if [ ! -d /pentest/database/bsqlbf/ ] ; then
 echo "Installing Blind SQL Brute Forcer"
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/bsqlbf-v2.1.zip --no-check-certificate
-unzip bsqlbf-v2.1.zip && bsqlbf-v2.1.zip
-mv bsqlbf-v2.1/ /pentest/database/bsqlbf
+unzip bsqlbf-v2.1.zip && mv bsqlbf-v2.1/ /pentest/database/bsqlbf
 fi
 if [ ! -d /pentest/enumeration/thc-ipv6 ] ; then
 echo "Installing THC IPv6"
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/thc-ipv6-2.7.tar.gz --no-check-certificate
 tar zxvf thc-ipv6-2.7.tar.gz && rm -rf thc-ipv6-2.7.tar.gz
 mv thc-ipv6-2.7 /pentest/enumeration/thc-ipv6 && cd /pentest/enumeration/thc-ipv6
-make all
+make all && sudo make install
 fi
 if [ ! -d /pentest/database/tnspoison ] ; then
 echo "Installing TNS Poison"
@@ -81,8 +80,9 @@ cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/svn-ext
 unzip svn-extractor-master.zip && mv svn-extractor-master/ /pentest/web/svn-extractor
 rm -rf svn-extractor-master*
 fi
-if [ ! -d /pentest/wireless/hostapd-2.2 ] ; then
+if [ ! -d /pentest/wireless/hostapd ] ; then
 echo "Installing Hostapd-WPE"
+mkdir /pentest/wireless/hostapd && cd /pentest/wireless/hostapd
 git clone https://github.com/OpenSecurityResearch/hostapd-wpe && wget http://hostap.epitest.fi/releases/hostapd-2.2.tar.gz
 tar -zxf hostapd-2.2.tar.gz && rm -rf hostapd-2.2.tar.gz
 cd hostapd-2.2 && patch -p1 < ../hostapd-wpe/hostapd-wpe.patch 
@@ -98,7 +98,6 @@ fi
 if [ ! -d /pentest/enumeration/medusa ] ; then
 echo "Installing Medusa"
 cd /pentest/temp && wget https://github.com/jmk-foofus/medusa/releases/download/2.2_rc2/medusa-2.2_rc2.tar.gz
-tar medusa-2.2_rc2.tar.gz && cd medusa-2.2_rc2/
-mv medusa-2.2_rc2/ /pentest/enumeration/medusa
-./configure && make
+tar zxvf medusa-2.2_rc2.tar.gz && mv medusa-2.2_rc2/ /pentest/enumeration/medusa
+cd /pentest/enumeration/medusa && ./configure --enable-module-rdp=no && make
 fi
