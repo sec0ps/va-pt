@@ -12,7 +12,6 @@ fi
 [ ! -d /pentest/temp ] && mkdir /pentest/temp
 [ ! -d /pentest/wireless ] && mkdir /pentest/wireless
 [ ! -d /pentest/exploits ] && mkdir /pentest/exploits
-[ ! -d /pentest/exploits/exploitdb ] && mkdir /pentest/exploits/exploitdb
 [ ! -d /pentest/exploits/powershell ] && mkdir /pentest/exploits/powershell
 [ ! -d /pentest/web ] && mkdir /pentest/web
 [ ! -d /pentest/scanners ] && mkdir /pentest/scanners
@@ -23,7 +22,6 @@ fi
 [ ! -d /pentest/passwords ] && mkdir /pentest/passwords
 [ ! -d /pentest/fuzzers ] && mkdir /pentest/fuzzers
 [ ! -d /pentest/cisco ] && mkdir /pentest/cisco
-[ ! -d /pentest/audit ] && mkdir /pentest/audit
 #
 cd /pentest/misc && git clone https://github.com/sec0ps/va-pt.git
 #creating the wireless management interface - recommended the usb wireless adapater be in before running the installer
