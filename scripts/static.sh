@@ -43,7 +43,7 @@ if [ ! -f /pentest/wireless/eapmd5crack.py ] ; then
 echo "Installing EAP MD5 Crack"
 cd /pentest/wireless && wget http://ptscripts.googlecode.com/svn/trunk/eapmd5crack.py
 fi
-if [ ! -d /pentest/wireless/hostapd ] ; then
+if [ ! -d /pentest/wireless/hostapd-2.2 ] ; then
 echo "Installing Hostapd-WPE"
 mkdir /pentest/wireless/hostapd && cd /pentest/wireless/hostapd
 git clone https://github.com/OpenSecurityResearch/hostapd-wpe && wget http://hostap.epitest.fi/releases/hostapd-2.2.tar.gz
