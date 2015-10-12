@@ -15,7 +15,7 @@ cd /pentest/fuzzers/sulley && git pull
 echo "Updating Nikto"
 cd /pentest/web/nikto && svn up
 echo "Updating The Harvester"
-cd /pentest/enumeration/theharvester && svn up
+cd /pentest/enumeration/theHarvester && git pull
 echo "updating htshells"
 cd /pentest/web/htshells && git pull
 echo "Updating SSLyze"
