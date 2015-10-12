@@ -111,6 +111,8 @@ echo "Updating Recon-NG"
 cd /pentest/enumeration/recon-ng/ && git pull
 echo "Updating the ExploitDB archive"
 cd /pentest/exploits/exploitdb && git pull
+echo "Updating Passive Aggresive"
+cd /pentest/enumeration/pasv-agrsv && git pull
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
