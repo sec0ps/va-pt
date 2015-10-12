@@ -80,7 +80,7 @@ cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/svn-ext
 unzip svn-extractor-master.zip && mv svn-extractor-master/ /pentest/web/svn-extractor
 rm -rf svn-extractor-master*
 fi
-if [ ! -d /pentest/wireless/hostapd ] ; then
+if [ ! -d /pentest/wireless/hostapd-2.2 ] ; then
 echo "Installing Hostapd-WPE"
 mkdir /pentest/wireless/hostapd && cd /pentest/wireless/hostapd
 git clone https://github.com/OpenSecurityResearch/hostapd-wpe && wget http://hostap.epitest.fi/releases/hostapd-2.2.tar.gz
