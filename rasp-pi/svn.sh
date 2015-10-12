@@ -187,7 +187,7 @@ cd /pentest/cisco && git clone  https://github.com/nccgroup/cisco-SNMP-enumerati
 fi
 if [ ! -d /pentest/enumeration/theHarvester ] ; then
 echo "Installing the Harvester"
-cd /pentest/enumeration && https://github.com/laramies/theHarvester.git
+cd /pentest/enumeration && git clone https://github.com/laramies/theHarvester.git
 cd /pentest/enumeration/theHarvester && chmod 755 theHarvester.py
 fi
 if [ ! -d /pentest/enumeration/pasv-agrsv ] ; then
