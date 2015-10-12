@@ -72,10 +72,10 @@ echo "Instaling Joomla Scanner"
 cd /pentest/web/ && svn co http://svn.code.sf.net/p/joomscan/code/trunk joomscan
 cd /pentest/web/joomscan/ && chmod 755 joomscan.pl
 fi
-if [ ! -d /pentest/enumeration/theharvester ] ; then
+if [ ! -d /pentest/enumeration/theHarvester ] ; then
 echo "Installing the Harvester"
-cd /pentest/enumeration && svn checkout http://theharvester.googlecode.com/svn/trunk/ theharvester
-cd /pentest/enumeration/theharvester && chmod 755 theHarvester.py
+cd /pentest/enumeration && https://github.com/laramies/theHarvester.git 
+cd /pentest/enumeration/theHarvester && chmod 755 theHarvester.py
 fi
 if [ ! -d /pentest/web/sslyze ] ; then
 cd /pentest/web && git clone https://github.com/iSECPartners/sslyze.git
@@ -334,6 +334,10 @@ cd /pentest/scanners/ && git clone https://github.com/royhills/arp-scan.git
 cd arp-scan && autoreconf --install
 ./configure && make
 sudo make install
+fi
+if [ ! -d /pentest/enumeration/pasv-agrsv ] ; then
+echo "Installing Passive Aggresive OSINT TOol"
+cd /pentest/enumeration && git clone https://github.com/isaudits/pasv-agrsv.git
 fi
 echo "Installing local tools"
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
