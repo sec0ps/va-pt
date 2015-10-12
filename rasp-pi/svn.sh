@@ -185,6 +185,11 @@ if [ ! -d /pentest/cisco/cisco-SNMP-enumeration ] ; then
 echo "Installing Cisco SNMP Enum"
 cd /pentest/cisco && git clone  https://github.com/nccgroup/cisco-SNMP-enumeration.git
 fi
+if [ ! -d /pentest/enumeration/theHarvester ] ; then
+echo "Installing the Harvester"
+cd /pentest/enumeration && https://github.com/laramies/theHarvester.git
+cd /pentest/enumeration/theHarvester && chmod 755 theHarvester.py
+fi
 if [ ! -d /pentest/voip/viproy ] ; then
 echo "Installing Viproy"
 cd /pentest/voip/ && git clone https://github.com/fozavci/viproy-voipkit.git viproy
