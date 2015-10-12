@@ -190,6 +190,10 @@ echo "Installing the Harvester"
 cd /pentest/enumeration && https://github.com/laramies/theHarvester.git
 cd /pentest/enumeration/theHarvester && chmod 755 theHarvester.py
 fi
+if [ ! -d /pentest/enumeration/pasv-agrsv ] ; then
+echo "Installing Passive Aggresive OSINT TOol"
+cd /pentest/enumeration && git clone https://github.com/isaudits/pasv-agrsv.git
+fi
 if [ ! -d /pentest/voip/viproy ] ; then
 echo "Installing Viproy"
 cd /pentest/voip/ && git clone https://github.com/fozavci/viproy-voipkit.git viproy
