@@ -222,7 +222,7 @@ cd /pentest/audit/rips && wget http://sourceforge.net/projects/rips-scanner/file
 fi
 if [ ! -d /pentest/wireless/cowpatty ] ; then
 echo "Installing CowPatty"
-cd /pentest/temp && wget http://www.wirelessdefence.org/Contents/Files/cowpatty-4.6.tgz
+cd /pentest/temp && wget http://www.willhackforsushi.com/code/cowpatty/4.6/cowpatty-4.6.tgz 
 tar zxvf cowpatty-4.6.tgz && rm -rf cowpatty-4.6.tgz
 mv cowpatty-4.6/ /pentest/wireless/cowpatty && cd /pentest/wireless/cowpatty
 make && sudo make install
