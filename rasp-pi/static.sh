@@ -82,14 +82,12 @@ rm -rf svn-extractor-master*
 fi
 if [ ! -d /pentest/wireless/hostapd-2.2 ] ; then
 echo "Installing Hostapd-WPE"
-mkdir /pentest/wireless/hostapd && cd /pentest/wireless/hostapd
-git clone https://github.com/OpenSecurityResearch/hostapd-wpe && wget http://hostap.epitest.fi/releases/hostapd-2.2.tar.gz
+cd /pentest/wireless/ && git clone https://github.com/OpenSecurityResearch/hostapd-wpe
+wget http://hostap.epitest.fi/releases/hostapd-2.2.tar.gz
 tar -zxf hostapd-2.2.tar.gz && rm -rf hostapd-2.2.tar.gz
-cd hostapd-2.2 && patch -p1 < ../hostapd-wpe/hostapd-wpe.patch 
+cd hostapd-2.2 && patch -p1 < ../hostapd-wpe/hostapd-wpe.patch
 cd hostapd && make
 cd ../../hostapd-wpe/certs && ./bootstrap
-echo "Backgrounding the hostapd process to continue with the installer."
-cd ../../hostapd-2.2/hostapd && sudo ./hostapd-wpe hostapd-wpe.conf &
 fi
 if [ ! -f /pentest/enumeration/shodan.pl ] ; then
 cd /pentest/enumeration && wget http://dl.packetstormsecurity.net/UNIX/scanners/Shodan_Tool.zip --no-check-certificate
