@@ -403,5 +403,6 @@ echo "Installing Medusa"
 cd /pentest/temp && wget https://github.com/jmk-foofus/medusa/releases/download/2.2_rc2/medusa-2.2_rc2.tar.gz
 tar zxvf medusa-2.2_rc2.tar.gz && mv medusa-2.2_rc2/ /pentest/enumeration/medusa
 cd /pentest/enumeration/medusa && ./configure && make
+make install
 fi
 echo "Static Code installation complete"
