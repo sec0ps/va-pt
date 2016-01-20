@@ -46,7 +46,7 @@ cd /pentest/fuzzers/wfuzz && chmod 700 wfuzz.py
 fi
 if [ ! -d /pentest/web/fimap ] ; then
 echo "Installing fimap"
-cd /pentest/web && svn checkout http://fimap.googlecode.com/svn/trunk/ fimap
+cd /pentest/web && git clone https://github.com/Oweoqi/fimap.git
 fi
 if [ ! -d /pentest/web/w3af ] ; then
 echo "Installing w3af"
