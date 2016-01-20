@@ -38,6 +38,10 @@ if [ ! -d /pentest/web/nikto ] ; then
 echo "Installing Nikto"
 cd /pentest/web && svn co http://svn2.assembla.com/svn/Nikto_2/trunk nikto
 fi
+if [ ! -d /pentest/web/fimap ] ; then
+echo "Installing fimap"
+cd /pentest/web && git clone https://github.com/Oweoqi/fimap.git
+fi
 if [ ! -d /pentest/web/joomscan ] ; then
 echo "Instaling Joomla Scanner"
 cd /pentest/web/ && svn co http://svn.code.sf.net/p/joomscan/code/trunk joomscan
