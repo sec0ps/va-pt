@@ -113,6 +113,8 @@ echo "Updating the ExploitDB archive"
 cd /pentest/exploits/exploitdb && git pull
 echo "Updating Passive Aggresive"
 cd /pentest/enumeration/pasv-agrsv && git pull
+echo "Updating Medusa"
+cd /pentest/enumeration/medusa && git pull
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
