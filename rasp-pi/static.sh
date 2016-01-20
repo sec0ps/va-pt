@@ -93,10 +93,3 @@ if [ ! -f /pentest/enumeration/shodan.pl ] ; then
 cd /pentest/enumeration && wget http://dl.packetstormsecurity.net/UNIX/scanners/Shodan_Tool.zip --no-check-certificate
 unzip Shodan_Tool.zip && rm -rf Shodan_Tool.zip
 fi
-if [ ! -d /pentest/enumeration/medusa ] ; then
-echo "Installing Medusa"
-cd /pentest/temp && wget https://github.com/jmk-foofus/medusa/releases/download/2.2_rc2/medusa-2.2_rc2.tar.gz
-tar zxvf medusa-2.2_rc2.tar.gz && mv medusa-2.2_rc2/ /pentest/enumeration/medusa
-cd /pentest/enumeration/medusa && ./configure --enable-module-rdp=no && make
-make install
-fi
