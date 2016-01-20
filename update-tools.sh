@@ -35,7 +35,7 @@ cd /pentest/wireless/aircrack-ng && svn up
 #echo "Updating Airgraph-NG"
 #cd /pentest/wireless/airgraph-ng && svn up
 echo "Updating fimap"
-cd /pentest/web/fimap && svn up
+cd /pentest/web/fimap && git pull 
 echo "Updating SQL Map"
 cd /pentest/database/sqlmap && git pull
 echo "Updatign FuzzDB"
