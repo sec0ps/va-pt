@@ -335,6 +335,10 @@ cd arp-scan && autoreconf --install
 ./configure && make
 sudo make install
 fi
+if [ ! -d /pentest/enumeration/medusa ] ; then
+echo "Installing Medusa"
+cd /pentest/enumeration/ && git clone https://github.com/jmk-foofus/medusa.git
+fi
 if [ ! -d /pentest/enumeration/pasv-agrsv ] ; then
 echo "Installing Passive Aggresive OSINT TOol"
 cd /pentest/enumeration && git clone https://github.com/isaudits/pasv-agrsv.git
