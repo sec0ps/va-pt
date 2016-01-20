@@ -73,6 +73,8 @@ echo "Updating Viproxy"
 cd /pentest/voip/viproy && git pull
 echo "Updating Passive Aggresive"
 cd /pentest/enumeration/pasv-agrsv && git pull
+echo "Updating Medusa"
+cd /pentest/enumeration/medusa && git pull
 #
 /pentest/enumeration/thc-ipv6/thcping6 | grep "v2.3"
 if [ $? -eq 0 ] ; then
