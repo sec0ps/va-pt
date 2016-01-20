@@ -222,6 +222,10 @@ cd arp-scan && autoreconf --install
 ./configure && make
 sudo make install
 fi
+if [ ! -d /pentest/enumeration/medusa ] ; then
+echo "Installing Medusa"
+cd /pentest/enumeration/ && git clone https://github.com/jmk-foofus/medusa.git
+fi
 #
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
