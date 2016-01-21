@@ -225,6 +225,8 @@ fi
 if [ ! -d /pentest/enumeration/medusa ] ; then
 echo "Installing Medusa"
 cd /pentest/enumeration/ && git clone https://github.com/jmk-foofus/medusa.git
+cd medusa && ./configure
+make && make install
 fi
 #
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
