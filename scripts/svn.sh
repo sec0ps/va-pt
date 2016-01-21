@@ -338,6 +338,8 @@ fi
 if [ ! -d /pentest/enumeration/medusa ] ; then
 echo "Installing Medusa"
 cd /pentest/enumeration/ && git clone https://github.com/jmk-foofus/medusa.git
+cd medusa && ./configure
+make && make install
 fi
 if [ ! -d /pentest/enumeration/pasv-agrsv ] ; then
 echo "Installing Passive Aggresive OSINT TOol"
