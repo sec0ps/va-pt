@@ -108,6 +108,10 @@ gem list | grep -w net-dns
 if [ ! $? -eq 0 ] ; then
 sudo gem install net-dns
 fi
+gem list | grep -w bettercap
+if [ ! $? -eq 0 ] ; then
+sudo gem install bettercap
+fi
 #echo "enabling default ssl site for portal if needed"
 #service='https'
 #if sudo lsof -i :443 | grep $service > /dev/null
