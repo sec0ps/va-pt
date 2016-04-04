@@ -345,6 +345,10 @@ if [ ! -d /pentest/enumeration/pasv-agrsv ] ; then
 echo "Installing Passive Aggresive OSINT TOol"
 cd /pentest/enumeration && git clone https://github.com/isaudits/pasv-agrsv.git
 fi
+if [ ! -d /pentest/exploits/pentestly ] ; then
+echo "Installing Pentestly"
+cd /pentest/exploits/ && git clone https://github.com/praetorian-inc/pentestly
+fi
 echo "Installing local tools"
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
