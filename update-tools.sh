@@ -115,6 +115,8 @@ echo "Updating Passive Aggresive"
 cd /pentest/enumeration/pasv-agrsv && git pull
 echo "Updating Medusa"
 cd /pentest/enumeration/medusa && git pull
+echo "Updating Pentestly"
+cd /pentest/exploits/pentestly && git pull
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
