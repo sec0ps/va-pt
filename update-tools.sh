@@ -117,6 +117,8 @@ echo "Updating Medusa"
 cd /pentest/enumeration/medusa && git pull
 echo "Updating Pentestly"
 cd /pentest/exploits/pentestly && git pull
+echo "Updating Rawr"
+cd /pentest/web/rawr && git pull
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
