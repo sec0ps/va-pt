@@ -351,8 +351,8 @@ cd /pentest/exploits/ && git clone https://github.com/praetorian-inc/pentestly
 fi
 if [ ! -d /pentest/web/rawr ] ; then
 echo "Installing Rawr - Rapid Assessment of Web Resources"
-git clone https://bitbucket.org/al14s/rawr.git && cd rawr
-sudo ./install.sh
+cd /pentest/web/ && git clone https://bitbucket.org/al14s/rawr.git
+cd rawr && sudo ./install.sh
 fi
 echo "Installing local tools"
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
