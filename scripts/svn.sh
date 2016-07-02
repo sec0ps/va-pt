@@ -65,7 +65,7 @@ cd /pentest/fuzzers && git clone https://github.com/OpenRCE/sulley.git
 fi
 if [ ! -d /pentest/web/nikto ] ; then
 echo "Installing Nikto"
-cd /pentest/web && svn co http://svn2.assembla.com/svn/Nikto_2/trunk nikto
+cd /pentest/web && git clone https://github.com/sullo/nikto.git
 fi
 if [ ! -d /pentest/web/joomscan ] ; then
 echo "Instaling Joomla Scanner"
