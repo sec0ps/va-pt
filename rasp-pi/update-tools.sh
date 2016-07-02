@@ -9,7 +9,7 @@ cd /pentest/web/wapiti && svn up
 echo "Updating w3af"
 cd /pentest/web/w3af && git pull 
 echo "Updating Nikto"
-cd /pentest/web/nikto && svn up
+cd /pentest/web/nikto && git pull
 echo "updating htshells"
 cd /pentest/web/htshells && git pull
 echo "Updating WPScanner"
