@@ -13,7 +13,7 @@ cd /pentest/web/waffit && svn up
 echo "Updating Sulley"
 cd /pentest/fuzzers/sulley && git pull 
 echo "Updating Nikto"
-cd /pentest/web/nikto && svn up
+cd /pentest/web/nikto && git pull
 echo "Updating The Harvester"
 cd /pentest/enumeration/theHarvester && git pull
 echo "updating htshells"
