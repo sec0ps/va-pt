@@ -147,6 +147,8 @@ else
 echo "THC IPv6 Attack Suite is not up to date, updating now"
 rm -rf /pentest/enumeration/thc-ipv6 && /pentest/misc/va-pt/scripts/static.sh
 fi
+echo "Updating CrackMapExec"
+cd /pentest/exploits/CrackMapExec && git pull
 #
 echo "Updating VA-PT"
 cd /pentest/misc/va-pt && git pull 
