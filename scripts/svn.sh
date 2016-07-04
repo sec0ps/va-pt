@@ -247,10 +247,6 @@ cd /pentest/enumeration/ && git clone https://github.com/vanhauser-thc/thc-hydra
 cd hydra && ./configure
 make && sudo make install
 fi
-if [ ! -d /pentest/enumeration/spiderfoot ] ; then
-echo "Installing Spiderfoot"
-cd /pentest/enumeration && git clone https://github.com/smicallef/spiderfoot.git spiderfoot
-fi
 if [ ! -d /pentest/wireless/wifijammer ] ; then
 echo "Installing wifijammer"
 cd /pentest/wireless && git clone https://github.com/DanMcInerney/wifijammer.git
@@ -358,6 +354,10 @@ if [ ! -d /pentest/exploits/CrackMapExec ] ; then
 echo "Installing CrackMapExec"
 cd /pentest/exploits && git clone https://github.com/byt3bl33d3r/CrackMapExec.git
 cd CrackMapExec && sudo python setup.py install
+fi
+if [ ! -d /pentest/web/xsser ] ; then
+echo "Installing XSSer"
+cd /pentest/web/ && git clone https://github.com/epsylon/xsser-public.git xsser
 fi
 echo "Installing local tools"
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/

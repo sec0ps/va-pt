@@ -32,8 +32,6 @@ echo "Updating Kismet"
 cd /pentest/wireless/kismet && git pull
 echo "Updating Aircrack Tools"
 cd /pentest/wireless/aircrack-ng && svn up
-#echo "Updating Airgraph-NG"
-#cd /pentest/wireless/airgraph-ng && svn up
 echo "Updating fimap"
 cd /pentest/web/fimap && git pull 
 echo "Updating SQL Map"
@@ -93,8 +91,6 @@ cd /pentest/exploits/smbexec && git pull
 bundle install
 #echo "Updating John the Ripper"
 #cd /pentest/passwords/john && git pull
-echo "Updating Spiderfoot"
-cd /pentest/enumeration/spiderfoot && git pull
 echo "Updating THC-Hydra"
 cd /pentest/enumeration/hydra && git pull
 echo "Updating wifijammer"
@@ -119,6 +115,10 @@ echo "Updating Pentestly"
 cd /pentest/exploits/pentestly && git pull
 echo "Updating Rawr"
 cd /pentest/web/rawr && git pull
+echo "Updating CrackMapExec"
+cd /pentest/exploits/CrackMapExec && git pull
+echo "Updating XSSer"
+cd /pentest/web/xsser && git pull
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
@@ -147,8 +147,6 @@ else
 echo "THC IPv6 Attack Suite is not up to date, updating now"
 rm -rf /pentest/enumeration/thc-ipv6 && /pentest/misc/va-pt/scripts/static.sh
 fi
-echo "Updating CrackMapExec"
-cd /pentest/exploits/CrackMapExec && git pull
 #
 echo "Updating VA-PT"
 cd /pentest/misc/va-pt && git pull 

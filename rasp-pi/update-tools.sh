@@ -65,8 +65,6 @@ echo "Updating Veil Evasion"
 cd /pentest/exploits/Veil-Evasion && git pull
 echo "Updating Veil PowerView"
 cd /pentest/exploits/Veil-PowerView && git pull
-#echo "Updating FruitWifi"
-#cd /pentest/wireless/fruitwifi && git pull
 echo "Updating PCredz"
 cd /pentest/passwords/PCredz && git pull
 echo "Updating Viproxy"
@@ -77,6 +75,10 @@ echo "Updating Medusa"
 cd /pentest/enumeration/medusa && git pull
 echo "Updating Pentestly"
 cd /pentest/exploits/pentestly && git pull
+echo "Updating CrackMapExec"
+cd /pentest/exploits/CrackMapExec && git pull
+echo "Updating XSSer"
+cd /pentest/web/xsser && git pull
 #
 /pentest/enumeration/thc-ipv6/thcping6 | grep "v2.3"
 if [ $? -eq 0 ] ; then
