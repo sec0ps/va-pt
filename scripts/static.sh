@@ -123,11 +123,6 @@ tar zxvf voiphopper-2.04.tar.gz && rm -rf voiphopper-2.04.tar.gz
 mv voiphopper-2.04 /pentest/voip/voiphopper && cd /pentest/voip/voiphopper
 cd /pentest/voip/voiphopper && make
 fi
-if [ ! -d /pentest/web/burp ] ; then
-echo "Installing Burp Suite"
-mkdir /pentest/web/burp && cd /pentest/web/burp
-wget http://portswigger.net/burp/burpsuite_free_v1.5.jar
-fi
 if [ ! -d /pentest/enumeration/thc-pptp-bruter ] ; then
 echo "Installing THC PPTP Bruteforcer"
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/thc-pptp-bruter-0.1.4.tar.gz --no-check-certificate
