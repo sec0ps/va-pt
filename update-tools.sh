@@ -119,6 +119,8 @@ echo "Updating CrackMapExec"
 cd /pentest/exploits/CrackMapExec && git pull
 echo "Updating XSSer"
 cd /pentest/web/xsser && git pull
+echo "Updating exploitdb"
+cd /pentest/exploits/exploitdb && git pull
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
