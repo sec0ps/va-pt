@@ -293,10 +293,6 @@ echo "Installing Arachni Web Scanner"
 cd /pentest/web && git clone https://github.com/Arachni/arachni.git
 cd arachni && bundle install
 fi
-if [ ! -d /pentest/web/monkeyfist ] ; then
-echo "Installing Monkeyfist"
-cd /pentest/web && svn co http://monkeyfist.googlecode.com/svn/trunk/ monkeyfist
-fi
 if [ ! -d /pentest/exploits/powershell/PowerTools ] ; then
 echo "Installing PowerTools"
 cd /pentest/exploits/powershell && git clone https://github.com/PowerShellEmpire/PowerTools.git
