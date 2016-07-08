@@ -235,12 +235,6 @@ if [ ! -d /pentest/wireless/weape ] ; then
 echo "Installing Wireless EAP Username Extractor"
 cd /pentest/wireless && git clone https://github.com/commonexploits/weape.git
 fi
-#if [ ! -d /pentest/passwords/john ] ; then
-#echo "Installing John the Ripper Jumbo Pack"
-#cd /pentest/passwords && git clone https://github.com/magnumripper/JohnTheRipper.git john
-#cd john/src && ./configure && make -s
-#sudo make install
-#fi
 if [ ! -d /pentest/enumeration/hydra ] ; then
 echo "Installing THC-Hydra"
 cd /pentest/enumeration/ && git clone https://github.com/vanhauser-thc/thc-hydra.git hydra
@@ -251,17 +245,6 @@ if [ ! -d /pentest/wireless/wifijammer ] ; then
 echo "Installing wifijammer"
 cd /pentest/wireless && git clone https://github.com/DanMcInerney/wifijammer.git
 fi
-if [ ! -d /var/www/html/search ] ; then
-echo "Installing Vulnerability Database Portal"
-cd /var/www/html && sudo svn co http://va-pt.googlecode.com/svn/trunk/search search
-echo "The vulnerability search portal is now available at http://localhost/search/"
-fi
-#if [ ! -d /pentest/wireless/fruitwifi ] ; then
-#cd /pentest/temp && wget https://github.com/xtr4nge/FruityWifi/archive/master.zip
-#unzip master.zip  && rm -rf unzip master.zip
-#mv FruityWifi-master/ /pentest/wireless/fruitwifi && cd /pentest/wireless/fruitwifi
-#sudo ./install-FruityWifi.sh 
-#fi
 if [ ! -d /pentest/passwords/PCredz ] ; then
 echo "Installing PCredz"
 cd /pentest/passwords && git clone https://github.com/lgandx/PCredz.git
@@ -359,9 +342,19 @@ if [ ! -d /pentest/web/xsser ] ; then
 echo "Installing XSSer"
 cd /pentest/web/ && git clone https://github.com/epsylon/xsser-public.git xsser
 fi
+if [ ! -d /pentest/exploits/exploitdb ] ; then
+echo "Installing latest ExploitDB archive"
+cd /pentest/exploits && git clone https://github.com/offensive-security/exploit-database.git
+mv exploit-database exploitdb
+fi
 echo "Installing local tools"
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/dnsrecon.rb /pentest/enumeration/
 cp /pentest/misc/va-pt/tools/mysqlaudit.py /pentest/database/
 # end installer
+#if [ ! -d /var/www/html/search ] ; then
+#echo "Installing Vulnerability Database Portal"
+#cd /var/www/html && sudo svn co http://va-pt.googlecode.com/svn/trunk/search search
+#echo "The vulnerability search portal is now available at http://localhost/search/"
+#fi
