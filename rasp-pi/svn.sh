@@ -1,4 +1,9 @@
 #Raspberry PI SVN Installer
+if [ ! -d /pentest/exploits/exploitdb ] ; then
+echo "Installing latest ExploitDB archive"
+cd /pentest/exploits && git clone https://github.com/offensive-security/exploit-database.git
+mv exploit-database exploitdb
+fi
 if [ ! -d /pentest/misc/proxmark3-r651 ] ; then
 echo "Installing Proxmark 3 Reader Software"
 cd /pentest/misc && svn co http://proxmark3.googlecode.com/svn/trunk@r651 proxmark3-r651
