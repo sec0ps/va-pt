@@ -181,7 +181,7 @@ bundle install --without test development
 fi
 if [ ! -f /usr/local/bin/smbclient.py ] ; then
 echo "Installing Impacket"
-cd /pentest/temp && svn checkout http://impacket.googlecode.com/svn/trunk/ impacket
+cd /pentest/temp && https://github.com/CoreSecurity/impacket.git
 cd impacket && sudo python setup.py install
 cd /pentest/temp && sudo rm -rf impacket
 fi
@@ -318,7 +318,7 @@ if [ ! -d /pentest/enumeration/medusa ] ; then
 echo "Installing Medusa"
 cd /pentest/enumeration/ && git clone https://github.com/jmk-foofus/medusa.git
 cd medusa && ./configure
-make && make install
+make && sudo make install
 fi
 if [ ! -d /pentest/enumeration/pasv-agrsv ] ; then
 echo "Installing Passive Aggresive OSINT TOol"
