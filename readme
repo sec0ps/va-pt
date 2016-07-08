@@ -7,14 +7,12 @@ These scripts were designed specifically for Ubuntu 14.04 LTS and Raspbian.
 Contents of the package
 -------------------------------------------------------------------------------------------------------------------------
 deps.sh - Contains the necessary software dependencies for the tools within the kit to function.
-exploits.sh - Contains the scripts to download various exploit code from public sources
 static.sh - Downloads static applications which are not svn capable
 svn.sh - SVN repository scripts to checkout and update the various tools
 wordlists.sh - Contains the scripts to download the various wordlists from public sources
 update-tools.sh - update script for all the tools that have git/svn functionality or that I created an update script for.
 install.sh - The script that makes it all happen
 readme - You're looking at it
-search/ - the PHP Files for the local vulnerability and exploitdb search interface
 rasp-pi/ - Scripts directory for the Raspberry PI
 
 All tools are loaded into the /pentest directory.
@@ -23,7 +21,7 @@ How To
 ------
 To start, run the installer: sudo ./install.sh
 Install the dependencies first via option 1) Install/Check Dependencies
-Once the deps scripts has completed, walk through the remaining install options. Install the SVN tools, statics tools, exploit code repo's (packetstorm and exploitdb) and finally the wordlists. Option 6 installs a web based vulnerability/exploit portal, not required but you may find it makes things easier when searching for exploits or vulnerabilities.
+Once the deps scripts has completed, walk through the remaining install options. Install the svn/git and static tools and finally the wordlists.
 
 --Setup for postgres DB 
 sudo su postgres
@@ -83,9 +81,8 @@ Issue both of the following commands to remediate the errors:
 sudo nmcli nm wifi off
 sudo rfkill unblock wlan
 
-Any problems, comments or requests, feel free to contact me here or on twitter. 
+Any problems, comments or requests, feel free to contact me via email or twitter. 
 
-Keith A. Pachulski
-Electronic & Physical Security Consultant
-enforce570@gmail.com
-Twitter: @sec0ps
+Keith A. Pachulski, PPS, GPEN
+Security Consultant
+enforce570@gmail.com | Twitter: @sec0ps
