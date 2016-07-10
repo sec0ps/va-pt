@@ -48,10 +48,9 @@ until [ "$selection" = "0" ]; do
      echo "1 - Install Dependencies"
      echo "2 - Install SVN Toolkits"
      echo "3 - Install Static Code Software"
-     echo "4 - Install/Update wordlist Repositories"
-     echo "5 - Install OpenVAS"
-     echo "6 - Update all tool packages"
-     echo "7 - Install Firefox Extensions"
+     echo "4 - Install OpenVAS"
+     echo "5 - Update all tool packages"
+     echo "6 - Install Firefox Extensions"
      echo ""
      echo "0 - Exit program"
      echo ""
@@ -62,10 +61,9 @@ until [ "$selection" = "0" ]; do
          1 ) /pentest/misc/va-pt/scripts/deps.sh;;
          2 ) /pentest/misc/va-pt/scripts/svn.sh;;
          3 ) /pentest/misc/va-pt/scripts/static.sh;;
-         4 ) /pentest/misc/va-pt/scripts/wordlists.sh;;
-	 5 ) sudo apt-get install -y openvas-server openvas-client;;
-         6 ) /pentest/misc/va-pt/update-tools.sh;;
-         7 ) firefox https://addons.mozilla.org/en-US/firefox/collections/sec0ps/vapt/ &;;
+	 4 ) sudo apt-get install -y openvas-server openvas-client;;
+         5 ) /pentest/misc/va-pt/update-tools.sh;;
+         6 ) firefox https://addons.mozilla.org/en-US/firefox/collections/sec0ps/vapt/ &;;
          0 ) exit;;
          * ) echo "Please enter your selection"
      esac
