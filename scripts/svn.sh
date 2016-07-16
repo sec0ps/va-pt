@@ -100,7 +100,7 @@ make && sudo make install
 fi
 if [ ! -d /pentest/wireless/aircrack-ng ] ; then
 echo "Installing Aircrack-NG"
-cd /pentest/wireless && svn co http://svn.aircrack-ng.org/trunk/ aircrack-ng
+cd /pentest/wireless && git clone https://github.com/aircrack-ng/aircrack-ng.git
 cd aircrack-ng && make
 sudo make install && sudo airodump-ng-oui-update
 fi
