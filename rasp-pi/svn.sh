@@ -250,6 +250,10 @@ if [ ! -d /pentest/database/NoSQLMap ] ; then
 echo "Installing NoSQLMAP"
 cd /pentest/database && git clone https://github.com/tcstool/NoSQLMap.git
 fi
+if [ ! -d /pentest/exploits/cloakify ] ; then
+echo "Installing Cloakify"
+cd /pentest/exploits && git clone https://github.com/TryCatchHCF/Cloakify.git cloakify
+fi
 #
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/

@@ -81,6 +81,8 @@ echo "Updating XSSer"
 cd /pentest/web/xsser && git pull
 echo "Updating NoSQLMAP"
 cd /pentest/database/NoSQLMap && git pull
+echo "Updating Cloakify"
+cd /pentest/exploits/cloakify && git pull
 #
 /pentest/enumeration/thc-ipv6/thcping6 | grep "v2.3"
 if [ $? -eq 0 ] ; then
