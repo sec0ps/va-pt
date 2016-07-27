@@ -79,6 +79,8 @@ echo "Updating CrackMapExec"
 cd /pentest/exploits/CrackMapExec && git pull
 echo "Updating XSSer"
 cd /pentest/web/xsser && git pull
+echo "Updating NoSQLMAP"
+cd /pentest/database/NoSQLMap && git pull
 #
 /pentest/enumeration/thc-ipv6/thcping6 | grep "v2.3"
 if [ $? -eq 0 ] ; then
