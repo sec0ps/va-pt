@@ -1,3 +1,6 @@
+echo "Installing and Updating the Base OS before starting"
+sudo apt-get update && sudo apt-get upgrade -y
+
 echo "Installing Packages"
 sudo apt-get install -y mysql-server subversion git ncftp p7zip-full iw ethtool dos2unix postgresql
 sudo apt-get install -y sqlite3 nbtscan dsniff libncurses-dev libpcap-dev libnl-dev libssl-dev hping3 openssh-server
