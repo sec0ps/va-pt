@@ -17,6 +17,16 @@ sudo apt-get install -y libbsd-dev unixodbc unixodbc-dev freetds-dev sqsh tdsodb
 sudo apt-get install -y squid python-libpcap ntpdate screen samba-common-bin upx whois mingw32 libreadline-gplv2-dev gcc-mingw-w64-x86-64
 sudo apt-get install -y gcc-mingw-w64-i686 libsqlite3-dev tftp tftpd libfreerdp-dev libssh2-1-dev python-elixir python-pyasn1
 
+echo "Installing UFW, denying all inbound services excluding ssh and allowing all outbound"
+sudo apt-get install ufw -y
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow ssh
+cat /etc/ufw/ufw.conf | sed 's/ENABLED=no/ENABLED=yes/g' > ~/ufw.conf
+chmod 0644 ~/ufw.conf
+mv -f ~/ufw.conf /etc/ufw/ufw.conf
+sudo service ufw restart
+
 #stopping and disabling services
 sudo service apache2 stop && sudo service mysql stop
 sudo service ntp stop && sudo service avahi-daemon stop
