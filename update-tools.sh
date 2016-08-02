@@ -121,6 +121,10 @@ echo "Updating XSSer"
 cd /pentest/web/xsser && git pull
 echo "Updating exploitdb"
 cd /pentest/exploits/exploitdb && git pull
+echo "Updating NoSQLMAP"
+cd /pentest/database/NoSQLMap && git pull
+echo "Updating Cloakify"
+cd /pentest/exploits/cloakify && git pull
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
