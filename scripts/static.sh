@@ -255,32 +255,12 @@ unzip httprint_linux_301.zip && rm -rf httprint_linux_301.zip
 mv httprint_301/linux /pentest/enumeration/httprint
 cd /pentest/temp && rm -rf httprint_301/
 fi
-if [ ! -d /pentest/web/xsser ] ; then
-echo "Installing XSSer"
-cd /pentest/temp && wget https://dl.packetstormsecurity.net/UNIX/scanners/xsser_1.6-1.tar.gz --no-check-certificate
-tar zxvf xsser_1.6-1.tar.gz && rm -rf xsser_1.6-1.tar.gz
-mv xsser-public/ /pentest/web/xsser && cd /pentest/web/xsser
-fi
-if [ ! -d /pentest/web/skipfish ] ; then
-echo "Installing skipfish"
-cd /pentest/web/ && wget http://skipfish.googlecode.com/files/skipfish-2.10b.tgz
-tar zxvf skipfish-2.10b.tgz && rm -rf skipfish-2.10b.tgz
-mv skipfish-2.10b skipfish
-cd skipfish && make
-cp /pentest/web/skipfish/dictionaries/complete.wl /pentest/web/skipfish/dictionaries/skipfish.wl
-fi
 if [ ! -d /pentest/web/flare ] ; then
 echo "Installing Flare"
 cd /pentest/web && mkdir flare
 cd /pentest/web/flare && wget http://www.nowrap.de/download/flare06linux.tgz
 tar xvf flare06linux.tgz && rm -rf flare06linux.tgz
 fi
-#if [ ! -d /pentest/passwords/hashcat ] ; then
-#echo "Installing oclHashcat+"
-#cd /pentest/temp && wget http://hashcat.net/files/oclHashcat-1.01.7z
-#7za x oclHashcat-1.01.7z && rm -rf oclHashcat-1.01.7z
-#mv oclHashcat-1.01 /pentest/passwords/hashcat
-#fi
 if [ ! -d /pentest/exploits/windows-tools ] ; then
 echo "Installing Windows Tools"
 cd /pentest/exploits && mkdir windows-tools

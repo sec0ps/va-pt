@@ -11,21 +11,6 @@ cd snmpenum && wget http://dl.packetstormsecurity.net/UNIX/scanners/snmpenum.zip
 unzip snmpenum.zip && rm -rf snmpenum.zip
 chmod 700 snmpenum.pl
 fi
-if [ ! -d /pentest/web/xsser ] ; then
-echo "Installing XSSer"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/xsser_1.5-1.tar.gz --no-check-certificate
-tar zxvf xsser_1.5-1.tar.gz && rm -rf xsser_1.5-1.tar.gz
-mv xsser-public/ /pentest/web/xsser && cd /pentest/web/xsser
-sudo python setup.py install
-fi
-if [ ! -d /pentest/web/skipfish ] ; then
-echo "Installing skipfish"
-cd /pentest/web/ && wget http://skipfish.googlecode.com/files/skipfish-2.10b.tgz
-tar zxvf skipfish-2.10b.tgz && rm -rf skipfish-2.10b.tgz
-mv skipfish-2.10b skipfish
-cd skipfish && make
-cp /pentest/web/skipfish/dictionaries/complete.wl /pentest/web/skipfish/dictionaries/skipfish.wl
-fi
 if [ ! -d /pentest/exploits/windows-tools ] ; then
 echo "Installing Windows Tools"
 cd /pentest/exploits && mkdir windows-tools
