@@ -367,6 +367,10 @@ if [ ! -d /pentest/web/tplmap ] ; then
 echo "Installing tplmap"
 cd /pentest/web && git clone https://github.com/epinna/tplmap.git
 fi
+if [ ! -d /pentest/misc/Cheatsheets ] ; then
+echo "Installing Cheatsheet collection"
+cd /pentest/misc && git clone https://github.com/jshaw87/Cheatsheets.git
+fi
 #
 echo "Installing local tools"
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
