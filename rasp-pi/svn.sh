@@ -263,6 +263,10 @@ if [ ! -d /pentest/exploits/keimpx ] ; then
 echo "Installing keimpx"
 cd /pentest/exploits && git clone https://github.com/inquisb/keimpx.git
 fi
+if [ ! -d /pentest/web/tplmap ] ; then
+echo "Installing tplmap"
+cd /pentest/web && git clone https://github.com/epinna/tplmap.git
+fi
 #
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
