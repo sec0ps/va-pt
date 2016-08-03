@@ -259,6 +259,10 @@ echo "Installing CrackMapExec"
 cd /pentest/exploits && git clone https://github.com/byt3bl33d3r/CrackMapExec.git
 cd CrackMapExec && sudo python setup.py install
 fi
+if [ ! -d /pentest/exploits/keimpx ] ; then
+echo "Installing keimpx"
+cd /pentest/exploits && git clone https://github.com/inquisb/keimpx.git
+fi
 #
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/

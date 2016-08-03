@@ -87,6 +87,8 @@ echo "Updating Bettercap"
 sudo gem update bettercap
 echo "Updating CrackMapExec"
 cd /pentest/exploits/CrackMapExec && git pull
+echo Updating keimpx
+cd /pentest/exploits/keimpx && git pull
 #
 /pentest/enumeration/thc-ipv6/thcping6 | grep "v2.3"
 if [ $? -eq 0 ] ; then

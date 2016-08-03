@@ -129,6 +129,8 @@ echo "Updating Bettercap"
 sudo gem update bettercap
 echo "Updating CrackMapExec"
 cd /pentest/exploits/CrackMapExec && git pull
+echo Updating keimpx
+cd /pentest/exploits/keimpx && git pull
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
