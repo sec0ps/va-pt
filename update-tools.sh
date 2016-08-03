@@ -146,13 +146,6 @@ sudo /opt/nessus/sbin/nessuscli update --plugins-only
 else
 echo "Nessus is not installed, skipping"
 fi
-/pentest/web/skipfish/skipfish -h | grep "version"
-if [ $? != "2.10b" ] ; then
-echo "skipfish is up to date"
-else
-echo "skipfish is not up to date, updating now."
-rm -rf /pentest/web/skipfish && /pentest/misc/va-pt/scripts/static.sh
-fi
 #
 /pentest/enumeration/thc-ipv6/thcping6 | grep "v2.7"
 if [ $? -eq 0 ] ; then
