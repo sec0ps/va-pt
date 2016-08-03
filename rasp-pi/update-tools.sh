@@ -83,6 +83,10 @@ echo "Updating NoSQLMAP"
 cd /pentest/database/NoSQLMap && git pull
 echo "Updating Cloakify"
 cd /pentest/exploits/cloakify && git pull
+echo "Updating Bettercap"
+sudo gem update bettercap
+echo "Updating CrackMapExec"
+cd /pentest/exploits/CrackMapExec && git pull
 #
 /pentest/enumeration/thc-ipv6/thcping6 | grep "v2.3"
 if [ $? -eq 0 ] ; then

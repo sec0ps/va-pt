@@ -254,6 +254,11 @@ if [ ! -d /pentest/exploits/cloakify ] ; then
 echo "Installing Cloakify"
 cd /pentest/exploits && git clone https://github.com/TryCatchHCF/Cloakify.git cloakify
 fi
+if [ ! -d /pentest/exploits/CrackMapExec ] ; then
+echo "Installing CrackMapExec"
+cd /pentest/exploits && git clone https://github.com/byt3bl33d3r/CrackMapExec.git
+cd CrackMapExec && sudo python setup.py install
+fi
 #
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/

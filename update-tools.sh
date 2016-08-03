@@ -125,6 +125,10 @@ echo "Updating NoSQLMAP"
 cd /pentest/database/NoSQLMap && git pull
 echo "Updating Cloakify"
 cd /pentest/exploits/cloakify && git pull
+echo "Updating Bettercap"
+sudo gem update bettercap
+echo "Updating CrackMapExec"
+cd /pentest/exploits/CrackMapExec && git pull
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
