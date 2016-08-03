@@ -168,11 +168,11 @@ cd /pentest/exploits && svn checkout http://middler.googlecode.com/svn/trunk/ mi
 fi
 if [ ! -d /pentest/exploits/keimpx ] ; then
 echo "Installing keimpx"
-cd /pentest/exploits && svn checkout http://keimpx.googlecode.com/svn/trunk/ keimpx
+cd /pentest/exploits && git clone https://github.com/inquisb/keimpx.git 
 fi
 if [ ! -d /pentest/audit/routerdefense ] ; then
 echo "Installing Router Defense"
-cd /pentest/audit && svn checkout http://routerdefense.googlecode.com/svn/trunk/ routerdefense
+cd /pentest/audit && git clone https://github.com/pello/routerdefense.git 
 fi
 if [ ! -d /pentest/web/wpscan ] ; then
 echo "Installing Wordpress Scanner"
