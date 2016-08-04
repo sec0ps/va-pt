@@ -3,8 +3,14 @@ if [[ $EUID -eq 0 ]]; then
 echo "This script should not be run as root.." 1>&2
 exit 1
 fi
-#sudo echo 1 > /proc/sys/net/ipv4/ip_forward
-#clear
+echo "Updating and Installing Raspian Updates"
+sudo apt-get update && sudo apt-get upgrade -y
+echo "Setting the pi user to nologin - please do not use the pi user"
+sudo usermod -s /usr/sbin/nologin pi
+echo "You will need to enable ip_forwarding manually."
+echo "Edit /etc/sysctl.conf and uncomment net.ipv4.ip_forward"
+#
+echo "Creating base directory for the toolset in /pentest"
 if [ ! -d /pentest ] ; then
 sudo mkdir /pentest
 sudo chown -R $USER /pentest && chgrp -R $USER /pentest
@@ -24,10 +30,10 @@ fi
 [ ! -d /pentest/cisco ] && mkdir /pentest/cisco
 #
 cd /pentest/misc && git clone https://github.com/sec0ps/va-pt.git
-#creating the wireless management interface - recommended the usb wireless adapater be in before running the installer
+echo "Creating the wireless management interface"
 sudo mv interfaces /etc/network/
-sudo ifdown wlan0 && sudo ifup wlan0
-sleep 2
+sudo service networking restart
+#sudo ifdown wlan0 && sudo ifup wlan0
 #
 #allowing ssh tunneling
 sudo cp sshd_config /etc/ssh/ && sudo service ssh restart
