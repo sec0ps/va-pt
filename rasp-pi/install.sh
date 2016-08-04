@@ -1,6 +1,10 @@
 #!/bin/bash
 if [[ $EUID -eq 0 ]]; then
-echo "This script should not be run as root.." 1>&2
+echo "This script should not be run as root.."
+exit 1
+fi
+if [[ $EUID -eq 1000 ]]; then
+echo "This script should not be run as the pi user. Make a personal account."
 exit 1
 fi
 echo "Updating and Installing Raspian Updates"
