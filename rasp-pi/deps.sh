@@ -72,54 +72,12 @@ sudo cpanm Net::IP
 #sudo cpanm Net::SSH::Perl
 
 echo "Installing Python Deps"
-sudo pip install lxml netaddr M2Crypto cherrypy mako M2Crypto dnspython requests dicttoxml
+sudo pip install lxml netaddr M2Crypto cherrypy mako dnspython requests dicttoxml
 sudo pip install PyGithub GitPython pybloomfiltermmap esmre pdfminer futures guess-language 
 sudo pip install cluster msgpack-python python-ntlm clamd xdot netifaces pyinstaller
 sudo pip install -e git+git://github.com/ramen/phply.git#egg=phply
 sudo pip install pbkdf2 pymongo ipcalc couchdb
 
 echo "Checking and Installing Ruby Gems"
-gem list | grep -w bundler
-if [ ! $? -eq 0 ] ; then
-sudo gem install bundler
-fi
-gem list | grep -w spider
-if [ ! $? -eq 0 ] ; then
-sudo gem install spider
-fi
-gem list | grep -w http_configuration
-if [ ! $? -eq 0 ] ; then
-sudo gem install http_configuration
-fi
-gem list | grep -w mini_exiftool
-if [ ! $? -eq 0 ] ; then
-sudo gem install mini_exiftool
-fi
-gem list | grep -w zip
-if [ ! $? -eq 0 ] ; then
-sudo gem install zip
-fi
-gem list | grep -w sqlite3
-if [ ! $? -eq 0 ] ; then
-sudo gem install sqlite3
-fi
-gem list | grep -w net-dns
-if [ ! $? -eq 0 ] ; then
-sudo gem install net-dns
-fi
-gem list | grep -w bettercap
-if [ ! $? -eq 0 ] ; then
-sudo gem install bettercap
-fi
-#echo "enabling default ssl site for portal if needed"
-#service='https'
-#if sudo lsof -i :443 | grep $service > /dev/null
-#then
-#echo "$service is there, skipping this step"
-#else
-#echo "$service is not there, enabling default SSL configuration"
-#sudo a2enmod ssl
-#sudo a2ensite ssl
-#sudo a2enmod rewrite
-#sudo service apache2 force-reload
-#fi
+sudo gem install bundler spider http_configuration mini_exiftool zip sqlite3 net-dns bettercap
+#

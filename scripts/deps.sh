@@ -20,7 +20,7 @@ sudo apt-get install -y libxslt1-dev sipcrack libgmp3-dev python-mysqldb libnet1
 sudo apt-get install -y libavahi-compat-libdnssd-dev gip ldap-utils bkhive ophcrack macchanger flamerobin dsniff sipsak
 sudo apt-get install -y ike-scan nfs-kernel-server httping ptunnel recoverdm extundelete ext3grep libaspell-dev autoconf
 sudo apt-get install -y libyaml-dev openjdk-7-jre openjdk-7-jre-lib libreadline-dev python-pip python-beautifulsoup tshark
-sudo apt-get install -y samba libpam-smbpass libevent-dev flex bison libgeoip-dev chntpw
+sudo apt-get install -y samba libpam-smbpass libevent-dev flex bison libgeoip-dev chntpw ruby-dev
 sudo apt-get install -y libnetfilter-conntrack-dev libncurses-dev liburcu-dev libnacl-dev zlib1g-dev libcli-dev python-pycurl vpnc
 sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk swig cmake libtalloc-dev libtevent-dev libpopt-dev
 sudo apt-get install -y libbsd-dev unixodbc unixodbc-dev freetds-dev sqsh tdsodbc autofs remmina remmina-plugin-rdp remmina-plugin-vnc
@@ -79,47 +79,5 @@ sudo pip install -e git+git://github.com/ramen/phply.git#egg=phply
 sudo pip install pbkdf2 pymongo ipcalc couchdb
 
 echo "Checking and Installing Ruby Gems"
-gem list | grep -w bundler
-if [ ! $? -eq 0 ] ; then
-sudo gem install bundler
-fi
-gem list | grep -w spider
-if [ ! $? -eq 0 ] ; then
-sudo gem install spider
-fi
-gem list | grep -w http_configuration
-if [ ! $? -eq 0 ] ; then
-sudo gem install http_configuration
-fi
-gem list | grep -w mini_exiftool
-if [ ! $? -eq 0 ] ; then
-sudo gem install mini_exiftool
-fi
-gem list | grep -w zip
-if [ ! $? -eq 0 ] ; then
-sudo gem install zip
-fi
-gem list | grep -w sqlite3
-if [ ! $? -eq 0 ] ; then
-sudo gem install sqlite3
-fi
-gem list | grep -w net-dns
-if [ ! $? -eq 0 ] ; then
-sudo gem install net-dns
-fi
-gem list | grep -w bettercap
-if [ ! $? -eq 0 ] ; then
-sudo gem install bettercap
-fi
-#echo "enabling default ssl site for portal if needed"
-#service='https'
-#if sudo lsof -i :443 | grep $service > /dev/null
-#then
-#echo "$service is there, skipping this step"
-#else
-#echo "$service is not there, enabling default SSL configuration"
-#sudo a2enmod ssl
-#sudo a2ensite ssl
-#sudo a2enmod rewrite
-#sudo service apache2 force-reload
-#fi
+sudo gem install bundler spider http_configuration mini_exiftool zip sqlite3 net-dns bettercap
+#
