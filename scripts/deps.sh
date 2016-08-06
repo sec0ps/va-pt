@@ -1,11 +1,18 @@
-echo "Installing and Updating the Base OS before starting"
-sudo apt-get update && sudo apt-get upgrade -y
+echo "Installing UFW, denying all inbound services excluding ssh and allowing all outbound"
+sudo apt-get install ufw -y
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow ssh
+cat /etc/ufw/ufw.conf | sed 's/ENABLED=no/ENABLED=yes/g' > ~/ufw.conf
+chmod 644 ~/ufw.conf
+sudo mv -f ~/ufw.conf /etc/ufw/ufw.conf
+sudo ufw disable && sudo ufw enable
 
 echo "Installing Packages"
 sudo apt-get install -y wine wine-dev mysql-server subversion git ncftp rar p7zip-full iw ethtool dos2unix gtk-recordmydesktop postgresql
 sudo apt-get install -y sqlite3 nbtscan dsniff libncurses-dev libpcap-dev libnl-dev libssl-dev hping3 openssh-server
 sudo apt-get install -y python-dev autoconf open-iscsi open-iscsi-utils wireshark dhcp3-server locate libusb-dev
-sudo apt-get install -y webhttrack finger rusers snmp reglookup gpsd libgps-dev apache2 libapache2-mod-auth-mysql
+sudo apt-get install -y webhttrack finger rusers snmp reglookup gpsd libgps-dev apache2 libnet-ssh-perl
 sudo apt-get install -y php5-mysql libapache2-mod-php5 curl sslscan libpq-dev libxml2-dev vim python-setuptools
 sudo apt-get install -y python-nltk python-soappy python-lxml python-svn python-scapy gtk2-engines-pixbuf graphviz python-gtksourceview2
 sudo apt-get install -y libssh-dev libmysqlclient-dev libpcre3-dev firebird-dev libsvn-dev libidn11-dev libcurl4-gnutls-dev
@@ -19,29 +26,6 @@ sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dn
 sudo apt-get install -y libbsd-dev unixodbc unixodbc-dev freetds-dev sqsh tdsodbc autofs remmina remmina-plugin-rdp remmina-plugin-vnc
 sudo apt-get install -y squid python-libpcap ntpdate screen samba-common-bin upx whois mingw32 libreadline-gplv2-dev gcc-mingw-w64-x86-64
 sudo apt-get install -y gcc-mingw-w64-i686 libsqlite3-dev tftp tftpd libfreerdp-dev libssh2-1-dev python-elixir python-pyasn1
-
-echo "Installing UFW, denying all inbound services excluding ssh and allowing all outbound"
-sudo apt-get install ufw -y
-sudo ufw default deny incoming
-sudo ufw default allow outgoing
-sudo ufw allow ssh
-cat /etc/ufw/ufw.conf | sed 's/ENABLED=no/ENABLED=yes/g' > ~/ufw.conf
-chmod 0644 ~/ufw.conf
-mv -f ~/ufw.conf /etc/ufw/ufw.conf
-sudo service ufw restart
-
-#stopping and disabling services
-sudo service apache2 stop && sudo service mysql stop
-sudo service ntp stop && sudo service avahi-daemon stop
-sudo service samba stop && sudo service tighvnc stop
-sudo service dnsmasq stop
-sudo update-rc.d -f apache2 remove
-sudo update-rc.d -f mysql remove
-sudo update-rc.d -f ntp remove
-sudo update-rc.d -f avahi-daemon remove
-sudo update-rc.d -f samba remove
-sudo update-rc.d -f tightvnc remove
-sudo update-rc.d -f dnsmasq remove
 
 ruby -v | grep "2.1.5"
 if [ $? -eq 1 ] ; then
@@ -73,7 +57,6 @@ fi
 
 echo "Checking and Installing PERL Deps"
 sudo cpanm Cisco::CopyConfig && sudo cpanm Net::Telnet
-sudo cpanm Net::SSH::Perl && sudo cpanm Net::IP
 sudo cpanm Net::Netmask && sudo cpanm XML::Writer
 sudo cpanm Encoding::BER && sudo cpanm Term::ANSIColor
 sudo cpanm Getopt::Long && sudo cpanm XML::Writer
@@ -85,6 +68,8 @@ sudo cpanm  Test::Class && sudo cpanm WWW::Mechanize
 sudo cpanm Net::Whois::ARIN && sudo cpanm Test::MockObject
 sudo cpanm Template && sudo cpanm Net::CIDR
 sudo cpanm JSON && sudo cpanm Color::Output
+sudo cpanm Net::IP
+#sudo cpanm Net::SSH::Perl
 
 echo "Installing Python Deps"
 sudo pip install lxml netaddr M2Crypto cherrypy mako M2Crypto dnspython requests capstone dicttoxml
