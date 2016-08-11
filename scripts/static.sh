@@ -368,9 +368,4 @@ cd /pentest/temp && wget http://www.fastandeasyhacking.com/download/armitage1411
 tar xvf armitage141120.tgz  && mv armitage/ /pentest/exploits
 echo "Be sure to edit the database.yml file in /opt/metasploit/apps/pro/ui/config/"
 fi
-if [ ! -f /pentest/passwords/crunch ] ; then
-echo "Installing crunch"
-cd /pentest/passwords && wget http://dl.packetstormsecurity.net/Crack/crunch.cpp
-gcc -o crunch crunch.cpp -lstdc++ && rm -rf crunch.cpp
-fi
 echo "Static Code installation complete"

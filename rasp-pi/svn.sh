@@ -4,22 +4,21 @@ echo "Installing latest ExploitDB archive"
 cd /pentest/exploits && git clone https://github.com/offensive-security/exploit-database.git
 mv exploit-database exploitdb
 fi
-if [ ! -d /pentest/misc/proxmark3-r651 ] ; then
+if [ ! -d /pentest/misc/proxmark3 ] ; then
 echo "Installing Proxmark 3 Reader Software"
-cd /pentest/misc && svn co http://proxmark3.googlecode.com/svn/trunk@r651 proxmark3-r651
-cd proxmark3-r651 && make client
+cd /pentest/misc && git clone https://github.com/Proxmark/proxmark3.git
+cd proxmark3/ && make client
 fi
-#
 if [ ! -f /usr/local/bin/smbclient.py ] ; then
 echo "Installing Impacket"
-cd /pentest/temp && https://github.com/CoreSecurity/impacket.git
+cd /pentest/temp && git clone https://github.com/CoreSecurity/impacket.git
 cd impacket && sudo python setup.py install
 cd /pentest/temp && sudo rm -rf impacket
 fi
 if [ ! -d /pentest/scanners/nmap ] ; then
 echo "Installing nmap and ncrack"
 cd /pentest/scanners && svn co https://svn.nmap.org/nmap nmap
-cd /pentest/scanners/nmap && ./configure --without-zenmap --without-ncat
+cd nmap && ./configure --without-zenmap
 make && sudo make install
 cd ncat/ && ./configure
 make && sudo make install
@@ -28,7 +27,7 @@ if [ ! -d /pentest/exploits/framework3 ] ; then
 echo "Installing Metasploit"
 cd /pentest/exploits && git clone https://github.com/rapid7/metasploit-framework.git framework3
 cd /pentest/exploits/framework3 && bundle install
-sudo chmod o+r /usr/local/lib/ruby/gems/2.1.0/gems/robots-0.10.1/lib/robots.rb
+sudo chmod o+r /var/lib/gems/2.1.0/gems/robots-0.10.1/lib/robots.rb
 fi
 if [ ! -d /pentest/exploits/set ] ; then
 echo "Installing the Social Engineering Toolkit"

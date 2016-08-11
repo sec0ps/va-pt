@@ -10,7 +10,7 @@ sudo ufw reload
 
 echo "Installing Packages"
 sudo apt-get install -y mysql-server subversion git ncftp p7zip-full iw ethtool dos2unix postgresql
-sudo apt-get install -y sqlite3 nbtscan dsniff libncurses-dev libpcap-dev libnl-dev libssl-dev hping3 openssh-server
+sudo apt-get install -y sqlite3 nbtscan dsniff libncurses-dev libpcap-dev libssl-dev hping3 openssh-server
 sudo apt-get install -y python-dev autoconf open-iscsi wireshark isc-dhcp-server locate libusb-dev
 sudo apt-get install -y webhttrack finger rusers snmp reglookup gpsd libgps-dev apache2 libnet-ssh-perl
 sudo apt-get install -y php5-mysql libapache2-mod-php5 curl sslscan libpq-dev libxml2-dev vim python-setuptools
@@ -20,11 +20,11 @@ sudo apt-get install -y libxslt1-dev sipcrack libgmp3-dev python-mysqldb libnet1
 sudo apt-get install -y libavahi-compat-libdnssd-dev gip ldap-utils bkhive ophcrack macchanger flamerobin sipsak
 sudo apt-get install -y ike-scan nfs-kernel-server httping ptunnel recoverdm extundelete ext3grep libaspell-dev autoconf
 sudo apt-get install -y libyaml-dev openjdk-7-jre openjdk-7-jre-lib libreadline-dev python-pip python-beautifulsoup tshark
-sudo apt-get install -y samba libpam-smbpass libevent-dev flex bison libgeoip-dev chntpw
+sudo apt-get install -y samba libpam-smbpass libevent-dev flex bison libgeoip-dev chntpw crunch
 sudo apt-get install -y libnetfilter-conntrack-dev libncurses-dev liburcu-dev zlib1g-dev libcli-dev python-pycurl vpnc
 sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk swig cmake libtalloc-dev libtevent-dev libpopt-dev
 sudo apt-get install -y libbsd-dev unixodbc unixodbc-dev freetds-dev sqsh tdsodbc autofs remmina remmina-plugin-rdp remmina-plugin-vnc
-sudo apt-get install -y squid python-libpcap ntpdate screen samba-common-bin upx whois mingw32 libreadline-gplv2-dev libsqlite3-dev
+sudo apt-get install -y squid python-libpcap ntpdate screen samba-common-bin upx whois libreadline-gplv2-dev libsqlite3-dev
 sudo apt-get install -y python-elixir zip tftp tftpd libfreerdp-dev libssh2-1-dev mingw32-runtime mingw32-binutils python-pyasn1
 
 ruby -v | grep "2.1.5"

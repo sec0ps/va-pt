@@ -181,7 +181,7 @@ bundle install --without test development
 fi
 if [ ! -f /usr/local/bin/smbclient.py ] ; then
 echo "Installing Impacket"
-cd /pentest/temp && https://github.com/CoreSecurity/impacket.git
+cd /pentest/temp && git clone https://github.com/CoreSecurity/impacket.git
 cd impacket && sudo python setup.py install
 cd /pentest/temp && sudo rm -rf impacket
 fi
