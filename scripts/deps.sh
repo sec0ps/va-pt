@@ -76,7 +76,7 @@ sudo pip install lxml netaddr M2Crypto cherrypy mako M2Crypto dnspython requests
 sudo pip install PyGithub GitPython pybloomfiltermmap esmre pdfminer futures guess-language 
 sudo pip install cluster msgpack-python python-ntlm clamd xdot netifaces pyinstaller
 sudo pip install -e git+git://github.com/ramen/phply.git#egg=phply
-sudo pip install pbkdf2 pymongo ipcalc couchdb
+sudo pip install pbkdf2 pymongo ipcalc couchdb dicttoxml PyPDF2 olefile
 
 echo "Checking and Installing Ruby Gems"
 sudo gem install bundler spider http_configuration mini_exiftool zip sqlite3 net-dns bettercap
