@@ -141,6 +141,8 @@ echo "Updating Droopescan"
 cd /pentest/web/droopescan && git pull
 echo "Updating sublist3r"
 cd /pentest/weenumeration/sublist3r && git pull
+echo "Updating weevely"
+cd /pentest/web/weevely && git pull
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
@@ -165,14 +167,3 @@ fi
 #
 echo "Updating VA-PT"
 cd /pentest/misc/va-pt && git pull 
-echo "Updating the Vulnerability Database Portal"
-cd /var/www/html/search && sudo git pull
-#
-while true; do
-    read -p "Do you want to update the local exploit database? (y/n)" yn
-    case $yn in
-        [Yy]* ) /pentest/misc/va-pt/scripts/db-update.sh;  break;;
-        [Nn]* ) echo "Exiting the updater."; exit;;
-        * ) echo "Please answer yes or no.";;
-    esac
-done

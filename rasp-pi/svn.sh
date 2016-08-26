@@ -282,6 +282,10 @@ if [ ! -d /pentest/enumeration/sublist3r ] ; then
 echo "Installing sublist3r"
 cd /pentest/enumeration && git clone https://github.com/aboul3la/Sublist3r.git sublist3r
 fi
+if [ ! -d /pentest/web/weevely ] ; then
+echo "Installing weevely"
+cd /pentest/web && git clone https://github.com/epinna/weevely3.git weevely
+fi
 #
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
