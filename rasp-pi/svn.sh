@@ -270,6 +270,10 @@ if [ ! -d /pentest/misc/Cheatsheets ] ; then
 echo "Installing Cheatsheet collection"
 cd /pentest/misc && git clone https://github.com/jshaw87/Cheatsheets.git
 fi
+if [ ! -d /pentest/web/brutexss ] ; then
+echo "Installing bruteXSS"
+cd /pentest/web && git clone https://github.com/shawarkhanethicalhacker/BruteXSS.git brutexss
+fi
 #
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/

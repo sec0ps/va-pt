@@ -135,6 +135,8 @@ echo "Updating tplmap"
 cd /pentest/web/tplmap && git pull
 echo "Updating Cheatsheet Collection"
 cd /pentest/misc/Cheatsheets && git pull
+echo "Updating BruteXSS"
+cd /pentest/web/brutexss && git pull
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"

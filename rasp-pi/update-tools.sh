@@ -93,6 +93,8 @@ echo "Updating tplmap"
 cd /pentest/web/tplmap && git pull
 echo "Updating Cheatsheet Collection"
 cd /pentest/misc/Cheatsheets && git pull
+echo "Updating BruteXSS"
+cd /pentest/web/brutexss && git pull
 #
 /pentest/enumeration/thc-ipv6/thcping6 | grep "v2.3"
 if [ $? -eq 0 ] ; then
