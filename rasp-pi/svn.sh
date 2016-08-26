@@ -274,6 +274,12 @@ if [ ! -d /pentest/web/brutexss ] ; then
 echo "Installing bruteXSS"
 cd /pentest/web && git clone https://github.com/shawarkhanethicalhacker/BruteXSS.git brutexss
 fi
+if [ ! -d /pentest/web/droopescan ] ; then
+echo "Installing Droopescan"
+cd /pentest/web && git clone https://github.com/droope/droopescan.git droopescan
+fi
+echo "Updating Droopescan"
+cd /pentest/web/droopescan && git pull
 #
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
