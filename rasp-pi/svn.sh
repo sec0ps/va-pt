@@ -286,6 +286,10 @@ if [ ! -d /pentest/web/weevely ] ; then
 echo "Installing weevely"
 cd /pentest/web && git clone https://github.com/epinna/weevely3.git weevely
 fi
+if [ ! -d /pentest/exploits/spraywmi ] ; then
+echo "Installing spraywmi"
+cd /pentest/exploits && git clone https://github.com/trustedsec/spraywmi.git
+fi
 #
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/

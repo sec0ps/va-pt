@@ -101,6 +101,8 @@ echo "Updating sublist3r"
 cd /pentest/weenumeration/sublist3r && git pull
 echo "Updating weevely"
 cd /pentest/web/weevely && git pull
+echo "Updating spraywmi"
+cd /pentest/exploits/spraywmi && git pull
 #
 /pentest/enumeration/thc-ipv6/thcping6 | grep "v2.3"
 if [ $? -eq 0 ] ; then

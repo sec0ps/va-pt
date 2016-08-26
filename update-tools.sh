@@ -143,6 +143,8 @@ echo "Updating sublist3r"
 cd /pentest/weenumeration/sublist3r && git pull
 echo "Updating weevely"
 cd /pentest/web/weevely && git pull
+echo "Updating spraywmi"
+cd /pentest/exploits/spraywmi && git pull
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
