@@ -280,6 +280,10 @@ cd /pentest/web && git clone https://github.com/droope/droopescan.git droopescan
 fi
 echo "Updating Droopescan"
 cd /pentest/web/droopescan && git pull
+if [ ! -d /pentest/enumeration/sublist3r] ; then
+echo "Installing sublist3r"
+cd /pentest/enumeration && git clone https://github.com/aboul3la/Sublist3r.git sublist3r
+fi
 #
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/

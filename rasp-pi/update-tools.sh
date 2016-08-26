@@ -97,6 +97,8 @@ echo "Updating BruteXSS"
 cd /pentest/web/brutexss && git pull
 echo "Updating Droopescan"
 cd /pentest/web/droopescan && git pull
+echo "Updating sublist3r"
+cd /pentest/weenumeration/sublist3r && git pull
 #
 /pentest/enumeration/thc-ipv6/thcping6 | grep "v2.3"
 if [ $? -eq 0 ] ; then

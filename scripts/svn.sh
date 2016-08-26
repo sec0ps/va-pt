@@ -379,6 +379,10 @@ if [ ! -d /pentest/web/droopescan ] ; then
 echo "Installing Droopescan"
 cd /pentest/web && git clone https://github.com/droope/droopescan.git droopescan
 fi
+if [ ! -d /pentest/enumeration/sublist3r] ; then
+echo "Installing sublist3r"
+cd /pentest/enumeration && git clone https://github.com/aboul3la/Sublist3r.git sublist3r
+fi
 #
 echo "Installing local tools"
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/

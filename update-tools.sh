@@ -139,6 +139,8 @@ echo "Updating BruteXSS"
 cd /pentest/web/brutexss && git pull
 echo "Updating Droopescan"
 cd /pentest/web/droopescan && git pull
+echo "Updating sublist3r"
+cd /pentest/weenumeration/sublist3r && git pull
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
