@@ -343,7 +343,7 @@ echo "Installing latest ExploitDB archive"
 cd /pentest/exploits && git clone https://github.com/offensive-security/exploit-database.git
 mv exploit-database exploitdb
 fi
-if [ ! -d /pentest/passwords/wordlists ]; then
+if [ ! -d /pentest/passwords/Usernames ]; then
 echo "Installing the wordlist collection"
 cd /pentest/temp && git clone https://github.com/danielmiessler/SecLists.git
 cd SecLists && mv Passwords /pentest/passwords
