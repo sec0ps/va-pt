@@ -65,7 +65,7 @@ cd /pentest/voip/sipvicious/ && svn up
 echo "Updating Router Defense"
 cd /pentest/audit/routerdefense/ && svn up
 echo "Updating Wifite"
-cd /pentest/wireless/wifite && svn up
+cd /pentest/wireless/wifite && git pull
 echo "Updating nmap - you will need to recompile if needed"
 cd /pentest/scanners/nmap && svn up
 echo "Updating ncat - you will need to recompile if needed"

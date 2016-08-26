@@ -37,7 +37,7 @@ cd /pentest/exploits/middler && svn up
 echo "Updating SIPVicious"
 cd /pentest/voip/sipvicious/ && svn up
 echo "Updating Wifite"
-cd /pentest/wireless/wifite && svn up
+cd /pentest/wireless/wifite && git pull 
 echo "Updating nmap - you will need to recompile if needed"
 cd /pentest/scanners/nmap && svn up
 sudo nmap --script-updatedb

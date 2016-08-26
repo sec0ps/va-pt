@@ -94,7 +94,7 @@ cd /pentest/enumeration && git clone git://github.com/borkmann/netsniff-ng.git
 fi
 if [ ! -d /pentest/wireless/wifite/ ] ; then
 echo "Installing Wifitie"
-cd /pentest/wireless && svn checkout http://wifite.googlecode.com/svn/trunk/ wifite
+cd /pentest/wireless && git clone https://github.com/derv82/wifite.git 
 fi
 if [ ! -d /pentest/wireless/kismet ] ; then
 echo "Installing Kismet"
