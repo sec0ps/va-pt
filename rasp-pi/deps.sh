@@ -20,7 +20,7 @@ sudo apt-get install -y libxslt1-dev sipcrack libgmp3-dev python-mysqldb libnet1
 sudo apt-get install -y libavahi-compat-libdnssd-dev gip ldap-utils bkhive ophcrack macchanger flamerobin sipsak
 sudo apt-get install -y ike-scan nfs-kernel-server httping ptunnel recoverdm extundelete ext3grep libaspell-dev autoconf
 sudo apt-get install -y libyaml-dev openjdk-7-jre openjdk-7-jre-lib libreadline-dev python-pip python-beautifulsoup tshark
-sudo apt-get install -y samba libpam-smbpass libevent-dev flex bison libgeoip-dev chntpw crunch
+sudo apt-get install -y samba libpam-smbpass libevent-dev flex bison libgeoip-dev chntpw crunch python-pygraphviz
 sudo apt-get install -y libnetfilter-conntrack-dev libncurses-dev liburcu-dev zlib1g-dev libcli-dev python-pycurl vpnc
 sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk swig cmake libtalloc-dev libtevent-dev libpopt-dev
 sudo apt-get install -y libbsd-dev unixodbc unixodbc-dev freetds-dev sqsh tdsodbc autofs remmina remmina-plugin-rdp remmina-plugin-vnc
