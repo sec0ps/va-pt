@@ -4,12 +4,12 @@ cd /pentest/exploits/set && git pull
 echo "Updating Metasploit"
 cd /pentest/exploits/framework3 && git pull
 bundle install
-echo "Updating Wapiti"
-cd /pentest/web/wapiti && svn up
+#echo "Updating Wapiti"
+#cd /pentest/web/wapiti && svn up
 echo "Updating w3af"
 cd /pentest/web/w3af && git pull 
-echo "Updating waffit"
-cd /pentest/web/waffit && svn up
+#echo "Updating waffit"
+#cd /pentest/web/waffit && svn up
 echo "Updating Sulley"
 cd /pentest/fuzzers/sulley && git pull 
 echo "Updating Nikto"
@@ -22,10 +22,10 @@ echo "Updating SSLyze"
 cd /pentest/web/sslyze && git pull
 echo "Updating WPScanner"
 cd /pentest/web/wpscan && git pull
-echo "Updating wfuzz"
-cd /pentest/fuzzers/wfuzz && svn up
+#echo "Updating wfuzz"
+#cd /pentest/fuzzers/wfuzz && svn up
 echo "Updating Beef"
-cd /var/www/beef && sudo git pull
+cd /var/www/html/beef && sudo git pull
 echo "Updating Fierce2"
 cd /pentest/enumeration/fierce2 && svn up
 echo "Updating Kismet"
@@ -36,41 +36,39 @@ echo "Updating fimap"
 cd /pentest/web/fimap && git pull 
 echo "Updating SQL Map"
 cd /pentest/database/sqlmap && git pull
-echo "Updatign FuzzDB"
-cd /pentest/fuzzers/fuzzdb && svn up
-echo "Updating WSFuzzer"
-cd /pentest/fuzzers/wsfuzzer && svn up
-echo "Updating Captcha Breaker"
-cd /pentest/web/captcha-breaker && svn up
-echo "Updating DNSMap"
-cd /pentest/enumeration/dnsmap && svn up
-echo "Updating SQLNinja"
-cd /pentest/database/sqlninja && svn up
-echo "Updating Laudanum"
-cd /pentest/web/laudanum && svn up
-echo "Updating JBroFuzz"
-cd /pentest/fuzzers/jbrofuzz && svn up
-echo "Updating PHP Shell"
-cd /pentest/web/phpshell && svn up
+#echo "Updatign FuzzDB"
+#cd /pentest/fuzzers/fuzzdb && svn up
+#echo "Updating WSFuzzer"
+#cd /pentest/fuzzers/wsfuzzer && svn up
+#echo "Updating Captcha Breaker"
+#cd /pentest/web/captcha-breaker && svn up
+#echo "Updating DNSMap"
+#cd /pentest/enumeration/dnsmap && svn up
+#echo "Updating SQLNinja"
+#cd /pentest/database/sqlninja && svn up
+#echo "Updating Laudanum"
+#cd /pentest/web/laudanum && svn up
+#echo "Updating JBroFuzz"
+#cd /pentest/fuzzers/jbrofuzz && svn up
+#echo "Updating PHP Shell"
+#cd /pentest/web/phpshell && svn up
 echo "Updating DNS Enum"
 cd /pentest/enumeration/dnsenum && git pull 
-echo "Updating Pyrit"
-cd /pentest/passwords/pyrit && svn up
-echo "Updating Middler"
-cd /pentest/exploits/middler && svn up
-echo "Updating keimpx"
-cd /pentest/exploits/keimpx && svn up
-echo "Updating SIPVicious"
-cd /pentest/voip/sipvicious/ && svn up
+#echo "Updating Pyrit"
+#cd /pentest/passwords/pyrit && svn up
+#echo "Updating Middler"
+#cd /pentest/exploits/middler && svn up
+#echo "Updating keimpx"
+#cd /pentest/exploits/keimpx && svn up
+#echo "Updating SIPVicious"
+#cd /pentest/voip/sipvicious/ && svn up
 echo "Updating Router Defense"
 cd /pentest/audit/routerdefense/ && svn up
 echo "Updating Wifite"
 cd /pentest/wireless/wifite && git pull
-echo "Updating nmap - you will need to recompile if needed"
+echo "Updating nmap, ncrack and ncat"
 cd /pentest/scanners/nmap && svn up
-echo "Updating ncat - you will need to recompile if needed"
 cd /pentest/scanners/nmap/ncat && svn up
-echo "Updating ncrack - you will need to recompile if needed"
 cd /pentest/scanners/ncrack && svn up
 echo "Updating Warvox"
 cd /pentest/voip/warvox && git pull
@@ -158,14 +156,5 @@ sudo /opt/nessus/sbin/nessuscli update --plugins-only
 else
 echo "Nessus is not installed, skipping"
 fi
-#
-/pentest/enumeration/thc-ipv6/thcping6 | grep "v2.7"
-if [ $? -eq 0 ] ; then
-echo "THC IPv6 Attack Suite is up to date"
-else
-echo "THC IPv6 Attack Suite is not up to date, updating now"
-rm -rf /pentest/enumeration/thc-ipv6 && /pentest/misc/va-pt/scripts/static.sh
-fi
-#
 echo "Updating VA-PT"
 cd /pentest/misc/va-pt && git pull 
