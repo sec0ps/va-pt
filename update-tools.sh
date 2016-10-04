@@ -59,7 +59,7 @@ cd /pentest/enumeration/dnsenum && git pull
 #echo "Updating Middler"
 #cd /pentest/exploits/middler && svn up
 #echo "Updating keimpx"
-#cd /pentest/exploits/keimpx && svn up
+#cd /pentest/exploits/keimpx && git pull
 #echo "Updating SIPVicious"
 #cd /pentest/voip/sipvicious/ && svn up
 echo "Updating Router Defense"
