@@ -4,7 +4,8 @@ if [ ! -d /pentest/wireless/giskismet ] ; then
 echo "Installing gisKismet"
 cd /pentest/wireless && git clone git://git.kali.org/packages/giskismet.git 
 cd /pentest/wireless/giskismet && sudo cpanm --installdeps .
-perl Makefile.PL && make
+sudo perl Makefile.PL && make
+sudo make install
 fi
 if [ ! -d /pentest/wireless/wifite/ ] ; then
 echo "Installing Wifitie"
@@ -19,30 +20,11 @@ if [ ! -d /pentest/exploits/framework3 ] ; then
 echo "Installing Metasploit"
 cd /pentest/exploits && git clone https://github.com/rapid7/metasploit-framework.git framework3
 cd /pentest/exploits/framework3 && bundle install
-sudo chmod o+r /usr/local/lib/ruby/gems/2.1.0/gems/robots-0.10.1/lib/robots.rb
-fi
-if [ ! -d /pentest/exploits/Veil-Catapult ] ; then
-echo "Installing Veil Catapult"
-cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Catapult.git 
-sudo /pentest/exploits/Veil-Catapult/setup.sh
-fi
-if [ ! -d /pentest/exploits/Veil-Evasion ] ; then
-echo "Installing Veil Evasion"
-cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Evasion.git 
-sudo /pentest/exploits/Veil-Evasion/setup/setup.sh
-fi
-if [ ! -d /pentest/exploits/Veil-PowerView ] ; then
-echo "Installing Veil PowerView"
-cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-PowerView.git
+sudo chmod o+r /usr/local/lib/ruby/gems/2.3.0/gems/robots-0.10.1/lib/robots.rb
 fi
 if [ ! -d /pentest/web/wapiti ] ; then
 echo "Installing Wapiti"
 cd /pentest/web && svn co https://svn.code.sf.net/p/wapiti/code/ wapiti
-fi
-if [ ! -d /pentest/fuzzers/wfuzz ] ; then
-echo "Installing wfuzz"
-cd /pentest/fuzzers && svn checkout http://wfuzz.googlecode.com/svn/trunk/ wfuzz
-cd /pentest/fuzzers/wfuzz && chmod 700 wfuzz.py
 fi
 if [ ! -d /pentest/web/fimap ] ; then
 echo "Installing fimap"
@@ -54,10 +36,10 @@ cd /pentest/web && git clone https://github.com/andresriancho/w3af.git w3af
 sudo pip install PyGithub GitPython pybloomfiltermmap esmre pdfminer futures guess-language cluster msgpack-python python-ntlm clamd xdot
 sudo pip install -e git+git://github.com/ramen/phply.git#egg=phply
 fi
-if [ ! -d /pentest/web/waffit/.svn ] ; then
+if [ ! -d /pentest/web/wafw00f ] ; then
 echo "Installing waffit"
-cd /pentest/web && svn checkout http://waffit.googlecode.com/svn/trunk/ waffit
-cd /pentest/web/waffit && chmod 700 wafw00f.py
+cd /pentest/web && git clone https://github.com/EnableSecurity/wafw00f.git
+cd /pentest/web/wafw00f && chmod 700 wafw00f.py
 fi
 if [ ! -d /pentest/fuzzers/sulley ] ; then
 echo "Installing Sulley"
@@ -77,10 +59,7 @@ echo "Installing the Harvester"
 cd /pentest/enumeration && git clone https://github.com/laramies/theHarvester.git 
 cd /pentest/enumeration/theHarvester && chmod 755 theHarvester.py
 fi
-if [ ! -d /pentest/web/sslyze ] ; then
-cd /pentest/web && git clone https://github.com/iSECPartners/sslyze.git
-fi
-if [ ! -d /var/www/html/beef/.git/ ] ; then
+if [ ! -d /var/www/html/beef ] ; then
 echo "Installing Beef"
 cd /var/www/html && sudo git clone https://github.com/beefproject/beef.git
 fi
@@ -88,7 +67,7 @@ if [ ! -d /pentest/enumeration/fierce2 ] ; then
 echo "Installing Fierce2"
 cd /pentest/enumeration && svn co https://svn.assembla.com/svn/fierce/fierce2/trunk/ fierce2
 cd fierce2 && sudo cpanm --installdeps .
-perl Makefile.PL && make
+sudo perl Makefile.PL && make
 sudo make install
 fi
 if [ ! -d /pentest/wireless/kismet ] ; then
@@ -106,17 +85,13 @@ sudo make install && sudo airodump-ng-oui-update
 fi
 if [ ! -d /pentest/wireless/reaver ] ; then
 echo "Installing Reaver"
-cd /pentest/wireless && svn checkout http://reaver-wps.googlecode.com/svn/trunk/ reaver
+cd /pentest/wireless && git clone https://github.com/gabrielrcouto/reaver-wps.git reaver
 cd /pentest/wireless/reaver/src && ./configure
-make
-fi
-if [ ! -d /pentest/web/captcha-breaker ] ; then
-echo "Installing Captcha Breaker"
-cd /pentest/web && svn checkout http://captcha-breaker.googlecode.com/svn/trunk/ captcha-breaker
+make && sudo make install
 fi
 if [ ! -d /pentest/enumeration/dnsmap ] ; then
 echo "Installing DNSMap"
-cd /pentest/enumeration && svn checkout http://dnsmap.googlecode.com/svn/trunk/ dnsmap
+cd /pentest/enumeration && git clone https://github.com/makefu/dnsmap.git
 cd /pentest/enumeration/dnsmap && gcc -o dnsmap dnsmap.c
 fi
 if [ ! -d /pentest/database/sqlmap ] ; then
@@ -133,7 +108,7 @@ cd /pentest/web && svn co https://svn.code.sf.net/p/laudanum/code/ laudanum
 fi
 if [ ! -d /pentest/fuzzers/fuzzdb ] ; then
 echo "Installing FuzzDB"
-cd /pentest/fuzzers && svn checkout http://fuzzdb.googlecode.com/svn/trunk/ fuzzdb
+cd /pentest/fuzzers && git clone https://github.com/fuzzdb-project/fuzzdb.git
 fi
 if [ ! -d /pentest/fuzzers/jbrofuzz ] ; then
 echo "Installing JBroFuzz"
@@ -156,15 +131,11 @@ if [ ! -d /pentest/fuzzers/wsfuzzer ] ; then
 echo "Installing WSFuzzer"
 cd /pentest/fuzzers && svn checkout svn://svn.code.sf.net/p/wsfuzzer/code/trunk wsfuzzer
 fi
-if [ ! -d /pentest/passwords/pyrit ] ; then
+if [ ! -d /pentest/passwords/Pyrit ] ; then
 echo "Installing Pyrit"
-cd /pentest/passwords && svn co http://pyrit.googlecode.com/svn/trunk/ pyrit
-cd /pentest/passwords/pyrit/pyrit && python setup.py build 
+cd /pentest/passwords && git clone https://github.com/JPaulMora/Pyrit.git
+cd /pentest/passwords/Pyrit/pyrit && python setup.py build 
 sudo python setup.py install
-fi
-if [ ! -d /pentest/exploits/middler ] ; then
-echo "Installing Middler"
-cd /pentest/exploits && svn checkout http://middler.googlecode.com/svn/trunk/ middler
 fi
 if [ ! -d /pentest/exploits/keimpx ] ; then
 echo "Installing keimpx"
@@ -177,7 +148,7 @@ fi
 if [ ! -d /pentest/web/wpscan ] ; then
 echo "Installing Wordpress Scanner"
 cd /pentest/web && git clone https://github.com/wpscanteam/wpscan.git
-bundle install --without test development
+cd wpscan && bundle install --without test development
 fi
 if [ ! -f /usr/local/bin/smbclient.py ] ; then
 echo "Installing Impacket"
@@ -196,9 +167,7 @@ fi
 if [ ! -d /pentest/scanners/nmap ] ; then
 echo "Installing nmap and ncrack"
 cd /pentest/scanners && svn co https://svn.nmap.org/nmap nmap
-cd /pentest/scanners/nmap && ./configure --without-zenmap --without-ncat
-make && sudo make install
-cd ncat/ && ./configure
+cd /pentest/scanners/nmap && ./configure --without-zenmap
 make && sudo make install
 fi
 if [ ! -d /pentest/passwords/ntlmsspparse ] ; then
@@ -223,7 +192,7 @@ cd /pentest/enumeration && git clone git://github.com/borkmann/netsniff-ng.git
 fi
 if [ ! -d /pentest/voip/sipvicious ] ; then
 echo "Installing SIPVicious"
-cd /pentest/voip && svn checkout http://sipvicious.googlecode.com/svn/trunk/ sipvicious
+cd /pentest/voip && git clone https://github.com/EnableSecurity/sipvicious.git
 fi
 if [ ! -d /pentest/web/sslsplit ] ; then
 echo "Installing SSL Split"
@@ -249,40 +218,30 @@ if [ ! -d /pentest/passwords/PCredz ] ; then
 echo "Installing PCredz"
 cd /pentest/passwords && git clone https://github.com/lgandx/PCredz.git
 fi
-if [ ! -d /pentest/voip/viproy ] ; then
-echo "Installing Viproy"
-cd /pentest/voip/ && git clone https://github.com/fozavci/viproy-voipkit.git viproy
-cd /pentest/voip/viproy
-cp lib/msf/core/auxiliary/* /pentest/exploits/framework3/lib/msf/core/auxiliary/
-echo "require 'msf/core/auxiliary/sip'" >> /pentest/exploits/framework3/lib/msf/core/auxiliary/mixins.rb
-echo "require 'msf/core/auxiliary/skinny'" >> /pentest/exploits/framework3/lib/msf/core/auxiliary/mixins.rb
-cp modules/auxiliary/voip/viproy* /pentest/exploits/framework3/modules/auxiliary/voip/
-cp modules/auxiliary/spoof/cisco/viproy_cdp.rb /pentest/exploits/framework3/modules/auxiliary/spoof/cisco/
-echo "You can execute msfconsole now. Viproy modules placed under auxiliary/voip/viproy*"
-fi
+#if [ ! -d /pentest/voip/viproy ] ; then
+#echo "Installing Viproy"
+#cd /pentest/voip/ && git clone https://github.com/fozavci/viproy-voipkit.git viproy
+#cd /pentest/voip/viproy
+#cp lib/msf/core/auxiliary/* /pentest/exploits/framework3/lib/msf/core/auxiliary/
+#echo "require 'msf/core/auxiliary/sip'" >> /pentest/exploits/framework3/lib/msf/core/auxiliary/mixins.rb
+#echo "require 'msf/core/auxiliary/skinny'" >> /pentest/exploits/framework3/lib/msf/core/auxiliary/mixins.rb
+#cp modules/auxiliary/voip/viproy* /pentest/exploits/framework3/modules/auxiliary/voip/
+#cp modules/auxiliary/spoof/cisco/viproy_cdp.rb /pentest/exploits/framework3/modules/auxiliary/spoof/cisco/
+#echo "You can execute msfconsole now. Viproy modules placed under auxiliary/voip/viproy*"
+#fi
 if [ ! -d /pentest/exploits/pth-toolkit ] ; then
 echo "Installing the PTH Toolkit"
 cd /pentest/exploits && git clone https://github.com/byt3bl33d3r/pth-toolkit.git
-fi
-if [ ! -d /pentest/exploits/smbexec ] ; then
-echo "Installing smbexec"
-cd /pentest/temp && git clone https://github.com/pentestgeek/smbexec.git
-cd smbexec && sudo ./install.sh
-ln -s /opt/smbexec/ /pentest/exploits/smbexec && bundle install
 fi
 if [ ! -d /pentest/passwords/gpp-decrypt ] ; then
 echo "Installing gpp-dercypt"
 cd /pentest/passwords && git clone git://git.kali.org/packages/gpp-decrypt.git
 fi
-if [ ! -d /pentest/passwords/hash-identifier ] ; then
-echo "Installing hash identifier"
-cd /pentest/passwords && svn checkout http://hash-identifier.googlecode.com/svn/trunk/ hash-identifier
-fi
-if [ ! -d /pentest/exploits/aesshell ] ; then
+if [ ! -d /pentest/web/aesshell ] ; then
 echo "Installing AES Shell"
 cd /pentest/temp && wget https://dl.packetstormsecurity.net/UNIX/penetration/rootkits/aesshell-0.7.tar.bz2 --no-check-certificate
 bunzip2 aesshell-0.7.tar.bz2 && tar xvf aesshell-0.7.tar
-rm -rf aesshell-0.7.tar && mv aesshell/ /pentest/exploits
+rm -rf aesshell-0.7.tar && mv aesshell/ /pentest/web
 fi
 if [ ! -d /pentest/cisco/cisco-SNMP-enumeration ] ; then
 echo "Installing Cisco SNMP Enum"
@@ -363,10 +322,6 @@ echo "Installing CrackMapExec"
 cd /pentest/exploits && git clone https://github.com/byt3bl33d3r/CrackMapExec.git
 cd CrackMapExec && sudo python setup.py install
 fi
-if [ ! -d /pentest/web/tplmap ] ; then
-echo "Installing tplmap"
-cd /pentest/web && git clone https://github.com/epinna/tplmap.git
-fi
 if [ ! -d /pentest/misc/Cheatsheets ] ; then
 echo "Installing Cheatsheet collection"
 cd /pentest/misc && git clone https://github.com/jshaw87/Cheatsheets.git
@@ -390,6 +345,41 @@ fi
 if [ ! -d /pentest/exploits/spraywmi ] ; then
 echo "Installing spraywmi"
 cd /pentest/exploits && git clone https://github.com/trustedsec/spraywmi.git
+fi
+if [ ! -d /pentest/exploits/Veil-Catapult ] ; then
+echo "Installing Veil Catapult"
+cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Catapult.git 
+sudo /pentest/exploits/Veil-Catapult/setup.sh
+fi
+if [ ! -d /pentest/exploits/Veil-Evasion ] ; then
+echo "Installing Veil Evasion"
+cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Evasion.git 
+sudo /pentest/exploits/Veil-Evasion/setup/setup.sh
+fi
+if [ ! -d /pentest/exploits/Veil-PowerView ] ; then
+echo "Installing Veil PowerView"
+cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-PowerView.git
+fi
+if [ ! -d /pentest/exploits/smbexec ] ; then
+echo "Installing smbexec"
+cd /pentest/temp && git clone https://github.com/pentestgeek/smbexec.git
+cd smbexec && sudo ./install.sh
+ln -s /opt/smbexec/ /pentest/exploits/smbexec && bundle install
+fi
+if [ ! -d /pentest/enumeration/rdp-sec-check ] ; then
+echo "Installing RDP Security Checker"
+cd /pentest/enumeration/ && git clone https://github.com/portcullislabs/rdp-sec-check.git
+fi
+if [ ! -d /pentest/enumeration/enum4linux ] ; then
+echo "Installing Windows Enum Tools"
+cd /pentest/enumeration/ && git clone https://github.com/portcullislabs/enum4linux.git
+cd /pentest/temp && wget http://labs.portcullis.co.uk/download/polenum-0.2.tar.bz2 --no-check-certificate
+bunzip2 polenum-0.2.tar.bz2 && tar xvf polenum-0.2.tar
+rm -rf polenum-0.2.tar && sudo mv polenum-0.2/polenum.py /usr/local/bin/
+sudo chmod 755 /usr/local/bin/polenum.py && rm -rf rm -rf polenum-0.2/
+fi
+if [ ! -d /pentest/misc/pentest-tools/ ] ; then
+cd /pentest/misc && git clone https://github.com/joshuaskorich/pentest-tools.git
 fi
 #
 echo "Installing local tools"

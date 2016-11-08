@@ -2,9 +2,9 @@ echo "Static software package installation beginning"
 #
 if [ ! -d /pentest/web/zap ] ; then
 echo "Installing ZED Attack Proxy"
-cd /pentest/temp && wget https://github.com/zaproxy/zaproxy/releases/download/2.4.2/ZAP_2.4.2_Linux.tar.gz
-tar xvf ZAP_2.4.2_Linux.tar.gz && rm -rf ZAP_2.4.2_Linux.tar.gz
-mv ZAP_2.4.2/ /pentest/web/zap
+cd /pentest/temp && wget https://github.com/zaproxy/zaproxy/releases/download/2.5.0/ZAP_2.5.0_Linux.tar.gz
+tar xvf ZAP_2.5.0_Linux.tar.gz && rm -rf ZAP_2.5.0_Linux.tar.gz
+mv ZAP_2.5.0/ /pentest/web/zap
 fi
 if [ ! -d /pentest/scanners/snmp ] ; then
 echo "Installing OneSixtyOne & snmpcheck"
@@ -16,22 +16,9 @@ cd /pentest/scanners/snmp/onesixtyone && gcc -o onesixtyone onesixtyone.c
 cd /pentest/scanners/snmp && wget http://www.nothink.org/perl/snmpcheck/downloads/snmpcheck-1.8.pl -O snmpcheck.pl
 chmod 700 /pentest/scanners/snmp/snmpcheck.pl
 fi
-if [ ! -d /pentest/cisco/cge ] ; then
-echo "Installing Cisco Global Exploiter"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/0405-exploits/cge-13.tar.gz --no-check-certificate
-tar zxvf cge-13.tar.gz && rm -rf cge-13.tar.gz
-mv cge-13/ /pentest/cisco/cge && cd /pentest/cisco/cge
-chmod 700 cge.pl && dos2unix cge.pl
-fi
 if [ ! -f /pentest/cisco/copy-router-config.pl ] ; then
 cd /pentest/cisco && wget http://littlehacker.persiangig.com/cisco/copy-router-config.pl
 chmod 755 copy-router-config.pl
-fi
-if [ ! -d /pentest/web/stompy ] ; then
-echo "Installing Stompy"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/web/stompy.tgz --no-check-certificate
-tar zxvf stompy.tgz && rm -rf stompy.tgz
-mv stompy /pentest/web/
 fi
 if [ ! -d /pentest/wireless/asleap ] ; then
 echo "Installing asleap"
@@ -39,10 +26,6 @@ cd /pentest/wireless/ && wget http://www.willhackforsushi.com/code/asleap/2.2/as
 tar zxvf asleap-2.2.tgz && rm -rf asleap-2.2.tgz
 mv asleap-2.2/ asleap/ && cd asleap/
 make
-fi
-if [ ! -f /pentest/wireless/eapmd5crack.py ] ; then
-echo "Installing EAP MD5 Crack"
-cd /pentest/wireless && wget http://ptscripts.googlecode.com/svn/trunk/eapmd5crack.py
 fi
 if [ ! -d /pentest/wireless/hostapd-2.2 ] ; then
 echo "Installing Hostapd-WPE"
@@ -53,24 +36,10 @@ cd hostapd-2.2 && patch -p1 < ../hostapd-wpe/hostapd-wpe.patch
 cd hostapd && make
 cd ../../hostapd-wpe/certs && ./bootstrap
 fi
-#if [ ! -d /pentest/voip/smap ] ; then
-#echo "Installing SMAP"
-#cd /pentest/temp && wget http://www.protectors.cc/blog/uploads/vapt/smap.tar.gz
-#tar zxvf smap.tar.gz && rm -rf smap.tar.gz
-#mv smap/ /pentest/voip/smap
-#cd /pentest/voip/smap && make
-#fi
-
 if [ ! -f /pentest/database/sqlbrute.py ] ; then
 echo "Installing SQLBrute"
 cd /pentest/database && wget http://packetstorm.foofus.com/UNIX/scanners/sqlbrute.py.txt -O sqlbrute.py
 cd /pentest/database && chmod 700 sqlbrute.py
-fi
-if [ ! -d /pentest/voip/ace ] ; then
-cd /pentest/temp && wget http://prdownloads.sourceforge.net/ucsniff/ace/ace-1.10.tar.gz
-tar xvf ace-1.10.tar.gz && rm -rf ace-1.10.tar.gz
-mv ace-1.10 /pentest/voip/ace
-cd /pentest/voip/ace && make
 fi
 if [ ! -d /pentest/database/tnspoison ] ; then
 echo "Installing TNS Poison"
@@ -78,15 +47,6 @@ cd /pentest/database && mkdir tnspoison
 cd tnspoison/ && wget http://www.joxeankoret.com/download/tnspoison.zip
 unzip tnspoison.zip && rm -rf tnspoison.zip
 fi
-#if [ ! -d /pentest/voip/ucsniff ] ; then
-#cd /pentest/temp && wget http://prdownloads.sourceforge.net/ucsniff/ucsniff-3.10.tar.gz
-#tar xvf ucsniff-3.10.tar.gz && rm -rf ucsniff-3.10.tar.gz
-#mv ucsniff-3.10 /pentest/voip/ucsniff && cd /pentest/voip/ucsniff
-#libtoolize --copy --force && ./configure
-#fi
-#
-#videosnarf pending
-#
 if [ ! -d /pentest/voip/enumiax ] ; then
 cd /pentest/temp && wget http://prdownloads.sourceforge.net/enumiax/enumiax-1.0.tar.gz
 tar zxvf enumiax-1.0.tar.gz && rm -rf enumiax-1.0.tar.gz
@@ -99,15 +59,6 @@ cd /pentest/temp && wget http://dl.packetstormsecurity.net/sniffers/rtpbreak-1.3
 tar zxvf rtpbreak-1.3a.tgz && rm -rf rtpbreak-1.3a.tgz
 mv rtpbreak-1.3a /pentest/voip/rtpbreak 
 cd /pentest/voip/rtpbreak && make
-fi
-if [ ! -d /pentest/voip/voipong ] ; then
-echo "Installing VOIPong"
-cd /pentest/temp && wget http://www.enderunix.org/voipong/voipong-2.0.tar.gz
-tar zxvf voipong-2.0.tar.gz && rm -rf voipong-2.0.tar.gz
-mv voipong-2.0/ /pentest/voip/voipong
-cd /pentest/voip/voipong
-mv Makefile.linux makefile && make
-sudo make install
 fi
 if [ ! -d /pentest/enumeration/thc-ipv6 ] ; then
 echo "Installing THC IPv6"
@@ -143,54 +94,11 @@ cd snmpenum && wget http://dl.packetstormsecurity.net/UNIX/scanners/snmpenum.zip
 unzip snmpenum.zip && rm -rf snmpenum.zip
 chmod 700 snmpenum.pl
 fi
-if [ ! -d /pentest/enumeration/firewalk ] ; then
-echo "Installing Firewalk"
-cd /pentest/temp && wget http://packetfactory.openwall.net/firewalk/dist/firewalk.tar.gz
-tar zxvf firewalk.tar.gz && rm -rf firewalk.tar.gz
-mv Firewalk/ /pentest/enumeration/firewalk 
-cd /pentest/enumeration/firewalk
-touch src/firewalk.good && touch include/firewalk.h.1
-touch include/firewalk.h.2 && touch  configure.1
-touch  configure.2 && touch configure.3
-touch  configure.4 && touch configure.5
-sed "192i\ break;" src/firewalk.c > src/firewalk.good
-rm -rf src/firewalk.c && mv src/firewalk.good src/firewalk.c
-cp SOURCE SOURCE.org
-sed "41d" SOURCE > SOURCE.1
-sed "41 i\#include <dumbnet.h>" SOURCE.1 > SOURCE.2
-rm -rf SOURCE && mv SOURCE.2 SOURCE
-rm -rf SOURCE.1 && rm -rf SOURCE.ORG
-sed "41d" include/firewalk.h > include/firewalk.h.1
-sed "41 i\#include <dumbnet.h>" include/firewalk.h.1 > include/firewalk.h.2
-rm -rf include/firewalk.h && mv include/firewalk.h.2 include/firewalk.h
-rm -rf include/firewalk.h.1
-sed "2370d" configure > configure.1
-sed '2370 i\LIBS="-ldumbnet  $LIBS"' configure.1 > configure.2
-sed "2406d" configure.2 > configure.3
-sed "2406 i\ac_cv_lib_dnet_arp_get=yes" configure.3 > configure.4
-sed "2418d" configure.4 > configure.5
-sed '2418 i\LIBS="-ldumbnet $LIBS"' configure.5 > configure.6
-rm -rf configure && mv configure.6 configure
-rm -rf configure.1 && rm -rf configure.2
-rm -rf configure.3 && rm -rf configure.4
-rm -rf configure.5 && chmod +x configure
-./configure
-make && sudo make install
-sudo cp man/firewalk.8 /usr/local/man/man8
-fi
 if [ ! -d /pentest/audit/graudit ] ; then
 echo "Installing Grep Auditing Utility"
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/security/graudit-1.9.tar.gz --no-check-certificate
 tar zxvf graudit-1.9.tar.gz && rm graudit-1.9.tar.gz
 mv graudit-1.9/ /pentest/audit/graudit
-fi
-if [ ! -d /pentest/audit/rats ] ; then
-echo "Rough Auditing Tool for Security"
-cd /pentest/temp && wget https://www.fortify.com/downloads2/public/rats-2.3.tar.gz
-tar zxvf rats-2.3.tar.gz && rm -rf rats-2.3.tar.gz
-mv rats-2.3 /pentest/audit/rats && cd /pentest/audit/rats
-./configure && make
-sudo make install
 fi
 if [ ! -d /pentest/audit/nipper ] ; then
 echo "Installing Nipper"
@@ -200,18 +108,10 @@ mv nipper-0.11.7/ /pentest/audit/nipper
 cd /pentest/audit/nipper && make
 sudo make install
 fi
-if [ ! -d /pentest/audit/rat ] ; then
-echo "Installing CIS Router Auditing Tool"
-cd /pentest/temp && wget --no-check-certificate https://community.cisecurity.org/download/?redir=/cisco/rat-2.2-dist.sh.gz -O rat.gz
-gunzip rat.gz && rm -rf rat.gz
-chmod 700 rat
-./rat && mv rat-2.2P/ /pentest/audit/rat
-rm -rf rat
-fi
 if [ ! -d /pentest/audit/rips ] ; then
 echo "Downloading RIPS PHP Static Source Code Analyzer"
-cd /pentest/audit && mkdir rips
-cd /pentest/audit/rips && wget http://sourceforge.net/projects/rips-scanner/files/rips-0.40.zip/download -O rips.zip
+cd /pentest/audit && wget http://sourceforge.net/projects/rips-scanner/files/rips-0.55.zip/download -O rips.zip
+unzip rips.zip && rm rips.zip
 fi
 if [ ! -d /pentest/wireless/cowpatty ] ; then
 echo "Installing CowPatty"
@@ -241,26 +141,6 @@ cd /pentest/temp && wget http://www.digininja.org/files/cewl_4.1.tar.bz2
 bunzip2 cewl_4.1.tar.bz2 && tar xvf cewl_4.1.tar
 mv cewl/ /pentest/passwords/ && rm -rf cewl_4.1.tar
 fi
-#if [ ! -d /pentest/enumeration/bile ] ; then
-#echo "Installing Bile"
-#mkdir /pentest/enumeration/bile && cd /pentest/enumeration/bile
-#wget http://www.sensepost.com/cms/resources/labs/tools/misc/BiLE-suite.tgz && tar zxvf BiLE-suite.tgz
-#rm -rf BiLE-suite.tgz && wget http://www.sensepost.com/cms/resources/labs/tools/misc/go.pl -O proxyscan.pl
-#chmod 700 proxyscan.pl
-#fi
-if [ ! -d /pentest/enumeration/httprint ] ; then
-echo "Installing HTTPrint"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/httprint_linux_301.zip --no-check-certificate
-unzip httprint_linux_301.zip && rm -rf httprint_linux_301.zip
-mv httprint_301/linux /pentest/enumeration/httprint
-cd /pentest/temp && rm -rf httprint_301/
-fi
-if [ ! -d /pentest/web/flare ] ; then
-echo "Installing Flare"
-cd /pentest/web && mkdir flare
-cd /pentest/web/flare && wget http://www.nowrap.de/download/flare06linux.tgz
-tar xvf flare06linux.tgz && rm -rf flare06linux.tgz
-fi
 if [ ! -d /pentest/exploits/windows-tools ] ; then
 echo "Installing Windows Tools"
 cd /pentest/exploits && mkdir windows-tools
@@ -282,18 +162,6 @@ mkdir /pentest/enumeration/ike
 mv ikeprobe.exe /pentest/enumeration/ike/ && mv libeay32.dll /pentest/enumeration/ike/
 cd /pentest/enumeration/ike && wget http://prdownloads.sourceforge.net/project/ikecrack/ikecrack-perl/1.00/ikecrack-snarf-1.00.pl
 fi
-if [ ! -d /pentest/enumeration/gggooglescan ] ; then
-echo "Installing gggooglescan"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/gggooglescan-0.4.tar.gz --no-check-certificate
-tar zxvf gggooglescan-0.4.tar.gz && rm -rf gggooglescan-0.4.tar.gz
-mv gggooglescan-0.4 /pentest/enumeration/gggooglescan
-fi
-if [ ! -d /pentest/enumeration/rdp-sec-check ] ; then
-echo "Installing RDP Security Checker"
-cd /pentest/temp && wget http://labs.portcullis.co.uk/download/rdp-sec-check-0.8.tar.gz --no-check-certificate
-tar xvf rdp-sec-check-0.8.tar.gz && rm -rf rdp-sec-check-0.8.tar.gz
-mv rdp-sec-check-0.8 /pentest/enumeration/rdp-sec-check
-fi
 if [ ! -d /pentest/wireless/hwk ] ; then
 echo "Installing HWK Wireless Auditing Tool"
 cd /pentest/temp && wget http://prdownloads.sourceforge.net/project/hwk/hwk_0.3.2.tar.gz
@@ -303,44 +171,14 @@ cd /pentest/wireless/hwk && make
 fi
 if [ ! -d /pentest/web/mantra ] ; then
 echo "Installing OWASP Mantra"
-cd /pentest/temp && wget http://getmantra.googlecode.com/files/Mantra%20Lexicon%20Lin32%20EN.tar.bz2 -O MantraLexicon.tar.bz2
-bunzip2 MantraLexicon.tar.bz2 && tar xvf MantraLexicon.tar
-rm -rf MantraLexicon.tar && mv OWASP\ Mantra\ -\ Lexicon\ -en\ 32\ bit\ Linux/ /pentest/web/mantra
-fi
-if [ ! -f /pentest/enumeration/mdns.py ] ; then
-echo "Installing mDNS Scanner"
-cd /pentest/enumeration && wget http://www.gnucitizen.org/static/blog/2008/01/mdns.py
-cd /pentest/temp && wget http://pybonjour.googlecode.com/files/pybonjour-1.1.1.tar.gz
-tar xvf pybonjour-1.1.1.tar.gz && rm -rf pybonjour-1.1.1.tar.gz
-cd pybonjour-1.1.1/ && sudo python setup.py install
-cd /pentest/temp && sudo rm -rf pybonjour-1.1.1
-fi
-if [ ! -d /pentest/enumeration/win-enum ] ; then
-echo "Installing Windows Enum Tools"
-cd /pentest/temp && wget http://labs.portcullis.co.uk/download/enum4linux-0.8.9.tar.gz --no-check-certificate
-tar xvf enum4linux-0.8.9.tar.gz && rm -rf enum4linux-0.8.9.tar.gz
-mv enum4linux-0.8.9 /pentest/enumeration/win-enum
-cd /pentest/temp && wget http://labs.portcullis.co.uk/download/polenum-0.2.tar.bz2 --no-check-certificate
-bunzip2 polenum-0.2.tar.bz2 && tar xvf polenum-0.2.tar
-rm -rf polenum-0.2.tar && sudo mv polenum-0.2/polenum.py /usr/local/bin/
-sudo chmod 755 /usr/local/bin/polenum.py && rm -rf rm -rf polenum-0.2/
-fi
-if [ ! -d /pentest/database/bsqlbf/ ] ; then
-echo "Installing Blind SQL Brute Forcer"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/bsqlbf-v2.1.zip --no-check-certificate
-unzip bsqlbf-v2.1.zip && mv bsqlbf-v2.1/ /pentest/database/bsqlbf
+cd /pentest/temp && wget http://sourceforge.net/projects/getmantra/files/Mantra%20Security%20Toolkit/Janus%20-%200.92%20Beta/OWASP%20Mantra%20Janus%20Linux%2064.tar.gz/download -O MantraLexicon.tar.gz
+tar zxvf MantraLexicon.tar.gz && rm -rf MantraLexicon.tar.gz
+./OWASP\ Mantra-0.92-Linux-x86_64-Install
 fi
 if [ ! -f /pentest/exploits/windows-tools/wce.exe ] ; then
 echo "Installing Windows Credential Editor"
-cd /pentest/exploits/windows-tools && wget http://www.ampliasecurity.com/research/wce_v1_41beta_x64.zip
-unzip wce_v1_41beta_x64.zip && rm -rf wce_v1_41beta_x64.zip Changelog LICENSE.txt
-#rm 
-fi
-if [ ! -d /pentest/enumeration/apache_userdir ] ; then
-echo "Installing Apache UserDir Enumerator"
-cd /pentest/temp && wget http://labs.portcullis.co.uk/download/apache_users-2.1.tar.gz --no-check-certificate
-tar xvf apache_users-2.1.tar.gz && rm -rf apache_users-2.1.tar.gz
-mv apache_users /pentest/enumeration/apache_userdir
+cd /pentest/exploits/windows-tools && wget http://www.ampliasecurity.com/research/wce_v1_42beta_x64.zip
+unzip wce_v1_42beta_x64.zip && rm -rf wce_v1_42beta_x64.zip Changelog LICENSE.txt
 fi
 if [ ! -d /pentest/web/aspshell ] ; then
 echo "Installing ASPshell"
@@ -358,14 +196,10 @@ cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/svn-ext
 unzip svn-extractor-master.zip && mv svn-extractor-master/ /pentest/web/svn-extractor
 rm -rf svn-extractor-master*
 fi
-if [ ! -f /pentest/enumeration/shodan.pl ] ; then
-cd /pentest/enumeration && wget http://dl.packetstormsecurity.net/UNIX/scanners/Shodan_Tool.zip --no-check-certificate
-unzip Shodan_Tool.zip && rm -rf Shodan_Tool.zip
-fi
 if [ ! -d /pentest/exploits/armitage ] ; then
 echo "Installing Armitage"
-cd /pentest/temp && wget http://www.fastandeasyhacking.com/download/armitage141120.tgz
-tar xvf armitage141120.tgz  && mv armitage/ /pentest/exploits
+cd /pentest/temp && wget http://www.fastandeasyhacking.com/download/armitage150813.tgz
+tar xvf armitage150813.tgz  && mv armitage/ /pentest/exploits
 echo "Be sure to edit the database.yml file in /opt/metasploit/apps/pro/ui/config/"
 fi
 echo "Static Code installation complete"
