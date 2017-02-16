@@ -17,10 +17,8 @@ cd /pentest/temp && sudo rm -rf impacket
 fi
 if [ ! -d /pentest/scanners/nmap ] ; then
 echo "Installing nmap and ncrack"
-cd /pentest/scanners && svn co https://svn.nmap.org/nmap nmap
-cd nmap && ./configure --without-zenmap
-make && sudo make install
-cd ncat/ && ./configure
+cd /pentest/scanners && git clone https://github.com/nmap/nmap.git 
+cd nmap && ./configure
 make && sudo make install
 fi
 if [ ! -d /pentest/exploits/framework3 ] ; then
