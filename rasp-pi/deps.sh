@@ -3,17 +3,14 @@ sudo apt-get install ufw -y
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
 sudo ufw allow ssh
-cat /etc/ufw/ufw.conf | sed 's/ENABLED=no/ENABLED=yes/g' > ~/ufw.conf
-chmod 644 ~/ufw.conf
-sudo mv -f ~/ufw.conf /etc/ufw/ufw.conf
-sudo ufw reload
+sudo ufw enable
 
 echo "Installing Packages"
 sudo apt-get install -y mysql-server subversion git ncftp p7zip-full iw ethtool dos2unix postgresql
 sudo apt-get install -y sqlite3 nbtscan dsniff libncurses-dev libpcap-dev libssl-dev hping3 openssh-server
 sudo apt-get install -y python-dev autoconf open-iscsi wireshark isc-dhcp-server locate libusb-dev
 sudo apt-get install -y webhttrack finger rusers snmp reglookup gpsd libgps-dev apache2 libnet-ssh-perl
-sudo apt-get install -y php5-mysql libapache2-mod-php5 curl sslscan libpq-dev libxml2-dev vim python-setuptools
+sudo apt-get install -y kismet curl sslscan libpq-dev libxml2-dev vim python-setuptools
 sudo apt-get install -y python-soappy python-lxml python-svn python-scapy gtk2-engines-pixbuf graphviz python-gtksourceview2
 sudo apt-get install -y libssh-dev libmysqlclient-dev libpcre3-dev firebird-dev libsvn-dev libidn11-dev libcurl4-gnutls-dev
 sudo apt-get install -y libxslt1-dev sipcrack libgmp3-dev python-mysqldb libnet1-dev flasm registry-tools
@@ -38,18 +35,18 @@ sudo make install
 fi
 if [ ! -f /usr/local/bin/cpanm ] ; then
 echo "Installing CPANimus"
-cd /pentest/temp && git clone git://github.com/miyagawa/cpanminus.git
+cd /pentest/temp && git clone https://github.com/miyagawa/cpanminus.git 
 cd cpanminus && perl Makefile.PL
 make && sudo make install
 cd /pentest/temp && rm -rf cpanminus/
 fi
 if [ ! -f /usr/local/lib/perl/5.18.2/Math/Pari.pm ] ; then
 echo "Installing PERL Libraries"
-cd /pentest/temp && wget http://pkgs.fedoraproject.org/repo/pkgs/perl-Math-Pari/pari-2.1.7.tgz/357b7a42e89e2761a5367bbcbfcca5f2/pari-2.1.7.tgz
-tar xvf pari-2.1.7.tgz && rm -rf pari-2.1.7.tgz
-cd pari-2.1.7/ && wget http://search.cpan.org/CPAN/authors/id/I/IL/ILYAZ/modules/Math-Pari-2.01080605.tar.gz
-tar xvf Math-Pari-2.01080605.tar.gz && rm -rf Math-Pari-2.01080605.tar.gz
-cd Math-Pari-2.01080605 && perl Makefile.PL
+cd /pentest/temp && wget ftp://pari.math.u-bordeaux.fr/pub/pari/unix/OLD/2.1/pari-2.1.7.tgz 
+tar xvf pari.tgz && rm -rf pari.tgz
+cd pari-2.9.0/ && wget http://search.cpan.org/CPAN/authors/id/I/IL/ILYAZ/modules/Math-Pari-2.01080900.zip 
+unzip Math-Pari-2.01080900.zip && rm -rf Math-Pari-2.01080900.zip
+cd Math-Pari-2.0108090z0 && perl Makefile.PL
 sudo make install
 else
 echo "Pari is installed, moving on"
