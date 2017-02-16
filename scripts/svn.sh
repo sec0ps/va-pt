@@ -166,8 +166,8 @@ cd /pentest/web && git clone https://github.com/SpiderLabs/jboss-autopwn.git
 fi
 if [ ! -d /pentest/scanners/nmap ] ; then
 echo "Installing nmap and ncrack"
-cd /pentest/scanners && svn co https://svn.nmap.org/nmap nmap
-cd /pentest/scanners/nmap && ./configure --without-zenmap
+cd /pentest/scanners && git clone https://github.com/nmap/nmap.git
+cd nmap && ./configure
 make && sudo make install
 fi
 if [ ! -d /pentest/passwords/ntlmsspparse ] ; then
