@@ -24,13 +24,13 @@ sudo apt-get install -y libbsd-dev unixodbc unixodbc-dev freetds-dev sqsh tdsodb
 sudo apt-get install -y squid python-libpcap ntpdate screen samba-common-bin upx whois libreadline-gplv2-dev libsqlite3-dev
 sudo apt-get install -y python-elixir zip tftp tftpd libfreerdp-dev libssh2-1-dev mingw32-runtime mingw32-binutils python-pyasn1
 
-ruby -v | grep "2.1.5"
+ruby -v | grep "2.3.3"
 if [ $? -eq 1 ] ; then
-echo "Installing Ruby 2.1.5"
+echo "Installing Ruby 2.3.3"
 echo "This is going to take awhile, take a break..."
-cd /pentest/temp && wget http://cache.ruby-lang.org/pub/ruby/2.1/ruby-2.1.5.tar.gz
-tar xvf ruby-2.1.5.tar.gz && rm -rf ruby-2.1.5.tar.gz
-cd ruby-2.1.5 && ./configure && make
+cd /pentest/temp && wget wget https://cache.ruby-lang.org/pub/ruby/2.3/ruby-2.3.3.tar.gz
+tar xvf ruby-2.3.3.tar.gz && rm -rf ruby-2.3.3.tar.gz
+cd ruby-2.3.3 && ./configure && make
 sudo make install
 fi
 if [ ! -f /usr/local/bin/cpanm ] ; then
