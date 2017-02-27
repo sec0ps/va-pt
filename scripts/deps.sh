@@ -26,11 +26,13 @@ sudo apt-get install -y gcc-mingw-w64-i686 libsqlite3-dev tftp tftpd libfreerdp-
 
 #crunch
 
-if [ ! -d /usr/local/lib/ruby/gems/2.3.0 ] ; then
-echo "Installing Ruby 2.3.1"
-cd /pentest/temp && wget https://cache.ruby-lang.org/pub/ruby/2.3/ruby-2.3.1.tar.gz
-tar xvf ruby-2.3.1.tar.gz && rm -rf ruby-2.3.1.tar.gz
-cd ruby-2.3.1 && ./configure && make
+ruby -v | grep "2.3.3"
+if [ $? -eq 1 ] ; then
+echo "Installing Ruby 2.3.3"
+echo "This is going to take awhile, take a break..."
+cd /pentest/temp && wget wget https://cache.ruby-lang.org/pub/ruby/2.3/ruby-2.3.3.tar.gz
+tar xvf ruby-2.3.3.tar.gz && rm -rf ruby-2.3.3.tar.gz
+cd ruby-2.3.3 && ./configure && make
 sudo make install
 fi
 if [ ! -f /usr/local/bin/cpanm ] ; then
