@@ -10,7 +10,7 @@ sudo apt-get install -y mysql-server subversion git ncftp p7zip-full iw ethtool 
 sudo apt-get install -y sqlite3 nbtscan dsniff libncurses-dev libpcap-dev libssl-dev hping3 openssh-server
 sudo apt-get install -y python-dev autoconf open-iscsi wireshark isc-dhcp-server locate libusb-dev
 sudo apt-get install -y webhttrack finger rusers snmp reglookup gpsd libgps-dev apache2 libnet-ssh-perl
-sudo apt-get install -y kismet curl sslscan libpq-dev libxml2-dev vim python-setuptools
+sudo apt-get install -y kismet curl sslscan libpq-dev libxml2-dev vim python-setuptools network-manager
 sudo apt-get install -y python-soappy python-lxml python-svn python-scapy gtk2-engines-pixbuf graphviz python-gtksourceview2
 sudo apt-get install -y libssh-dev libmysqlclient-dev libpcre3-dev firebird-dev libsvn-dev libidn11-dev libcurl4-gnutls-dev
 sudo apt-get install -y libxslt1-dev sipcrack libgmp3-dev python-mysqldb libnet1-dev flasm registry-tools
