@@ -3,11 +3,11 @@ echo "Updating SET"
 cd /pentest/exploits/set && git pull
 echo "Updating Metasploit"
 cd /pentest/exploits/framework3 && git pull
-bundle install
+sudo bundle install && sudo chown -R $USER.$USER *
 echo "Updating w3af"
 cd /pentest/web/w3af && git pull 
-echo "Updating waffit"
-cd /pentest/web/waffit && git pull
+echo "Updating wafw00f"
+cd /pentest/web/wafw00f && git pull
 echo "Updating Sulley"
 cd /pentest/fuzzers/sulley && git pull 
 echo "Updating Nikto"
@@ -16,12 +16,8 @@ echo "Updating The Harvester"
 cd /pentest/enumeration/theHarvester && git pull
 echo "updating htshells"
 cd /pentest/web/htshells && git pull
-echo "Updating SSLyze"
-cd /pentest/web/sslyze && git pull
 echo "Updating WPScanner"
 cd /pentest/web/wpscan && git pull
-echo "Updating wfuzz"
-cd /pentest/fuzzers/wfuzz && git pull
 echo "Updating Beef"
 cd /var/www/html/beef && sudo git pull
 echo "Updating Fierce2"
@@ -29,31 +25,17 @@ cd /pentest/enumeration/fierce2 && svn up
 echo "Updating Kismet"
 cd /pentest/wireless/kismet && git pull
 echo "Updating Aircrack Tools"
-cd /pentest/wireless/aircrack-ng && svn up
+cd /pentest/wireless/aircrack-ng && git pull
 echo "Updating fimap"
 cd /pentest/web/fimap && git pull 
 echo "Updating SQL Map"
 cd /pentest/database/sqlmap && git pull
 echo "Updatign FuzzDB"
 cd /pentest/fuzzers/fuzzdb && git pull
-#echo "Updating WSFuzzer"
-#cd /pentest/fuzzers/wsfuzzer && svn up
-#echo "Updating Captcha Breaker"
-#cd /pentest/web/captcha-breaker && svn up
-#echo "Updating DNSMap"
-#cd /pentest/enumeration/dnsmap && svn up
-#echo "Updating Laudanum"
-#cd /pentest/web/laudanum && svn up
-#echo "Updating PHP Shell"
-#cd /pentest/web/phpshell && svn up
 echo "Updating DNS Enum"
 cd /pentest/enumeration/dnsenum && git pull 
-#echo "Updating Pyrit"
-#cd /pentest/passwords/pyrit && svn up
-#echo "Updating Middler"
-#cd /pentest/exploits/middler && svn up
-#echo "Updating keimpx"
-#cd /pentest/exploits/keimpx && git pull
+echo "Updating Pyrit"
+cd /pentest/passwords/Pyrit && git pull
 #echo "Updating SIPVicious"
 #cd /pentest/voip/sipvicious/ && svn up
 echo "Updating Router Defense"
@@ -62,8 +44,9 @@ echo "Updating Wifite"
 cd /pentest/wireless/wifite && git pull
 echo "Updating nmap, ncrack and ncat"
 cd /pentest/scanners/nmap && svn up
-cd /pentest/scanners/nmap/ncat && svn up
-cd /pentest/scanners/ncrack && svn up
+make clean && ./configure
+make && sudo make install
+sudo nmap --script-updatedb
 echo "Updating WhatWeb"
 cd /pentest/web/WhatWeb && git pull
 echo "Updating Responder"
@@ -85,18 +68,18 @@ echo "Updating THC-Hydra"
 cd /pentest/enumeration/hydra && git pull
 echo "Updating wifijammer"
 cd /pentest/wireless/wifijammer && git pull
-echo "Updating Veil Catapult"
-cd /pentest/exploits/Veil-Catapult && git pull
-echo "Updating Veil Evasion"
-cd /pentest/exploits/Veil-Evasion && git pull
-echo "Updating Veil PowerView"
-cd /pentest/exploits/Veil-PowerView && git pull
+#echo "Updating Veil Catapult"
+#cd /pentest/exploits/Veil-Catapult && git pull
+#echo "Updating Veil Evasion"
+#cd /pentest/exploits/Veil-Evasion && git pull
+#echo "Updating Veil PowerView"
+#cd /pentest/exploits/Veil-PowerView && git pull
 echo "Updating PCredz"
 cd /pentest/passwords/PCredz && git pull
 echo "Updating Recon-NG"
 cd /pentest/enumeration/recon-ng/ && git pull
 echo "Updating the ExploitDB archive"
-cd /pentest/exploits/exploitdb && git pull
+cd /pentest/exploits/exploit-database && git pull
 echo "Updating Passive Aggresive"
 cd /pentest/enumeration/pasv-agrsv && git pull
 echo "Updating Medusa"
@@ -119,8 +102,6 @@ echo "Updating CrackMapExec"
 cd /pentest/exploits/CrackMapExec && git pull
 echo Updating keimpx
 cd /pentest/exploits/keimpx && git pull
-echo "Updating tplmap"
-cd /pentest/web/tplmap && git pull
 echo "Updating Cheatsheet Collection"
 cd /pentest/misc/Cheatsheets && git pull
 echo "Updating BruteXSS"

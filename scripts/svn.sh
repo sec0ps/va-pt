@@ -37,7 +37,7 @@ sudo pip install PyGithub GitPython pybloomfiltermmap esmre pdfminer futures gue
 sudo pip install -e git+git://github.com/ramen/phply.git#egg=phply
 fi
 if [ ! -d /pentest/web/wafw00f ] ; then
-echo "Installing waffit"
+echo "Installing wafw00f"
 cd /pentest/web && git clone https://github.com/EnableSecurity/wafw00f.git
 cd /pentest/web/wafw00f && chmod 700 wafw00f.py
 fi
