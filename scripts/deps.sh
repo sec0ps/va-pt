@@ -2,7 +2,7 @@ echo "Installing UFW, denying all inbound services excluding ssh and allowing al
 sudo apt-get install ufw -y
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
-sudo ufw allow ssh
+sudo ufw allow 22/tcp
 sudo ufw enable
 
 echo "Installing Packages"
