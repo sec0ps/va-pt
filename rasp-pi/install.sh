@@ -7,6 +7,10 @@ if [[ $EUID -eq 1000 ]]; then
 echo "This script should not be run as the pi user. Make a personal account."
 exit 1
 fi
+sudo apt install ntpdate -y
+if [ ! -f /etc/network/if-up.d/ntpdate ] ; then
+sudo ntpdate time.nist.gov
+fi
 echo "Updating and Installing Raspian Updates"
 sudo apt-get update && sudo apt-get upgrade -y
 echo "Setting the pi user to nologin - please do not use the pi user"

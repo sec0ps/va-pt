@@ -3,6 +3,7 @@ if [[ $EUID -eq 0 ]]; then
 echo "This script should not be run as root.." 1>&2
 exit 1
 fi
+sudo apt install ntpdate -y
 if [ ! -f /etc/network/if-up.d/ntpdate ] ; then
 sudo ntpdate time.nist.gov
 fi
