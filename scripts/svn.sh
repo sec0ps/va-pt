@@ -378,6 +378,16 @@ bunzip2 polenum-0.2.tar.bz2 && tar xvf polenum-0.2.tar
 rm -rf polenum-0.2.tar && sudo mv polenum-0.2/polenum.py /usr/local/bin/
 sudo chmod 755 /usr/local/bin/polenum.py && rm -rf rm -rf polenum-0.2/
 fi
+if [ ! -d /pentest/wireless/cowpatty ] ; then
+echo "Installing CowPatty"
+cd /pentest/wireless && git clone https://github.com/roobixx/cowpatty.git
+make
+fi
+if [ ! -d /pentest/wireless/asleap ] ; then
+echo "Installing asleap"
+cd /pentest/wireless/ && git clone https://github.com/joswr1ght/asleap.git
+make
+fi
 if [ ! -d /pentest/misc/pentest-tools/ ] ; then
 cd /pentest/misc && git clone https://github.com/joshuaskorich/pentest-tools.git
 fi

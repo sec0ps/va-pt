@@ -2,30 +2,22 @@ echo "Static software package installation beginning"
 #
 if [ ! -d /pentest/web/zap ] ; then
 echo "Installing ZED Attack Proxy"
-cd /pentest/temp && wget https://github.com/zaproxy/zaproxy/releases/download/2.5.0/ZAP_2.5.0_Linux.tar.gz
-tar xvf ZAP_2.5.0_Linux.tar.gz && rm -rf ZAP_2.5.0_Linux.tar.gz
-mv ZAP_2.5.0/ /pentest/web/zap
+cd /pentest/temp && wget https://github.com/zaproxy/zaproxy/releases/download/2.6.0/ZAP_2.6.0_Linux.tar.gz
+tar xvf ZAP_2.6.0_Linux.tar.gz && rm -rf ZAP_2.6.0_Linux.tar.gz
+mv ZAP_2.6.0/ /pentest/web/zap
 fi
 if [ ! -d /pentest/scanners/snmp ] ; then
 echo "Installing OneSixtyOne & snmpcheck"
 mkdir /pentest/scanners/snmp
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/onesixtyone-0.3.tar.gz --no-check-certificate
 tar zxvf onesixtyone-0.3.tar.gz && rm -rf onesixtyone-0.3.tar.gz
-mv onesixtyone-0.3/ /pentest/scanners/snmp/onesixtyone
-cd /pentest/scanners/snmp/onesixtyone && gcc -o onesixtyone onesixtyone.c
+mv onesixtyone-0.3//snmp/onesixtyone && gcc -o onesixtyone onesixtyone.c
 cd /pentest/scanners/snmp && wget http://www.nothink.org/perl/snmpcheck/downloads/snmpcheck-1.8.pl -O snmpcheck.pl
 chmod 700 /pentest/scanners/snmp/snmpcheck.pl
 fi
 if [ ! -f /pentest/cisco/copy-router-config.pl ] ; then
 cd /pentest/cisco && wget http://littlehacker.persiangig.com/cisco/copy-router-config.pl
 chmod 755 copy-router-config.pl
-fi
-if [ ! -d /pentest/wireless/asleap ] ; then
-echo "Installing asleap"
-cd /pentest/wireless/ && wget http://www.willhackforsushi.com/code/asleap/2.2/asleap-2.2.tgz --no-check-certificate
-tar zxvf asleap-2.2.tgz && rm -rf asleap-2.2.tgz
-mv asleap-2.2/ asleap/ && cd asleap/
-make
 fi
 if [ ! -d /pentest/wireless/hostapd-2.2 ] ; then
 echo "Installing Hostapd-WPE"
@@ -112,13 +104,6 @@ if [ ! -d /pentest/audit/rips ] ; then
 echo "Downloading RIPS PHP Static Source Code Analyzer"
 cd /pentest/audit && wget http://sourceforge.net/projects/rips-scanner/files/rips-0.55.zip/download -O rips.zip
 unzip rips.zip && rm rips.zip
-fi
-if [ ! -d /pentest/wireless/cowpatty ] ; then
-echo "Installing CowPatty"
-cd /pentest/temp && wget http://www.willhackforsushi.com/code/cowpatty/4.6/cowpatty-4.6.tgz 
-tar zxvf cowpatty-4.6.tgz && rm -rf cowpatty-4.6.tgz
-mv cowpatty-4.6/ /pentest/wireless/cowpatty && cd /pentest/wireless/cowpatty
-make && sudo make install
 fi
 if [ ! -d /pentest/enumeration/dirbuster ] ; then
 cd /pentest/temp && wget http://downloads.sourceforge.net/project/dirbuster/DirBuster%20%28jar%20%2B%20lists%29/0.12/DirBuster-0.12.tar.bz2
