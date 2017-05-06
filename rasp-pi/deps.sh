@@ -23,6 +23,7 @@ sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dn
 sudo apt-get install -y libbsd-dev unixodbc unixodbc-dev freetds-dev sqsh tdsodbc autofs remmina remmina-plugin-rdp remmina-plugin-vnc
 sudo apt-get install -y squid python-libpcap ntpdate screen samba-common-bin upx whois libreadline-gplv2-dev libsqlite3-dev
 sudo apt-get install -y python-elixir zip tftp tftpd libfreerdp-dev libssh2-1-dev mingw32-runtime mingw32-binutils python-pyasn1
+sudo apt-get install -y openconnect
 
 ruby -v | grep "2.3.3"
 if [ $? -eq 1 ] ; then
