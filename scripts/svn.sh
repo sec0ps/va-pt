@@ -20,7 +20,7 @@ if [ ! -d /pentest/exploits/framework3 ] ; then
 echo "Installing Metasploit"
 cd /pentest/exploits && git clone https://github.com/rapid7/metasploit-framework.git framework3
 cd /pentest/exploits/framework3 && bundle install
-sudo chmod o+r /usr/local/lib/ruby/gems/2.3.0/gems/robots-0.10.1/lib/robots.rb
+sudo chmod o+r /var/lib/gems/2.3.0/gems/robots-0.10.1/lib/robots.rb
 fi
 if [ ! -d /pentest/web/wapiti ] ; then
 echo "Installing Wapiti"
@@ -39,7 +39,8 @@ fi
 if [ ! -d /pentest/web/wafw00f ] ; then
 echo "Installing wafw00f"
 cd /pentest/web && git clone https://github.com/EnableSecurity/wafw00f.git
-cd /pentest/web/wafw00f && chmod 700 wafw00f.py
+cd /pentest/web/wafw00f && sudo python setup.py install
+fi
 fi
 if [ ! -d /pentest/fuzzers/sulley ] ; then
 echo "Installing Sulley"
@@ -188,7 +189,7 @@ cd /pentest/web/ && svn checkout http://svn.code.sf.net/p/watobo/code/ watobo
 fi
 if [ ! -d /pentest/enumeration/netsniff-ng ] ; then
 echo "Installing Netsniff-ng"
-cd /pentest/enumeration && git clone git://github.com/borkmann/netsniff-ng.git
+cd /pentest/enumeration && git clone https://github.com/borkmann/netsniff-ng.git
 fi
 if [ ! -d /pentest/voip/sipvicious ] ; then
 echo "Installing SIPVicious"
@@ -261,13 +262,6 @@ fi
 if [ ! -d /pentest/enumeration/recon-ng ] ; then
 echo "Installing Recon-NG"
 cd /pentest/enumeration/ && git clone https://bitbucket.org/LaNMaSteR53/recon-ng.git
-fi
-if [ ! -d /pentest/scanners/arp-scan ] ; then
-echo "Installing arp-scan"
-cd /pentest/scanners/ && git clone https://github.com/royhills/arp-scan.git
-cd arp-scan && autoreconf --install
-./configure && make
-sudo make install
 fi
 if [ ! -d /pentest/enumeration/medusa ] ; then
 echo "Installing Medusa"
