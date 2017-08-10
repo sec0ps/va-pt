@@ -9,15 +9,15 @@ echo "Installing Packages"
 sudo apt-get install -y wine wine-dev mysql-server subversion git ncftp rar p7zip-full iw ethtool dos2unix gtk-recordmydesktop postgresql
 sudo apt-get install -y sqlite3 nbtscan dsniff libncurses-dev libpcap-dev libssl-dev hping3 openssh-server ruby-dev
 sudo apt-get install -y python-dev autoconf open-iscsi wireshark isc-dhcp-server locate libusb-dev g++ arp-scan
-sudo apt-get install -y webhttrack finger rusers snmp reglookup gpsd libgps-dev apache2 libnet-ssh-perl
-sudo apt-get install -y curl sslscan libpq-dev libxml2-dev vim python-setuptools libmicrohttpd-dev
+sudo apt-get install -y webhttrack finger rusers snmp reglookup gpsd libgps-dev apache2 libnet-ssh-perl kismet
+sudo apt-get install -y curl sslscan libpq-dev libxml2-dev vim python-setuptools libmicrohttpd-dev horst kismet-plugins
 sudo apt-get install -y python-nltk python-soappy python-lxml python-svn python-scapy gtk2-engines-pixbuf graphviz python-gtksourceview2
 sudo apt-get install -y libssh-dev libmysqlclient-dev libpcre3-dev firebird-dev libsvn-dev libidn11-dev libcurl4-gnutls-dev
 sudo apt-get install -y libxslt1-dev sipcrack libgmp3-dev python-mysqldb libnet1-dev flasm registry-tools python-pygraphviz
 sudo apt-get install -y libavahi-compat-libdnssd-dev gip ldap-utils bkhive ophcrack macchanger flamerobin dsniff sipsak
-sudo apt-get install -y ike-scan nfs-kernel-server httping ptunnel libaspell-dev autoconf libpcap-dev libnl-3-dev
-sudo apt-get install -y libyaml-dev default-jdk libreadline-dev python-pip python-beautifulsoup tshark
-sudo apt-get install -y samba ldapscripts python-smbpasswd libevent-dev flex bison libgeoip-dev chntpw openconnect
+sudo apt-get install -y ike-scan nfs-kernel-server httping ptunnel libaspell-dev autoconf libpcap-dev libnl-genl-3-200
+sudo apt-get install -y libyaml-dev default-jdk libreadline-dev python-pip python-beautifulsoup tshark libnl-genl-3-dev libnl-idiag-3-dev
+sudo apt-get install -y samba ldapscripts python-smbpasswd libevent-dev flex bison libgeoip-dev chntpw openconnect libffi-dev
 sudo apt-get install -y libnetfilter-conntrack-dev libncurses-dev liburcu-dev libnacl-dev zlib1g-dev libcli-dev python-pycurl vpnc
 sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk swig cmake libtalloc-dev libtevent-dev libpopt-dev
 sudo apt-get install -y libbsd-dev unixodbc unixodbc-dev freetds-dev sqsh tdsodbc autofs remmina remmina-plugin-rdp remmina-plugin-vnc
@@ -46,7 +46,7 @@ fi
 echo "Checking and Installing PERL Deps"
 sudo cpanm Cisco::CopyConfig && sudo cpanm Net::Telnet
 sudo cpanm Net::Netmask && sudo cpanm XML::Writer
-sudo cpanm Encoding::BER && sudo cpanm Term::ANSIColor
+sudo cpanm Encoding::BER && sudo cpanm Term::ANSIColor	
 sudo cpanm Getopt::Long && sudo cpanm XML::Writer
 sudo cpanm Socket && sudo cpanm Net::Whois::IP
 sudo cpanm Number::Bytes::Human && sudo cpanm Parallel::ForkManager

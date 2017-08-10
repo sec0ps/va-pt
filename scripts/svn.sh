@@ -1,4 +1,3 @@
-[ ! -d /pentest/enumeration/ike ] && mkdir /pentest/enumeration/ike
 echo "Beginning subverion package installation"
 if [ ! -d /pentest/wireless/giskismet ] ; then
 echo "Installing gisKismet"
@@ -11,7 +10,7 @@ if [ ! -d /pentest/wireless/wifite/ ] ; then
 echo "Installing Wifitie"
 cd /pentest/wireless && git clone https://github.com/derv82/wifite.git
 fi
-if [ ! -d /pentest/exploits/set ] ; then
+if [ ! -d /pentest/exploits/set ] ; theneil
 echo "Installing the Social Engineering Toolkit"
 cd /pentest/exploits && git clone https://github.com/trustedsec/social-engineer-toolkit/ set
 cd set && sudo python setup.py install
@@ -21,10 +20,6 @@ echo "Installing Metasploit"
 cd /pentest/exploits && git clone https://github.com/rapid7/metasploit-framework.git framework3
 cd /pentest/exploits/framework3 && bundle install
 sudo chmod o+r /var/lib/gems/2.3.0/gems/robots-0.10.1/lib/robots.rb
-fi
-if [ ! -d /pentest/web/wapiti ] ; then
-echo "Installing Wapiti"
-cd /pentest/web && svn co https://svn.code.sf.net/p/wapiti/code/ wapiti
 fi
 if [ ! -d /pentest/web/fimap ] ; then
 echo "Installing fimap"
@@ -135,13 +130,13 @@ fi
 if [ ! -d /pentest/passwords/Pyrit ] ; then
 echo "Installing Pyrit"
 cd /pentest/passwords && git clone https://github.com/JPaulMora/Pyrit.git
-cd /pentest/passwords/Pyrit/pyrit && python setup.py build 
+cd /pentest/passwords/Pyrit && python setup.py build 
 sudo python setup.py install
 fi
 if [ ! -d /pentest/exploits/keimpx ] ; then
 echo "Installing keimpx"
 cd /pentest/exploits && git clone https://github.com/inquisb/keimpx.git 
-fi
+figroup
 if [ ! -d /pentest/audit/routerdefense ] ; then
 echo "Installing Router Defense"
 cd /pentest/audit && git clone https://github.com/pello/routerdefense.git 
@@ -179,9 +174,9 @@ if [ ! -d /pentest/exploits/Responder ] ; then
 echo "Installing Spiderlabs Resonder"
 cd /pentest/exploits/ && git clone https://github.com/SpiderLabs/Responder.git
 fi
-if [ ! -d /pentest/enumeration/ike/groupenum ] ; then
+if [ ! -d /pentest/enumeration/groupenum ] ; then
 echo "Installing Spiderlabs groupenum"
-cd /pentest/enumeration/ike && git clone https://github.com/SpiderLabs/groupenum.git
+cd /pentest/enumeration/ && git clone https://github.com/SpiderLabs/groupenum.git
 fi
 if [ ! -d /pentest/web/watobo ] ; then
 echo "Installing Watobo"
@@ -285,7 +280,8 @@ fi
 if [ ! -d /pentest/exploits/CrackMapExec ] ; then
 echo "Installing CrackMapExec"
 cd /pentest/exploits && git clone https://github.com/byt3bl33d3r/CrackMapExec.git
-cd CrackMapExec && sudo python setup.py install
+cd CrackMapExec && git submodule init
+git submodule update --recursive && sudo python setup.py install
 fi
 if [ ! -d /pentest/web/xsser ] ; then
 echo "Installing XSSer"
@@ -340,26 +336,26 @@ if [ ! -d /pentest/exploits/spraywmi ] ; then
 echo "Installing spraywmi"
 cd /pentest/exploits && git clone https://github.com/trustedsec/spraywmi.git
 fi
-if [ ! -d /pentest/exploits/Veil-Catapult ] ; then
-echo "Installing Veil Catapult"
-cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Catapult.git 
-sudo /pentest/exploits/Veil-Catapult/setup.sh
-fi
+#if [ ! -d /pentest/exploits/Veil-Catapult ] ; then
+#echo "Installing Veil Catapult"
+#cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Catapult.git 
+#sudo /pentest/exploits/Veil-Catapult/setup.sh
+#fi
 if [ ! -d /pentest/exploits/Veil-Evasion ] ; then
 echo "Installing Veil Evasion"
 cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Evasion.git 
 sudo /pentest/exploits/Veil-Evasion/setup/setup.sh
 fi
-if [ ! -d /pentest/exploits/Veil-PowerView ] ; then
-echo "Installing Veil PowerView"
-cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-PowerView.git
-fi
-if [ ! -d /pentest/exploits/smbexec ] ; then
-echo "Installing smbexec"
-cd /pentest/temp && git clone https://github.com/pentestgeek/smbexec.git
-cd smbexec && sudo ./install.sh
-ln -s /opt/smbexec/ /pentest/exploits/smbexec && bundle install
-fi
+#if [ ! -d /pentest/exploits/Veil-PowerView ] ; then
+#echo "Installing Veil PowerView"
+#cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-PowerView.git
+#fi
+#if [ ! -d /pentest/exploits/smbexec ] ; then
+#echo "Installing smbexec"
+#cd /pentest/temp && git clone https://github.com/pentestgeek/smbexec.git
+#cd smbexec && sudo ./install.sh
+#ln -s /opt/smbexec/ /pentest/exploits/smbexec && bundle install
+#fi
 if [ ! -d /pentest/enumeration/rdp-sec-check ] ; then
 echo "Installing RDP Security Checker"
 cd /pentest/enumeration/ && git clone https://github.com/portcullislabs/rdp-sec-check.git
