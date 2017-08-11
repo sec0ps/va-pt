@@ -7,8 +7,8 @@ sudo ufw enable
 
 echo "Installing Packages"
 sudo apt-get install -y wine wine-dev mysql-server subversion git ncftp rar p7zip-full iw ethtool dos2unix gtk-recordmydesktop postgresql
-sudo apt-get install -y sqlite3 nbtscan dsniff libncurses-dev libpcap-dev libssl-dev hping3 openssh-server ruby-dev
-sudo apt-get install -y python-dev autoconf open-iscsi wireshark isc-dhcp-server locate libusb-dev g++ arp-scan
+sudo apt-get install -y sqlite3 nbtscan dsniff libncurses-dev libpcap-dev libssl-dev hping3 openssh-server ruby-dev john john-data
+sudo apt-get install -y python-dev autoconf open-iscsi wireshark isc-dhcp-server locate libusb-dev g++ arp-scan cewl
 sudo apt-get install -y webhttrack finger rusers snmp reglookup gpsd libgps-dev apache2 libnet-ssh-perl kismet
 sudo apt-get install -y curl sslscan libpq-dev libxml2-dev vim python-setuptools libmicrohttpd-dev horst kismet-plugins
 sudo apt-get install -y python-nltk python-soappy python-lxml python-svn python-scapy gtk2-engines-pixbuf graphviz python-gtksourceview2

@@ -214,17 +214,17 @@ if [ ! -d /pentest/passwords/PCredz ] ; then
 echo "Installing PCredz"
 cd /pentest/passwords && git clone https://github.com/lgandx/PCredz.git
 fi
-#if [ ! -d /pentest/voip/viproy ] ; then
-#echo "Installing Viproy"
-#cd /pentest/voip/ && git clone https://github.com/fozavci/viproy-voipkit.git viproy
-#cd /pentest/voip/viproy
-#cp lib/msf/core/auxiliary/* /pentest/exploits/framework3/lib/msf/core/auxiliary/
-#echo "require 'msf/core/auxiliary/sip'" >> /pentest/exploits/framework3/lib/msf/core/auxiliary/mixins.rb
-#echo "require 'msf/core/auxiliary/skinny'" >> /pentest/exploits/framework3/lib/msf/core/auxiliary/mixins.rb
-#cp modules/auxiliary/voip/viproy* /pentest/exploits/framework3/modules/auxiliary/voip/
-#cp modules/auxiliary/spoof/cisco/viproy_cdp.rb /pentest/exploits/framework3/modules/auxiliary/spoof/cisco/
-#echo "You can execute msfconsole now. Viproy modules placed under auxiliary/voip/viproy*"
-#fi
+if [ ! -d /pentest/voip/voiphopper ] ; then
+echo "Installing VOIP Hopper"
+cd /pentest/voip & git clone https://github.com/iknowjason/voiphopper.git
+fi
+if [ ! -d /pentest/voip/enumiax ] ; then
+cd /pentest/voip && git clone https://github.com/foreni-packages/enumiax.git
+fi
+if [ ! -d /pentest/cisco/torch ] ; then
+echo "Installing Cisco Torch"
+cd /pentest/cisco && git clone git://git.kali.org/packages/cisco-torch.git
+fi
 if [ ! -d /pentest/exploits/pth-toolkit ] ; then
 echo "Installing the PTH Toolkit"
 cd /pentest/exploits && git clone https://github.com/byt3bl33d3r/pth-toolkit.git
@@ -381,6 +381,15 @@ fi
 if [ ! -d /pentest/misc/pentest-tools/ ] ; then
 cd /pentest/misc && git clone https://github.com/joshuaskorich/pentest-tools.git
 fi
+if [ ! -d /pentest/audit/graudit ] ; then
+echo "Installing Grep Auditing Utility"
+cd /pentest/audit && git clone https://github.com/wireghoul/graudit.git
+fi
+if [ ! -d /pentest/audit/rips ] ; then
+echo "Downloading RIPS PHP Static Source Code Analyzer"
+cd /pentest/audit && git clone https://github.com/robocoder/rips-scanner.git
+fi
+
 #
 echo "Installing local tools"
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
@@ -388,8 +397,14 @@ cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/dnsrecon.rb /pentest/enumeration/
 cp /pentest/misc/va-pt/tools/mysqlaudit.py /pentest/database/
 # end installer
-#if [ ! -d /var/www/html/search ] ; then
-#echo "Installing Vulnerability Database Portal"
-#cd /var/www/html && sudo svn co http://va-pt.googlecode.com/svn/trunk/search search
-#echo "The vulnerability search portal is now available at http://localhost/search/"
+#if [ ! -d /pentest/voip/viproy ] ; then
+#echo "Installing Viproy"
+#cd /pentest/voip/ && git clone https://github.com/fozavci/viproy-voipkit.git viproy
+#cd /pentest/voip/viproy
+#cp lib/msf/core/auxiliary/* /pentest/exploits/framework3/lib/msf/core/auxiliary/
+#echo "require 'msf/core/auxiliary/sip'" >> /pentest/exploits/framework3/lib/msf/core/auxiliary/mixins.rb
+#echo "require 'msf/core/auxiliary/skinny'" >> /pentest/exploits/framework3/lib/msf/core/auxiliary/mixins.rb
+#cp modules/auxiliary/voip/viproy* /pentest/exploits/framework3/modules/auxiliary/voip/
+#cp modules/auxiliary/spoof/cisco/viproy_cdp.rb /pentest/exploits/framework3/modules/auxiliary/spoof/cisco/
+#echo "You can execute msfconsole now. Viproy modules placed under auxiliary/voip/viproy*"
 #fi
