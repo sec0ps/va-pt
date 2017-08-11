@@ -24,6 +24,8 @@ sudo apt-get install -y libbsd-dev unixodbc unixodbc-dev freetds-dev sqsh tdsodb
 sudo apt-get install -y squid python-libpcap ntpdate screen samba-common-bin upx whois libreadline-gplv2-dev gcc-mingw-w64-x86-64
 sudo apt-get install -y gcc-mingw-w64-i686 libsqlite3-dev tftp tftpd libfreerdp-dev libssh2-1-dev python-elixir python-pyasn1
 
+sudo snap install john-the-ripper
+
 if [ ! -f /usr/local/bin/cpanm ] ; then
 echo "Installing CPANimus"
 cd /pentest/temp && git clone https://github.com/miyagawa/cpanminus.git
