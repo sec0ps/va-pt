@@ -389,7 +389,16 @@ if [ ! -d /pentest/audit/rips ] ; then
 echo "Downloading RIPS PHP Static Source Code Analyzer"
 cd /pentest/audit && git clone https://github.com/robocoder/rips-scanner.git
 fi
-
+if [ ! -d /pentest/passwords/hashcat ] ; then
+echo "Installing Hashcat"
+cd /pentest/passwords/ && git clone https://github.com/hashcat/hashcat.git
+fi
+if [ ! -d /pentest/passwords/JohnTheRipper ] ; then
+echo "Installing JohnTheRipper"
+cd /pentest/passwords/ && git clone https://github.com/magnumripper/JohnTheRipper.git
+cd JohnTheRipper && ./configure
+make -sj4
+fi
 #
 echo "Installing local tools"
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
