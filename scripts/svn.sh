@@ -403,6 +403,11 @@ if [ ! -d /pentest/exploits/ShortShells ] ; then
 echo "Instlling Short Shells - web shell collection"
 cd /pentest/enumeration && git clone https://github.com/modux/ShortShells.git
 fi
+if [ ! -d  /pentest/exploits/powershell ] ; then
+echo "Installing Powershell Empire"
+cd /pentest/enumeration && git clone https://github.com/EmpireProject/Empire.git
+cd setup && sudo ./install.sh
+fi
 #
 echo "Installing local tools"
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
