@@ -277,12 +277,13 @@ echo "Installing Rawr - Rapid Assessment of Web Resources"
 cd /pentest/web/ && git clone https://bitbucket.org/al14s/rawr.git
 cd rawr && sudo ./install.sh
 fi
-if [ ! -d /pentest/exploits/CrackMapExec ] ; then
-echo "Installing CrackMapExec"
-cd /pentest/exploits && git clone https://github.com/byt3bl33d3r/CrackMapExec.git
-cd CrackMapExec && git submodule init
-git submodule update --recursive && sudo python setup.py install
-fi
+#installing via pip for the time being
+#if [ ! -d /pentest/exploits/CrackMapExec ] ; then
+#echo "Installing CrackMapExec"
+#cd /pentest/exploits && git clone https://github.com/byt3bl33d3r/CrackMapExec.git
+#cd CrackMapExec && git submodule init
+#git submodule update --recursive && sudo python setup.py install
+#fi
 if [ ! -d /pentest/web/xsser ] ; then
 echo "Installing XSSer"
 cd /pentest/web/ && git clone https://github.com/epsylon/xsser-public.git xsser
@@ -307,12 +308,7 @@ if [ ! -d /pentest/exploits/cloakify ] ; then
 echo "Installing Cloakify"
 cd /pentest/exploits && git clone https://github.com/TryCatchHCF/Cloakify.git cloakify
 fi
-if [ ! -d /pentest/exploits/CrackMapExec ] ; then
-echo "Installing CrackMapExec"
-cd /pentest/exploits && git clone https://github.com/byt3bl33d3r/CrackMapExec.git
-cd CrackMapExec && sudo python setup.py install
-fi
-if [ ! -d /pentest/misc/Cheatsheets ] ; then
+[ ! -d /pentest/misc/Cheatsheets ] ; then
 echo "Installing Cheatsheet collection"
 cd /pentest/misc && git clone https://github.com/jshaw87/Cheatsheets.git
 fi
@@ -396,8 +392,16 @@ fi
 if [ ! -d /pentest/passwords/JohnTheRipper ] ; then
 echo "Installing JohnTheRipper"
 cd /pentest/passwords/ && git clone https://github.com/magnumripper/JohnTheRipper.git
-cd JohnTheRipper && ./configure
-make -sj4
+cd JohnTheRipper/src && ./configure
+make -sj4 && make install
+fi
+if [ ! -d /pentest/enumeration/spiderfoot ] ; then
+echo "Spiderfoot OSINT Tool"
+cd /pentest/enumeration && git clone https://github.com/smicallef/spiderfoot.git
+fi
+if [ ! -d /pentest/exploits/ShortShells ] ; then
+echo "Instlling Short Shells - web shell collection"
+cd /pentest/enumeration && git clone https://github.com/modux/ShortShells.git
 fi
 #
 echo "Installing local tools"

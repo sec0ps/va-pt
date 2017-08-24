@@ -34,17 +34,17 @@ cd cpanminus && perl Makefile.PL
 make && sudo make install
 cd /pentest/temp && rm -rf cpanminus/
 fi
-if [ ! -f /usr/local/lib/perl/5.18.2/Math/Pari.pm ] ; then
-echo "Installing PERL Libraries"
-cd /pentest/temp && wget http://pkgs.fedoraproject.org/repo/pkgs/perl-Math-Pari/pari-2.1.7.tgz/357b7a42e89e2761a5367bbcbfcca5f2/pari-2.1.7.tgz
-tar xvf pari-2.1.7.tgz && rm -rf pari-2.1.7.tgz
-cd pari-2.1.7/ && wget http://search.cpan.org/CPAN/authors/id/I/IL/ILYAZ/modules/Math-Pari-2.01080605.tar.gz
-tar xvf Math-Pari-2.01080605.tar.gz && rm -rf Math-Pari-2.01080605.tar.gz
-cd Math-Pari-2.01080605 && perl Makefile.PL
-sudo make install
-else
-echo "Pari is installed, moving on"
-fi
+#if [ ! -f /usr/local/lib/perl/5.18.2/Math/Pari.pm ] ; then
+#echo "Installing PERL Libraries"
+#cd /pentest/temp && wget http://pkgs.fedoraproject.org/repo/pkgs/perl-Math-Pari/pari-2.1.7.tgz/357b7a42e89e2761a5367bbcbfcca5f2/pari-2.1.7.tgz
+#tar xvf pari-2.1.7.tgz && rm -rf pari-2.1.7.tgz
+#cd pari-2.1.7/ && wget http://search.cpan.org/CPAN/authors/id/I/IL/ILYAZ/modules/Math-Pari-2.01080605.tar.gz
+#tar xvf Math-Pari-2.01080605.tar.gz && rm -rf Math-Pari-2.01080605.tar.gz
+#cd Math-Pari-2.01080605 && perl Makefile.PL
+#sudo make install
+#else
+#echo "Pari is installed, moving on"
+#fi
 
 echo "Checking and Installing PERL Deps"
 sudo cpanm Cisco::CopyConfig && sudo cpanm Net::Telnet
@@ -67,7 +67,7 @@ sudo pip install lxml netaddr M2Crypto cherrypy mako M2Crypto dnspython requests
 sudo pip install PyGithub GitPython pybloomfiltermmap esmre pdfminer futures guess-language 
 sudo pip install cluster msgpack-python python-ntlm clamd xdot netifaces pyinstaller
 sudo pip install -e git+https://github.com/ramen/phply.git#egg=phply
-sudo pip install pbkdf2 pymongo ipcalc couchdb dicttoxml PyPDF2 olefile
+sudo pip install pbkdf2 pymongo ipcalc couchdb dicttoxml PyPDF2 olefile crackmapexec
 
 echo "Checking and Installing Ruby Gems"
 sudo gem install bundler spider http_configuration mini_exiftool zip sqlite3 net-dns bettercap

@@ -12,7 +12,7 @@ mkdir /pentest/scanners/snmp
 cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/onesixtyone-0.3.tar.gz --no-check-certificate
 tar zxvf onesixtyone-0.3.tar.gz && rm -rf onesixtyone-0.3.tar.gz
 mv onesixtyone-0.3//snmp/onesixtyone && gcc -o onesixtyone onesixtyone.c
-cd /pentest/scanners/snmp && wget http://www.nothink.org/perl/snmpcheck/downloads/snmpcheck-1.8.pl -O snmpcheck.pl
+cd /pentest/scanners/snmp && wgset http://www.nothink.org/perl/snmpcheck/downloads/snmpcheck-1.8.pl -O snmpcheck.pl
 chmod 700 /pentest/scanners/snmp/snmpcheck.pl
 fi
 if [ ! -f /pentest/cisco/copy-router-config.pl ] ; then
@@ -75,14 +75,6 @@ rm -rf DirBuster-0.12.tar && mv DirBuster-0.12 /pentest/enumeration/dirbuster
 cd /pentest/enumeration/dirbuster
 echo "java -jar DirBuster-0.12.jar" >> start-dirbuster.sh && chmod 700 start-dirbuster.sh
 fi
-#if [ ! -d /pentest/passwords/john ] ; then
-#echo "Installing John the Ripper Jumbo 1.8.0"
-#cd /pentest/temp && wget http://www.openwall.com/john/j/john-1.8.0-jumbo-1.tar.gz 
-#tar zxvf john-1.8.0-jumbo-1.tar.gz && rm -rf john-1.8.0-jumbo-1.tar.gz
-#mv john-1.8.0-jumbo-1/ /pentest/passwords/john && cd /pentest/passwords/john/src
-#./configure
-#make clean && make -s
-#fi
 if [ ! -d /pentest/exploits/windows-tools ] ; then
 echo "Installing Windows Tools"
 cd /pentest/exploits && mkdir windows-tools
@@ -136,5 +128,10 @@ echo "Installing Armitage"
 cd /pentest/temp && wget http://www.fastandeasyhacking.com/download/armitage150813.tgz
 tar xvf armitage150813.tgz  && mv armitage/ /pentest/exploits
 echo "Be sure to edit the database.yml file in /opt/metasploit/apps/pro/ui/config/"
+fi
+if [ ! -f /pentest/passwords/weakpass] ; then
+echo "Downloading the weakpass archive"
+cd /pentest/passwords && wget http://www.mediafire.com/file/x5ci9iv66x54e6v/weakpass_2.7z
+7z e weakpass_2.7z
 fi
 echo "Static Code installation complete"
