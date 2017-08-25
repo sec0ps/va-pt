@@ -171,8 +171,12 @@ echo "Installing NTLMS Parse"
 cd /pentest/passwords && git clone https://github.com/psychomario/ntlmsspparse.git
 fi
 if [ ! -d /pentest/exploits/Responder ] ; then
-echo "Installing Spiderlabs Resonder"
+echo "Installing Spiderlabs Responder"
 cd /pentest/exploits/ && git clone https://github.com/SpiderLabs/Responder.git
+fi
+if [ ! -d /pentest/exploits/Responder-New ] ; then
+echo "Installing lgandx Responder"
+cd /pentest/exploits/ && git clone https://github.com/lgandx/Responder.git Responder-New
 fi
 if [ ! -d /pentest/enumeration/groupenum ] ; then
 echo "Installing Spiderlabs groupenum"
@@ -403,10 +407,10 @@ if [ ! -d /pentest/exploits/ShortShells ] ; then
 echo "Instlling Short Shells - web shell collection"
 cd /pentest/enumeration && git clone https://github.com/modux/ShortShells.git
 fi
-if [ ! -d  /pentest/exploits/powershell ] ; then
+if [ ! -d  /pentest/exploits/powershell/Empire ] ; then
 echo "Installing Powershell Empire"
-cd /pentest/enumeration && git clone https://github.com/EmpireProject/Empire.git
-cd setup && sudo ./install.sh
+cd /pentest/exploits/powershell && git clone https://github.com/EmpireProject/Empire.git
+cd Empire/setup && sudo ./install.sh
 fi
 #
 echo "Installing local tools"
