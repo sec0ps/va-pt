@@ -255,8 +255,14 @@ fi
 if [ ! -d /pentest/exploits/powershell/PowerTools ] ; then
 echo "Installing PowerTools"
 cd /pentest/exploits/powershell && git clone https://github.com/PowerShellEmpire/PowerTools.git
+fi
+if [ ! -d /pentest/exploits/powershell/PowerSploit ] ; then
 echo "Installing PowerSploit"
-git clone https://github.com/mattifestation/PowerSploit.git
+cd /pentest/exploits/powershell/ && git clone https://github.com/mattifestation/PowerSploit.git
+fi
+if [ ! -d /pentest/exploits/powershell/ps1encode ] ; then
+echo "Installing Powershell Encoder"
+cd /pentest/exploits/powershell/ && git clone https://github.com/CroweCybersecurity/ps1encode.git
 fi
 if [ ! -d /pentest/enumeration/recon-ng ] ; then
 echo "Installing Recon-NG"
