@@ -189,6 +189,8 @@ fi
 if [ ! -d /pentest/enumeration/netsniff-ng ] ; then
 echo "Installing Netsniff-ng"
 cd /pentest/enumeration && git clone https://github.com/borkmann/netsniff-ng.git
+cd netsniff-ng && ./configure
+make && sudo make install
 fi
 if [ ! -d /pentest/voip/sipvicious ] ; then
 echo "Installing SIPVicious"

@@ -9,7 +9,7 @@ echo "Installing Packages"
 sudo apt-get install -y wine wine-dev mysql-server subversion git ncftp rar p7zip-full iw ethtool dos2unix gtk-recordmydesktop postgresql
 sudo apt-get install -y sqlite3 nbtscan dsniff libncurses-dev libpcap-dev libssl-dev hping3 openssh-server ruby-dev john john-data
 sudo apt-get install -y python-dev autoconf open-iscsi wireshark isc-dhcp-server locate libusb-dev g++ arp-scan cewl
-sudo apt-get install -y webhttrack finger rusers snmp reglookup gpsd libgps-dev apache2 libnet-ssh-perl kismet
+sudo apt-get install -y webhttrack finger rusers snmp reglookup gpsd libgps-dev apache2 libnet-ssh-perl kismet libnl-route-3-dev
 sudo apt-get install -y curl sslscan libpq-dev libxml2-dev vim python-setuptools libmicrohttpd-dev horst kismet-plugins
 sudo apt-get install -y python-nltk python-soappy python-lxml python-svn python-scapy gtk2-engines-pixbuf graphviz python-gtksourceview2
 sudo apt-get install -y libssh-dev libmysqlclient-dev libpcre3-dev firebird-dev libsvn-dev libidn11-dev libcurl4-gnutls-dev
@@ -34,17 +34,6 @@ cd cpanminus && perl Makefile.PL
 make && sudo make install
 cd /pentest/temp && rm -rf cpanminus/
 fi
-#if [ ! -f /usr/local/lib/perl/5.18.2/Math/Pari.pm ] ; then
-#echo "Installing PERL Libraries"
-#cd /pentest/temp && wget http://pkgs.fedoraproject.org/repo/pkgs/perl-Math-Pari/pari-2.1.7.tgz/357b7a42e89e2761a5367bbcbfcca5f2/pari-2.1.7.tgz
-#tar xvf pari-2.1.7.tgz && rm -rf pari-2.1.7.tgz
-#cd pari-2.1.7/ && wget http://search.cpan.org/CPAN/authors/id/I/IL/ILYAZ/modules/Math-Pari-2.01080605.tar.gz
-#tar xvf Math-Pari-2.01080605.tar.gz && rm -rf Math-Pari-2.01080605.tar.gz
-#cd Math-Pari-2.01080605 && perl Makefile.PL
-#sudo make install
-#else
-#echo "Pari is installed, moving on"
-#fi
 
 echo "Checking and Installing PERL Deps"
 sudo cpanm Cisco::CopyConfig && sudo cpanm Net::Telnet
@@ -60,7 +49,6 @@ sudo cpanm Net::Whois::ARIN && sudo cpanm Test::MockObject
 sudo cpanm Template && sudo cpanm Net::CIDR
 sudo cpanm JSON && sudo cpanm Color::Output
 sudo cpanm Net::IP
-#sudo cpanm Net::SSH::Perl
 
 echo "Installing Python Deps"
 sudo pip install lxml netaddr M2Crypto cherrypy mako M2Crypto dnspython requests capstone dicttoxml
