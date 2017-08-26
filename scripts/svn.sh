@@ -136,10 +136,14 @@ fi
 if [ ! -d /pentest/exploits/keimpx ] ; then
 echo "Installing keimpx"
 cd /pentest/exploits && git clone https://github.com/inquisb/keimpx.git 
-figroup
+fi
 if [ ! -d /pentest/audit/routerdefense ] ; then
 echo "Installing Router Defense"
 cd /pentest/audit && git clone https://github.com/pello/routerdefense.git 
+fi
+if [ ! -d /pentest/audit/audit_scripts ] ; then
+echo "Installing Host Audit Scripts"
+cd /pentest/audit && git clone https://github.com/vanhauser-thc/audit_scripts.git
 fi
 if [ ! -d /pentest/web/wpscan ] ; then
 echo "Installing Wordpress Scanner"
@@ -358,12 +362,6 @@ fi
 #echo "Installing Veil PowerView"
 #cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-PowerView.git
 #fi
-#if [ ! -d /pentest/exploits/smbexec ] ; then
-#echo "Installing smbexec"
-#cd /pentest/temp && git clone https://github.com/pentestgeek/smbexec.git
-#cd smbexec && sudo ./install.sh
-#ln -s /opt/smbexec/ /pentest/exploits/smbexec && bundle install
-#fi
 if [ ! -d /pentest/enumeration/rdp-sec-check ] ; then
 echo "Installing RDP Security Checker"
 cd /pentest/enumeration/ && git clone https://github.com/portcullislabs/rdp-sec-check.git
@@ -419,6 +417,19 @@ if [ ! -d  /pentest/exploits/powershell/Empire ] ; then
 echo "Installing Powershell Empire"
 cd /pentest/exploits/powershell && git clone https://github.com/EmpireProject/Empire.git
 cd Empire/setup && sudo ./install.sh
+fi
+if [ ! -d /pentest/web/winshock-test ] ; then
+echo "Installing Winshock Test Script"
+cd /pentest/web && git clone https://github.com/anexia-it/winshock-test.git
+fi
+if [ ! -d /pentest/enumeration/thc-ipv6 ] ; then
+echo "Installing THC IPv6"
+cd /pentest/enumeration/ && git clone https://github.com/vanhauser-thc/thc-ipv6.git
+make
+fi
+if [ ! -d /pentest/web/svn-extractor ] ; then
+echo "Installing SVN Extractor"
+cd /pentest/web && git clone https://github.com/anantshri/svn-extractor.git
 fi
 #
 echo "Installing local tools"

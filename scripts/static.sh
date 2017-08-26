@@ -7,11 +7,8 @@ tar xvf ZAP_2.6.0_Linux.tar.gz && rm -rf ZAP_2.6.0_Linux.tar.gz
 mv ZAP_2.6.0/ /pentest/web/zap
 fi
 if [ ! -d /pentest/scanners/snmp ] ; then
-echo "Installing OneSixtyOne & snmpcheck"
+echo "Installing snmpcheck"
 mkdir /pentest/scanners/snmp
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/onesixtyone-0.3.tar.gz --no-check-certificate
-tar zxvf onesixtyone-0.3.tar.gz && rm -rf onesixtyone-0.3.tar.gz
-mv onesixtyone-0.3//snmp/onesixtyone && gcc -o onesixtyone onesixtyone.c
 cd /pentest/scanners/snmp && wgset http://www.nothink.org/perl/snmpcheck/downloads/snmpcheck-1.8.pl -O snmpcheck.pl
 chmod 700 /pentest/scanners/snmp/snmpcheck.pl
 fi
@@ -38,13 +35,6 @@ echo "Installing TNS Poison"
 cd /pentest/database && mkdir tnspoison
 cd tnspoison/ && wget http://www.joxeankoret.com/download/tnspoison.zip
 unzip tnspoison.zip && rm -rf tnspoison.zip
-fi
-if [ ! -d /pentest/enumeration/thc-ipv6 ] ; then
-echo "Installing THC IPv6"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/thc-ipv6-2.7.tar.gz --no-check-certificate
-tar zxvf thc-ipv6-2.7.tar.gz && rm -rf thc-ipv6-2.7.tar.gz
-mv thc-ipv6-2.7 /pentest/enumeration/thc-ipv6 && cd /pentest/enumeration/thc-ipv6
-make all && sudo make install
 fi
 if [ ! -d /pentest/enumeration/thc-pptp-bruter ] ; then
 echo "Installing THC PPTP Bruteforcer"
@@ -118,11 +108,6 @@ echo "Installing WebShell Backdoor"
 cd /pentest/web && wget http://dl.packetstormsecurity.net/UNIX/penetration/rootkits/wsb.tar.gz --no-check-certificate
 tar xvf wsb.tar.gz && rm -rf wsb.tar.gz
 fi
-if [ ! -d /pentest/web/svn-extractor ] ; then
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/UNIX/scanners/svn-extractor-master.zip --no-check-certificate
-unzip svn-extractor-master.zip && mv svn-extractor-master/ /pentest/web/svn-extractor
-rm -rf svn-extractor-master*
-fi
 if [ ! -d /pentest/exploits/armitage ] ; then
 echo "Installing Armitage"
 cd /pentest/temp && wget http://www.fastandeasyhacking.com/download/armitage150813.tgz
@@ -132,6 +117,6 @@ fi
 if [ ! -f /pentest/passwords/weakpass] ; then
 echo "Downloading the weakpass archive"
 cd /pentest/passwords && wget http://www.mediafire.com/file/x5ci9iv66x54e6v/weakpass_2.7z
-7z e weakpass_2.7z
+7z e weakpass_2.7z && rm -rf weakpass_2.7z 
 fi
 echo "Static Code installation complete"
