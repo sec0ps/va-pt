@@ -9,7 +9,7 @@ fi
 if [ ! -d /pentest/scanners/snmp ] ; then
 echo "Installing snmpcheck"
 mkdir /pentest/scanners/snmp
-cd /pentest/scanners/snmp && wgset http://www.nothink.org/perl/snmpcheck/downloads/snmpcheck-1.8.pl -O snmpcheck.pl
+cd /pentest/scanners/snmp && wget http://www.nothink.org/perl/snmpcheck/downloads/snmpcheck-1.8.pl -O snmpcheck.pl
 chmod 700 /pentest/scanners/snmp/snmpcheck.pl
 fi
 if [ ! -f /pentest/cisco/copy-router-config.pl ] ; then
@@ -114,7 +114,7 @@ cd /pentest/temp && wget http://www.fastandeasyhacking.com/download/armitage1508
 tar xvf armitage150813.tgz  && mv armitage/ /pentest/exploits
 echo "Be sure to edit the database.yml file in /opt/metasploit/apps/pro/ui/config/"
 fi
-if [ ! -f /pentest/passwords/weakpass] ; then
+if [ ! -f /pentest/passwords/weakpass ] ; then
 echo "Downloading the weakpass archive"
 cd /pentest/passwords && wget http://www.mediafire.com/file/x5ci9iv66x54e6v/weakpass_2.7z
 7z e weakpass_2.7z && rm -rf weakpass_2.7z 

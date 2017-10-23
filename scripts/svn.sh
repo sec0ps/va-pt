@@ -10,7 +10,7 @@ if [ ! -d /pentest/wireless/wifite/ ] ; then
 echo "Installing Wifitie"
 cd /pentest/wireless && git clone https://github.com/derv82/wifite.git
 fi
-if [ ! -d /pentest/exploits/set ] ; theneil
+if [ ! -d /pentest/exploits/set ] ; then
 echo "Installing the Social Engineering Toolkit"
 cd /pentest/exploits && git clone https://github.com/trustedsec/social-engineer-toolkit/ set
 cd set && sudo python setup.py install
@@ -35,7 +35,6 @@ if [ ! -d /pentest/web/wafw00f ] ; then
 echo "Installing wafw00f"
 cd /pentest/web && git clone https://github.com/EnableSecurity/wafw00f.git
 cd /pentest/web/wafw00f && sudo python setup.py install
-fi
 fi
 if [ ! -d /pentest/fuzzers/sulley ] ; then
 echo "Installing Sulley"
@@ -324,7 +323,7 @@ if [ ! -d /pentest/exploits/cloakify ] ; then
 echo "Installing Cloakify"
 cd /pentest/exploits && git clone https://github.com/TryCatchHCF/Cloakify.git cloakify
 fi
-[ ! -d /pentest/misc/Cheatsheets ] ; then
+if [ ! -d /pentest/misc/Cheatsheets ] ; then
 echo "Installing Cheatsheet collection"
 cd /pentest/misc && git clone https://github.com/jshaw87/Cheatsheets.git
 fi
