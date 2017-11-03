@@ -23,7 +23,7 @@ sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dn
 sudo apt-get install -y libbsd-dev unixodbc unixodbc-dev freetds-dev sqsh tdsodbc autofs remmina remmina-plugin-rdp remmina-plugin-vnc
 sudo apt-get install -y squid python-libpcap ntpdate screen samba-common-bin upx whois libreadline-gplv2-dev gcc-mingw-w64-x86-64
 sudo apt-get install -y gcc-mingw-w64-i686 libsqlite3-dev tftp tftpd libfreerdp-dev libssh2-1-dev python-elixir python-pyasn1
-sudo apt install -y ocl-icd-libopencl1 opencl-headers
+sudo apt install -y ocl-icd-libopencl1 opencl-headers python3-pip
 
 sudo snap install john-the-ripper
 
@@ -53,9 +53,10 @@ sudo cpanm Net::IP
 echo "Installing Python Deps"
 sudo pip install lxml netaddr M2Crypto cherrypy mako M2Crypto dnspython requests capstone dicttoxml
 sudo pip install PyGithub GitPython pybloomfiltermmap esmre pdfminer futures guess-language 
-sudo pip install cluster msgpack-python python-ntlm clamd xdot netifaces pyinstaller
+sudo pip install cluster msgpack-python python-ntlm clamd xdot netifaces pyinstaller wfuzz
 sudo pip install -e git+https://github.com/ramen/phply.git#egg=phply
 sudo pip install pbkdf2 pymongo ipcalc couchdb dicttoxml PyPDF2 olefile crackmapexec
+sudo pip3 install xcat
 
 echo "Checking and Installing Ruby Gems"
 sudo gem install bundler spider http_configuration mini_exiftool zip sqlite3 net-dns bettercap

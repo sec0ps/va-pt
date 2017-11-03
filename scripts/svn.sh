@@ -132,6 +132,10 @@ cd /pentest/passwords && git clone https://github.com/JPaulMora/Pyrit.git
 cd /pentest/passwords/Pyrit && python setup.py build 
 sudo python setup.py install
 fi
+if [ ! -d /pentest/passwords/DPAT ] ; then
+echo "Installing Domain Password Auditing Tool"
+cd /pentest/passwords && git clone https://github.com/clr2of8/DPAT.git
+fi
 if [ ! -d /pentest/exploits/keimpx ] ; then
 echo "Installing keimpx"
 cd /pentest/exploits && git clone https://github.com/inquisb/keimpx.git 
@@ -269,6 +273,10 @@ if [ ! -d /pentest/exploits/powershell/ps1encode ] ; then
 echo "Installing Powershell Encoder"
 cd /pentest/exploits/powershell/ && git clone https://github.com/CroweCybersecurity/ps1encode.git
 fi
+if [ ! -d /pentest/exploits/powershell/Invoke-TheHash ] ; then
+echo "Installing Powershell Invoke-TheHash"
+cd /pentest/exploits/powershell/ && git clone https://github.com/Kevin-Robertson/Invoke-TheHash.git
+fi
 if [ ! -d /pentest/enumeration/recon-ng ] ; then
 echo "Installing Recon-NG"
 cd /pentest/enumeration/ && git clone https://bitbucket.org/LaNMaSteR53/recon-ng.git
@@ -319,9 +327,13 @@ if [ ! -d /pentest/database/NoSQLMap ] ; then
 echo "Installing NoSQLMAP"
 cd /pentest/database && git clone https://github.com/tcstool/NoSQLMap.git
 fi
-if [ ! -d /pentest/exploits/cloakify ] ; then
+if [ ! -d /pentest/exfiltrate/cloakify ] ; then
 echo "Installing Cloakify"
-cd /pentest/exploits && git clone https://github.com/TryCatchHCF/Cloakify.git cloakify
+cd /pentest/exfiltrate && git clone https://github.com/TryCatchHCF/Cloakify.git cloakify
+fi
+if [ ! -d /pentest/exfiltrate/udp2raw-tunnel ] ; then
+echo "Installing udp2raw-tunnel"
+cd /pentest/exfiltrate && git clone https://github.com/wangyu-/udp2raw-tunnel.git
 fi
 if [ ! -d /pentest/misc/Cheatsheets ] ; then
 echo "Installing Cheatsheet collection"
