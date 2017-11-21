@@ -65,13 +65,13 @@ cd fierce2 && sudo cpanm --installdeps .
 sudo perl Makefile.PL && make
 sudo make install
 fi
-if [ ! -d /pentest/wireless/kismet ] ; then
-echo "Installing Kismet"
-cd /pentest/wireless && git clone https://www.kismetwireless.net/kismet.git
-cd /pentest/wireless/kismet
-./configure && make dep
-make && sudo make install
-fi
+#if [ ! -d /pentest/wireless/kismet ] ; then
+#echo "Installing Kismet"
+#cd /pentest/wireless && git clone https://www.kismetwireless.net/kismet.git
+#cd /pentest/wireless/kismet
+#./configure && make dep
+#make && sudo make install
+#fi
 if [ ! -d /pentest/wireless/aircrack-ng ] ; then
 echo "Installing Aircrack-NG"
 cd /pentest/wireless && git clone https://github.com/aircrack-ng/aircrack-ng.git
@@ -234,7 +234,7 @@ fi
 if [ ! -d /pentest/voip/enumiax ] ; then
 cd /pentest/voip && git clone https://github.com/foreni-packages/enumiax.git
 fi
-if [ ! -d /pentest/cisco/torch ] ; then
+if [ ! -d /pentest/cisco/cisco-torch ] ; then
 echo "Installing Cisco Torch"
 cd /pentest/cisco && git clone git://git.kali.org/packages/cisco-torch.git
 fi
@@ -402,7 +402,7 @@ if [ ! -d /pentest/audit/graudit ] ; then
 echo "Installing Grep Auditing Utility"
 cd /pentest/audit && git clone https://github.com/wireghoul/graudit.git
 fi
-if [ ! -d /pentest/audit/rips ] ; then
+if [ ! -d /pentest/audit/rips-scanner ] ; then
 echo "Downloading RIPS PHP Static Source Code Analyzer"
 cd /pentest/audit && git clone https://github.com/robocoder/rips-scanner.git
 fi
@@ -420,9 +420,9 @@ if [ ! -d /pentest/enumeration/spiderfoot ] ; then
 echo "Spiderfoot OSINT Tool"
 cd /pentest/enumeration && git clone https://github.com/smicallef/spiderfoot.git
 fi
-if [ ! -d /pentest/exploits/ShortShells ] ; then
+if [ ! -d /pentest/web/ShortShells ] ; then
 echo "Instlling Short Shells - web shell collection"
-cd /pentest/enumeration && git clone https://github.com/modux/ShortShells.git
+cd /pentest/web && git clone https://github.com/modux/ShortShells.git
 fi
 if [ ! -d  /pentest/exploits/powershell/Empire ] ; then
 echo "Installing Powershell Empire"
@@ -449,14 +449,3 @@ cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/dnsrecon.rb /pentest/enumeration/
 cp /pentest/misc/va-pt/tools/mysqlaudit.py /pentest/database/
 # end installer
-#if [ ! -d /pentest/voip/viproy ] ; then
-#echo "Installing Viproy"
-#cd /pentest/voip/ && git clone https://github.com/fozavci/viproy-voipkit.git viproy
-#cd /pentest/voip/viproy
-#cp lib/msf/core/auxiliary/* /pentest/exploits/framework3/lib/msf/core/auxiliary/
-#echo "require 'msf/core/auxiliary/sip'" >> /pentest/exploits/framework3/lib/msf/core/auxiliary/mixins.rb
-#echo "require 'msf/core/auxiliary/skinny'" >> /pentest/exploits/framework3/lib/msf/core/auxiliary/mixins.rb
-#cp modules/auxiliary/voip/viproy* /pentest/exploits/framework3/modules/auxiliary/voip/
-#cp modules/auxiliary/spoof/cisco/viproy_cdp.rb /pentest/exploits/framework3/modules/auxiliary/spoof/cisco/
-#echo "You can execute msfconsole now. Viproy modules placed under auxiliary/voip/viproy*"
-#fi

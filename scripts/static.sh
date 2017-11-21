@@ -86,12 +86,6 @@ mkdir /pentest/enumeration/ike
 mv ikeprobe.exe /pentest/enumeration/ike/ && mv libeay32.dll /pentest/enumeration/ike/
 cd /pentest/enumeration/ike && wget http://prdownloads.sourceforge.net/project/ikecrack/ikecrack-perl/1.00/ikecrack-snarf-1.00.pl
 fi
-if [ ! -d /pentest/web/mantra ] ; then
-echo "Installing OWASP Mantra"
-cd /pentest/temp && wget https://downloads.sourceforge.net/project/getmantra/Mantra%20Security%20Toolkit/Janus%20-%200.92%20Beta/OWASP%20Mantra%20Janus%20Linux%2064.tar.gz?r=&ts=1502414226&use_mirror=superb-sea2 -O MantraLexicon.tar.gz
-mv OWASP\ Mantra\ Janus\ Linux\ 64.tar.gz\?r\= OWASP-Mantra.tar.gz && tar zxvf OWASP-Mantra.tar.gz
-rm -rf OWASP-Mantra.tar.gz && ./OWASP\ Mantra-0.92-Linux-x86_64-Install
-fi
 if [ ! -f /pentest/exploits/windows-tools/wce.exe ] ; then
 echo "Installing Windows Credential Editor"
 cd /pentest/exploits/windows-tools && wget http://www.ampliasecurity.com/research/wce_v1_42beta_x64.zip
@@ -114,7 +108,7 @@ cd /pentest/temp && wget http://www.fastandeasyhacking.com/download/armitage1508
 tar xvf armitage150813.tgz  && mv armitage/ /pentest/exploits
 echo "Be sure to edit the database.yml file in /opt/metasploit/apps/pro/ui/config/"
 fi
-if [ ! -f /pentest/passwords/weakpass ] ; then
+if [ ! -f /pentest/passwords/weakpass_2 ] ; then
 echo "Downloading the weakpass archive"
 cd /pentest/passwords && wget http://www.mediafire.com/file/x5ci9iv66x54e6v/weakpass_2.7z
 7z e weakpass_2.7z && rm -rf weakpass_2.7z 
