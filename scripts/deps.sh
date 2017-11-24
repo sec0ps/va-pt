@@ -1,3 +1,4 @@
+#!/bin/bash
 echo "Installing UFW, denying all inbound services excluding ssh and allowing all outbound"
 sudo apt-get install ufw -y
 sudo ufw default deny incoming
@@ -6,7 +7,7 @@ sudo ufw allow 22/tcp
 sudo ufw enable
 
 echo "Installing Packages"
-sudo apt-get install -y wine wine-dev mysql-server subversion git ncftp rar p7zip-full iw ethtool dos2unix gtk-recordmydesktop postgresql
+sudo apt-get install -y mysql-server subversion git ncftp rar p7zip-full iw ethtool dos2unix gtk-recordmydesktop postgresql
 sudo apt-get install -y sqlite3 nbtscan dsniff libncurses-dev libpcap-dev libssl-dev hping3 openssh-server ruby-dev
 sudo apt-get install -y python-dev autoconf open-iscsi wireshark isc-dhcp-server locate libusb-dev g++ arp-scan cewl
 sudo apt-get install -y webhttrack finger rusers snmp reglookup gpsd libgps-dev apache2 libnet-ssh-perl kismet libnl-route-3-dev
@@ -24,6 +25,11 @@ sudo apt-get install -y libbsd-dev unixodbc unixodbc-dev freetds-dev sqsh tdsodb
 sudo apt-get install -y squid python-libpcap ntpdate screen samba-common-bin upx whois libreadline-gplv2-dev gcc-mingw-w64-x86-64
 sudo apt-get install -y gcc-mingw-w64-i686 libsqlite3-dev tftp tftpd libfreerdp-dev libssh2-1-dev python-elixir python-pyasn1
 sudo apt-get install -y python3-pip secure-delete
+
+#wine wine-dev
+
+sudo update-rc.d -f mysql remove && sudo update-rc.d -f apache2 remove
+sudo update-rc.d -f cups remove && sudo update-rc.d -f cups-browsed remove
 
 if [ ! -f /usr/local/bin/cpanm ] ; then
 echo "Installing CPANimus"
