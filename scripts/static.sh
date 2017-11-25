@@ -16,12 +16,13 @@ if [ ! -f /pentest/cisco/copy-router-config.pl ] ; then
 cd /pentest/cisco && wget http://littlehacker.persiangig.com/cisco/copy-router-config.pl
 chmod 755 copy-router-config.pl
 fi
-if [ ! -d /pentest/wireless/hostapd-2.2 ] ; then
+if [ ! -d /pentest/wireless/hostapd-wpe ] ; then
 echo "Installing Hostapd-WPE"
-cd /pentest/wireless/ && git clone https://github.com/OpenSecurityResearch/hostapd-wpe
-wget http://hostap.epitest.fi/releases/hostapd-2.2.tar.gz
-tar -zxf hostapd-2.2.tar.gz && rm -rf hostapd-2.2.tar.gz
-cd hostapd-2.2 && patch -p1 < ../hostapd-wpe/hostapd-wpe.patch 
+cd /pentest/wireless/ && mkdir hostapd-wpe
+cd hostapd-wpe && git clone https://github.com/OpenSecurityResearch/hostapd-wpe
+wget https://w1.fi/releases/hostapd-2.6.tar.gz
+tar -zxf hostapd-2.6.tar.gz && rm -rf hostapd-2.6.tar.gz
+cd hostapd-2.6 && patch -p1 < ../hostapd-wpe/hostapd-wpe.patch 
 cd hostapd && make
 cd ../../hostapd-wpe/certs && ./bootstrap
 fi
