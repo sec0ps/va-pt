@@ -275,6 +275,10 @@ if [ ! -d /pentest/exploits/powershell/Invoke-TheHash ] ; then
 echo "Installing Powershell Invoke-TheHash"
 cd /pentest/exploits/powershell/ && git clone https://github.com/Kevin-Robertson/Invoke-TheHash.git
 fi
+if [ ! -d /pentest/exploits/powershell/PowerShdll ] ; then
+echo "Installing Power Shell DLL"
+cd /pentest/exploits/powershell && git clone https://github.com/p3nt4/PowerShdll.git
+fi
 if [ ! -d /pentest/enumeration/recon-ng ] ; then
 echo "Installing Recon-NG"
 cd /pentest/enumeration/ && git clone https://bitbucket.org/LaNMaSteR53/recon-ng.git
