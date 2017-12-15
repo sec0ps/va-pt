@@ -44,8 +44,7 @@ cd /pentest/web && git clone https://github.com/sullo/nikto.git
 fi
 if [ ! -d /pentest/web/joomscan ] ; then
 echo "Instaling Joomla Scanner"
-cd /pentest/web/ && svn co http://svn.code.sf.net/p/joomscan/code/trunk joomscan
-cd /pentest/web/joomscan/ && chmod 755 joomscan.pl
+cd /pentest/web/ && git clone https://github.com/rezasp/joomscan.git
 fi
 if [ ! -d /pentest/enumeration/theHarvester ] ; then
 echo "Installing the Harvester"
@@ -56,12 +55,11 @@ if [ ! -d /var/www/html/beef ] ; then
 echo "Installing Beef"
 cd /var/www/html && sudo git clone https://github.com/beefproject/beef.git
 fi
-if [ ! -d /pentest/enumeration/fierce2 ] ; then
-echo "Installing Fierce2"
-cd /pentest/enumeration && svn co https://svn.assembla.com/svn/fierce/fierce2/trunk/ fierce2
-cd fierce2 && sudo cpanm --installdeps .
-sudo perl Makefile.PL && make
-sudo make install
+if [ ! -d /pentest/enumeration/fierce ] ; then
+echo "Installing Fierce"
+cd /pentest/enumeration && git clone https://github.com/mschwager/fierce.git
+cd fierce && pip3 install -r requirements.txt
+sudo python3 setup.py install 
 fi
 #if [ ! -d /pentest/wireless/kismet ] ; then
 #echo "Installing Kismet"
@@ -93,11 +91,7 @@ cd /pentest/database && git clone https://github.com/sqlmapproject/sqlmap.git
 fi
 if [ ! -d /pentest/database/sqlninja ] ; then
 echo "Installing SQL Ninja"
-cd /pentest/database && svn checkout http://svn.code.sf.net/p/sqlninja/code/ sqlninja
-fi
-if [ ! -d /pentest/web/laudanum ] ; then
-echo "Installing Laudanum"
-cd /pentest/web && svn co https://svn.code.sf.net/p/laudanum/code/ laudanum
+cd /pentest/database && git clone https://github.com/xxgrunge/sqlninja.git
 fi
 if [ ! -d /pentest/fuzzers/fuzzdb ] ; then
 echo "Installing FuzzDB"
@@ -105,12 +99,11 @@ cd /pentest/fuzzers && git clone https://github.com/fuzzdb-project/fuzzdb.git
 fi
 if [ ! -d /pentest/fuzzers/jbrofuzz ] ; then
 echo "Installing JBroFuzz"
-cd /pentest/fuzzers && svn co https://svn.code.sf.net/p/jbrofuzz/code/ jbrofuzz
-cd /pentest/fuzzers/jbrofuzz/jar && chmod 700 jbrofuzz.sh
+cd /pentest/fuzzers && git clone https://github.com/twilsonb/jbrofuzz.git
 fi
-if [ ! -d /pentest/web/phpshell ] ; then
+if [ ! -d /pentest/web/php-webshells ] ; then
 echo "Installing PHP Shell"
-cd /pentest/web && svn checkout svn://svn.code.sf.net/p/phpshell/code/trunk phpshell
+cd /pentest/web && git clone https://github.com/JohnTroony/php-webshells.git
 fi
 if [ ! -d /pentest/web/htshells ] ; then
 echo "Installing htshells"
@@ -119,10 +112,6 @@ fi
 if [ ! -d /pentest/enumeration/dnsenum ] ; then
 echo "Installing DNSenum"
 cd /pentest/enumeration && git clone https://github.com/fwaeytens/dnsenum.git 
-fi
-if [ ! -d /pentest/fuzzers/wsfuzzer ] ; then
-echo "Installing WSFuzzer"
-cd /pentest/fuzzers && svn checkout svn://svn.code.sf.net/p/wsfuzzer/code/trunk wsfuzzer
 fi
 if [ ! -d /pentest/passwords/Pyrit ] ; then
 echo "Installing Pyrit"
@@ -153,9 +142,8 @@ cd wpscan && bundle install --without test development
 fi
 if [ ! -f /usr/local/bin/smbclient.py ] ; then
 echo "Installing Impacket"
-cd /pentest/temp && git clone https://github.com/CoreSecurity/impacket.git
+cd /pentest/exploits && git clone https://github.com/CoreSecurity/impacket.git
 cd impacket && sudo python setup.py install
-cd /pentest/temp && sudo rm -rf impacket
 fi
 if [ ! -d /pentest/web/WhatWeb ] ; then
 echo "Installing WhatWeb"
@@ -189,7 +177,7 @@ cd /pentest/enumeration/ && git clone https://github.com/SpiderLabs/groupenum.gi
 fi
 if [ ! -d /pentest/web/watobo ] ; then
 echo "Installing Watobo"
-cd /pentest/web/ && svn checkout http://svn.code.sf.net/p/watobo/code/ watobo
+cd /pentest/web/ && git clone https://github.com/siberas/watobo.git
 fi
 if [ ! -d /pentest/enumeration/netsniff-ng ] ; then
 echo "Installing Netsniff-ng"
@@ -229,9 +217,6 @@ if [ ! -d /pentest/voip/voiphopper ] ; then
 echo "Installing VOIP Hopper"
 cd /pentest/voip & git clone https://github.com/iknowjason/voiphopper.git
 fi
-if [ ! -d /pentest/voip/enumiax ] ; then
-cd /pentest/voip && git clone https://github.com/foreni-packages/enumiax.git
-fi
 if [ ! -d /pentest/cisco/cisco-torch ] ; then
 echo "Installing Cisco Torch"
 cd /pentest/cisco && git clone git://git.kali.org/packages/cisco-torch.git
@@ -243,12 +228,6 @@ fi
 if [ ! -d /pentest/passwords/gpp-decrypt ] ; then
 echo "Installing gpp-dercypt"
 cd /pentest/passwords && git clone git://git.kali.org/packages/gpp-decrypt.git
-fi
-if [ ! -d /pentest/web/aesshell ] ; then
-echo "Installing AES Shell"
-cd /pentest/temp && wget https://dl.packetstormsecurity.net/UNIX/penetration/rootkits/aesshell-0.7.tar.bz2 --no-check-certificate
-bunzip2 aesshell-0.7.tar.bz2 && tar xvf aesshell-0.7.tar
-rm -rf aesshell-0.7.tar && mv aesshell/ /pentest/web
 fi
 if [ ! -d /pentest/cisco/cisco-SNMP-enumeration ] ; then
 echo "Installing Cisco SNMP Enum"
@@ -361,16 +340,17 @@ if [ ! -d /pentest/exploits/spraywmi ] ; then
 echo "Installing spraywmi"
 cd /pentest/exploits && git clone https://github.com/trustedsec/spraywmi.git
 fi
+#REMOVED FROM UBUNTU 16.04 LTS UNTIL WINE RETURNS
 #if [ ! -d /pentest/exploits/Veil-Catapult ] ; then
 #echo "Installing Veil Catapult"
 #cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Catapult.git 
 #sudo /pentest/exploits/Veil-Catapult/setup.sh
 #fi
-if [ ! -d /pentest/exploits/Veil-Evasion ] ; then
-echo "Installing Veil Evasion"
-cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Evasion.git 
-sudo /pentest/exploits/Veil-Evasion/setup/setup.sh
-fi
+#if [ ! -d /pentest/exploits/Veil-Evasion ] ; then
+#echo "Installing Veil Evasion"
+#cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Evasion.git
+#sudo /pentest/exploits/Veil-Evasion/setup/setup.s#h
+#fi
 #if [ ! -d /pentest/exploits/Veil-PowerView ] ; then
 #echo "Installing Veil PowerView"
 #cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-PowerView.git

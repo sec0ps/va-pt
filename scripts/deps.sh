@@ -55,12 +55,13 @@ sudo cpanm JSON && sudo cpanm Color::Output
 sudo cpanm Net::IP
 
 echo "Installing Python Deps"
+sudo pip uninstall pyasn1
 sudo pip install esmre pdfminer futures guess-language cluster msgpack-python python-ntlm clamd xdot
 sudo pip install lxml netaddr M2Crypto cherrypy mako M2Crypto dnspython requests capstone dicttoxml
 sudo pip install PyGithub GitPython pybloomfiltermmap esmre pdfminer futures guess-language 
 sudo pip install cluster msgpack-python python-ntlm clamd xdot netifaces pyinstaller wfuzz
 sudo pip install -e git+https://github.com/ramen/phply.git#egg=phply
-sudo pip install pbkdf2 pymongo ipcalc couchdb dicttoxml PyPDF2 olefile crackmapexec
+sudo pip install pbkdf2 pymongo ipcalc couchdb dicttoxml PyPDF2 olefile pyasn1 crackmapexec
 sudo pip3 install xcat
 
 echo "Checking and Installing Ruby Gems"
