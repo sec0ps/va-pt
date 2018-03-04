@@ -288,6 +288,11 @@ if [ ! -d /pentest/exploits/spraywmi ] ; then
 echo "Installing spraywmi"
 cd /pentest/exploits && git clone https://github.com/trustedsec/spraywmi.git
 fi
+if [ ! -d /pentest/web/XSStrike ] ; then
+echo "Installing XSStrike"
+cd /pentest/web && git clone https://github.com/UltimateHackers/XSStrike
+cd XSStrike && sudo pip install -r requirements.txt
+fi
 #
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/
