@@ -281,6 +281,11 @@ echo "Installing Rawr - Rapid Assessment of Web Resources"
 cd /pentest/web/ && git clone https://bitbucket.org/al14s/rawr.git
 cd rawr && sudo ./install.sh
 fi
+if [ ! -d /pentest/web/XSStrike ] ; then
+echo "Installing XSStrike"
+cd /pentest/web && git clone https://github.com/UltimateHackers/XSStrike
+cd XSStrike && sudo pip install -r requirements.txt
+fi
 #installing via pip for the time being
 #if [ ! -d /pentest/exploits/CrackMapExec ] ; then
 #echo "Installing CrackMapExec"
