@@ -103,7 +103,7 @@ echo "Updating ASLeap"
 cd /pentest/wireless/asleap && git pull
 echo "Updating SIPvicious"
 cd /pentest/voip/sipvicious && git pull
-ecoh "Updating VOIPhopper"
+echo "Updating VOIPhopper"
 cd /pentest/voip/voiphopper && git pull
 echo "Updating PCredz"
 cd /pentest/passwords/PCredz && git pull
@@ -169,6 +169,8 @@ echo "Updating Powershell DLL"
 cd /pentest/exploits/powershell/PowerShdll && git pull
 echo "Updating Empire"
 cd /pentest/exploits/powershell/Empire && git pull
+echo "Updating XSStrike"
+cd /pentest/web/XSStrike && git pull
 #
 echo "Updating Bettercap"
 sudo gem update bettercap
