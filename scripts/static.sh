@@ -2,9 +2,9 @@ echo "Static software package installation beginning"
 #
 if [ ! -d /pentest/web/zap ] ; then
 echo "Installing ZED Attack Proxy"
-cd /pentest/temp && wget https://github.com/zaproxy/zaproxy/releases/download/2.6.0/ZAP_2.6.0_Linux.tar.gz
-tar xvf ZAP_2.6.0_Linux.tar.gz && rm -rf ZAP_2.6.0_Linux.tar.gz
-mv ZAP_2.6.0/ /pentest/web/zap
+cd /pentest/temp && wget https://github.com/zaproxy/zaproxy/releases/download/2.7.0/ZAP_2.7.0_Linux.tar.gz
+tar xvf ZAP_2.7.0_Linux.tar.gz && rm -rf ZAP_2.7.0_Linux.tar.gz
+mv ZAP_2.7.0/ /pentest/web/zap
 fi
 if [ ! -d /pentest/scanners/snmp ] ; then
 echo "Installing snmpcheck"
