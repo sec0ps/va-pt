@@ -2,7 +2,7 @@ The set of scripts included in this package will create a Kali/SamuraiWTF type e
 
 The goal of this project was to allow a portable set of tools to be installed onto an Ubuntu or Raspbian system, allowing the tester to be free of distribution release specific constraints.
 
-These scripts were designed specifically for Ubuntu 16.04 LTS and Raspbian (JESSIE).
+These scripts were designed specifically for Ubuntu 16.04 LTS and Raspbian (JESSIE). As of 6 May 2018 I am in the process of converting the scripts over to Ubuntu 18.
 
 Contents of the package
 -------------------------------------------------------------------------------------------------------------------------
