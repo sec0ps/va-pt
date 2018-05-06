@@ -16,16 +16,16 @@ if [ ! -f /pentest/cisco/copy-router-config.pl ] ; then
 cd /pentest/cisco && wget http://littlehacker.persiangig.com/cisco/copy-router-config.pl
 chmod 755 copy-router-config.pl
 fi
-if [ ! -d /pentest/wireless/hostapd-wpe ] ; then
-echo "Installing Hostapd-WPE"
-cd /pentest/wireless/ && mkdir hostapd-wpe
-cd hostapd-wpe && git clone https://github.com/OpenSecurityResearch/hostapd-wpe
-wget https://w1.fi/releases/hostapd-2.6.tar.gz
-tar -zxf hostapd-2.6.tar.gz && rm -rf hostapd-2.6.tar.gz
-cd hostapd-2.6 && patch -p1 < ../hostapd-wpe/hostapd-wpe.patch 
-cd hostapd && make
-cd ../../hostapd-wpe/certs && ./bootstrap
-fi
+#if [ ! -d /pentest/wireless/hostapd-wpe ] ; then
+#echo "Installing Hostapd-WPE"
+#cd /pentest/wireless/ && mkdir hostapd-wpe
+#cd hostapd-wpe && git clone https://github.com/OpenSecurityResearch/hostapd-wpe
+#wget https://w1.fi/releases/hostapd-2.6.tar.gz
+#tar -zxf hostapd-2.6.tar.gz && rm -rf hostapd-2.6.tar.gz
+#cd hostapd-2.6 && patch -p1 < ../hostapd-wpe/hostapd-wpe.patch 
+#cd hostapd && make
+#cd ../../hostapd-wpe/certs && ./bootstrap
+#fi
 if [ ! -f /pentest/database/sqlbrute.py ] ; then
 echo "Installing SQLBrute"
 cd /pentest/database && wget http://packetstorm.foofus.com/UNIX/scanners/sqlbrute.py.txt -O sqlbrute.py
@@ -37,13 +37,13 @@ cd /pentest/database && mkdir tnspoison
 cd tnspoison/ && wget http://www.joxeankoret.com/download/tnspoison.zip
 unzip tnspoison.zip && rm -rf tnspoison.zip
 fi
-if [ ! -d /pentest/enumeration/thc-pptp-bruter ] ; then
-echo "Installing THC PPTP Bruteforcer"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/thc-pptp-bruter-0.1.4.tar.gz --no-check-certificate
-tar xvf thc-pptp-bruter-0.1.4.tar.gz && mv THC-pptp-bruter-0.1.4/ /pentest/enumeration/thc-pptp-bruter
-rm -rf thc-pptp-bruter-0.1.4.tar.gz && cd /pentest/enumeration/thc-pptp-bruter/
-./configure && make
-fi
+#if [ ! -d /pentest/enumeration/thc-pptp-bruter ] ; then
+#echo "Installing THC PPTP Bruteforcer"
+#cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/thc-pptp-bruter-0.1.4.tar.gz --no-check-certificate
+#tar xvf thc-pptp-bruter-0.1.4.tar.gz && mv THC-pptp-bruter-0.1.4/ /pentest/enumeration/thc-pptp-bruter
+#rm -rf thc-pptp-bruter-0.1.4.tar.gz && cd /pentest/enumeration/thc-pptp-bruter/
+#./configure && make
+#fi
 if [ ! -d /pentest/scanners/snmp/snmpenum ] ; then
 echo "Installing SNMPenum"
 cd /pentest/scanners/snmp && mkdir snmpenum
