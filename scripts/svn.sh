@@ -28,11 +28,7 @@ fi
 if [ ! -d /pentest/web/w3af ] ; then
 echo "Installing w3af"
 cd /pentest/web && git clone https://github.com/andresriancho/w3af.git w3af 
-fi
-if [ ! -d /pentest/web/wafw00f ] ; then
-echo "Installing wafw00f"
-cd /pentest/web && git clone https://github.com/EnableSecurity/wafw00f.git
-cd /pentest/web/wafw00f && sudo python setup.py install
+sudo /tmp/w3af_dependency_install.sh
 fi
 if [ ! -d /pentest/fuzzers/sulley ] ; then
 echo "Installing Sulley"
@@ -60,25 +56,6 @@ echo "Installing Fierce"
 cd /pentest/enumeration && git clone https://github.com/mschwager/fierce.git
 cd fierce && pip3 install -r requirements.txt
 sudo python3 setup.py install 
-fi
-#if [ ! -d /pentest/wireless/kismet ] ; then
-#echo "Installing Kismet"
-#cd /pentest/wireless && git clone https://www.kismetwireless.net/kismet.git
-#cd /pentest/wireless/kismet
-#./configure && make dep
-#make && sudo make install
-#fi
-if [ ! -d /pentest/wireless/aircrack-ng ] ; then
-echo "Installing Aircrack-NG"
-cd /pentest/wireless && git clone https://github.com/aircrack-ng/aircrack-ng.git
-cd aircrack-ng && make
-sudo make install && sudo airodump-ng-oui-update
-fi
-if [ ! -d /pentest/wireless/reaver ] ; then
-echo "Installing Reaver"
-cd /pentest/wireless && git clone https://github.com/gabrielrcouto/reaver-wps.git reaver
-cd /pentest/wireless/reaver/src && ./configure
-make && sudo make install
 fi
 if [ ! -d /pentest/enumeration/dnsmap ] ; then
 echo "Installing DNSMap"
@@ -112,12 +89,6 @@ fi
 if [ ! -d /pentest/enumeration/dnsenum ] ; then
 echo "Installing DNSenum"
 cd /pentest/enumeration && git clone https://github.com/fwaeytens/dnsenum.git 
-fi
-if [ ! -d /pentest/passwords/Pyrit ] ; then
-echo "Installing Pyrit"
-cd /pentest/passwords && git clone https://github.com/JPaulMora/Pyrit.git
-cd /pentest/passwords/Pyrit && python setup.py build 
-sudo python setup.py install
 fi
 if [ ! -d /pentest/passwords/DPAT ] ; then
 echo "Installing Domain Password Auditing Tool"
@@ -164,12 +135,8 @@ echo "Installing NTLMS Parse"
 cd /pentest/passwords && git clone https://github.com/psychomario/ntlmsspparse.git
 fi
 if [ ! -d /pentest/exploits/Responder ] ; then
-echo "Installing Spiderlabs Responder"
-cd /pentest/exploits/ && git clone https://github.com/SpiderLabs/Responder.git
-fi
-if [ ! -d /pentest/exploits/Responder-New ] ; then
 echo "Installing lgandx Responder"
-cd /pentest/exploits/ && git clone https://github.com/lgandx/Responder.git Responder-New
+cd /pentest/exploits/ && git clone https://github.com/lgandx/Responder.git Responder
 fi
 if [ ! -d /pentest/enumeration/groupenum ] ; then
 echo "Installing Spiderlabs groupenum"
@@ -188,12 +155,6 @@ fi
 if [ ! -d /pentest/voip/sipvicious ] ; then
 echo "Installing SIPVicious"
 cd /pentest/voip && git clone https://github.com/EnableSecurity/sipvicious.git
-fi
-if [ ! -d /pentest/web/sslsplit ] ; then
-echo "Installing SSL Split"
-cd /pentest/web && git clone https://github.com/droe/sslsplit.git
-cd sslsplit && make
-sudo make install
 fi
 if [ ! -d /pentest/wireless/weape ] ; then
 echo "Installing Wireless EAP Username Extractor"
@@ -321,10 +282,6 @@ if [ ! -d /pentest/exfiltrate/udp2raw-tunnel ] ; then
 echo "Installing udp2raw-tunnel"
 cd /pentest/exfiltrate && git clone https://github.com/wangyu-/udp2raw-tunnel.git
 fi
-if [ ! -d /pentest/misc/Cheatsheets ] ; then
-echo "Installing Cheatsheet collection"
-cd /pentest/misc && git clone https://github.com/jshaw87/Cheatsheets.git
-fi
 if [ ! -d /pentest/web/brutexss ] ; then
 echo "Installing bruteXSS"
 cd /pentest/web && git clone https://github.com/shawarkhanethicalhacker/BruteXSS.git brutexss
@@ -345,21 +302,12 @@ if [ ! -d /pentest/exploits/spraywmi ] ; then
 echo "Installing spraywmi"
 cd /pentest/exploits && git clone https://github.com/trustedsec/spraywmi.git
 fi
-#REMOVED FROM UBUNTU 16.04 LTS UNTIL WINE RETURNS
-#if [ ! -d /pentest/exploits/Veil-Catapult ] ; then
-#echo "Installing Veil Catapult"
-#cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Catapult.git 
-#sudo /pentest/exploits/Veil-Catapult/setup.sh
-#fi
-#if [ ! -d /pentest/exploits/Veil-Evasion ] ; then
-#echo "Installing Veil Evasion"
-#cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-Evasion.git
-#sudo /pentest/exploits/Veil-Evasion/setup/setup.s#h
-#fi
-#if [ ! -d /pentest/exploits/Veil-PowerView ] ; then
-#echo "Installing Veil PowerView"
-#cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil-PowerView.git
-#fi
+if [ ! -d /pentest/exploits/Veil ] ; then
+echo "Installing Veil Framework"
+cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil.git
+cd Veil && sudo ./config/setup.sh --force --silent
+
+fi
 if [ ! -d /pentest/enumeration/rdp-sec-check ] ; then
 echo "Installing RDP Security Checker"
 cd /pentest/enumeration/ && git clone https://github.com/portcullislabs/rdp-sec-check.git
@@ -375,12 +323,12 @@ fi
 if [ ! -d /pentest/wireless/cowpatty ] ; then
 echo "Installing CowPatty"
 cd /pentest/wireless && git clone https://github.com/roobixx/cowpatty.git
-make
+cd cowpaty && make
 fi
 if [ ! -d /pentest/wireless/asleap ] ; then
 echo "Installing asleap"
 cd /pentest/wireless/ && git clone https://github.com/joswr1ght/asleap.git
-make
+cd asleap && make
 fi
 if [ ! -d /pentest/misc/pentest-tools/ ] ; then
 cd /pentest/misc && git clone https://github.com/joshuaskorich/pentest-tools.git
@@ -423,7 +371,7 @@ fi
 if [ ! -d /pentest/enumeration/thc-ipv6 ] ; then
 echo "Installing THC IPv6"
 cd /pentest/enumeration/ && git clone https://github.com/vanhauser-thc/thc-ipv6.git
-make
+cd thc-ipv6 && make
 fi
 if [ ! -d /pentest/web/svn-extractor ] ; then
 echo "Installing SVN Extractor"
