@@ -13,6 +13,8 @@ update-tools.sh - update script for all the tools that have git/svn functionalit
 install.sh - The script that makes it all happen
 readme - You're looking at it
 rasp-pi/ - Scripts directory for the Raspberry PI
+ubuntu16/ - Ubuntu 16 installation scripts
+ubuntu18/ - Ubuntu 18 installation scripts
 
 All tools are loaded into the /pentest directory.
 
