@@ -377,6 +377,10 @@ if [ ! -d /pentest/web/svn-extractor ] ; then
 echo "Installing SVN Extractor"
 cd /pentest/web && git clone https://github.com/anantshri/svn-extractor.git
 fi
+if [ ! -d /pentest/passwords/CeWL ] ; then
+echo "Installing Cewl Password Generator"
+cd /pentest/web && git clone https://github.com/digininja/CeWL.git
+fi
 #
 echo "Installing local tools"
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
