@@ -8,7 +8,7 @@ sudo ufw enable
 
 echo "Installing Packages"
 sudo apt install -y make gcc ncftp rar p7zip-full git subversion vim curl locate libpcap-dev libssl-dev hping3 openssh-server libssh-dev g++ arp-scan cewl wifite
-sudo apt install -y sqlite3 nbtscan dsniff ruby-dev postgresql libpq-dev
+sudo apt install -y sqlite3 nbtscan dsniff ruby-dev postgresql libpq-dev python-pip python-pip3 python-lxml libxml2-dev libxslt1-dev
 
 if [ ! -f /usr/local/bin/cpanm ] ; then
 echo "Installing CPANimus"
@@ -18,13 +18,16 @@ make && sudo make install
 cd /pentest/temp && rm -rf cpanminus/
 fi
 
+#echo "Installing Ruby Gems"
+sudo gem install bettercap
+#sudo gem install bundler spider http_configuration mini_exiftool zip sqlite3 net-dns bettercap
 
 #filtering stuff not needed on 18
 #sudo apt-get install -y mysql-server iw ethtool dos2unix gtk-recordmydesktop postgresql
 #sudo apt-get install -y  libncurses-dev  ruby-dev
 #sudo apt-get install -y python-dev autoconf open-iscsi wireshark isc-dhcp-server libusb-dev 
 #sudo apt-get install -y webhttrack finger rusers snmp reglookup gpsd libgps-dev apache2 libnet-ssh-perl kismet libnl-route-3-dev
-#sudo apt-get install -y  libpq-dev libxml2-dev vim python-setuptools libmicrohttpd-dev horst kismet-plugins
+#sudo apt-get install -y  libpq-dev  vim python-setuptools libmicrohttpd-dev horst kismet-plugins
 #sudo apt-get install -y python-nltk python-soappy python-lxml python-svn python-scapy gtk2-engines-pixbuf graphviz python-gtksourceview2
 #sudo apt-get install -y  libmysqlclient-dev libpcre3-dev firebird-dev libsvn-dev libidn11-dev libcurl4-gnutls-dev
 #sudo apt-get install -y libxslt1-dev sipcrack libgmp3-dev python-mysqldb libnet1-dev flasm registry-tools python-pygraphviz
@@ -39,35 +42,30 @@ fi
 #sudo apt-get install -y gcc-mingw-w64-i686 libsqlite3-dev tftp tftpd libfreerdp-dev libssh2-1-dev python-elixir python-pyasn1
 #sudo apt-get install -y python3-pip secure-delete
 
-sudo update-rc.d -f mysql remove && sudo update-rc.d -f apache2 remove
-sudo update-rc.d -f cups remove && sudo update-rc.d -f cups-browsed remove
+#sudo update-rc.d -f mysql remove && sudo update-rc.d -f apache2 remove
+#sudo update-rc.d -f cups remove && sudo update-rc.d -f cups-browsed remove
 
+#echo "Checking and Installing PERL Deps"
+#sudo cpanm Cisco::CopyConfig && sudo cpanm Net::Telnet
+#sudo cpanm Net::Netmask && sudo cpanm XML::Writer
+#sudo cpanm Encoding::BER && sudo cpanm Term::ANSIColor	
+#sudo cpanm Getopt::Long && sudo cpanm XML::Writer
+#sudo cpanm Socket && sudo cpanm Net::Whois::IP
+#sudo cpanm Number::Bytes::Human && sudo cpanm Parallel::ForkManager
+#sudo cpanm NetPacket::ICMP && sudo cpanm String::Random
+##sudo cpanm LWP::UserAgent && sudo cpanm Object::InsideOut
+#sudo cpanm  Test::Class && sudo cpanm WWW::Mechanize
+#sudo cpanm Net::Whois::ARIN && sudo cpanm Test::MockObject
+#sudo cpanm Template && sudo cpanm Net::CIDR
+#sudo cpanm JSON && sudo cpanm Color::Output
+#sudo cpanm Net::IP
 
-
-echo "Checking and Installing PERL Deps"
-sudo cpanm Cisco::CopyConfig && sudo cpanm Net::Telnet
-sudo cpanm Net::Netmask && sudo cpanm XML::Writer
-sudo cpanm Encoding::BER && sudo cpanm Term::ANSIColor	
-sudo cpanm Getopt::Long && sudo cpanm XML::Writer
-sudo cpanm Socket && sudo cpanm Net::Whois::IP
-sudo cpanm Number::Bytes::Human && sudo cpanm Parallel::ForkManager
-sudo cpanm NetPacket::ICMP && sudo cpanm String::Random
-sudo cpanm LWP::UserAgent && sudo cpanm Object::InsideOut
-sudo cpanm  Test::Class && sudo cpanm WWW::Mechanize
-sudo cpanm Net::Whois::ARIN && sudo cpanm Test::MockObject
-sudo cpanm Template && sudo cpanm Net::CIDR
-sudo cpanm JSON && sudo cpanm Color::Output
-sudo cpanm Net::IP
-
-echo "Installing Python Deps"
-sudo pip uninstall pyasn1
-sudo pip install esmre pdfminer futures guess-language cluster msgpack-python python-ntlm clamd xdot
-sudo pip install lxml netaddr M2Crypto cherrypy mako M2Crypto dnspython requests capstone dicttoxml
-sudo pip install PyGithub GitPython pybloomfiltermmap esmre pdfminer futures guess-language 
-sudo pip install cluster msgpack-python python-ntlm clamd xdot netifaces pyinstaller wfuzz
-sudo pip install -e git+https://github.com/ramen/phply.git#egg=phply
-sudo pip install pbkdf2 pymongo ipcalc couchdb dicttoxml PyPDF2 olefile pyasn1 crackmapexec
-sudo pip3 install xcat
-
-echo "Checking and Installing Ruby Gems"
-sudo gem install bundler spider http_configuration mini_exiftool zip sqlite3 net-dns bettercap
+#echo "Installing Python Deps"
+#sudo pip uninstall pyasn1
+#sudo pip install esmre pdfminer futures guess-language cluster msgpack-python python-ntlm clamd xdot
+#sudo pip install lxml netaddr M2Crypto cherrypy mako M2Crypto dnspython requests capstone dicttoxml
+#sudo pip install PyGithub GitPython pybloomfiltermmap esmre pdfminer futures guess-language 
+#sudo pip install cluster msgpack-python python-ntlm clamd xdot netifaces pyinstaller wfuzz
+#sudo pip install -e git+https://github.com/ramen/phply.git#egg=phply
+#sudo pip install pbkdf2 pymongo ipcalc couchdb dicttoxml PyPDF2 olefile pyasn1 crackmapexec
+#sudo pip3 install xcat

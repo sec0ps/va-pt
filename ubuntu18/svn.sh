@@ -21,14 +21,14 @@ cd /pentest/exploits && git clone https://github.com/rapid7/metasploit-framework
 cd /pentest/exploits/framework3 && sudo apt install ruby-bundler
 bundle install
 fi
-#if [ ! -d /pentest/web/fimap ] ; then
-#echo "Installing fimap"
-#cd /pentest/web && git clone https://github.com/Oweoqi/fimap.git
-#fi
+if [ ! -d /pentest/web/fimap ] ; then
+echo "Installing fimap"
+cd /pentest/web && git clone https://github.com/Oweoqi/fimap.git
+fi
 if [ ! -d /pentest/web/w3af ] ; then
 echo "Installing w3af"
 cd /pentest/web && git clone https://github.com/andresriancho/w3af.git w3af 
-sudo /tmp/w3af_dependency_install.sh
+./w3af_console && sudo /tmp/w3af_dependency_install.sh
 fi
 if [ ! -d /pentest/fuzzers/sulley ] ; then
 echo "Installing Sulley"
@@ -54,8 +54,8 @@ fi
 if [ ! -d /pentest/enumeration/fierce ] ; then
 echo "Installing Fierce"
 cd /pentest/enumeration && git clone https://github.com/mschwager/fierce.git
-cd fierce && pip3 install -r requirements.txt
-sudo python3 setup.py install 
+cd fierce && pip install -r requirements.txt
+sudo python setup.py install 
 fi
 if [ ! -d /pentest/enumeration/dnsmap ] ; then
 echo "Installing DNSMap"
