@@ -7,37 +7,42 @@ sudo ufw allow 22/tcp
 sudo ufw enable
 
 echo "Installing Packages"
-sudo apt-get install -y mysql-server subversion git ncftp rar p7zip-full iw ethtool dos2unix gtk-recordmydesktop postgresql
-sudo apt-get install -y sqlite3 nbtscan dsniff libncurses-dev libpcap-dev libssl-dev hping3 openssh-server ruby-dev
-sudo apt-get install -y python-dev autoconf open-iscsi wireshark isc-dhcp-server locate libusb-dev g++ arp-scan cewl
-sudo apt-get install -y webhttrack finger rusers snmp reglookup gpsd libgps-dev apache2 libnet-ssh-perl kismet libnl-route-3-dev
-sudo apt-get install -y curl sslscan libpq-dev libxml2-dev vim python-setuptools libmicrohttpd-dev horst kismet-plugins
-sudo apt-get install -y python-nltk python-soappy python-lxml python-svn python-scapy gtk2-engines-pixbuf graphviz python-gtksourceview2
-sudo apt-get install -y libssh-dev libmysqlclient-dev libpcre3-dev firebird-dev libsvn-dev libidn11-dev libcurl4-gnutls-dev
-sudo apt-get install -y libxslt1-dev sipcrack libgmp3-dev python-mysqldb libnet1-dev flasm registry-tools python-pygraphviz
-sudo apt-get install -y libavahi-compat-libdnssd-dev gip ldap-utils bkhive ophcrack macchanger flamerobin dsniff sipsak libnetfilter-queue-dev
-sudo apt-get install -y ike-scan nfs-kernel-server httping ptunnel libaspell-dev autoconf libpcap-dev libnl-genl-3-200
-sudo apt-get install -y libyaml-dev default-jdk libreadline-dev python-pip python-beautifulsoup tshark libnl-genl-3-dev libnl-idiag-3-dev
-sudo apt-get install -y samba ldapscripts python-smbpasswd libevent-dev flex bison libgeoip-dev chntpw openconnect libffi-dev
-sudo apt-get install -y libnetfilter-conntrack-dev libncurses-dev liburcu-dev libnacl-dev zlib1g-dev libcli-dev python-pycurl vpnc
-sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk swig cmake libtalloc-dev libtevent-dev libpopt-dev
-sudo apt-get install -y libbsd-dev unixodbc unixodbc-dev freetds-dev sqsh tdsodbc autofs remmina remmina-plugin-rdp remmina-plugin-vnc
-sudo apt-get install -y squid python-libpcap ntpdate screen samba-common-bin upx whois libreadline-gplv2-dev gcc-mingw-w64-x86-64
-sudo apt-get install -y gcc-mingw-w64-i686 libsqlite3-dev tftp tftpd libfreerdp-dev libssh2-1-dev python-elixir python-pyasn1
-sudo apt-get install -y python3-pip secure-delete
-
-#wine wine-dev
-
-sudo update-rc.d -f mysql remove && sudo update-rc.d -f apache2 remove
-sudo update-rc.d -f cups remove && sudo update-rc.d -f cups-browsed remove
+sudo apt install -y make gcc ncftp rar p7zip-full git subversion vim curl locate libpcap-dev libssl-dev hping3 openssh-server libssh-dev g++ arp-scan cewl wifite
+sudo apt install -y sqlite3 nbtscan dsniff ruby-dev postgresql libpq-dev
 
 if [ ! -f /usr/local/bin/cpanm ] ; then
 echo "Installing CPANimus"
 cd /pentest/temp && git clone https://github.com/miyagawa/cpanminus.git
-cd cpanminus && perl Makefile.PL
+cd cpanminus/App-cpanminus && perl Makefile.PL
 make && sudo make install
 cd /pentest/temp && rm -rf cpanminus/
 fi
+
+
+#filtering stuff not needed on 18
+#sudo apt-get install -y mysql-server iw ethtool dos2unix gtk-recordmydesktop postgresql
+#sudo apt-get install -y  libncurses-dev  ruby-dev
+#sudo apt-get install -y python-dev autoconf open-iscsi wireshark isc-dhcp-server libusb-dev 
+#sudo apt-get install -y webhttrack finger rusers snmp reglookup gpsd libgps-dev apache2 libnet-ssh-perl kismet libnl-route-3-dev
+#sudo apt-get install -y  libpq-dev libxml2-dev vim python-setuptools libmicrohttpd-dev horst kismet-plugins
+#sudo apt-get install -y python-nltk python-soappy python-lxml python-svn python-scapy gtk2-engines-pixbuf graphviz python-gtksourceview2
+#sudo apt-get install -y  libmysqlclient-dev libpcre3-dev firebird-dev libsvn-dev libidn11-dev libcurl4-gnutls-dev
+#sudo apt-get install -y libxslt1-dev sipcrack libgmp3-dev python-mysqldb libnet1-dev flasm registry-tools python-pygraphviz
+#sudo apt-get install -y libavahi-compat-libdnssd-dev gip ldap-utils bkhive ophcrack macchanger flamerobin dsniff sipsak libnetfilter-queue-dev
+#sudo apt-get install -y ike-scan nfs-kernel-server httping ptunnel libaspell-dev autoconf libpcap-dev libnl-genl-3-200
+#sudo apt-get install -y libyaml-dev default-jdk libreadline-dev python-pip python-beautifulsoup tshark libnl-genl-3-dev libnl-idiag-3-dev
+#sudo apt-get install -y samba ldapscripts python-smbpasswd libevent-dev flex bison libgeoip-dev chntpw openconnect libffi-dev
+##sudo apt-get install -y libnetfilter-conntrack-dev libncurses-dev liburcu-dev libnacl-dev zlib1g-dev libcli-dev python-pycurl vpnc
+#sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk swig cmake libtalloc-dev libtevent-dev libpopt-dev
+#sudo apt-get install -y libbsd-dev unixodbc unixodbc-dev freetds-dev sqsh tdsodbc autofs remmina remmina-plugin-rdp remmina-plugin-vnc
+#sudo apt-get install -y squid python-libpcap ntpdate screen samba-common-bin upx whois libreadline-gplv2-dev gcc-mingw-w64-x86-64
+#sudo apt-get install -y gcc-mingw-w64-i686 libsqlite3-dev tftp tftpd libfreerdp-dev libssh2-1-dev python-elixir python-pyasn1
+#sudo apt-get install -y python3-pip secure-delete
+
+sudo update-rc.d -f mysql remove && sudo update-rc.d -f apache2 remove
+sudo update-rc.d -f cups remove && sudo update-rc.d -f cups-browsed remove
+
+
 
 echo "Checking and Installing PERL Deps"
 sudo cpanm Cisco::CopyConfig && sudo cpanm Net::Telnet

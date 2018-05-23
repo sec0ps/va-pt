@@ -6,10 +6,10 @@ cd /pentest/wireless/giskismet && sudo cpanm --installdeps .
 sudo perl Makefile.PL && make
 sudo make install
 fi
-if [ ! -d /pentest/wireless/wifite/ ] ; then
-echo "Installing Wifitie"
-cd /pentest/wireless && git clone https://github.com/derv82/wifite.git
-fi
+#if [ ! -d /pentest/wireless/wifite/ ] ; then
+#echo "Installing Wifite"
+#cd /pentest/wireless && git clone https://github.com/derv82/wifite.git
+#fi
 if [ ! -d /pentest/exploits/set ] ; then
 echo "Installing the Social Engineering Toolkit"
 cd /pentest/exploits && git clone https://github.com/trustedsec/social-engineer-toolkit/ set
@@ -18,13 +18,13 @@ fi
 if [ ! -d /pentest/exploits/framework3 ] ; then
 echo "Installing Metasploit"
 cd /pentest/exploits && git clone https://github.com/rapid7/metasploit-framework.git framework3
-cd /pentest/exploits/framework3 && bundle install
-sudo chmod o+r /var/lib/gems/2.3.0/gems/robots-0.10.1/lib/robots.rb
+cd /pentest/exploits/framework3 && sudo apt install ruby-bundler
+bundle install
 fi
-if [ ! -d /pentest/web/fimap ] ; then
-echo "Installing fimap"
-cd /pentest/web && git clone https://github.com/Oweoqi/fimap.git
-fi
+#if [ ! -d /pentest/web/fimap ] ; then
+#echo "Installing fimap"
+#cd /pentest/web && git clone https://github.com/Oweoqi/fimap.git
+#fi
 if [ ! -d /pentest/web/w3af ] ; then
 echo "Installing w3af"
 cd /pentest/web && git clone https://github.com/andresriancho/w3af.git w3af 
