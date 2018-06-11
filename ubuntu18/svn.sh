@@ -66,10 +66,6 @@ if [ ! -d /pentest/database/sqlmap ] ; then
 echo "Installing SQL Map"
 cd /pentest/database && git clone https://github.com/sqlmapproject/sqlmap.git
 fi
-if [ ! -d /pentest/database/sqlninja ] ; then
-echo "Installing SQL Ninja"
-cd /pentest/database && git clone https://github.com/xxgrunge/sqlninja.git
-fi
 if [ ! -d /pentest/fuzzers/fuzzdb ] ; then
 echo "Installing FuzzDB"
 cd /pentest/fuzzers && git clone https://github.com/fuzzdb-project/fuzzdb.git
@@ -178,17 +174,13 @@ if [ ! -d /pentest/voip/voiphopper ] ; then
 echo "Installing VOIP Hopper"
 cd /pentest/voip & git clone https://github.com/iknowjason/voiphopper.git
 fi
-if [ ! -d /pentest/cisco/cisco-torch ] ; then
-echo "Installing Cisco Torch"
-cd /pentest/cisco && git clone git://git.kali.org/packages/cisco-torch.git
-fi
 if [ ! -d /pentest/exploits/pth-toolkit ] ; then
 echo "Installing the PTH Toolkit"
 cd /pentest/exploits && git clone https://github.com/byt3bl33d3r/pth-toolkit.git
 fi
 if [ ! -d /pentest/passwords/gpp-decrypt ] ; then
 echo "Installing gpp-dercypt"
-cd /pentest/passwords && git clone git://git.kali.org/packages/gpp-decrypt.git
+cd /pentest/passwords && git clone https://github.com/BustedSec/gpp-decrypt.git
 fi
 if [ ! -d /pentest/cisco/cisco-SNMP-enumeration ] ; then
 echo "Installing Cisco SNMP Enum"
@@ -196,8 +188,9 @@ cd /pentest/cisco && git clone  https://github.com/nccgroup/cisco-SNMP-enumerati
 fi
 if [ ! -d /pentest/web/arachni ] ; then
 echo "Installing Arachni Web Scanner"
-cd /pentest/web && git clone https://github.com/Arachni/arachni.git
-cd arachni && bundle install
+cd /pentest/temp && wget https://github.com/Arachni/arachni/releases/download/v1.5.1/arachni-1.5.1-0.5.12-linux-x86_64.tar.gz
+#cd /pentest/web && git clone https://github.com/Arachni/arachni.git
+#cd arachni && bundle install
 fi
 if [ ! -d /pentest/exploits/powershell/PowerTools ] ; then
 echo "Installing PowerTools"
