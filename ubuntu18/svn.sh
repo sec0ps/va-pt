@@ -186,12 +186,12 @@ if [ ! -d /pentest/cisco/cisco-SNMP-enumeration ] ; then
 echo "Installing Cisco SNMP Enum"
 cd /pentest/cisco && git clone  https://github.com/nccgroup/cisco-SNMP-enumeration.git
 fi
-if [ ! -d /pentest/web/arachni ] ; then
-echo "Installing Arachni Web Scanner"
-cd /pentest/temp && wget https://github.com/Arachni/arachni/releases/download/v1.5.1/arachni-1.5.1-0.5.12-linux-x86_64.tar.gz
+##if [ ! -d /pentest/web/arachni ] ; then
+#echo "Installing Arachni Web Scanner"
+#cd /pentest/temp && wget https://github.com/Arachni/arachni/releases/download/v1.5.1/arachni-1.5.1-0.5.12-linux-x86_64.tar.gz
 #cd /pentest/web && git clone https://github.com/Arachni/arachni.git
 #cd arachni && bundle install
-fi
+#fi
 if [ ! -d /pentest/exploits/powershell/PowerTools ] ; then
 echo "Installing PowerTools"
 cd /pentest/exploits/powershell && git clone https://github.com/PowerShellEmpire/PowerTools.git
@@ -216,15 +216,15 @@ if [ ! -d /pentest/enumeration/recon-ng ] ; then
 echo "Installing Recon-NG"
 cd /pentest/enumeration/ && git clone https://bitbucket.org/LaNMaSteR53/recon-ng.git
 fi
-if [ ! -d /pentest/enumeration/medusa ] ; then
-echo "Installing Medusa"
-cd /pentest/enumeration/ && git clone https://github.com/jmk-foofus/medusa.git
-cd medusa && ./configure
-make && sudo make install
-fi
 if [ ! -d /pentest/enumeration/pasv-agrsv ] ; then
 echo "Installing Passive Aggresive OSINT TOol"
 cd /pentest/enumeration && git clone https://github.com/isaudits/pasv-agrsv.git
+fi
+if [ ! -d /pentest/enumeration/medusa ] ; then
+echo "Installing Medusa"
+cd /pentest/enumeration/ && git clone https://github.com/jmk-foofus/medusa.git
+cd medusa && ./configure --enable-module-ssh=yes
+make && sudo make install
 fi
 if [ ! -d /pentest/exploits/pentestly ] ; then
 echo "Installing Pentestly"
@@ -253,8 +253,7 @@ cd /pentest/web/ && git clone https://github.com/epsylon/xsser-public.git xsser
 fi
 if [ ! -d /pentest/exploits/exploitdb ] ; then
 echo "Installing latest ExploitDB archive"
-cd /pentest/exploits && git clone https://github.com/offensive-security/exploit-database.git
-mv exploit-database exploitdb
+cd /pentest/exploits && git clone https://github.com/offensive-security/exploit-database.git exploitdb
 fi
 if [ ! -d /pentest/passwords/Usernames ]; then
 echo "Installing the wordlist collection"
@@ -295,12 +294,6 @@ if [ ! -d /pentest/exploits/spraywmi ] ; then
 echo "Installing spraywmi"
 cd /pentest/exploits && git clone https://github.com/trustedsec/spraywmi.git
 fi
-if [ ! -d /pentest/exploits/Veil ] ; then
-echo "Installing Veil Framework"
-cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil.git
-cd Veil && sudo ./config/setup.sh --force --silent
-
-fi
 if [ ! -d /pentest/enumeration/rdp-sec-check ] ; then
 echo "Installing RDP Security Checker"
 cd /pentest/enumeration/ && git clone https://github.com/portcullislabs/rdp-sec-check.git
@@ -316,7 +309,7 @@ fi
 if [ ! -d /pentest/wireless/cowpatty ] ; then
 echo "Installing CowPatty"
 cd /pentest/wireless && git clone https://github.com/roobixx/cowpatty.git
-cd cowpaty && make
+cd cowpatty && make
 fi
 if [ ! -d /pentest/wireless/asleap ] ; then
 echo "Installing asleap"
@@ -373,6 +366,11 @@ fi
 if [ ! -d /pentest/passwords/CeWL ] ; then
 echo "Installing Cewl Password Generator"
 cd /pentest/web && git clone https://github.com/digininja/CeWL.git
+fi
+if [ ! -d /pentest/exploits/Veil ] ; then
+echo "Installing Veil Framework"
+cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil.git
+cd Veil && sudo ./config/setup.sh --force --silent
 fi
 #
 echo "Installing local tools"

@@ -9,7 +9,7 @@ sudo ufw enable
 echo "Installing Packages"
 sudo apt install -y make gcc ncftp rar p7zip-full git subversion vim curl locate libpcap-dev libssl-dev hping3 openssh-server libssh-dev g++ arp-scan cewl wifite
 sudo apt install -y sqlite3 nbtscan dsniff ruby-dev postgresql libpq-dev python-pip python-pip3 python-lxml libxml2-dev libxslt1-dev python3-pip libncurses-dev
-sudo apt install -y firebird-dev libmysqlclient-dev libsvn-dev python-libpcap
+sudo apt install -y firebird-dev libmysqlclient-dev libsvn-dev python-libpcap freerdp2-dev libssh2-1-dev m4 autoconf
 
 if [ ! -f /usr/local/bin/cpanm ] ; then
 echo "Installing CPANimus"
@@ -48,7 +48,7 @@ sudo cpanm XML::Writer && sudo cpanm String::Random
 #sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk swig cmake libtalloc-dev libtevent-dev libpopt-dev
 #sudo apt-get install -y libbsd-dev unixodbc unixodbc-dev freetds-dev sqsh tdsodbc autofs remmina remmina-plugin-rdp remmina-plugin-vnc
 #sudo apt-get install -y squid python-libpcap ntpdate screen samba-common-bin upx whois libreadline-gplv2-dev gcc-mingw-w64-x86-64
-#sudo apt-get install -y gcc-mingw-w64-i686 libsqlite3-dev tftp tftpd libfreerdp-dev libssh2-1-dev python-elixir python-pyasn1
+#sudo apt-get install -y gcc-mingw-w64-i686 libsqlite3-dev tftp tftpd python-elixir python-pyasn1
 #sudo apt-get install -y secure-delete
 
 #sudo update-rc.d -f mysql remove && sudo update-rc.d -f apache2 remove
