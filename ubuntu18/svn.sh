@@ -276,7 +276,7 @@ cd /pentest/exfiltrate && git clone https://github.com/wangyu-/udp2raw-tunnel.gi
 fi
 if [ ! -d /pentest/web/brutexss ] ; then
 echo "Installing bruteXSS"
-cd /pentest/web && git clone https://github.com/shawarkhanethicalhacker/BruteXSS.git brutexss
+cd /pentest/web && git clone https://github.com/shawarkhanethicalhacker/BruteXSS-1.git brutexss
 fi
 if [ ! -d /pentest/web/droopescan ] ; then
 echo "Installing Droopescan"
