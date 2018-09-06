@@ -266,7 +266,7 @@ cd /pentest/web && git clone https://github.com/epinna/tplmap.git
 fi
 if [ ! -d /pentest/misc/Cheatsheets ] ; then
 echo "Installing Cheatsheet collection"
-cd /pentest/misc && git clone https://github.com/nasnaq/jshaw87-Cheatsheets.git
+cd /pentest/misc && git clone https://github.com/OlivierLaflamme/Cheatsheet-God.git
 fi
 if [ ! -d /pentest/web/brutexss ] ; then
 echo "Installing bruteXSS"
