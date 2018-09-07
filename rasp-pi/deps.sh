@@ -16,7 +16,7 @@ sudo apt-get install -y libssh-dev libmysqlclient-dev libpcre3-dev firebird-dev 
 sudo apt-get install -y libxslt1-dev sipcrack libgmp3-dev python-mysqldb libnet1-dev flasm registry-tools
 sudo apt-get install -y libavahi-compat-libdnssd-dev gip ldap-utils bkhive ophcrack macchanger flamerobin sipsak
 sudo apt-get install -y ike-scan nfs-kernel-server httping ptunnel recoverdm extundelete ext3grep libaspell-dev autoconf
-sudo apt-get install -y libyaml-dev default-jdk libreadline-dev python-pip python-beautifulsoup tshark
+sudo apt-get install -y libyaml-dev default-jdk libreadline-dev python-pip python-pip3 python-beautifulsoup tshark
 sudo apt-get install -y samba libpam-smbpass libevent-dev flex bison libgeoip-dev chntpw crunch python-pygraphviz
 sudo apt-get install -y libnetfilter-conntrack-dev libncurses-dev liburcu-dev zlib1g-dev libcli-dev python-pycurl vpnc
 sudo apt-get install -y ptunnel iodine udptunnel httptunnel netmask dnstracer dnswalk swig cmake libtalloc-dev libtevent-dev libpopt-dev
@@ -70,9 +70,10 @@ sudo cpanm Net::IP
 #sudo cpanm Net::SSH::Perl
 
 echo "Installing Python Deps"
-sudo pip install lxml netaddr M2Crypto cherrypy mako dnspython requests dicttoxml
-sudo pip install PyGithub GitPython pybloomfiltermmap esmre pdfminer futures guess-language 
+sudo pip install lxml netaddr M2Crypto mako dnspython requests dicttoxml
+sudo pip install PyGithub GitPython pybloomfiltermmap esmre futures guess-language 
 sudo pip install cluster msgpack-python python-ntlm clamd xdot netifaces pyinstaller
+sudo pip3 install cherrypy netifaces pdfminer
 sudo pip install -e git+git://github.com/ramen/phply.git#egg=phply
 sudo pip install pbkdf2 pymongo ipcalc couchdb dicttoxml PyPDF2 olefile
 
