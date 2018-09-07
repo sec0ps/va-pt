@@ -78,5 +78,7 @@ sudo pip install -e git+git://github.com/ramen/phply.git#egg=phply
 sudo pip install pbkdf2 pymongo ipcalc couchdb dicttoxml PyPDF2 olefile
 
 echo "Checking and Installing Ruby Gems"
+# make sure we have the ruby headers, as above ruby installation failed to fire for me on raspbian x86
+sudo apt-get install ruby-dev
 sudo gem install bundler spider http_configuration mini_exiftool zip sqlite3 net-dns bettercap
 #
