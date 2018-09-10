@@ -220,6 +220,11 @@ if [ ! -d /pentest/enumeration/pasv-agrsv ] ; then
 echo "Installing Passive Aggresive OSINT TOol"
 cd /pentest/enumeration && git clone https://github.com/isaudits/pasv-agrsv.git
 fi
+if [ ! -d /pentest/enumeration/skiptracer ] ; then
+echo "Installing SKIPTRACER OSINT Tool"
+cd /pentest/enumeration && git clone https://github.com/xillwillx/skiptracer.git
+cd skiptracer && pip install -r requirements.txt
+fi
 if [ ! -d /pentest/enumeration/medusa ] ; then
 echo "Installing Medusa"
 cd /pentest/enumeration/ && git clone https://github.com/jmk-foofus/medusa.git
@@ -234,6 +239,11 @@ if [ ! -d /pentest/web/rawr ] ; then
 echo "Installing Rawr - Rapid Assessment of Web Resources"
 cd /pentest/web/ && git clone https://bitbucket.org/al14s/rawr.git
 cd rawr && sudo ./install.sh
+fi
+if [ ! -d /pentest/web/Photon ] ; then
+echo "Installing Photon - Web App Recon Tool"
+cd /pentest/web/ && git clone https://github.com/s0md3v/Photon.git
+cd Photon && pip install -r requirements.txt
 fi
 if [ ! -d /pentest/web/XSStrike ] ; then
 echo "Installing XSStrike"
