@@ -157,7 +157,7 @@ make && sudo make install
 fi
 if [ ! -d /pentest/exploits/smbexec ] ; then
 echo "Installing smbexec"
-cd /pentest/temp && git clone https://github.com/pentestgeek/smbexec.git
+cd /pentest/temp && git clone https://github.com/brav0hax/smbexec.git
 cd smbexec && sudo ./install.sh
 ln -s /opt/smbexec/ /pentest/exploits/smbexec && bundle install
 fi
