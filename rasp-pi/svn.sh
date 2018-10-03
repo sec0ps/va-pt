@@ -45,9 +45,16 @@ echo "Installing fimap"
 cd /pentest/web && git clone https://github.com/Oweoqi/fimap.git
 fi
 if [ ! -d /pentest/web/joomscan ] ; then
-echo "Instaling Joomla Scanner"
+echo "Installing Joomla Scanner"
 cd /pentest/web/ && svn co http://svn.code.sf.net/p/joomscan/code/trunk joomscan
 cd /pentest/web/joomscan/ && chmod 755 joomscan.pl
+fi
+if [ ! -d /pentest/passwords/johhny ] ; then
+echo "Installing Johnny"
+cd /pentest/passwords/ && git clone https://github.com/shinnok/johnny.git johnny
+git checkout v2.2 # switch to the desired branch
+#export QT_SELECT=qt5
+#qmake && make -j&(proc)
 fi
 if [ ! -d /pentest/database/sqlmap ] ; then
 echo "Installing SQL Map"
