@@ -53,8 +53,8 @@ if [ ! -d /pentest/passwords/johhny ] ; then
 echo "Installing Johnny"
 cd /pentest/passwords/ && git clone https://github.com/shinnok/johnny.git johnny
 git checkout v2.2 # switch to the desired branch
-#export QT_SELECT=qt5
-#qmake && make -j&(proc)
+export QT_SELECT=qt5
+qmake && make -j&(proc)
 fi
 if [ ! -d /pentest/database/sqlmap ] ; then
 echo "Installing SQL Map"
