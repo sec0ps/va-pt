@@ -37,7 +37,7 @@ fi
 [ ! -d /pentest/fuzzers ] && mkdir /pentest/fuzzers
 [ ! -d /pentest/cisco ] && mkdir /pentest/cisco
 #
-cd /pentest/misc && git clone https://github.com/sec0ps/va-pt.git
+cd /pentest/misc && git clone https://github.com/RedTahr/va-pt.git
 echo "Creating the wireless management interface"
 sudo mv interfaces /etc/network/
 sudo service networking restart
