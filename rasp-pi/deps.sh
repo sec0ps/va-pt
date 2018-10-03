@@ -26,6 +26,8 @@ sudo apt-get install -y python-elixir zip tftp tftpd libfreerdp-dev libssh2-1-de
 sudo apt-get install -y openconnect secure-delete
 # johnny dependencies
 sudo apt-get install -y g++ qtbase5-dev
+# sparta dependecies - hydra, nmap and cutycapt get installed later
+sudo apt-get install python-qt4 xsltproc python-pyside.qtwebkit 
 
 ruby -v | grep "2.3.3"
 if [ $? -eq 1 ] ; then
