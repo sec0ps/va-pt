@@ -55,8 +55,14 @@ cd /pentest/web/joomscan/ && chmod 755 joomscan.pl
 fi
 if [ ! -d /pentest/passwords/johhny ] ; then
 echo "Installing John the Ripper"
-cd /pentest/passwords/ && git clone https://github.com/magnumripper/JohnTheRipper JohnTheRipper
-cd /pentest/passwords/JohnTheRipper && ./configure && make
+cd /pentest/passwords/ && git clone git://github.com/magnumripper/JohnTheRipper -b bleeding-jumbo john
+cd /pentest/passwords/john
+# For MPI, use './configure --enable-mpi' below
+./configure && make -s clean && make -sj4
+# Test your build
+#$ ../run/john --test=0
+# Benchmark your build
+#$ ../run/john --test
 fi
 if [ ! -d /pentest/passwords/johhny ] ; then
 echo "Installing Johnny"
