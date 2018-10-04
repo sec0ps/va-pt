@@ -54,6 +54,11 @@ cd /pentest/web/ && svn co http://svn.code.sf.net/p/joomscan/code/trunk joomscan
 cd /pentest/web/joomscan/ && chmod 755 joomscan.pl
 fi
 if [ ! -d /pentest/passwords/johhny ] ; then
+echo "Installing John the Ripper"
+cd /pentest/passwords/ && git clone https://github.com/magnumripper/JohnTheRipper JohnTheRipper
+cd /pentest/passwords/JohnTheRipper && ./configure && make
+fi
+if [ ! -d /pentest/passwords/johhny ] ; then
 echo "Installing Johnny"
 cd /pentest/passwords/ && git clone https://github.com/shinnok/johnny.git johnny
 git checkout v2.2 # switch to the desired branch
@@ -131,7 +136,7 @@ cd /var/www && sudo git clone https://github.com/beefproject/beef.git
 fi
 if [ ! -d /pentest/exploits/middler ] ; then
 echo "Installing Middler"
-cd /pentest/exploits && svn checkout http://middler.googlecode.com/svn/trunk/ middler
+cd /pentest/exploits && git clone https://github.com/0x90/middler middler
 fi
 if [ ! -d /pentest/web/sslsplit ] ; then
 echo "Installing SSL Split"
@@ -145,11 +150,11 @@ cd /pentest/web && svn co https://svn.code.sf.net/p/wapiti/code/ wapiti
 fi
 if [ ! -d /pentest/voip/sipvicious ] ; then
 echo "Installing SIPVicious"
-cd /pentest/voip && svn checkout http://sipvicious.googlecode.com/svn/trunk/ sipvicious
+cd /pentest/voip && git clone https://github.com/EnableSecurity/sipvicious sipvicious
 fi
 if [ ! -d /pentest/enumeration/dnsmap ] ; then
 echo "Installing DNSMap"
-cd /pentest/enumeration && svn checkout http://dnsmap.googlecode.com/svn/trunk/ dnsmap
+cd /pentest/enumeration && git clone https://github.com/makefu/dnsmap dnsmap
 cd /pentest/enumeration/dnsmap && gcc -o dnsmap dnsmap.c
 fi
 if [ ! -d /pentest/web/jboss-autopwn ] ; then
