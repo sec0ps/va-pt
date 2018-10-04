@@ -24,6 +24,19 @@ sudo apt-get install -y libbsd-dev unixodbc unixodbc-dev freetds-dev sqsh tdsodb
 sudo apt-get install -y squid python-libpcap ntpdate screen samba-common-bin upx whois libreadline-gplv2-dev libsqlite3-dev
 sudo apt-get install -y python-elixir zip tftp tftpd libfreerdp-dev libssh2-1-dev mingw32-runtime mingw32-binutils python-pyasn1
 sudo apt-get install -y openconnect secure-delete
+# john the ripper dependencies - to be checked and delete the surplus ones
+mkdir -p ~/src
+sudo apt-get install build-essential libssl-dev git
+# john Recommended (extra formats and performance)
+sudo apt-get install yasm libgmp-dev libpcap-dev pkg-config libbz2-dev zlib1g-dev
+# john Optional MPI support
+sudo apt-get install libopenmpi-dev openmpi-bin
+# john Optional REXGEN support (additional cracking modes)
+sudo apt-get install cmake bison flex libicu-dev
+cd ~/src
+git clone --recursive https://github.com/teeshop/rexgen.git
+cd rexgen
+./install.sh
 # johnny dependencies
 sudo apt-get install -y g++ qtbase5-dev
 # sparta dependecies - hydra, nmap get installed later
