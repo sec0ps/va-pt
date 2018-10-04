@@ -41,9 +41,9 @@ fi
 if [ ! -f /usr/local/bin/cpanm ] ; then
 echo "Installing CPANimus"
 cd /pentest/temp && git clone https://github.com/miyagawa/cpanminus.git 
-cd cpanminus && perl Makefile.PL
+cd cpanminus/App-cpanminus && perl Makefile.PL
 make && sudo make install
-cd /pentest/temp && rm -rf cpanminus/
+#cd /pentest/temp && rm -rf cpanminus/
 fi
 if [ ! -f /usr/local/lib/perl/5.18.2/Math/Pari.pm ] ; then
 echo "Installing PERL Libraries"
