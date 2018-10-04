@@ -26,6 +26,8 @@ sudo apt-get install -y python-elixir zip tftp tftpd libfreerdp-dev libssh2-1-de
 sudo apt-get install -y openconnect secure-delete
 # johnny dependencies
 sudo apt-get install -y g++ qtbase5-dev
+# sparta dependecies - hydra, nmap get installed later
+sudo apt-get install python-qt4 xsltproc python-pyside.qtwebkit cutycapt
 
 ruby -v | grep "2.3.3"
 if [ $? -eq 1 ] ; then
@@ -39,9 +41,9 @@ fi
 if [ ! -f /usr/local/bin/cpanm ] ; then
 echo "Installing CPANimus"
 cd /pentest/temp && git clone https://github.com/miyagawa/cpanminus.git 
-cd cpanminus && perl Makefile.PL
+cd cpanminus/App-cpanminus && perl Makefile.PL
 make && sudo make install
-cd /pentest/temp && rm -rf cpanminus/
+#cd /pentest/temp && rm -rf cpanminus/
 fi
 if [ ! -f /usr/local/lib/perl/5.18.2/Math/Pari.pm ] ; then
 echo "Installing PERL Libraries"

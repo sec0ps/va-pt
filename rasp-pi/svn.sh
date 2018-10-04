@@ -44,6 +44,10 @@ if [ ! -d /pentest/web/fimap ] ; then
 echo "Installing fimap"
 cd /pentest/web && git clone https://github.com/Oweoqi/fimap.git
 fi
+if [ ! -d /pentest/scanners/sparta ] ; then
+echo "Installing sparta"
+cd /pentest/scanners && git clone https://github.com/secforce/sparta.git 
+fi
 if [ ! -d /pentest/web/joomscan ] ; then
 echo "Installing Joomla Scanner"
 cd /pentest/web/ && svn co http://svn.code.sf.net/p/joomscan/code/trunk joomscan

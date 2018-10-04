@@ -105,6 +105,10 @@ echo "Updating spraywmi"
 cd /pentest/exploits/spraywmi && git pull
 echo "Updating XSStrike"
 cd /pentest/web/XSStrike && git pull
+echo "Updating Johnny"
+cd /pentest/passwords/johnny && git pull
+echo "Updating Sparta"
+cd /pentest/scanners/sparta && git pull
 #
 /pentest/enumeration/thc-ipv6/thcping6 | grep "v2.3"
 if [ $? -eq 0 ] ; then
