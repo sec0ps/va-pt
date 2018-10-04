@@ -207,9 +207,18 @@ echo "Installing the Harvester"
 cd /pentest/enumeration && git clone https://github.com/laramies/theHarvester.git
 cd /pentest/enumeration/theHarvester && chmod 755 theHarvester.py
 fi
+if [ ! -d /pentest/enumeration/recon-ng ] ; then
+echo "Installing Recon-NG"
+cd /pentest/enumeration/ && git clone https://bitbucket.org/LaNMaSteR53/recon-ng.git
+fi
 if [ ! -d /pentest/enumeration/pasv-agrsv ] ; then
 echo "Installing Passive Aggresive OSINT TOol"
 cd /pentest/enumeration && git clone https://github.com/isaudits/pasv-agrsv.git
+fi
+if [ ! -d /pentest/enumeration/skiptracer ] ; then
+echo "Installing SKIPTRACER OSINT Tool"
+cd /pentest/enumeration && git clone https://github.com/xillwillx/skiptracer.git
+cd skiptracer && pip install -r requirements.txt
 fi
 if [ ! -d /pentest/voip/viproy ] ; then
 echo "Installing Viproy"
@@ -227,6 +236,22 @@ echo "Installing PowerTools"
 cd /pentest/exploits/powershell && git clone https://github.com/PowerShellEmpire/PowerTools.git
 echo "Installing PowerSploit"
 git clone https://github.com/mattifestation/PowerSploit.git
+fi
+if [ ! -d /pentest/exploits/powershell/PowerSploit ] ; then
+echo "Installing PowerSploit"
+cd /pentest/exploits/powershell/ && git clone https://github.com/mattifestation/PowerSploit.git
+fi
+if [ ! -d /pentest/exploits/powershell/ps1encode ] ; then
+echo "Installing Powershell Encoder"
+cd /pentest/exploits/powershell/ && git clone https://github.com/CroweCybersecurity/ps1encode.git
+fi
+if [ ! -d /pentest/exploits/powershell/Invoke-TheHash ] ; then
+echo "Installing Powershell Invoke-TheHash"
+cd /pentest/exploits/powershell/ && git clone https://github.com/Kevin-Robertson/Invoke-TheHash.git
+fi
+if [ ! -d /pentest/exploits/powershell/PowerShdll ] ; then
+echo "Installing Power Shell DLL"
+cd /pentest/exploits/powershell && git clone https://github.com/p3nt4/PowerShdll.git
 fi
 if [ ! -d /pentest/scanners/arp-scan ] ; then
 echo "Installing arp-scan"
@@ -298,6 +323,16 @@ fi
 if [ ! -d /pentest/exploits/spraywmi ] ; then
 echo "Installing spraywmi"
 cd /pentest/exploits && git clone https://github.com/trustedsec/spraywmi.git
+fi
+if [ ! -d /pentest/web/rawr ] ; then
+echo "Installing Rawr - Rapid Assessment of Web Resources"
+cd /pentest/web/ && git clone https://bitbucket.org/al14s/rawr.git
+cd rawr && sudo ./install.sh
+fi
+if [ ! -d /pentest/web/Photon ] ; then
+echo "Installing Photon - Web App Recon Tool"
+cd /pentest/web/ && git clone https://github.com/s0md3v/Photon.git
+cd Photon && pip install -r requirements.txt
 fi
 if [ ! -d /pentest/web/XSStrike ] ; then
 echo "Installing XSStrike"
