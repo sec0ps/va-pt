@@ -34,7 +34,7 @@ fi
 [ ! -d /pentest/audit ] && mkdir /pentest/audit
 [ ! -d /pentest/exfiltrate ] && mkdir /pentest/exfiltrate
 if [ ! -d /pentest/misc/va-pt ] ; then
-cd /pentest/misc && git clone https://github.com/sec0ps/va-pt.git 
+cd /pentest/misc && git clone `git config --get remote.origin.url`
 fi
 clear
 selection=
