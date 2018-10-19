@@ -16,7 +16,6 @@ fi
 [ ! -d /pentest/temp ] && mkdir /pentest/temp
 [ ! -d /pentest/wireless ] && mkdir /pentest/wireless
 [ ! -d /pentest/exploits ] && mkdir /pentest/exploits
-[ ! -d /pentest/exploits/exploitdb ] && mkdir /pentest/exploits/exploitdb
 [ ! -d /pentest/exploits/powershell ] && mkdir /pentest/exploits/powershell
 [ ! -d /pentest/web ] && mkdir /pentest/web
 [ ! -d /pentest/scanners ] && mkdir /pentest/scanners
