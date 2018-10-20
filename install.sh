@@ -26,7 +26,7 @@ fi
 [ ! -d /pentest/passwords ] && mkdir /pentest/passwords
 [ ! -d /pentest/fuzzers ] && mkdir /pentest/fuzzers
 [ ! -d /pentest/cisco ] && mkdir /pentest/cisco
-[ ! -d /pentest/audit ] && mkdir /pentest/audit
+#[ ! -d /pentest/audit ] && mkdir /pentest/audit
 [ ! -d /pentest/exfiltrate ] && mkdir /pentest/exfiltrate
 if [ ! -d /pentest/misc/va-pt ] ; then
 cd /pentest/misc && git clone https://github.com/sec0ps/va-pt.git 
