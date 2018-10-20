@@ -188,12 +188,12 @@ if [ ! -d /pentest/cisco/cisco-SNMP-enumeration ] ; then
 echo "Installing Cisco SNMP Enum"
 cd /pentest/cisco && git clone  https://github.com/nccgroup/cisco-SNMP-enumeration.git
 fi
-##if [ ! -d /pentest/web/arachni ] ; then
-#echo "Installing Arachni Web Scanner"
-#cd /pentest/temp && wget https://github.com/Arachni/arachni/releases/download/v1.5.1/arachni-1.5.1-0.5.12-linux-x86_64.tar.gz
-#cd /pentest/web && git clone https://github.com/Arachni/arachni.git
-#cd arachni && bundle install
-#fi
+if [ ! -d /pentest/web/arachni ] ; then
+echo "Installing Arachni Web Scanner"
+cd /pentest/temp && wget https://github.com/Arachni/arachni/releases/download/v1.5.1/arachni-1.5.1-0.5.12-linux-x86_64.tar.gz
+tar zxvf arachni-1.5.1-0.5.12-linux-x86_64.tar.gz
+mv arachni-1.5.1-0.5.12/ /pentest/web/arachni && rm arachni-1.5.1-0.5.12-linux-x86_64.tar.gz
+fi
 if [ ! -d /pentest/exploits/powershell/PowerTools ] ; then
 echo "Installing PowerTools"
 cd /pentest/exploits/powershell && git clone https://github.com/PowerShellEmpire/PowerTools.git
