@@ -27,8 +27,10 @@ cd /pentest/web && git clone https://github.com/Oweoqi/fimap.git
 fi
 if [ ! -d /pentest/web/w3af ] ; then
 echo "Installing w3af"
-cd /pentest/web && git clone https://github.com/andresriancho/w3af.git w3af 
-./w3af_console && sudo /tmp/w3af_dependency_install.sh
+cd /pentest/web && git clone https://github.com/andresriancho/w3af.git w3af
+cd w3af && ./w3af_console
+sleep 2
+sudo /tmp/w3af_dependency_install.sh
 fi
 if [ ! -d /pentest/fuzzers/sulley ] ; then
 echo "Installing Sulley"
