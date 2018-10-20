@@ -9,7 +9,7 @@ sudo ufw enable
 echo "Installing Packages"
 sudo apt install -y make gcc ncftp rar p7zip-full git subversion vim curl locate libpcap-dev libssl-dev hping3 openssh-server libssh-dev g++ arp-scan cewl wifite
 sudo apt install -y sqlite3 nbtscan dsniff ruby-dev postgresql libpq-dev python-pip python-lxml libxml2-dev libxslt1-dev python3-pip libncurses-dev
-sudo apt install -y firebird-dev libmysqlclient-dev libsvn-dev python-libpcap freerdp2-dev libssh2-1-dev m4 autoconf smbclient
+sudo apt install -y firebird-dev libmysqlclient-dev libsvn-dev python-libpcap freerdp2-dev libssh2-1-dev m4 autoconf smbclient libsqlite3-dev
 
 if [ ! -f /usr/local/bin/cpanm ] ; then
 echo "Installing CPANimus"
