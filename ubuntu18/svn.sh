@@ -15,10 +15,10 @@ echo "Installing the Social Engineering Toolkit"
 cd /pentest/exploits && git clone https://github.com/trustedsec/social-engineer-toolkit/ set
 cd set && sudo python setup.py install
 fi
-if [ ! -d /pentest/exploits/framework3 ] ; then
+if [ ! -d /pentest/exploits/metasploit-framework ] ; then
 echo "Installing Metasploit"
-cd /pentest/exploits && git clone https://github.com/rapid7/metasploit-framework.git framework3
-cd /pentest/exploits/framework3 && sudo apt install ruby-bundler
+cd /pentest/exploits && git clone https://github.com/rapid7/metasploit-framework.git
+cd /pentest/exploits/metasploit-framework && sudo apt install ruby-bundler
 bundle install
 fi
 if [ ! -d /pentest/web/fimap ] ; then
