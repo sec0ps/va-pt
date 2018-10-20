@@ -237,11 +237,11 @@ if [ ! -d /pentest/exploits/pentestly ] ; then
 echo "Installing Pentestly"
 cd /pentest/exploits/ && git clone https://github.com/praetorian-inc/pentestly
 fi
-if [ ! -d /pentest/web/rawr ] ; then
-echo "Installing Rawr - Rapid Assessment of Web Resources"
-cd /pentest/web/ && git clone https://bitbucket.org/al14s/rawr.git
-cd rawr && sudo ./install.sh
-fi
+#if [ ! -d /pentest/web/rawr ] ; then
+#echo "Installing Rawr - Rapid Assessment of Web Resources"
+#cd /pentest/web/ && git clone https://bitbucket.org/al14s/rawr.git
+#cd rawr && sudo ./install.sh
+#fi
 if [ ! -d /pentest/web/Photon ] ; then
 echo "Installing Photon - Web App Recon Tool"
 cd /pentest/web/ && git clone https://github.com/s0md3v/Photon.git
@@ -357,11 +357,11 @@ if [ ! -d /pentest/web/ShortShells ] ; then
 echo "Instlling Short Shells - web shell collection"
 cd /pentest/web && git clone https://github.com/modux/ShortShells.git
 fi
-if [ ! -d  /pentest/exploits/powershell/Empire ] ; then
-echo "Installing Powershell Empire"
-cd /pentest/exploits/powershell && git clone https://github.com/EmpireProject/Empire.git
-cd Empire/setup && sudo ./install.sh
-fi
+#if [ ! -d  /pentest/exploits/powershell/Empire ] ; then
+#echo "Installing Powershell Empire"
+#cd /pentest/exploits/powershell && git clone https://github.com/EmpireProject/Empire.git
+#cd Empire/setup && sudo ./install.sh
+#fi
 if [ ! -d /pentest/web/winshock-test ] ; then
 echo "Installing Winshock Test Script"
 cd /pentest/web && git clone https://github.com/anexia-it/winshock-test.git
@@ -379,11 +379,11 @@ if [ ! -d /pentest/passwords/CeWL ] ; then
 echo "Installing Cewl Password Generator"
 cd /pentest/passwords && git clone https://github.com/digininja/CeWL.git
 fi
-if [ ! -d /pentest/exploits/Veil ] ; then
-echo "Installing Veil Framework"
-cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil.git
-cd Veil && sudo ./config/setup.sh --force --silent
-fi
+#if [ ! -d /pentest/exploits/Veil ] ; then
+#echo "Installing Veil Framework"
+#cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil.git
+#cd Veil && sudo ./config/setup.sh --force --silent
+#fi
 #
 echo "Installing local tools"
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
