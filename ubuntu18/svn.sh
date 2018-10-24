@@ -88,21 +88,9 @@ if [ ! -d /pentest/enumeration/dnsenum ] ; then
 echo "Installing DNSenum"
 cd /pentest/enumeration && git clone https://github.com/fwaeytens/dnsenum.git 
 fi
-if [ ! -d /pentest/passwords/DPAT ] ; then
-echo "Installing Domain Password Auditing Tool"
-cd /pentest/passwords && git clone https://github.com/clr2of8/DPAT.git
-fi
 if [ ! -d /pentest/exploits/keimpx ] ; then
 echo "Installing keimpx"
 cd /pentest/exploits && git clone https://github.com/inquisb/keimpx.git 
-fi
-if [ ! -d /pentest/audit/routerdefense ] ; then
-echo "Installing Router Defense"
-cd /pentest/audit && git clone https://github.com/pello/routerdefense.git 
-fi
-if [ ! -d /pentest/audit/audit_scripts ] ; then
-echo "Installing Host Audit Scripts"
-cd /pentest/audit && git clone https://github.com/vanhauser-thc/audit_scripts.git
 fi
 if [ ! -d /pentest/web/wpscan ] ; then
 echo "Installing Wordpress Scanner"
