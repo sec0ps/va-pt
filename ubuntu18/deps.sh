@@ -56,7 +56,6 @@ sudo cpanm XML::Writer && sudo cpanm String::Random
 #sudo update-rc.d -f mysql remove && sudo update-rc.d -f apache2 remove
 #sudo update-rc.d -f cups remove && sudo update-rc.d -f cups-browsed remove
 
- && sudo cpanm XML::Writer
 #sudo cpanm Encoding::BER && sudo cpanm Term::ANSIColor	
 #sudo cpanm Getopt::Long && 
 #sudo cpanm Socket && sudo cpanm Net::Whois::IP
