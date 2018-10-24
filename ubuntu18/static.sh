@@ -31,12 +31,6 @@ echo "Installing SQLBrute"
 cd /pentest/database && wget http://packetstorm.foofus.com/UNIX/scanners/sqlbrute.py.txt -O sqlbrute.py
 cd /pentest/database && chmod 700 sqlbrute.py
 fi
-if [ ! -d /pentest/database/tnspoison ] ; then
-echo "Installing TNS Poison"
-cd /pentest/database && mkdir tnspoison
-cd tnspoison/ && wget http://www.joxeankoret.com/download/tnspoison.zip
-unzip tnspoison.zip && rm -rf tnspoison.zip
-fi
 #if [ ! -d /pentest/enumeration/thc-pptp-bruter ] ; then
 #echo "Installing THC PPTP Bruteforcer"
 #cd /pentest/temp && wget http://dl.packetstormsecurity.net/groups/thc/thc-pptp-bruter-0.1.4.tar.gz --no-check-certificate
@@ -50,14 +44,6 @@ cd /pentest/scanners/snmp && mkdir snmpenum
 cd snmpenum && wget http://dl.packetstormsecurity.net/UNIX/scanners/snmpenum.zip --no-check-certificate
 unzip snmpenum.zip && rm -rf snmpenum.zip
 chmod 700 snmpenum.pl
-fi
-if [ ! -d /pentest/audit/nipper ] ; then
-echo "Installing Nipper"
-cd /pentest/temp && wget http://dl.packetstormsecurity.net/cisco/nipper-0.11.7.tgz --no-check-certificate
-tar zxvf nipper-0.11.7.tgz && rm -rf nipper-0.11.7.tgz
-mv nipper-0.11.7/ /pentest/audit/nipper
-cd /pentest/audit/nipper && make
-sudo make install
 fi
 if [ ! -d /pentest/enumeration/dirbuster ] ; then
 cd /pentest/temp && wget http://downloads.sourceforge.net/project/dirbuster/DirBuster%20%28jar%20%2B%20lists%29/0.12/DirBuster-0.12.tar.bz2
@@ -86,11 +72,6 @@ unzip ikeprobe.zip && rm -rf ikeprobe.zip
 mkdir /pentest/enumeration/ike
 mv ikeprobe.exe /pentest/enumeration/ike/ && mv libeay32.dll /pentest/enumeration/ike/
 cd /pentest/enumeration/ike && wget http://prdownloads.sourceforge.net/project/ikecrack/ikecrack-perl/1.00/ikecrack-snarf-1.00.pl
-fi
-if [ ! -f /pentest/exploits/windows-tools/wce.exe ] ; then
-echo "Installing Windows Credential Editor"
-cd /pentest/exploits/windows-tools && wget http://www.ampliasecurity.com/research/wce_v1_42beta_x64.zip
-unzip wce_v1_42beta_x64.zip && rm -rf wce_v1_42beta_x64.zip Changelog LICENSE.txt
 fi
 if [ ! -d /pentest/web/aspshell ] ; then
 echo "Installing ASPshell"
