@@ -314,14 +314,6 @@ fi
 if [ ! -d /pentest/misc/pentest-tools/ ] ; then
 cd /pentest/misc && git clone https://github.com/joshuaskorich/pentest-tools.git
 fi
-if [ ! -d /pentest/audit/graudit ] ; then
-echo "Installing Grep Auditing Utility"
-cd /pentest/audit && git clone https://github.com/wireghoul/graudit.git
-fi
-if [ ! -d /pentest/audit/rips-scanner ] ; then
-echo "Downloading RIPS PHP Static Source Code Analyzer"
-cd /pentest/audit && git clone https://github.com/robocoder/rips-scanner.git
-fi
 if [ ! -d /pentest/passwords/hashcat ] ; then
 echo "Installing Hashcat"
 cd /pentest/passwords/ && git clone https://github.com/hashcat/hashcat.git
