@@ -225,11 +225,6 @@ if [ ! -d /pentest/exploits/pentestly ] ; then
 echo "Installing Pentestly"
 cd /pentest/exploits/ && git clone https://github.com/praetorian-inc/pentestly
 fi
-#if [ ! -d /pentest/web/rawr ] ; then
-#echo "Installing Rawr - Rapid Assessment of Web Resources"
-#cd /pentest/web/ && git clone https://bitbucket.org/al14s/rawr.git
-#cd rawr && sudo ./install.sh
-#fi
 if [ ! -d /pentest/web/Photon ] ; then
 echo "Installing Photon - Web App Recon Tool"
 cd /pentest/web/ && git clone https://github.com/s0md3v/Photon.git
