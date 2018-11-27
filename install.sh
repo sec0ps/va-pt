@@ -61,11 +61,11 @@ until [ "$selection" = "0" ]; do
      read selection
      echo ""
      case $selection in
-         1 ) /pentest/misc/va-pt/ubuntu16/deps.sh;;
-         2 ) /pentest/misc/va-pt/ubuntu16/svn.sh;;
-         3 ) /pentest/misc/va-pt/ubuntu16/static.sh;;
+         1 ) /pentest/misc/va-pt/ubuntu18/deps.sh;;
+         2 ) /pentest/misc/va-pt/ubuntu18/svn.sh;;
+         3 ) /pentest/misc/va-pt/ubuntu18/static.sh;;
 	 4 ) sudo apt-get install -y openvas-server openvas-client;;
-	 4 ) /pentest/misc/va-pt/ubuntu16/wordlist.sh;;
+	 4 ) /pentest/misc/va-pt/ubuntu18/wordlist.sh;;
 	 6 ) sudo apt-get install -y nvidia-opencl-dev ocl-icd-libopencl1 opencl-headers;;
          7 ) /pentest/misc/va-pt/update-tools.sh;;
          8 ) firefox https://addons.mozilla.org/en-US/firefox/collections/sec0ps/vapt/ &;;
