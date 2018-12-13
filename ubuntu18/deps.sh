@@ -25,7 +25,7 @@ pip3 install dnspython
 pip install crackmapexec
 
 echo "Installing Ruby Gems"
-sudo gem install bettercap
+sudo gem install bettercap wpscan
 
 echo "Checking and Installing PERL Deps"
 sudo cpanm Cisco::CopyConfig && sudo cpanm Net::Netmask

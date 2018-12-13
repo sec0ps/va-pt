@@ -92,11 +92,11 @@ if [ ! -d /pentest/exploits/keimpx ] ; then
 echo "Installing keimpx"
 cd /pentest/exploits && git clone https://github.com/inquisb/keimpx.git 
 fi
-if [ ! -d /pentest/web/wpscan ] ; then
-echo "Installing Wordpress Scanner"
-cd /pentest/web && git clone https://github.com/wpscanteam/wpscan.git
-cd wpscan && bundle install --without test development
-fi
+#if [ ! -d /pentest/web/wpscan ] ; then
+#echo "Installing Wordpress Scanner"
+#cd /pentest/web && git clone https://github.com/wpscanteam/wpscan.git
+#cd wpscan && bundle install --without test development
+#fi
 if [ ! -f /usr/local/bin/smbclient.py ] ; then
 echo "Installing Impacket"
 cd /pentest/exploits && git clone https://github.com/CoreSecurity/impacket.git
