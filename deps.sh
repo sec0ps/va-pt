@@ -1,17 +1,12 @@
 #!/bin/bash
 echo "Installing Packages"
-sudo apt install -y make gcc ncftp rar p7zip-full curl libpcap-dev libssl-dev hping3 libssh-dev g++ arp-scan cewl wifite
-sudo apt install -y nbtscan dsniff ruby-dev postgresql libpq-dev python-pip python-lxml libxml2-dev libxslt1-dev python3-pip libncurses-dev
-sudo apt install -y firebird-dev libmysqlclient-dev libsvn-dev python-libpcap freerdp2-dev libssh2-1-dev m4 autoconf smbclient libsqlite3-dev
-sudo apt install -y apache2 npm apache2 freerdp2-dev libgnutls28-dev libnetfilter-queue-dev libffi-dev secure-delete
+sudo apt install -y make gcc ncftp rar p7zip-full curl libpcap-dev libssl-dev hping3 libssh-dev g++ arp-scan cewl wifite ruby-bundler
+sudo apt install -y libsqlite3-dev nbtscan dsniff apache2 secure-delete
 
-if [ ! -f /usr/local/bin/cpanm ] ; then
-echo "Installing CPANimus"
-cd /pentest/temp && git clone https://github.com/miyagawa/cpanminus.git
-cd cpanminus/App-cpanminus && perl Makefile.PL
-make && sudo make install
-cd /pentest/temp && rm -rf cpanminus/
-fi
+#To Review for 20 inclusion
+#sudo apt install -y  ruby-dev postgresql libpq-dev python-pip python-lxml libxml2-dev libxslt1-dev python3-pip libncurses-dev
+#sudo apt install -y firebird-dev libmysqlclient-dev libsvn-dev python-libpcap freerdp2-dev libssh2-1-dev m4 autoconf smbclient 
+#sudo apt install -y npm freerdp2-dev libgnutls28-dev libnetfilter-queue-dev libffi-dev 
 
 echo "Installing Python Deps"
 pip3 install dnspython
@@ -19,6 +14,14 @@ pip install crackmapexec
 
 echo "Installing Ruby Gems"
 sudo gem install bettercap wpscan
+
+if [ ! -f /usr/local/bin/cpanm ] ; then
+echo "Installing CPANimus"
+cd /vapt/temp && git clone https://github.com/miyagawa/cpanminus.git
+cd cpanminus/App-cpanminus && perl Makefile.PL
+make && sudo make install
+cd /vapt/temp && rm -rf cpanminus/
+fi
 
 echo "Checking and Installing PERL Deps"
 sudo cpanm Cisco::CopyConfig && sudo cpanm Net::Netmask
