@@ -1,10 +1,8 @@
-The set of scripts included in this package will create a Kali/SamuraiWTF type environment for the performing of Vulnerability Assessments and Penetration Testing.
+The set of scripts included in this package will create a lightweight technical testing environment for the performing of Vulnerability Assessments and Penetration Testing.
 
-The goal of this project was to allow a portable set of tools to be installed onto an Ubuntu or Raspbian system, allowing the tester to be free of distribution release specific constraints.
+The goal of this project was to allow a portable set of tools to be installed onto an Ubuntu 20 system.
 
-These scripts were designed specifically for Ubuntu 16.04 LTS and Raspbian (JESSIE). As of 6 May 2018 I am in the process of converting the scripts over to Ubuntu 18.
-
-Contents of the package
+Contents of the project
 -------------------------------------------------------------------------------------------------------------------------
 deps.sh - Contains the necessary software dependencies for the tools within the kit to function.
 static.sh - Downloads static applications which are not svn capable
@@ -12,9 +10,6 @@ svn.sh - SVN repository scripts to checkout and update the various tools
 update-tools.sh - update script for all the tools that have git/svn functionality or that I created an update script for.
 install.sh - The script that makes it all happen
 readme - You're looking at it
-rasp-pi/ - Scripts directory for the Raspberry PI
-ubuntu16/ - Ubuntu 16 installation scripts
-ubuntu18/ - Ubuntu 18 installation scripts
 
 All tools are loaded into the /pentest directory.
 
@@ -23,48 +18,6 @@ How To
 To start, run the installer: sudo ./install.sh
 Install the dependencies first via option 1) Install/Check Dependencies
 Once the deps scripts has completed, walk through the remaining install options. Install the svn/git and static tools and finally the wordlists.
-
---Setup for postgres DB 
-sudo su postgres
-psql
-create user <username with password 'password' createdb;
-create database msf owner <your username>;
-\q
-./msfconsole
-db_connect <username>:<password>@localhost/msf
-
-Add the db_connect statement into the msfconsole file for simplicity
--- .msf4/msfconsole.rc
--- db_connect username:password@localhost:port/msf
-
-If you are running, or are planning on running, Nexpose on the same system. You will need to change the listening port on the postgresql database.
-
-/etc/postgresql/9.5/main/postgresql.conf
-
-An installer for the Raspberry PI has been added. The installer was created specifically for the Raspbian distro. All Pi scripts can be found in va-pt/rasp-pi directory. I would strongly recommend installing the PI kit to a single PI then dd'ing the card to an image. After that, use the image to write the additional PI's.
-
-PI Image Creation Example
--------------------------
-Use gparted to shrink the PI image once you have the initial card completed. Using DD, create the image 
-
-sudo dd if=/dev/sdc bs=4M | pv -s 8G | sudo dd of=penpi.img bs=4M
-
-After the image has completed, use fdisk and truncate to remove the unallocated space
-
-$ fdisk -lu penpi.img 
-
-Disk penpi.img: 31.9 GB, 31914983424 bytes
-255 heads, 63 sectors/track, 3880 cylinders, total 62333952 sectors
-Units = sectors of 1 * 512 = 512 bytes
-Sector size (logical/physical): 512 bytes / 512 bytes
-I/O size (minimum/optimal): 512 bytes / 512 bytes
-Disk identifier: 0x0002c262
-
-    Device Boot      Start         End      Blocks   Id  System
-penpi.img1            8192      122879       57344    c  W95 FAT32 (LBA)
-penpi.img2          122880    20762623    10319872   83  Linux
-
-$ sudo truncate --size=$[(20762623+1)*512] penpi.img 
 
 Wireless Testing
 ----------------
