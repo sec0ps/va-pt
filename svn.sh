@@ -1,9 +1,16 @@
 #Migration Verified
+#General exploitation frameworks
 if [ ! -d /vapt/exploits/metasploit-framework ] ; then
 echo "Installing Metasploit"
 cd /vapt/exploits && git clone https://github.com/rapid7/metasploit-framework.git
 cd /vapt/exploits/metasploit-framework && bundle install
 fi
+if [ ! -d /vapt/exploits/set ] ; then
+echo "Installing the Social Engineering Toolkit"
+cd /vapt/exploits && git clone https://github.com/trustedsec/social-engineer-toolkit.git
+cd set && sudo python setup.py install
+fi
+
 #web testing tools
 if [ ! -d /vapt/web/nikto ] ; then
 echo "Installing Nikto"
@@ -45,6 +52,20 @@ cd /vapt/scanners && git clone https://github.com/vanhauser-thc/thc-hydra.git hy
 cd hydra && ./configure
 make && sudo make install
 fi
+if [ ! -d /vapt/scanners/fierce ] ; then
+echo "Installing Fierce"
+cd /vapt/scanners && git clone https://github.com/mschwager/fierce.git
+cd fierce && python3 -m pip install -r requirements.txt
+fi
+if [ ! -d /vapt/scanners/dnsmap ] ; then
+echo "Installing DNSMap"
+cd /vapt/scanners && git clone https://github.com/makefu/dnsmap.git
+cd /vapt/scanners/dnsmap && gcc -o dnsmap dnsmap.c
+fi
+if [ ! -d /vapt/scanners/dnsenum ] ; then
+echo "Installing DNSenum"
+cd /vapt/scanners && git clone https://github.com/fwaeytens/dnsenum.git 
+fi
 
 #To be reviewed
 echo "Beginning subverion package installation"
@@ -55,11 +76,7 @@ cd /vapt/wireless/giskismet && sudo cpanm --installdeps .
 sudo perl Makefile.PL && make
 sudo make install
 fi
-if [ ! -d /vapt/exploits/set ] ; then
-echo "Installing the Social Engineering Toolkit"
-cd /vapt/exploits && git clone https://github.com/trustedsec/social-engineer-toolkit/ set
-cd set && sudo python setup.py install
-fi
+
 
 if [ ! -d /vapt/fuzzers/sulley ] ; then
 echo "Installing Sulley"
@@ -70,26 +87,16 @@ if [ ! -d /vapt/web/joomscan ] ; then
 echo "Instaling Joomla Scanner"
 cd /vapt/web/ && git clone https://github.com/rezasp/joomscan.git
 fi
-if [ ! -d /vapt/enumeration/theHarvester ] ; then
+if [ ! -d /vapt/scanners/theHarvester ] ; then
 echo "Installing the Harvester"
-cd /vapt/enumeration && git clone https://github.com/laramies/theHarvester.git 
-cd /vapt/enumeration/theHarvester && chmod 755 theHarvester.py
+cd /vapt/scanners && git clone https://github.com/laramies/theHarvester.git 
+cd /vapt/scanners/theHarvester && chmod 755 theHarvester.py
 fi
 if [ ! -d /var/www/html/beef ] ; then
 echo "Installing Beef"
 cd /var/www/html && sudo git clone https://github.com/beefproject/beef.git
 fi
-if [ ! -d /vapt/enumeration/fierce ] ; then
-echo "Installing Fierce"
-cd /vapt/enumeration && git clone https://github.com/mschwager/fierce.git
-cd fierce && pip install -r requirements.txt
-sudo python setup.py install 
-fi
-if [ ! -d /vapt/enumeration/dnsmap ] ; then
-echo "Installing DNSMap"
-cd /vapt/enumeration && git clone https://github.com/makefu/dnsmap.git
-cd /vapt/enumeration/dnsmap && gcc -o dnsmap dnsmap.c
-fi
+
 
 if [ ! -d /vapt/fuzzers/fuzzdb ] ; then
 echo "Installing FuzzDB"
@@ -100,10 +107,6 @@ echo "Installing JBroFuzz"
 cd /vapt/fuzzers && git clone https://github.com/twilsonb/jbrofuzz.git
 fi
 
-if [ ! -d /vapt/enumeration/dnsenum ] ; then
-echo "Installing DNSenum"
-cd /vapt/enumeration && git clone https://github.com/fwaeytens/dnsenum.git 
-fi
 if [ ! -f /usr/local/bin/smbclient.py ] ; then
 echo "Installing Impacket"
 cd /vapt/exploits && git clone https://github.com/CoreSecurity/impacket.git
@@ -123,14 +126,14 @@ if [ ! -d /vapt/exploits/Responder ] ; then
 echo "Installing lgandx Responder"
 cd /vapt/exploits/ && git clone https://github.com/lgandx/Responder.git Responder
 fi
-if [ ! -d /vapt/enumeration/groupenum ] ; then
+if [ ! -d /vapt/scanners/groupenum ] ; then
 echo "Installing Spiderlabs groupenum"
-cd /vapt/enumeration/ && git clone https://github.com/SpiderLabs/groupenum.git
+cd /vapt/scanners/ && git clone https://github.com/SpiderLabs/groupenum.git
 fi
 
-if [ ! -d /vapt/enumeration/netsniff-ng ] ; then
+if [ ! -d /vapt/scanners/netsniff-ng ] ; then
 echo "Installing Netsniff-ng"
-cd /vapt/enumeration && git clone https://github.com/borkmann/netsniff-ng.git
+cd /vapt/scanners && git clone https://github.com/borkmann/netsniff-ng.git
 cd netsniff-ng && ./configure
 make && sudo make install
 fi
@@ -185,22 +188,22 @@ if [ ! -d /vapt/exploits/powershell/PowerShdll ] ; then
 echo "Installing Power Shell DLL"
 cd /vapt/exploits/powershell && git clone https://github.com/p3nt4/PowerShdll.git
 fi
-if [ ! -d /vapt/enumeration/recon-ng ] ; then
+if [ ! -d /vapt/scanners/recon-ng ] ; then
 echo "Installing Recon-NG"
-cd /vapt/enumeration/ && git clone https://bitbucket.org/LaNMaSteR53/recon-ng.git
+cd /vapt/scanners/ && git clone https://bitbucket.org/LaNMaSteR53/recon-ng.git
 fi
-if [ ! -d /vapt/enumeration/pasv-agrsv ] ; then
+if [ ! -d /vapt/scanners/pasv-agrsv ] ; then
 echo "Installing Passive Aggresive OSINT TOol"
-cd /vapt/enumeration && git clone https://github.com/isaudits/pasv-agrsv.git
+cd /vapt/scanners && git clone https://github.com/isaudits/pasv-agrsv.git
 fi
-if [ ! -d /vapt/enumeration/skiptracer ] ; then
+if [ ! -d /vapt/scanners/skiptracer ] ; then
 echo "Installing SKIPTRACER OSINT Tool"
-cd /vapt/enumeration && git clone https://github.com/xillwillx/skiptracer.git
+cd /vapt/scanners && git clone https://github.com/xillwillx/skiptracer.git
 cd skiptracer && pip install -r requirements.txt
 fi
-if [ ! -d /vapt/enumeration/medusa ] ; then
+if [ ! -d /vapt/scanners/medusa ] ; then
 echo "Installing Medusa"
-cd /vapt/enumeration/ && git clone https://github.com/jmk-foofus/medusa.git
+cd /vapt/scanners/ && git clone https://github.com/jmk-foofus/medusa.git
 cd medusa && ./configure --enable-module-ssh=yes
 make && sudo make install
 fi
@@ -253,9 +256,9 @@ if [ ! -d /vapt/web/droopescan ] ; then
 echo "Installing Droopescan"
 cd /vapt/web && git clone https://github.com/droope/droopescan.git droopescan
 fi
-if [ ! -d /vapt/enumeration/sublist3r ] ; then
+if [ ! -d /vapt/scanners/sublist3r ] ; then
 echo "Installing sublist3r"
-cd /vapt/enumeration && git clone https://github.com/aboul3la/Sublist3r.git sublist3r
+cd /vapt/scanners && git clone https://github.com/aboul3la/Sublist3r.git sublist3r
 fi
 if [ ! -d /vapt/web/weevely ] ; then
 echo "Installing weevely"
@@ -265,13 +268,13 @@ if [ ! -d /vapt/exploits/spraywmi ] ; then
 echo "Installing spraywmi"
 cd /vapt/exploits && git clone https://github.com/trustedsec/spraywmi.git
 fi
-if [ ! -d /vapt/enumeration/rdp-sec-check ] ; then
+if [ ! -d /vapt/scanners/rdp-sec-check ] ; then
 echo "Installing RDP Security Checker"
-cd /vapt/enumeration/ && git clone https://github.com/portcullislabs/rdp-sec-check.git
+cd /vapt/scanners/ && git clone https://github.com/portcullislabs/rdp-sec-check.git
 fi
-if [ ! -d /vapt/enumeration/enum4linux ] ; then
+if [ ! -d /vapt/scanners/enum4linux ] ; then
 echo "Installing Windows Enum Tools"
-cd /vapt/enumeration/ && git clone https://github.com/portcullislabs/enum4linux.git
+cd /vapt/scanners/ && git clone https://github.com/portcullislabs/enum4linux.git
 cd /vapt/temp && wget http://labs.portcullis.co.uk/download/polenum-0.2.tar.bz2 --no-check-certificate
 bunzip2 polenum-0.2.tar.bz2 && tar xvf polenum-0.2.tar
 rm -rf polenum-0.2.tar && sudo mv polenum-0.2/polenum.py /usr/local/bin/
@@ -300,17 +303,17 @@ cd /vapt/passwords/ && git clone https://github.com/magnumripper/JohnTheRipper.g
 cd JohnTheRipper/src && ./configure
 make -sj4 && make install
 fi
-if [ ! -d /vapt/enumeration/spiderfoot ] ; then
+if [ ! -d /vapt/scanners/spiderfoot ] ; then
 echo "Spiderfoot OSINT Tool"
-cd /vapt/enumeration && git clone https://github.com/smicallef/spiderfoot.git
+cd /vapt/scanners && git clone https://github.com/smicallef/spiderfoot.git
 fi
 if [ ! -d /vapt/web/ShortShells ] ; then
 echo "Instlling Short Shells - web shell collection"
 cd /vapt/web && git clone https://github.com/modux/ShortShells.git
 fi
-if [ ! -d /vapt/enumeration/thc-ipv6 ] ; then
+if [ ! -d /vapt/scanners/thc-ipv6 ] ; then
 echo "Installing THC IPv6"
-cd /vapt/enumeration/ && git clone https://github.com/vanhauser-thc/thc-ipv6.git
+cd /vapt/scanners/ && git clone https://github.com/vanhauser-thc/thc-ipv6.git
 cd thc-ipv6 && make
 fi
 if [ ! -d /vapt/web/svn-extractor ] ; then
@@ -324,6 +327,6 @@ fi
 echo "Installing local tools"
 cp /vapt/misc/va-pt/tools/copy-router-config.pl /vapt/cisco/
 cp /vapt/misc/va-pt/tools/merge-router-config.pl /vapt/cisco/
-cp /vapt/misc/va-pt/tools/dnsrecon.rb /vapt/enumeration/
+cp /vapt/misc/va-pt/tools/dnsrecon.rb /vapt/scanners/
 cp /vapt/misc/va-pt/tools/mysqlaudit.py /vapt/database/
 # end installer

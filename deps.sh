@@ -2,16 +2,17 @@
 echo "Installing Packages"
 sudo apt install -y make gcc ncftp rar p7zip-full curl libpcap-dev libssl-dev hping3 libssh-dev g++ arp-scan cewl wifite ruby-bundler freerdp2-dev
 sudo apt install -y libsqlite3-dev nbtscan dsniff apache2 secure-delete autoconf libpq-dev libmysqlclient-dev libsvn-dev libssh-dev libsmbclient-dev
-sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev
+sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip
 
 #To Review for 20 inclusion
-#sudo apt install -y  ruby-dev postgresql  python-pip python-lxml libxml2-dev libxslt1-dev python3-pip libncurses-dev
+#sudo apt install -y  ruby-dev postgresql  python-lxml libxml2-dev libxslt1-dev python3-pip libncurses-dev
 #sudo apt install -y firebird-dev  python-libpcap  libssh2-1-dev m4 smbclient 
 #sudo apt install -y npm libgnutls28-dev libnetfilter-queue-dev libffi-dev 
 
 echo "Installing Python Deps"
 pip3 install dnspython
 pip install crackmapexec
+python -m pip install fierce
 
 echo "Installing Ruby Gems"
 sudo gem install bettercap wpscan
@@ -27,10 +28,13 @@ fi
 echo "Checking and Installing PERL Deps"
 sudo cpanm Cisco::CopyConfig && sudo cpanm Net::Netmask
 sudo cpanm XML::Writer && sudo cpanm String::Random
+sudo cpanm Net::IP && sudo cpanm Net::DNS
 
 echo "Disbaling uneeded services from starting on boot"
 sudo update-rc.d -f mysql remove && sudo update-rc.d -f apache2 remove
 sudo update-rc.d -f cups remove && sudo update-rc.d -f cups-browsed remove
+
+
 
 #sudo gem install bundler spider http_configuration mini_exiftool zip sqlite3 net-dns bettercap
 
@@ -64,7 +68,7 @@ sudo update-rc.d -f cups remove && sudo update-rc.d -f cups-browsed remove
 #sudo cpanm Net::Whois::ARIN && sudo cpanm Test::MockObject
 #sudo cpanm Template && sudo cpanm Net::CIDR
 #sudo cpanm JSON && sudo cpanm Color::Output
-#sudo cpanm Net::IP
+#
 
 #echo "Installing Python Deps"
 #sudo pip uninstall pyasn1
