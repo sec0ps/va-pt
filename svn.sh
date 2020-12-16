@@ -32,6 +32,20 @@ echo "Installing SQL Map"
 cd /vapt/database && git clone https://github.com/sqlmapproject/sqlmap.git
 fi
 
+#generic scanners
+if [ ! -d /vapt/scanners/nmap ] ; then
+echo "Installing nmap and ncrack"
+cd /vapt/scanners && git clone https://github.com/nmap/nmap.git
+cd nmap && ./configure
+make && sudo make install
+fi
+if [ ! -d /vapt/scanners/hydra ] ; then
+echo "Installing THC-Hydra"
+cd /vapt/scanners && git clone https://github.com/vanhauser-thc/thc-hydra.git hydra
+cd hydra && ./configure
+make && sudo make install
+fi
+
 #To be reviewed
 echo "Beginning subverion package installation"
 if [ ! -d /vapt/wireless/giskismet ] ; then
@@ -100,12 +114,7 @@ if [ ! -d /vapt/web/jboss-autopwn ] ; then
 echo "Install Jboss Autopwn"
 cd /vapt/web && git clone https://github.com/SpiderLabs/jboss-autopwn.git
 fi
-if [ ! -d /vapt/scanners/nmap ] ; then
-echo "Installing nmap and ncrack"
-cd /vapt/scanners && git clone https://github.com/nmap/nmap.git
-cd nmap && ./configure
-make && sudo make install
-fi
+
 if [ ! -d /vapt/passwords/ntlmsspparse ] ; then
 echo "Installing NTLMS Parse"
 cd /vapt/passwords && git clone https://github.com/psychomario/ntlmsspparse.git
@@ -129,12 +138,7 @@ if [ ! -d /vapt/wireless/weape ] ; then
 echo "Installing Wireless EAP Username Extractor"
 cd /vapt/wireless && git clone https://github.com/commonexploits/weape.git
 fi
-if [ ! -d /vapt/enumeration/hydra ] ; then
-echo "Installing THC-Hydra"
-cd /vapt/enumeration/ && git clone https://github.com/vanhauser-thc/thc-hydra.git hydra
-cd hydra && ./configure
-make && sudo make install
-fi
+
 if [ ! -d /vapt/wireless/wifijammer ] ; then
 echo "Installing wifijammer"
 cd /vapt/wireless && git clone https://github.com/DanMcInerney/wifijammer.git

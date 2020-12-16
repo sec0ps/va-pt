@@ -1,12 +1,13 @@
 #!/bin/bash
 echo "Installing Packages"
-sudo apt install -y make gcc ncftp rar p7zip-full curl libpcap-dev libssl-dev hping3 libssh-dev g++ arp-scan cewl wifite ruby-bundler
-sudo apt install -y libsqlite3-dev nbtscan dsniff apache2 secure-delete
+sudo apt install -y make gcc ncftp rar p7zip-full curl libpcap-dev libssl-dev hping3 libssh-dev g++ arp-scan cewl wifite ruby-bundler freerdp2-dev
+sudo apt install -y libsqlite3-dev nbtscan dsniff apache2 secure-delete autoconf libpq-dev libmysqlclient-dev libsvn-dev libssh-dev libsmbclient-dev
+sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev
 
 #To Review for 20 inclusion
-#sudo apt install -y  ruby-dev postgresql libpq-dev python-pip python-lxml libxml2-dev libxslt1-dev python3-pip libncurses-dev
-#sudo apt install -y firebird-dev libmysqlclient-dev libsvn-dev python-libpcap freerdp2-dev libssh2-1-dev m4 autoconf smbclient 
-#sudo apt install -y npm freerdp2-dev libgnutls28-dev libnetfilter-queue-dev libffi-dev 
+#sudo apt install -y  ruby-dev postgresql  python-pip python-lxml libxml2-dev libxslt1-dev python3-pip libncurses-dev
+#sudo apt install -y firebird-dev  python-libpcap  libssh2-1-dev m4 smbclient 
+#sudo apt install -y npm libgnutls28-dev libnetfilter-queue-dev libffi-dev 
 
 echo "Installing Python Deps"
 pip3 install dnspython
