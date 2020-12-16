@@ -6,10 +6,6 @@ cd /pentest/wireless/giskismet && sudo cpanm --installdeps .
 sudo perl Makefile.PL && make
 sudo make install
 fi
-#if [ ! -d /pentest/wireless/wifite/ ] ; then
-#echo "Installing Wifite"
-#cd /pentest/wireless && git clone https://github.com/derv82/wifite.git
-#fi
 if [ ! -d /pentest/exploits/set ] ; then
 echo "Installing the Social Engineering Toolkit"
 cd /pentest/exploits && git clone https://github.com/trustedsec/social-engineer-toolkit/ set
@@ -92,11 +88,6 @@ if [ ! -d /pentest/exploits/keimpx ] ; then
 echo "Installing keimpx"
 cd /pentest/exploits && git clone https://github.com/inquisb/keimpx.git 
 fi
-#if [ ! -d /pentest/web/wpscan ] ; then
-#echo "Installing Wordpress Scanner"
-#cd /pentest/web && git clone https://github.com/wpscanteam/wpscan.git
-#cd wpscan && bundle install --without test development
-#fi
 if [ ! -f /usr/local/bin/smbclient.py ] ; then
 echo "Installing Impacket"
 cd /pentest/exploits && git clone https://github.com/CoreSecurity/impacket.git
@@ -138,10 +129,6 @@ cd /pentest/enumeration && git clone https://github.com/borkmann/netsniff-ng.git
 cd netsniff-ng && ./configure
 make && sudo make install
 fi
-if [ ! -d /pentest/voip/sipvicious ] ; then
-echo "Installing SIPVicious"
-cd /pentest/voip && git clone https://github.com/EnableSecurity/sipvicious.git
-fi
 if [ ! -d /pentest/wireless/weape ] ; then
 echo "Installing Wireless EAP Username Extractor"
 cd /pentest/wireless && git clone https://github.com/commonexploits/weape.git
@@ -159,10 +146,6 @@ fi
 if [ ! -d /pentest/passwords/PCredz ] ; then
 echo "Installing PCredz"
 cd /pentest/passwords && git clone https://github.com/lgandx/PCredz.git
-fi
-if [ ! -d /pentest/voip/voiphopper ] ; then
-echo "Installing VOIP Hopper"
-cd /pentest/voip & git clone https://github.com/iknowjason/voiphopper.git
 fi
 if [ ! -d /pentest/exploits/pth-toolkit ] ; then
 echo "Installing the PTH Toolkit"
@@ -235,13 +218,6 @@ echo "Installing XSStrike"
 cd /pentest/web && git clone https://github.com/UltimateHackers/XSStrike
 cd XSStrike && sudo pip install -r requirements.txt
 fi
-#installing via pip for the time being
-#if [ ! -d /pentest/exploits/CrackMapExec ] ; then
-#echo "Installing CrackMapExec"
-#cd /pentest/exploits && git clone https://github.com/byt3bl33d3r/CrackMapExec.git
-#cd CrackMapExec && git submodule init
-#git submodule update --recursive && sudo python setup.py install
-#fi
 if [ ! -d /pentest/web/xsser ] ; then
 echo "Installing XSSer"
 cd /pentest/web/ && git clone https://github.com/epsylon/xsser-public.git xsser
@@ -332,15 +308,6 @@ if [ ! -d /pentest/web/ShortShells ] ; then
 echo "Instlling Short Shells - web shell collection"
 cd /pentest/web && git clone https://github.com/modux/ShortShells.git
 fi
-#if [ ! -d  /pentest/exploits/powershell/Empire ] ; then
-#echo "Installing Powershell Empire"
-#cd /pentest/exploits/powershell && git clone https://github.com/EmpireProject/Empire.git
-#cd Empire/setup && sudo ./install.sh
-#fi
-if [ ! -d /pentest/web/winshock-test ] ; then
-echo "Installing Winshock Test Script"
-cd /pentest/web && git clone https://github.com/anexia-it/winshock-test.git
-fi
 if [ ! -d /pentest/enumeration/thc-ipv6 ] ; then
 echo "Installing THC IPv6"
 cd /pentest/enumeration/ && git clone https://github.com/vanhauser-thc/thc-ipv6.git
@@ -354,12 +321,6 @@ if [ ! -d /pentest/passwords/CeWL ] ; then
 echo "Installing Cewl Password Generator"
 cd /pentest/passwords && git clone https://github.com/digininja/CeWL.git
 fi
-#if [ ! -d /pentest/exploits/Veil ] ; then
-#echo "Installing Veil Framework"
-#cd /pentest/exploits && git clone https://github.com/Veil-Framework/Veil.git
-#cd Veil && sudo ./config/setup.sh --force --silent
-#fi
-#
 echo "Installing local tools"
 cp /pentest/misc/va-pt/tools/copy-router-config.pl /pentest/cisco/
 cp /pentest/misc/va-pt/tools/merge-router-config.pl /pentest/cisco/

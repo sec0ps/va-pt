@@ -1,9 +1,9 @@
 #!/bin/bash
 echo "Installing Packages"
-sudo apt install -y make gcc ncftp rar p7zip-full git subversion vim curl locate libpcap-dev libssl-dev hping3 openssh-server libssh-dev g++ arp-scan cewl wifite
-sudo apt install -y sqlite3 nbtscan dsniff ruby-dev postgresql libpq-dev python-pip python-lxml libxml2-dev libxslt1-dev python3-pip libncurses-dev
+sudo apt install -y make gcc ncftp rar p7zip-full curl libpcap-dev libssl-dev hping3 libssh-dev g++ arp-scan cewl wifite
+sudo apt install -y nbtscan dsniff ruby-dev postgresql libpq-dev python-pip python-lxml libxml2-dev libxslt1-dev python3-pip libncurses-dev
 sudo apt install -y firebird-dev libmysqlclient-dev libsvn-dev python-libpcap freerdp2-dev libssh2-1-dev m4 autoconf smbclient libsqlite3-dev
-sudo apt install -y apache2 npm apache2 freerdp2-dev libgnutls28-dev libnetfilter-queue-dev libffi-dev
+sudo apt install -y apache2 npm apache2 freerdp2-dev libgnutls28-dev libnetfilter-queue-dev libffi-dev secure-delete
 
 if [ ! -f /usr/local/bin/cpanm ] ; then
 echo "Installing CPANimus"
@@ -23,6 +23,10 @@ sudo gem install bettercap wpscan
 echo "Checking and Installing PERL Deps"
 sudo cpanm Cisco::CopyConfig && sudo cpanm Net::Netmask
 sudo cpanm XML::Writer && sudo cpanm String::Random
+
+echo "Disbaling uneeded services from starting on boot"
+sudo update-rc.d -f mysql remove && sudo update-rc.d -f apache2 remove
+sudo update-rc.d -f cups remove && sudo update-rc.d -f cups-browsed remove
 
 #sudo gem install bundler spider http_configuration mini_exiftool zip sqlite3 net-dns bettercap
 
@@ -44,10 +48,7 @@ sudo cpanm XML::Writer && sudo cpanm String::Random
 #sudo apt-get install -y libbsd-dev unixodbc unixodbc-dev freetds-dev sqsh tdsodbc autofs remmina remmina-plugin-rdp remmina-plugin-vnc
 #sudo apt-get install -y squid python-libpcap ntpdate screen samba-common-bin upx whois libreadline-gplv2-dev gcc-mingw-w64-x86-64
 #sudo apt-get install -y gcc-mingw-w64-i686 libsqlite3-dev tftp tftpd python-elixir python-pyasn1
-#sudo apt-get install -y secure-delete
-
-#sudo update-rc.d -f mysql remove && sudo update-rc.d -f apache2 remove
-#sudo update-rc.d -f cups remove && sudo update-rc.d -f cups-browsed remove
+#sudo apt-get install -y 
 
 #sudo cpanm Encoding::BER && sudo cpanm Term::ANSIColor	
 #sudo cpanm Getopt::Long && 

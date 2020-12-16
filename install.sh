@@ -27,7 +27,6 @@ fi
 [ ! -d /vapt/scanners ] && mkdir /vapt/scanners
 [ ! -d /vapt/misc ] && mkdir /vapt/misc
 [ ! -d /vapt/enumeration ] && mkdir /vapt/enumeration
-[ ! -d /vapt/voip ] && mkdir /vapt/voip
 [ ! -d /vapt/database ] && mkdir /vapt/database
 [ ! -d /vapt/passwords ] && mkdir /vapt/passwords
 [ ! -d /vapt/fuzzers ] && mkdir /vapt/fuzzers
