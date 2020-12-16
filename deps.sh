@@ -1,11 +1,4 @@
 #!/bin/bash
-echo "Installing UFW, denying all inbound services excluding ssh and allowing all outbound"
-sudo apt-get install ufw -y
-sudo ufw default deny incoming
-sudo ufw default allow outgoing
-sudo ufw allow 22/tcp
-sudo ufw enable
-
 echo "Installing Packages"
 sudo apt install -y make gcc ncftp rar p7zip-full git subversion vim curl locate libpcap-dev libssl-dev hping3 openssh-server libssh-dev g++ arp-scan cewl wifite
 sudo apt install -y sqlite3 nbtscan dsniff ruby-dev postgresql libpq-dev python-pip python-lxml libxml2-dev libxslt1-dev python3-pip libncurses-dev

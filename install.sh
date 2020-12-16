@@ -3,32 +3,39 @@ if [[ $EUID -eq 0 ]]; then
 echo "This script should not be run as root.." 1>&2
 exit 1
 fi
-sudo apt install ntpdate -y
+echo "Installing base packages and locking down the system - denying all inbound services excluding ssh and allowing all outbound"
+sudo apt install vim subversion landscape-common ufw openssh-server net-tools libpangox-1.0-dev mlocate ntpdate screen whois
+sudo apt-get install ufw -y
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow 22/tcp
+sudo ufw enable
+
 if [ ! -f /etc/network/if-up.d/ntpdate ] ; then
 sudo ntpdate time.nist.gov
 fi
-#
-if [ ! -d /pentest ] ; then
-sudo mkdir /pentest
-sudo chown -R $USER /pentest && chgrp -R $USER /pentest
+
+if [ ! -d /vapt ] ; then
+sudo mkdir /vapt
+sudo chown -R $USER /vapt && chgrp -R $USER /vapt
 fi
-[ ! -d /pentest/temp ] && mkdir /pentest/temp
-[ ! -d /pentest/wireless ] && mkdir /pentest/wireless
-[ ! -d /pentest/exploits ] && mkdir /pentest/exploits
-[ ! -d /pentest/exploits/powershell ] && mkdir /pentest/exploits/powershell
-[ ! -d /pentest/web ] && mkdir /pentest/web
-[ ! -d /pentest/scanners ] && mkdir /pentest/scanners
-[ ! -d /pentest/misc ] && mkdir /pentest/misc
-[ ! -d /pentest/enumeration ] && mkdir /pentest/enumeration
-[ ! -d /pentest/voip ] && mkdir /pentest/voip
-[ ! -d /pentest/database ] && mkdir /pentest/database
-[ ! -d /pentest/passwords ] && mkdir /pentest/passwords
-[ ! -d /pentest/fuzzers ] && mkdir /pentest/fuzzers
-[ ! -d /pentest/cisco ] && mkdir /pentest/cisco
-#[ ! -d /pentest/audit ] && mkdir /pentest/audit
-[ ! -d /pentest/exfiltrate ] && mkdir /pentest/exfiltrate
-if [ ! -d /pentest/misc/va-pt ] ; then
-cd /pentest/misc && git clone https://github.com/sec0ps/va-pt.git 
+[ ! -d /vapt/temp ] && mkdir /vapt/temp
+[ ! -d /vapt/wireless ] && mkdir /vapt/wireless
+[ ! -d /vapt/exploits ] && mkdir /vapt/exploits
+[ ! -d /vapt/exploits/powershell ] && mkdir /vapt/exploits/powershell
+[ ! -d /vapt/web ] && mkdir /vapt/web
+[ ! -d /vapt/scanners ] && mkdir /vapt/scanners
+[ ! -d /vapt/misc ] && mkdir /vapt/misc
+[ ! -d /vapt/enumeration ] && mkdir /vapt/enumeration
+[ ! -d /vapt/voip ] && mkdir /vapt/voip
+[ ! -d /vapt/database ] && mkdir /vapt/database
+[ ! -d /vapt/passwords ] && mkdir /vapt/passwords
+[ ! -d /vapt/fuzzers ] && mkdir /vapt/fuzzers
+[ ! -d /vapt/cisco ] && mkdir /vapt/cisco
+#[ ! -d /vapt/audit ] && mkdir /vapt/audit
+[ ! -d /vapt/exfiltrate ] && mkdir /vapt/exfiltrate
+if [ ! -d /vapt/misc/va-pt ] ; then
+cd /vapt/misc && git clone https://github.com/sec0ps/va-pt.git 
 fi
 clear
 selection=
@@ -60,13 +67,13 @@ until [ "$selection" = "0" ]; do
      read selection
      echo ""
      case $selection in
-         1 ) /pentest/misc/va-pt/deps.sh;;
-         2 ) /pentest/misc/va-pt/svn.sh;;
-         3 ) /pentest/misc/va-pt/static.sh;;
+         1 ) /vapt/misc/va-pt/deps.sh;;
+         2 ) /vapt/misc/va-pt/svn.sh;;
+         3 ) /vapt/misc/va-pt/static.sh;;
 	 4 ) sudo apt-get install -y openvas-server openvas-client;;
-	 4 ) /pentest/misc/va-pt/wordlist.sh;;
+	 4 ) /vapt/misc/va-pt/wordlist.sh;;
 	 6 ) sudo apt-get install -y nvidia-opencl-dev ocl-icd-libopencl1 opencl-headers;;
-         7 ) /pentest/misc/va-pt/update-tools.sh;;
+         7 ) /vapt/misc/va-pt/update-tools.sh;;
          8 ) firefox https://addons.mozilla.org/en-US/firefox/collections/sec0ps/vapt/ &;;
          0 ) exit;;
          * ) echo "Please enter your selection"
