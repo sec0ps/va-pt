@@ -7,8 +7,7 @@ sudo apt install ntpdate -y
 if [ ! -f /etc/network/if-up.d/ntpdate ] ; then
 sudo ntpdate time.nist.gov
 fi
-#sudo echo 1 > /proc/sys/net/ipv4/ip_forward
-#clear
+#
 if [ ! -d /pentest ] ; then
 sudo mkdir /pentest
 sudo chown -R $USER /pentest && chgrp -R $USER /pentest
@@ -61,11 +60,11 @@ until [ "$selection" = "0" ]; do
      read selection
      echo ""
      case $selection in
-         1 ) /pentest/misc/va-pt/ubuntu18/deps.sh;;
-         2 ) /pentest/misc/va-pt/ubuntu18/svn.sh;;
-         3 ) /pentest/misc/va-pt/ubuntu18/static.sh;;
+         1 ) /pentest/misc/va-pt/deps.sh;;
+         2 ) /pentest/misc/va-pt/svn.sh;;
+         3 ) /pentest/misc/va-pt/static.sh;;
 	 4 ) sudo apt-get install -y openvas-server openvas-client;;
-	 4 ) /pentest/misc/va-pt/ubuntu18/wordlist.sh;;
+	 4 ) /pentest/misc/va-pt/wordlist.sh;;
 	 6 ) sudo apt-get install -y nvidia-opencl-dev ocl-icd-libopencl1 opencl-headers;;
          7 ) /pentest/misc/va-pt/update-tools.sh;;
          8 ) firefox https://addons.mozilla.org/en-US/firefox/collections/sec0ps/vapt/ &;;
