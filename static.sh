@@ -6,19 +6,20 @@ echo "Installing snmpcheck"
 cd /vapt/scanners && wget http://www.nothink.org/perl/snmpcheck/downloads/snmpcheck-1.8.pl -O snmpcheck.pl
 chmod 700 /vapt/scanners/snmpcheck.pl
 fi
-
-#Pending Review
 if [ ! -d /vapt/web/zap ] ; then
 echo "Installing ZED Attack Proxy"
-cd /vapt/temp && wget https://github.com/zaproxy/zaproxy/releases/download/v2.8.0/ZAP_2.8.0_Linux.tar.gz 
-tar xvf ZAP_2.8.0_Linux.tar.gz && rm -rf ZAP_2.8.0_Linux.tar.gz
-mv ZAP_2.8.0/ /vapt/web/zap
+cd /vapt/web && wget https://github.com/zaproxy/zaproxy/releases/download/v2.10.0/ZAP_2.10.0_Linux.tar.gz
+tar xvf ZAP_2.10.0_Linux.tar.gz && rm -rf ZAP_2.10.0_Linux.tar.gz
+mv ZAP* zap/
 fi
-
-if [ ! -f /vapt/cisco/copy-router-config.pl ] ; then
-cd /vapt/cisco && wget http://littlehacker.persiangig.com/cisco/copy-router-config.pl
+if [ ! -f /vapt/scanners/copy-router-config.pl ] ; then
+cd /vapt/scanners && wget http://littlehacker.persiangig.com/cisco/copy-router-config.pl
 chmod 755 copy-router-config.pl
 fi
+
+#Pending Review
+
+
 #if [ ! -d /vapt/wireless/hostapd-wpe ] ; then
 #echo "Installing Hostapd-WPE"
 #cd /vapt/wireless/ && mkdir hostapd-wpe
@@ -48,13 +49,10 @@ echo "Installing Windows Tools"
 cd /vapt/exploits && mkdir windows-tools
 cd windows-tools && wget http://download.sysinternals.com/files/PSTools.zip
 unzip PSTools.zip && rm -rf PSTools.zip
-wget http://dl.packetstormsecurity.net/groups/checksum/nc.exe --no-check-certificate
 cd /vapt/temp && wget http://www.foofus.net/fizzgig/fgdump/fgdump-2.1.0-exeonly.tar.bz2
 bunzip2 fgdump-2.1.0-exeonly.tar.bz2 && rm -rf fgdump-2.1.0-exeonly.tar.bz2
 tar xvf fgdump-2.1.0-exeonly.tar && rm -rf fgdump-2.1.0-exeonly.tar
 mv Release/fgdump.exe /vapt/exploits/windows-tools/ && rm -rf Release/
-wget http://www.tarasco.org/security/dnsfun/dnsfun.zip && unzip dnsfun.zip
-rm dnsfun.zip && mv dnsfun.* /vapt/exploits/windows-tools/
 fi
 if [ ! -f /vapt/enumeration/ike/ikeprobe.exe ] ; then
 echo "Installing VPN Tools"
