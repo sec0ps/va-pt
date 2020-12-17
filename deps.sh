@@ -2,7 +2,9 @@
 echo "Installing Packages"
 sudo apt install -y make gcc ncftp rar p7zip-full curl libpcap-dev libssl-dev hping3 libssh-dev g++ arp-scan cewl wifite ruby-bundler freerdp2-dev
 sudo apt install -y libsqlite3-dev nbtscan dsniff apache2 secure-delete autoconf libpq-dev libmysqlclient-dev libsvn-dev libssh-dev libsmbclient-dev
-sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff-ng httptunnel ptunnel-ng udptunnel
+sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff-ng httptunnel ptunnel-ng udptunnel pipx python3-venv
+
+sudo ln -s /usr/bin/python3 /usr/bin/python
 
 #To Review for 20 inclusion
 #sudo apt install -y  ruby-dev postgresql  python-lxml libxml2-dev libxslt1-dev python3-pip libncurses-dev
@@ -11,11 +13,11 @@ sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff
 
 echo "Installing Python Deps"
 pip3 install dnspython
-pip install crackmapexec
-python -m pip install fierce
+python3 -m pip install pipx
+pipx ensurepath && pipx install crackmapexec
 
-echo "Installing Ruby Gems"
-sudo gem install bettercap wpscan
+#echo "Installing Ruby Gems"
+#sudo gem uninstall bettercap wpscan
 
 if [ ! -f /usr/local/bin/cpanm ] ; then
 echo "Installing CPANimus"

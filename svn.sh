@@ -18,6 +18,11 @@ if [ ! -d /vapt/exploits/Responder ] ; then
 echo "Installing lgandx Responder"
 cd /vapt/exploits/ && git clone https://github.com/lgandx/Responder.git
 fi
+if [ ! -f /usr/local/bin/smbclient.py ] ; then
+echo "Installing Impacket"
+cd /vapt/exploits && git clone https://github.com/CoreSecurity/impacket.git
+cd impacket && python setup.py install
+fi
 
 #web testing tools
 if [ ! -d /vapt/web/nikto ] ; then
@@ -131,11 +136,7 @@ echo "Installing JBroFuzz"
 cd /vapt/fuzzers && git clone https://github.com/twilsonb/jbrofuzz.git
 fi
 
-if [ ! -f /usr/local/bin/smbclient.py ] ; then
-echo "Installing Impacket"
-cd /vapt/exploits && git clone https://github.com/CoreSecurity/impacket.git
-cd impacket && sudo python setup.py install
-fi
+
 
 if [ ! -d /vapt/web/jboss-autopwn ] ; then
 echo "Install Jboss Autopwn"
