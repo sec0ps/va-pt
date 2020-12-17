@@ -19,10 +19,8 @@ if [ ! -d /vapt ] ; then
 sudo mkdir /vapt
 sudo chown -R $USER /vapt && chgrp -R $USER /vapt
 fi
-[ ! -d /vapt/temp ] && mkdir /vapt/temp
 [ ! -d /vapt/wireless ] && mkdir /vapt/wireless
 [ ! -d /vapt/exploits ] && mkdir /vapt/exploits
-[ ! -d /vapt/exploits/powershell ] && mkdir /vapt/exploits/powershell
 [ ! -d /vapt/web ] && mkdir /vapt/web
 [ ! -d /vapt/intel ] && mkdir /vapt/intel 
 [ ! -d /vapt/scanners ] && mkdir /vapt/scanners
