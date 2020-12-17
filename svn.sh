@@ -10,6 +10,14 @@ echo "Installing the Social Engineering Toolkit"
 cd /vapt/exploits && git clone https://github.com/trustedsec/social-engineer-toolkit.git
 cd set && sudo python setup.py install
 fi
+if [ ! -d /vapt/exploits/exploitdb ] ; then
+echo "Installing latest ExploitDB archive"
+cd /vapt/exploits && git clone https://github.com/offensive-security/exploit-database.git exploitdb
+fi
+if [ ! -d /vapt/exploits/Responder ] ; then
+echo "Installing lgandx Responder"
+cd /vapt/exploits/ && git clone https://github.com/lgandx/Responder.git
+fi
 
 #web testing tools
 if [ ! -d /vapt/web/nikto ] ; then
@@ -34,12 +42,13 @@ cd /vapt/web/ && git clone https://github.com/siberas/watobo.git
 fi
 
 #database testing tools
-if [ ! -d /vapt/database/sqlmap ] ; then
-echo "Installing SQL Map"
-cd /vapt/database && git clone https://github.com/sqlmapproject/sqlmap.git
-fi
+
 
 #generic scanners
+if [ ! -d /vapt/scanners/sqlmap ] ; then
+echo "Installing SQL Map"
+cd /vapt/scanners && git clone https://github.com/sqlmapproject/sqlmap.git
+fi
 if [ ! -d /vapt/scanners/nmap ] ; then
 echo "Installing nmap and ncrack"
 cd /vapt/scanners && git clone https://github.com/nmap/nmap.git
@@ -66,17 +75,36 @@ if [ ! -d /vapt/scanners/dnsenum ] ; then
 echo "Installing DNSenum"
 cd /vapt/scanners && git clone https://github.com/fwaeytens/dnsenum.git 
 fi
+if [ ! -d /vapt/scanners/cisco-SNMP-enumeration ] ; then
+echo "Installing Cisco SNMP Enum"
+cd /vapt/scanners && git clone  https://github.com/nccgroup/cisco-SNMP-enumeration.git
+fi
+
+#OSINT/Intel Tool
+if [ ! -d /vapt/intel/recon-ng ] ; then
+echo "Installing Recon-NG"
+cd /vapt/intel/ && git clone https://github.com/lanmaster53/recon-ng.git
+fi
+if [ ! -d /vapt/intel/spiderfoot ] ; then
+echo "Spiderfoot OSINT Tool"
+cd /vapt/intel && git clone https://github.com/smicallef/spiderfoot.git
+cd spiderfoot && pip3 install -r requirements.txt
+fi
+if [ ! -d /vapt/intel/theHarvester ] ; then
+echo "Installing the Harvester"
+cd /vapt/intel && git clone https://github.com/laramies/theHarvester.git 
+cd /vapt/intel/theHarvester && pip3 install -r requirements.txt
+fi
 
 #To be reviewed
 echo "Beginning subverion package installation"
 if [ ! -d /vapt/wireless/giskismet ] ; then
 echo "Installing gisKismet"
-cd /vapt/wireless && git clone git://git.kali.org/packages/giskismet.git 
+cd /vapt/wireless && git clone https://github.com/xtr4nge/giskismet.git
 cd /vapt/wireless/giskismet && sudo cpanm --installdeps .
 sudo perl Makefile.PL && make
 sudo make install
 fi
-
 
 if [ ! -d /vapt/fuzzers/sulley ] ; then
 echo "Installing Sulley"
@@ -87,11 +115,7 @@ if [ ! -d /vapt/web/joomscan ] ; then
 echo "Instaling Joomla Scanner"
 cd /vapt/web/ && git clone https://github.com/rezasp/joomscan.git
 fi
-if [ ! -d /vapt/scanners/theHarvester ] ; then
-echo "Installing the Harvester"
-cd /vapt/scanners && git clone https://github.com/laramies/theHarvester.git 
-cd /vapt/scanners/theHarvester && chmod 755 theHarvester.py
-fi
+
 if [ ! -d /var/www/html/beef ] ; then
 echo "Installing Beef"
 cd /var/www/html && sudo git clone https://github.com/beefproject/beef.git
@@ -122,21 +146,12 @@ if [ ! -d /vapt/passwords/ntlmsspparse ] ; then
 echo "Installing NTLMS Parse"
 cd /vapt/passwords && git clone https://github.com/psychomario/ntlmsspparse.git
 fi
-if [ ! -d /vapt/exploits/Responder ] ; then
-echo "Installing lgandx Responder"
-cd /vapt/exploits/ && git clone https://github.com/lgandx/Responder.git Responder
-fi
+
 if [ ! -d /vapt/scanners/groupenum ] ; then
 echo "Installing Spiderlabs groupenum"
 cd /vapt/scanners/ && git clone https://github.com/SpiderLabs/groupenum.git
 fi
 
-if [ ! -d /vapt/scanners/netsniff-ng ] ; then
-echo "Installing Netsniff-ng"
-cd /vapt/scanners && git clone https://github.com/borkmann/netsniff-ng.git
-cd netsniff-ng && ./configure
-make && sudo make install
-fi
 if [ ! -d /vapt/wireless/weape ] ; then
 echo "Installing Wireless EAP Username Extractor"
 cd /vapt/wireless && git clone https://github.com/commonexploits/weape.git
@@ -158,10 +173,7 @@ if [ ! -d /vapt/passwords/gpp-decrypt ] ; then
 echo "Installing gpp-dercypt"
 cd /vapt/passwords && git clone https://github.com/BustedSec/gpp-decrypt.git
 fi
-if [ ! -d /vapt/cisco/cisco-SNMP-enumeration ] ; then
-echo "Installing Cisco SNMP Enum"
-cd /vapt/cisco && git clone  https://github.com/nccgroup/cisco-SNMP-enumeration.git
-fi
+
 if [ ! -d /vapt/web/arachni ] ; then
 echo "Installing Arachni Web Scanner"
 cd /vapt/temp && wget https://github.com/Arachni/arachni/releases/download/v1.5.1/arachni-1.5.1-0.5.12-linux-x86_64.tar.gz
@@ -188,29 +200,7 @@ if [ ! -d /vapt/exploits/powershell/PowerShdll ] ; then
 echo "Installing Power Shell DLL"
 cd /vapt/exploits/powershell && git clone https://github.com/p3nt4/PowerShdll.git
 fi
-if [ ! -d /vapt/scanners/recon-ng ] ; then
-echo "Installing Recon-NG"
-cd /vapt/scanners/ && git clone https://bitbucket.org/LaNMaSteR53/recon-ng.git
-fi
-if [ ! -d /vapt/scanners/pasv-agrsv ] ; then
-echo "Installing Passive Aggresive OSINT TOol"
-cd /vapt/scanners && git clone https://github.com/isaudits/pasv-agrsv.git
-fi
-if [ ! -d /vapt/scanners/skiptracer ] ; then
-echo "Installing SKIPTRACER OSINT Tool"
-cd /vapt/scanners && git clone https://github.com/xillwillx/skiptracer.git
-cd skiptracer && pip install -r requirements.txt
-fi
-if [ ! -d /vapt/scanners/medusa ] ; then
-echo "Installing Medusa"
-cd /vapt/scanners/ && git clone https://github.com/jmk-foofus/medusa.git
-cd medusa && ./configure --enable-module-ssh=yes
-make && sudo make install
-fi
-if [ ! -d /vapt/exploits/vaptly ] ; then
-echo "Installing Pentestly"
-cd /vapt/exploits/ && git clone https://github.com/praetorian-inc/vaptly
-fi
+
 if [ ! -d /vapt/web/Photon ] ; then
 echo "Installing Photon - Web App Recon Tool"
 cd /vapt/web/ && git clone https://github.com/s0md3v/Photon.git
@@ -225,10 +215,7 @@ if [ ! -d /vapt/web/xsser ] ; then
 echo "Installing XSSer"
 cd /vapt/web/ && git clone https://github.com/epsylon/xsser-public.git xsser
 fi
-if [ ! -d /vapt/exploits/exploitdb ] ; then
-echo "Installing latest ExploitDB archive"
-cd /vapt/exploits && git clone https://github.com/offensive-security/exploit-database.git exploitdb
-fi
+
 if [ ! -d /vapt/passwords/Usernames ]; then
 echo "Installing the wordlist collection"
 cd /vapt/temp && git clone https://github.com/danielmiessler/SecLists.git
@@ -290,9 +277,7 @@ echo "Installing asleap"
 cd /vapt/wireless/ && git clone https://github.com/joswr1ght/asleap.git
 cd asleap && make
 fi
-if [ ! -d /vapt/misc/vapt-tools/ ] ; then
-cd /vapt/misc && git clone https://github.com/joshuaskorich/vapt-tools.git
-fi
+
 if [ ! -d /vapt/passwords/hashcat ] ; then
 echo "Installing Hashcat"
 cd /vapt/passwords/ && git clone https://github.com/hashcat/hashcat.git
@@ -303,10 +288,7 @@ cd /vapt/passwords/ && git clone https://github.com/magnumripper/JohnTheRipper.g
 cd JohnTheRipper/src && ./configure
 make -sj4 && make install
 fi
-if [ ! -d /vapt/scanners/spiderfoot ] ; then
-echo "Spiderfoot OSINT Tool"
-cd /vapt/scanners && git clone https://github.com/smicallef/spiderfoot.git
-fi
+
 if [ ! -d /vapt/web/ShortShells ] ; then
 echo "Instlling Short Shells - web shell collection"
 cd /vapt/web && git clone https://github.com/modux/ShortShells.git

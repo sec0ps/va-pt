@@ -24,13 +24,12 @@ fi
 [ ! -d /vapt/exploits ] && mkdir /vapt/exploits
 [ ! -d /vapt/exploits/powershell ] && mkdir /vapt/exploits/powershell
 [ ! -d /vapt/web ] && mkdir /vapt/web
+[ ! -d /vapt/intel ] && mkdir /vapt/intel 
 [ ! -d /vapt/scanners ] && mkdir /vapt/scanners
 [ ! -d /vapt/misc ] && mkdir /vapt/misc
 [ ! -d /vapt/enumeration ] && mkdir /vapt/enumeration
-[ ! -d /vapt/database ] && mkdir /vapt/database
 [ ! -d /vapt/passwords ] && mkdir /vapt/passwords
 [ ! -d /vapt/fuzzers ] && mkdir /vapt/fuzzers
-[ ! -d /vapt/cisco ] && mkdir /vapt/cisco
 #[ ! -d /vapt/audit ] && mkdir /vapt/audit
 [ ! -d /vapt/exfiltrate ] && mkdir /vapt/exfiltrate
 if [ ! -d /vapt/misc/va-pt ] ; then

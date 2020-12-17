@@ -2,7 +2,7 @@
 echo "Installing Packages"
 sudo apt install -y make gcc ncftp rar p7zip-full curl libpcap-dev libssl-dev hping3 libssh-dev g++ arp-scan cewl wifite ruby-bundler freerdp2-dev
 sudo apt install -y libsqlite3-dev nbtscan dsniff apache2 secure-delete autoconf libpq-dev libmysqlclient-dev libsvn-dev libssh-dev libsmbclient-dev
-sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip
+sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff-ng httptunnel ptunnel-ng udptunnel
 
 #To Review for 20 inclusion
 #sudo apt install -y  ruby-dev postgresql  python-lxml libxml2-dev libxslt1-dev python3-pip libncurses-dev
@@ -33,7 +33,6 @@ sudo cpanm Net::IP && sudo cpanm Net::DNS
 echo "Disbaling uneeded services from starting on boot"
 sudo update-rc.d -f mysql remove && sudo update-rc.d -f apache2 remove
 sudo update-rc.d -f cups remove && sudo update-rc.d -f cups-browsed remove
-
 
 
 #sudo gem install bundler spider http_configuration mini_exiftool zip sqlite3 net-dns bettercap
