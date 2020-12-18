@@ -24,6 +24,10 @@ cd /vapt/exploits && git clone https://github.com/CoreSecurity/impacket.git
 cd impacket && pip3 install -r requirements.txt
 sudo python setup.py install
 fi
+if [ ! -d /vapt/exploits/beef ] ; then
+echo "Installing Beef"
+cd /vapt/exploits/ && git clone https://github.com/beefproject/beef.git
+fi
 
 #web testing tools
 if [ ! -d /vapt/web/nikto ] ; then
@@ -45,6 +49,10 @@ fi
 if [ ! -d /vapt/web/watobo ] ; then
 echo "Installing Watobo"
 cd /vapt/web/ && git clone https://github.com/siberas/watobo.git
+fi
+if [ ! -d /vapt/web/joomscan ] ; then
+echo "Instaling Joomla Scanner"
+cd /vapt/web/ && git clone https://github.com/rezasp/joomscan.git
 fi
 
 #generic scanners
@@ -119,4 +127,28 @@ fi
 if [ ! -d /vapt/passwords/SecLists ]; then
 echo "Installing the wordlist collection"
 cd /vapt/passwords && git clone https://github.com/danielmiessler/SecLists.git
+fi
+
+#Fuzzers
+if [ ! -d /vapt/fuzzers/boofuzz ] ; then
+echo "Installing boofuzz"
+cd /vapt/fuzzers && git clone https://github.com/jtpereyda/boofuzz.git
+fi
+
+#Powershell tools
+if [ ! -d /vapt/powershell/PowerSploit ] ; then
+echo "Installing PowerSploit"
+cd /vapt/powershell && git clone https://github.com/mattifestation/PowerSploit.git
+fi
+if [ ! -d /vapt/powershell/ps1encode ] ; then
+echo "Installing Powershell Encoder"
+cd /vapt/powershell && git clone https://github.com/CroweCybersecurity/ps1encode.git
+fi
+if [ ! -d /vapt/powershell/Invoke-TheHash ] ; then
+echo "Installing Powershell Invoke-TheHash"
+cd /vapt/powershell && git clone https://github.com/Kevin-Robertson/Invoke-TheHash.git
+fi
+if [ ! -d /vapt/powershell/PowerShdll ] ; then
+echo "Installing Power Shell DLL"
+cd /vapt/powershell && git clone https://github.com/p3nt4/PowerShdll.git
 fi

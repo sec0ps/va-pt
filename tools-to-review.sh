@@ -59,21 +59,6 @@ sudo perl Makefile.PL && make
 sudo make install
 fi
 
-if [ ! -d /vapt/fuzzers/sulley ] ; then
-echo "Installing Sulley"
-cd /vapt/fuzzers && git clone https://github.com/OpenRCE/sulley.git 
-fi
-
-if [ ! -d /vapt/web/joomscan ] ; then
-echo "Instaling Joomla Scanner"
-cd /vapt/web/ && git clone https://github.com/rezasp/joomscan.git
-fi
-
-if [ ! -d /var/www/html/beef ] ; then
-echo "Installing Beef"
-cd /var/www/html && sudo git clone https://github.com/beefproject/beef.git
-fi
-
 if [ ! -d /vapt/fuzzers/fuzzdb ] ; then
 echo "Installing FuzzDB"
 cd /vapt/fuzzers && git clone https://github.com/fuzzdb-project/fuzzdb.git
@@ -111,23 +96,6 @@ echo "Installing gpp-dercypt"
 cd /vapt/passwords && git clone https://github.com/BustedSec/gpp-decrypt.git
 fi
 
-if [ ! -d /vapt/exploits/PowerSploit ] ; then
-echo "Installing PowerSploit"
-cd /vapt/exploits/ && git clone https://github.com/mattifestation/PowerSploit.git
-fi
-if [ ! -d /vapt/exploits/ps1encode ] ; then
-echo "Installing Powershell Encoder"
-cd /vapt/exploits/ && git clone https://github.com/CroweCybersecurity/ps1encode.git
-fi
-if [ ! -d /vapt/exploits/Invoke-TheHash ] ; then
-echo "Installing Powershell Invoke-TheHash"
-cd /vapt/exploits/ && git clone https://github.com/Kevin-Robertson/Invoke-TheHash.git
-fi
-if [ ! -d /vapt/exploits/PowerShdll ] ; then
-echo "Installing Power Shell DLL"
-cd /vapt/exploits/ && git clone https://github.com/p3nt4/PowerShdll.git
-fi
-
 if [ ! -d /vapt/web/XSStrike ] ; then
 echo "Installing XSStrike"
 cd /vapt/web && git clone https://github.com/UltimateHackers/XSStrike
@@ -137,7 +105,6 @@ if [ ! -d /vapt/web/xsser ] ; then
 echo "Installing XSSer"
 cd /vapt/web/ && git clone https://github.com/epsylon/xsser-public.git xsser
 fi
-
 
 if [ ! -d /vapt/database/NoSQLMap ] ; then
 echo "Installing NoSQLMAP"
