@@ -11,7 +11,7 @@ update-tools.sh - update script for all the tools that have git/svn functionalit
 install.sh - The script that makes it all happen
 readme - You're looking at it
 
-All tools are loaded into the /pentest directory.
+All tools are loaded into the /vapt directory.
 
 How To
 ------
