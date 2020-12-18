@@ -4,7 +4,6 @@ The goal of this project was to allow a portable set of tools to be installed on
 
 Contents of the project
 -------------------------------------------------------------------------------------------------------------------------
-deps.sh - Contains the necessary software dependencies for the tools within the kit to function.
 static.sh - Downloads static applications which are not svn capable
 svn.sh - SVN repository scripts to checkout and update the various tools
 update-tools.sh - update script for all the tools that have git/svn functionality or that I created an update script for.
