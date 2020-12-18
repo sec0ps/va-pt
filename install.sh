@@ -11,6 +11,7 @@ sudo apt install -y make gcc ncftp rar p7zip-full curl libpcap-dev libssl-dev hp
 sudo apt install -y libsqlite3-dev nbtscan dsniff apache2 secure-delete autoconf libpq-dev libmysqlclient-dev libsvn-dev libssh-dev libsmbclient-dev
 sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff-ng httptunnel ptunnel-ng udptunnel pipx python3-venv ruby-dev
 sudo ln -s /usr/bin/python3 /usr/bin/python
+sudo snap install powershell
 
 sudo ntpdate time.nist.gov
 sudo apt-get install ufw -y
