@@ -19,22 +19,6 @@ To start, run the installer: sudo ./install.sh
 Install the dependencies first via option 1) Install/Check Dependencies
 Once the deps scripts has completed, walk through the remaining install options. Install the svn/git and static tools and finally the wordlists.
 
-Wireless Testing
-----------------
-if you are having issues with Hostapd-WPE where you are getting errors on startup similar to the following:
-
-Configuration file: hostapd-wpe.conf
-rfkill: WLAN hard blocked
-rfkill: WLAN hard blocked
-nl80211: Could not configure driver mode
-nl80211 driver initialization failed.
-hostapd_free_hapd_data: Interface wlan0 wasn't started
-
-Issue both of the following commands to remediate the errors:
-
-sudo nmcli nm wifi off
-sudo rfkill unblock wlan
-
 Any problems, comments or requests, feel free to contact me via email or twitter. 
 
 - @sec0ps
