@@ -32,7 +32,6 @@ fi
 [ ! -d /vapt/intel ] && mkdir /vapt/intel 
 [ ! -d /vapt/scanners ] && mkdir /vapt/scanners
 [ ! -d /vapt/misc ] && mkdir /vapt/misc
-[ ! -d /vapt/enumeration ] && mkdir /vapt/enumeration
 [ ! -d /vapt/passwords ] && mkdir /vapt/passwords
 [ ! -d /vapt/fuzzers ] && mkdir /vapt/fuzzers
 #[ ! -d /vapt/audit ] && mkdir /vapt/audit

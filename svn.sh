@@ -28,6 +28,10 @@ if [ ! -d /vapt/exploits/beef ] ; then
 echo "Installing Beef"
 cd /vapt/exploits/ && git clone https://github.com/beefproject/beef.git
 fi
+if [ ! -d /vapt/exploits/ADFSpray ] ; then
+cd /vapt/exploits/ && git clone https://github.com/xFreed0m/ADFSpray.git
+pip3 install -r requirements.txt
+fi
 
 #web testing tools
 if [ ! -d /vapt/web/nikto ] ; then
@@ -106,6 +110,14 @@ if [ ! -d /vapt/intel/theHarvester ] ; then
 echo "Installing the Harvester"
 cd /vapt/intel && git clone https://github.com/laramies/theHarvester.git 
 cd /vapt/intel/theHarvester && pip3 install -r requirements.txt
+fi
+if [ ! -d /vapt/intel/scrying ] ; then
+echo "Installing Scrying"
+cd /vapt/intel/ && git clone https://github.com/nccgroup/scrying.git
+fi
+if [ ! -d /vapt/intel/EyeWitness ] ; then
+echo "Installing EyeWitness"
+cd /vapt/intel/ && git clone https://github.com/FortyNorthSecurity/EyeWitness.git
 fi
 
 #Password tools
