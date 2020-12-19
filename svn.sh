@@ -30,7 +30,14 @@ cd /vapt/exploits/ && git clone https://github.com/beefproject/beef.git
 fi
 if [ ! -d /vapt/exploits/ADFSpray ] ; then
 cd /vapt/exploits/ && git clone https://github.com/xFreed0m/ADFSpray.git
-pip3 install -r requirements.txt
+cd ADFSpray && pip3 install -r requirements.txt
+fi
+if [ ! -d /vapt/exploits/mimikatz ] ; then
+cd /vapt/exploits/ && git clone https://github.com/gentilkiwi/mimikatz.git
+fi
+if [ ! -d /vapt/exploits/DeathStar ] ; then
+cd /vapt/exploits/ && git clone https://github.com/byt3bl33d3r/DeathStar.git
+cd DeathStar && pip3 install -r requirements.txt
 fi
 
 #web testing tools
@@ -164,3 +171,17 @@ if [ ! -d /vapt/powershell/PowerShdll ] ; then
 echo "Installing Power Shell DLL"
 cd /vapt/powershell && git clone https://github.com/p3nt4/PowerShdll.git
 fi
+
+#Misc Audit Tools
+if [ ! -d /vapt/audit/PowerZure ] ; then
+cd /vapt/audit && git clone https://github.com/hausec/PowerZure.git
+fi
+if [ ! -d /vapt/audit/PlumHound ] ; then
+cd /vapt/audit && git clone https://github.com/PlumHound/PlumHound.git
+cd PlumHound && pip3 install -r requirements.txt
+fi
+#under review
+#if [ ! -d /vapt/audit/caldera ] ; then
+#cd /vapt/audit && git clone https://github.com/mitre/caldera.git
+#cd caldera && pip3 install -r requirements.txt
+#fi

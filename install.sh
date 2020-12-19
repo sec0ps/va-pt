@@ -34,7 +34,7 @@ fi
 [ ! -d /vapt/misc ] && mkdir /vapt/misc
 [ ! -d /vapt/passwords ] && mkdir /vapt/passwords
 [ ! -d /vapt/fuzzers ] && mkdir /vapt/fuzzers
-#[ ! -d /vapt/audit ] && mkdir /vapt/audit
+[ ! -d /vapt/audit ] && mkdir /vapt/audit
 [ ! -d /vapt/powershell ] && mkdir /vapt/powershell
 [ ! -d /vapt/exfiltrate ] && mkdir /vapt/exfiltrate
 if [ ! -d /vapt/misc/va-pt ] ; then
