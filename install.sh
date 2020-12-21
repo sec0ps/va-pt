@@ -10,7 +10,7 @@ sudo apt install vim subversion landscape-common ufw openssh-server net-tools li
 sudo apt install -y make gcc ncftp rar p7zip-full curl libpcap-dev libssl-dev hping3 libssh-dev g++ arp-scan wifite ruby-bundler freerdp2-dev
 sudo apt install -y libsqlite3-dev nbtscan dsniff apache2 secure-delete autoconf libpq-dev libmysqlclient-dev libsvn-dev libssh-dev libsmbclient-dev
 sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff-ng httptunnel ptunnel-ng udptunnel pipx python3-venv ruby-dev
-sudo apt install -y default-jre chromium-browser openvas
+sudo apt install -y default-jre chromium-browser
 #wget http://security.ubuntu.com/ubuntu/pool/main/i/icu/libicu63_63.2-2_amd64.deb && sudo dpkg -i libicu63_63.2-2_amd64.deb
 sudo ln -s /usr/bin/python3 /usr/bin/python
 sudo snap install powershell
@@ -92,7 +92,7 @@ until [ "$selection" = "0" ]; do
          1 ) /vapt/misc/va-pt/deps.sh;;
          2 ) /vapt/misc/va-pt/svn.sh;;
          3 ) /vapt/misc/va-pt/static.sh;;
-	 4 ) sudo apt-get install -y openvas-server openvas-client;;
+	 4 ) sudo apt install -y openvas;;
 	 4 ) /vapt/misc/va-pt/wordlist.sh;;
 	 6 ) sudo apt-get install -y nvidia-opencl-dev ocl-icd-libopencl1 opencl-headers;;
          7 ) /vapt/misc/va-pt/update-tools.sh;;
