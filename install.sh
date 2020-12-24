@@ -5,7 +5,7 @@ exit 1
 fi
 echo "Installing base packages and locking down the system - denying all inbound services excluding ssh and allowing all outbound"
 echo "This may take a few minutes.."
-echo "Installing Base Packages and Dependencies"
+sudo apt update && sudo apt upgrade -y
 sudo apt install vim subversion landscape-common ufw openssh-server net-tools libpangox-1.0-dev mlocate ntpdate screen whois kate libtool-bin
 sudo apt install -y make gcc ncftp rar p7zip-full curl libpcap-dev libssl-dev hping3 libssh-dev g++ arp-scan wifite ruby-bundler freerdp2-dev
 sudo apt install -y libsqlite3-dev nbtscan dsniff apache2 secure-delete autoconf libpq-dev libmysqlclient-dev libsvn-dev libssh-dev libsmbclient-dev
