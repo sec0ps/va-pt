@@ -14,7 +14,7 @@ sudo apt install -y minicom default-jre chromium-browser
 wget http://old.kali.org/kali/pool/main/i/icu/libicu63_63.2-2_amd64.deb && sudo apt install ./libicu63_63.2-2_amd64.deb
 rm libicu63_63.2-2_amd64.deb
 sudo ln -s /usr/bin/python3 /usr/bin/python
-sudo snap install powershell
+sudo snap install powershell --classic
 
 sudo ntpdate time.nist.gov
 sudo apt-get install ufw -y
