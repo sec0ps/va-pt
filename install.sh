@@ -75,14 +75,12 @@ until [ "$selection" = "0" ]; do
      echo "The Vulnerability Assessment and Penetration Testing Toolkit"
      echo ""
      echo "VA/PT PROGRAM MENU"
-     echo "1 - Install Dependencies"
-     echo "2 - Install SVN Toolkits"
-     echo "3 - Install Static Code Software"
-     echo "4 - Install OpenVAS"
-     echo "5 - Install Weakpass and wordlists (30+ gig)"
-     echo "6 - Install Nvidia / OpenCL Headers"
-     echo "7 - Update all tool packages"
-     echo "8 - Install Firefox Extensions"
+     echo "1 - Install SVN Toolkits"
+     echo "2 - Install Static Code Software"
+     echo "3 - Install OpenVAS"
+     echo "4 - Install Weakpass and wordlists (30+ gig)"
+     echo "5 - Install Nvidia / OpenCL Headers"
+     echo "6 - Install Firefox Extensions"
      echo ""
      echo "0 - Exit program"
      echo ""
@@ -90,14 +88,12 @@ until [ "$selection" = "0" ]; do
      read selection
      echo ""
      case $selection in
-         1 ) /vapt/misc/va-pt/deps.sh;;
-         2 ) /vapt/misc/va-pt/svn.sh;;
-         3 ) /vapt/misc/va-pt/static.sh;;
-	 4 ) sudo apt install -y openvas;;
-	 4 ) /vapt/misc/va-pt/wordlist.sh;;
-	 6 ) sudo apt-get install -y nvidia-opencl-dev ocl-icd-libopencl1 opencl-headers;;
-         7 ) /vapt/misc/va-pt/update-tools.sh;;
-         8 ) firefox https://addons.mozilla.org/en-US/firefox/collections/sec0ps/vapt/ &;;
+         1 ) /vapt/misc/va-pt/svn.sh;;
+         2 ) /vapt/misc/va-pt/static.sh;;
+         3 ) sudo apt install -y openvas;;
+	     4 ) /vapt/misc/va-pt/wordlist.sh;;
+         5 ) sudo apt-get install -y nvidia-opencl-dev ocl-icd-libopencl1 opencl-headers;;
+         6 ) firefox https://addons.mozilla.org/en-US/firefox/collections/sec0ps/vapt/ &;;
          0 ) exit;;
          * ) echo "Please enter your selection"
      esac
