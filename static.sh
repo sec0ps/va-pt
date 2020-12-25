@@ -23,7 +23,6 @@ chmod 755 copy-router-config.pl
 fi
 
 #Pending Review
-
 #if [ ! -d /vapt/wireless/hostapd-wpe ] ; then
 #echo "Installing Hostapd-WPE"
 #cd /vapt/wireless/ && mkdir hostapd-wpe
@@ -33,18 +32,6 @@ fi
 #cd hostapd-2.6 && patch -p1 < ../hostapd-wpe/hostapd-wpe.patch 
 #cd hostapd && make
 #cd ../../hostapd-wpe/certs && ./bootstrap
-#fi
-#if [ ! -f /vapt/database/sqlbrute.py ] ; then
-#echo "Installing SQLBrute"
-#cd /vapt/database && wget http://packetstorm.foofus.com/UNIX/scanners/sqlbrute.py.txt -O sqlbrute.py
-#cd /vapt/database && chmod 700 sqlbrute.py
-#fi
-#if [ ! -d /vapt/scanners/snmp/snmpenum ] ; then
-#echo "Installing SNMPenum"
-#cd /vapt/scanners/snmp && mkdir snmpenum
-#cd snmpenum && wget http://dl.packetstormsecurity.net/UNIX/scanners/snmpenum.zip --no-check-certificate
-#unzip snmpenum.zip && rm -rf snmpenum.zip
-#chmod 700 snmpenum.pl
 #fi
 #if [ ! -d /vapt/exploits/windows-tools ] ; then
 #echo "Installing Windows Tools"
@@ -63,17 +50,6 @@ fi
 #mkdir /vapt/enumeration/ike
 #mv ikeprobe.exe /vapt/enumeration/ike/ && mv libeay32.dll /vapt/enumeration/ike/
 #cd /vapt/enumeration/ike && wget http://prdownloads.sourceforge.net/project/ikecrack/ikecrack-perl/1.00/ikecrack-snarf-1.00.pl
-#fi
-#if [ ! -d /vapt/web/aspshell ] ; then
-#echo "Installing ASPshell"
-#cd /vapt/web && mkdir aspshell
-#cd aspshell && wget http://downloads.sourceforge.net/project/aspshell/aspshell/aspshell%200.2/aspshell-0.2.zip
-#unzip aspshell-0.2.zip && rm -rf aspshell-0.2.zip
-#fi
-#if [ ! -d /vapt/web/wsb ] ; then
-#echo "Installing WebShell Backdoor"
-#cd /vapt/web && wget http://dl.packetstormsecurity.net/UNIX/penetration/rootkits/wsb.tar.gz --no-check-certificate
-#tar xvf wsb.tar.gz && rm -rf wsb.tar.gz
 #fi
 #if [ ! -d /vapt/exploits/armitage ] ; then
 #echo "Installing Armitage"
