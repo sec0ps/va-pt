@@ -107,6 +107,7 @@ fi
 if [ ! -d /vapt/intel/recon-ng ] ; then
 echo "Installing Recon-NG"
 cd /vapt/intel/ && git clone https://github.com/lanmaster53/recon-ng.git
+cd /vapt/intel/recon-ng && pip3 install -r REQUIREMENTS
 fi
 if [ ! -d /vapt/intel/spiderfoot ] ; then
 echo "Spiderfoot OSINT Tool"
@@ -125,6 +126,11 @@ fi
 if [ ! -d /vapt/intel/EyeWitness ] ; then
 echo "Installing EyeWitness"
 cd /vapt/intel/ && git clone https://github.com/FortyNorthSecurity/EyeWitness.git
+fi
+if [ ! -d /vapt/intel/GRecon ] ; then
+echo "Installing GRecon"
+cd /vapt/intel/ && git clone https://github.com/adnane-X-tebbaa/GRecon.git
+cd /vapt/intel/GRecon && python3 -m pip install -r requirements.txt
 fi
 
 #Password tools
