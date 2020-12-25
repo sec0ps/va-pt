@@ -41,6 +41,14 @@ cd /vapt/powershell/PowerShdll && git pull
 cd /vapt/powershell/PowerSploit && git pull
 cd /vapt/powershell/ps1encode && git pull
 
+echo "Updating Web Tools"
+cd /vapt/web/htshells && git pull
+cd /vapt/web/joomscan && git pull
+cd /vapt/web/nikto && git pull
+cd /vapt/web/php-webshells && git pull
+cd /vapt/web/watobo && git pull
+cd /vapt/web/WhatWeb && git pull
+
 echo "Updating Scanner Tools"
 cd /vapt/scanners/cisco-SNMP-enumeration && git pull
 cd /vapt/scanners/dnsenum && git pull
@@ -52,15 +60,6 @@ cd /vapt/scanners/nmap && git pull
 make clean && ./configure
 make && sudo make install
 sudo nmap --script-updatedb
-
-echo "Updating Web Tools"
-cd /vapt/web/htshells && git pull
-cd /vapt/web/joomscan && git pull
-cd /vapt/web/nikto && git pull
-cd /vapt/web/php-webshells && git pull
-cd /vapt/web/watobo && git pull
-cd /vapt/web/WhatWeb && git pull
-
 #
 if [ -f /usr/sbin/openvas-nvt-sync ] ; then
 echo "Updating OpenVAS"
