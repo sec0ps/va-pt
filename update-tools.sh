@@ -28,6 +28,7 @@ cd /vapt/intel/recon-ng && git pull
 cd /vapt/intel/scrying && git pull
 cd /vapt/intel/spiderfoot && git pull
 cd /vapt/intel/theHarvester && git pull
+cd /vapt/intel/GRecon && git pull
 
 echo "Updating Password Tools"
 cd /vapt/passwords/CeWL && git pull
