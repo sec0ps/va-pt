@@ -1,4 +1,3 @@
-#Migration Verified
 #General exploitation frameworks
 if [ ! -d /vapt/exploits/metasploit-framework ] ; then
 echo "Installing Metasploit"
@@ -64,6 +63,14 @@ fi
 if [ ! -d /vapt/web/joomscan ] ; then
 echo "Instaling Joomla Scanner"
 cd /vapt/web/ && git clone https://github.com/rezasp/joomscan.git
+fi
+if [ ! -d /vapt/web/XSStrike ] ; then
+cd /vapt/web/ && git clone https://github.com/s0md3v/XSStrike
+cd XSStrike && python3 -m pip install -r requirements.txt
+fi
+if [ ! -d /vapt/web/XSS-LOADER ] ; then
+cd /vapt/web/ && git clone https://github.com/capture0x/XSS-LOADER/
+cd XSS-LOADER && pip3 install -r requirements.txt
 fi
 
 #generic scanners
