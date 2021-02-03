@@ -30,7 +30,7 @@ cd /vapt/intel/spiderfoot && git pull
 cd /vapt/intel/theHarvester && git pull
 cd /vapt/intel/GRecon && git pull
 cd /vapt/intel/sherlock && git pull
-cd /vapt/intel/MetaFinder && git pull
+pip3 install metafinder --upgrade
 
 echo "Updating Password Tools"
 cd /vapt/passwords/CeWL && git pull
