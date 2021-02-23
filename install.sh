@@ -21,6 +21,7 @@ sudo apt-get install ufw -y
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
 sudo ufw allow 22/tcp
+sudo ufw allow 4444/tcp
 sudo ufw enable
 
 if [ ! -d /vapt ] ; then
