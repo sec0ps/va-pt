@@ -72,6 +72,10 @@ if [ ! -d /vapt/web/XSS-LOADER ] ; then
 cd /vapt/web/ && git clone https://github.com/capture0x/XSS-LOADER/
 cd XSS-LOADER && pip3 install -r requirements.txt
 fi
+if [ ! -d /vapt/web/wapiti ] ; then
+cd /vapt/web/ && git clone https://github.com/wapiti-scanner/wapiti.git
+cd /vapt/web/wapiti && sudo python3 setup.py install
+fi
 
 #generic scanners
 if [ ! -d /vapt/scanners/sqlmap ] ; then

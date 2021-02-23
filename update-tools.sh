@@ -53,6 +53,7 @@ cd /vapt/web/watobo && git pull
 cd /vapt/web/WhatWeb && git pull
 cd /vapt/web/XSStrike && git pull
 cd /vapt/web/XSS-LOADER && git pull
+cd /vapt/web/wapiti && git pull
 
 echo "Updating Scanner Tools"
 cd /vapt/scanners/cisco-SNMP-enumeration && git pull
