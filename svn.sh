@@ -201,6 +201,9 @@ if [ ! -d /vapt/audit/PlumHound ] ; then
 cd /vapt/audit && git clone https://github.com/PlumHound/PlumHound.git
 cd PlumHound && pip3 install -r requirements.txt
 fi
+if [ ! -d /vapt/audit/graudit] ; then
+cd /vapt/audit && git clone https://github.com/wireghoul/graudit.git
+fi
 #under review
 #if [ ! -d /vapt/audit/caldera ] ; then
 #cd /vapt/audit && git clone https://github.com/mitre/caldera.git
