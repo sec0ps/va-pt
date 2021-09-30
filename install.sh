@@ -16,8 +16,14 @@ rm libicu63_63.2-2_amd64.deb
 sudo ln -s /usr/bin/python3 /usr/bin/python
 sudo snap install powershell --classic
 
+echo "Installing Kismet"
+wget -O - https://www.kismetwireless.net/repos/kismet-release.gpg.key | sudo apt-key add -
+echo 'deb https://www.kismetwireless.net/repos/apt/release/focal focal main' | sudo tee /etc/apt/sources.list.d/kismet.list
+sudo apt update
+sudo apt install kismet
+
 sudo ntpdate time.nist.gov
-sudo apt-get install ufw -y
+sudo apt install ufw -y
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
 sudo ufw allow 22/tcp
