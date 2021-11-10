@@ -50,11 +50,11 @@ cd /vapt/web && git clone https://github.com/JohnTroony/php-webshells.git
 fi
 if [ ! -d /vapt/web/htshells ] ; then
 echo "Installing htshells"
-cd /vapt/web && git clone git://github.com/wireghoul/htshells.git
+cd /vapt/web && git clone https://github.com/wireghoul/htshells.git
 fi
 if [ ! -d /vapt/web/WhatWeb ] ; then
 echo "Installing WhatWeb"
-cd /vapt/web && git clone git://github.com/urbanadventurer/WhatWeb.git
+cd /vapt/web && git clone https://github.com/urbanadventurer/WhatWeb.git 
 fi
 if [ ! -d /vapt/web/watobo ] ; then
 echo "Installing Watobo"
