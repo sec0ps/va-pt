@@ -6,7 +6,7 @@ fi
 echo "Installing base packages and locking down the system - denying all inbound services excluding ssh and allowing all outbound"
 echo "This may take a few minutes.."
 sudo apt update && sudo apt upgrade -y
-sudo apt install vim subversion landscape-common ufw openssh-server net-tools libpangox-1.0-dev mlocate ntpdate screen whois kate libtool-bin
+sudo apt install -y vim subversion landscape-common ufw openssh-server net-tools libpangox-1.0-dev mlocate ntpdate screen whois kate libtool-bin
 sudo apt install -y make gcc ncftp rar p7zip-full curl libpcap-dev libssl-dev hping3 libssh-dev g++ arp-scan wifite ruby-bundler freerdp2-dev
 sudo apt install -y libsqlite3-dev nbtscan dsniff apache2 secure-delete autoconf libpq-dev libmysqlclient-dev libsvn-dev libssh-dev libsmbclient-dev
 sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff-ng httptunnel ptunnel-ng udptunnel pipx python3-venv ruby-dev
@@ -20,7 +20,7 @@ echo "Installing Kismet"
 wget -O - https://www.kismetwireless.net/repos/kismet-release.gpg.key | sudo apt-key add -
 echo 'deb https://www.kismetwireless.net/repos/apt/release/focal focal main' | sudo tee /etc/apt/sources.list.d/kismet.list
 sudo apt update
-sudo apt install kismet
+sudo apt install -y kismet
 
 sudo ntpdate time.nist.gov
 sudo apt install ufw -y
