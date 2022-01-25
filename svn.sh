@@ -113,6 +113,11 @@ if [ ! -d /vapt/scanners/cisco-SNMP-enumeration ] ; then
 echo "Installing Cisco SNMP Enum"
 cd /vapt/scanners && git clone  https://github.com/nccgroup/cisco-SNMP-enumeration.git
 fi
+if [ ! -d /vapt/scanners/spraykatz ] ; then
+echo "Installing Spraykatz"
+git clone https://github.com/aas-n/spraykatz.git && cd spraykatz
+pip3 install -r requirements.txt
+fi
 
 #OSINT/Intel Tool
 if [ ! -d /vapt/intel/recon-ng ] ; then
