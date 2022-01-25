@@ -1,9 +1,5 @@
 #Update deps or install new deps where applicable
-sudo apt install vim subversion landscape-common ufw openssh-server net-tools libpangox-1.0-dev mlocate ntpdate screen whois kate libtool-bin
-sudo apt install -y make gcc ncftp rar p7zip-full curl libpcap-dev libssl-dev hping3 libssh-dev g++ arp-scan wifite ruby-bundler freerdp2-dev
-sudo apt install -y libsqlite3-dev nbtscan dsniff apache2 secure-delete autoconf libpq-dev libmysqlclient-dev libsvn-dev libssh-dev libsmbclient-dev
-sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff-ng httptunnel ptunnel-ng udptunnel pipx python3-venv ruby-dev
-sudo apt install -y minicom default-jre chromium-browser gnome-tweaks
+sudo apt update && sudo apt upgrade -y
 
 echo "Updating Exploit Tools"
 cd /vapt/exploits/social-engineer-toolkit && git pull
