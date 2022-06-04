@@ -210,12 +210,6 @@ if [ ! -d /vapt/audit/graudit ] ; then
 cd /vapt/audit && git clone https://github.com/wireghoul/graudit.git
 fi
 
-if [ ! -d /home/faraday ] ; then
-echo "Installing Faraday"
-cd /vapt/misc && https://github.com/infobyte/faraday/releases/download/v3.18.1/faraday-server_amd64.deb
-sudo apt install ./faraday-server_amd64.deb
-fi
-
 #under review
 #if [ ! -d /vapt/audit/caldera ] ; then
 #cd /vapt/audit && git clone https://github.com/mitre/caldera.git
