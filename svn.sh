@@ -78,6 +78,10 @@ cd /vapt/web/wapiti && sudo python3 setup.py install
 fi
 
 #generic scanners
+if [ ! -d /vapt/scanners/dnsrecon ] ; then
+cd /vapt/scanners && git clone https://github.com/darkoperator/dnsrecon.git
+cd dnsrecon && pip install -r requirements.txt 
+fi
 if [ ! -d /vapt/scanners/sqlmap ] ; then
 echo "Installing SQL Map"
 cd /vapt/scanners && git clone https://github.com/sqlmapproject/sqlmap.git

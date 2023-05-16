@@ -52,6 +52,7 @@ cd /vapt/web/XSS-LOADER && git pull
 cd /vapt/web/wapiti && git pull
 
 echo "Updating Scanner Tools"
+cd /vapt/scanners/dnsrecon && git pull
 cd /vapt/scanners/FindUncommonShares && git pull
 cd /vapt/scanners/cisco-SNMP-enumeration && git pull
 cd /vapt/scanners/dnsenum && git pull
