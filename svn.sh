@@ -118,6 +118,12 @@ echo "Installing Spraykatz"
 git clone https://github.com/aas-n/spraykatz.git && cd spraykatz
 pip3 install -r requirements.txt
 fi
+if [ ! -d /vapt/scanners/FindUncommonShares ] ; then
+echo "Installing Find Uncommon Shares"
+cd /vapt/scanners
+git clone https://github.com/p0dalirius/FindUncommonShares.git
+cd /vapt/scanners/FindUncommonShares && pip install -r requirements.txt
+fi
 
 #OSINT/Intel Tool
 if [ ! -d /vapt/intel/recon-ng ] ; then
