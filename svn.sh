@@ -76,6 +76,11 @@ if [ ! -d /vapt/web/wapiti ] ; then
 cd /vapt/web/ && git clone https://github.com/wapiti-scanner/wapiti.git
 cd /vapt/web/wapiti && sudo python3 setup.py install
 fi
+if [ ! -d /vapt/web/Links-Extractor ] ; then
+echo "Installing Link Extractor"
+cd /vapt/web && git clone https://github.com/com-puter-tips/Links-Extractor.git
+cd Links-Extractor && pip3 install -r requirements.txt
+fi
 
 #generic scanners
 if [ ! -d /vapt/scanners/dnsrecon ] ; then
