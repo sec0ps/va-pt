@@ -97,12 +97,6 @@ cd /vapt/scanners && git clone https://github.com/nmap/nmap.git
 cd nmap && ./configure
 make && sudo make install
 fi
-if [ ! -d /vapt/scanners/hydra ] ; then
-echo "Installing THC-Hydra"
-cd /vapt/scanners && git clone https://github.com/vanhauser-thc/thc-hydra.git hydra
-cd hydra && ./configure
-make && sudo make install
-fi
 if [ ! -d /vapt/scanners/fierce ] ; then
 echo "Installing Fierce"
 cd /vapt/scanners && git clone https://github.com/mschwager/fierce.git
