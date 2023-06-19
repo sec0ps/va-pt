@@ -161,6 +161,10 @@ if [ ! -d /vapt/intel/sherlock ] ; then
 cd /vapt/intel && git clone https://github.com/sherlock-project/sherlock.git
 cd sherlock && python3 -m pip install -r requirements.txt
 fi
+if [ ! -d /vapt/intel/LinkedInDumper ] ; then
+cd /vapt/intel && git clone https://github.com/l4rm4nd/LinkedInDumper.git
+cd LinkedInDumper && pip install -r requirements.txt 
+fi
 
 #Password tools
 if [ ! -d /vapt/passwords/JohnTheRipper ] ; then
