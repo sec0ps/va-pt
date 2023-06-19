@@ -165,6 +165,11 @@ if [ ! -d /vapt/intel/LinkedInDumper ] ; then
 cd /vapt/intel && git clone https://github.com/l4rm4nd/LinkedInDumper.git
 cd LinkedInDumper && pip install -r requirements.txt 
 fi
+if [ ! -d /vapt/intel/indicator-intelligence ] ; then
+cd /vapt/intel && git clone https://github.com/OsmanKandemir/indicator-intelligence.git
+cd indicator-intelligence/ && pip install -r requirements.txt 
+sudo python setup.py install
+fi
 
 #Password tools
 if [ ! -d /vapt/passwords/JohnTheRipper ] ; then

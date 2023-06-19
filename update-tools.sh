@@ -19,6 +19,8 @@ echo "Updating Fuzzer Tools"
 cd /vapt/fuzzers/boofuzz && git pull
 
 echo "Updating Intel Tools"
+cd /vapt/intel/indicator-intelligence && git pull
+cd /vapt/intel/LinkedInDumper && git pull
 cd /vapt/intel/EyeWitness && git pull
 cd /vapt/intel/recon-ng && git pull
 cd /vapt/intel/scrying && git pull
