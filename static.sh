@@ -12,11 +12,13 @@ cd /vapt/web && wget https://github.com/zaproxy/zaproxy/releases/download/v2.11.
 tar xvf ZAP_2.11.1_Linux.tar.gz && rm -rf ZAP_2.11.1_Linux.tar.gz
 mv ZAP* zap/
 fi
+#Arachni Installer
 if [ ! -d /vapt/web/arachni ] ; then
-cd /vapt/web && wget https://github.com/Arachni/arachni/releases/download/v1.5.1/arachni-1.5.1-0.5.12-linux-x86_64.tar.gz
-tar xvf arachni-1.5.1-0.5.12-linux-x86_64.tar.gz
-mv arachni-1.5.1-0.5.12/ arachni/ && rm arachni-1.5.1-0.5.12-linux-x86_64.tar.gz
+cd /vapt/web && wget https://github.com/Arachni/arachni/releases/download/v1.6.1.3/arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz
+tar xvf arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz
+mv arachni-1.6.1.3-0.6.1.1/ arachni/ && rm arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz
 fi 
+#misc stuff
 if [ ! -f /vapt/scanners/copy-router-config.pl ] ; then
 cd /vapt/scanners && wget http://littlehacker.persiangig.com/cisco/copy-router-config.pl
 chmod 755 copy-router-config.pl
