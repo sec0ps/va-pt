@@ -38,6 +38,10 @@ if [ ! -d /vapt/exploits/DeathStar ] ; then
 cd /vapt/exploits/ && git clone https://github.com/byt3bl33d3r/DeathStar.git
 cd DeathStar && pip3 install -r requirements.txt
 fi
+if [ ! -d /vapt/exploits/D3m0n1z3dShell ] ; then
+cd /vapt/exploits && git clone https://github.com/MatheuZSecurity/D3m0n1z3dShell.git
+cd D3m0n1z3dShell && chmod +x demonizedshell.sh
+fi
 
 #web testing tools
 if [ ! -d /vapt/web/nikto ] ; then
