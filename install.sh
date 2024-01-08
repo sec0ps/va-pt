@@ -61,7 +61,7 @@ sudo cpanm Cisco::CopyConfig && sudo cpanm Net::Netmask
 sudo cpanm XML::Writer && sudo cpanm String::Random
 sudo cpanm Net::IP && sudo cpanm Net::DNS
 echo "Installing Python Packages and Dependencies"
-pip3 install dnspython pip3 kerberoast certipy-ad
+pip3 install dnspython pip3 kerberoast certipy-ad knowsmore
 python3 -m pip install pipx
 pipx ensurepath && pipx install crackmapexec
 echo "Disbaling uneeded services from starting on boot"
