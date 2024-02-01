@@ -8,8 +8,8 @@ chmod 700 /vapt/scanners/snmpcheck.pl
 fi
 if [ ! -d /vapt/web/zap ] ; then
 echo "Installing ZED Attack Proxy"
-cd /vapt/web && wget https://github.com/zaproxy/zaproxy/releases/download/v2.13.0/ZAP_2.13.0_Linux.tar.gz 
-tar xvf ZAP_2.13.0_Linux.tar.gz && rm -rf ZAP_2.13.0_Linux.tar.gz
+cd /vapt/web && wget https://github.com/zaproxy/zaproxy/releases/download/v2.14.0/ZAP_2.14.0_Linux.tar.gz 
+tar xvf ZAP_2.14.0_Linux.tar.gz && rm -rf ZAP_2.14.0_Linux.tar.gz
 mv ZAP* zap/
 fi
 #Arachni Installer
