@@ -19,10 +19,6 @@ tar xvf arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz
 mv arachni-1.6.1.3-0.6.1.1/ arachni/ && rm arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz
 fi 
 #misc stuff
-if [ ! -f /vapt/scanners/copy-router-config.pl ] ; then
-cd /vapt/scanners && wget http://littlehacker.persiangig.com/cisco/copy-router-config.pl
-chmod 755 copy-router-config.pl
-fi
 
 #Pending Review
 #if [ ! -d /vapt/wireless/hostapd-wpe ] ; then
