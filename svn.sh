@@ -136,6 +136,7 @@ if [ ! -d /vapt/scanners/enum4linux ] ; then
 echo "Installing enum4linux"
 cd /vapt/scanners
 git clone https://github.com/CiscoCXSecurity/enum4linux.git
+#missing polenum and ldapsearch - need to add this into the build
 fi
 
 #OSINT/Intel Tool
