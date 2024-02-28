@@ -132,6 +132,12 @@ git clone https://github.com/p0dalirius/FindUncommonShares.git
 cd /vapt/scanners/FindUncommonShares && pip install -r requirements.txt
 fi
 
+if [ ! -d /vapt/scanners/enum4linux ] ; then
+echo "Installing enum4linux"
+cd /vapt/scanners
+git clone https://github.com/CiscoCXSecurity/enum4linux.git
+fi
+
 #OSINT/Intel Tool
 if [ ! -d /vapt/intel/recon-ng ] ; then
 echo "Installing Recon-NG"
