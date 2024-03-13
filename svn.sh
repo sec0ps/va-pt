@@ -241,7 +241,7 @@ fi
 if [ ! -d /vapt/audit/NessusParser-Excel ] ; then
 echo "Installing NessusParser"
 cd /vapt/audit && git clone https://github.com/TerminalFi/NessusParser-Excel.git
-pip install -r requirements.txt
+pip install -r requirements.txt 
 fi
 
 #under review
