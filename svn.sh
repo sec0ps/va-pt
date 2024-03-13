@@ -238,6 +238,11 @@ fi
 if [ ! -d /vapt/audit/graudit ] ; then
 cd /vapt/audit && git clone https://github.com/wireghoul/graudit.git
 fi
+if [ ! -d /vapt/audit/NessusParser-Excel ] ; then
+echo "Installing NessusParser"
+cd /vapt/audit && git clone https://github.com/TerminalFi/NessusParser-Excel.git
+pip install -r requirements.txt
+fi
 
 #under review
 #if [ ! -d /vapt/audit/caldera ] ; then
