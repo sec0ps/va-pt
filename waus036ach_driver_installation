@@ -1,0 +1,13 @@
+I use the ALFA AWUS036ACH as part of my 2.4g/5g wireless testing kit. This is a manual process, as such I'm just providing the build instructions for this adapter.
+
+git clone https://github.com/aircrack-ng/rtl8812au/
+cd rtl8812au
+sudo make dkms_install
+
+## reboot
+
+sudo dkms autoinstall
+sudo dkms status
+sudo modprobe 88XXau
+
+sudo ip link set wl<tab> up
