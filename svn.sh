@@ -244,6 +244,13 @@ cd /vapt/audit && git clone https://github.com/TerminalFi/NessusParser-Excel.git
 pip install -r requirements.txt 
 fi
 
+#Signals tools
+if [ ! -d /vapt/wireless/QtTinySA ] ; then
+echo "Installing TinySA QT Gui"
+cd /vapt/wireless/ && git clone https://github.com/g4ixt/QtTinySA.git
+cd QtTinySA/ && pip install -r requirements.txt
+fi
+
 #under review
 #if [ ! -d /vapt/audit/caldera ] ; then
 #cd /vapt/audit && git clone https://github.com/mitre/caldera.git
