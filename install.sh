@@ -11,7 +11,7 @@ sudo apt install -y make gcc ncftp rar p7zip-full curl libpcap-dev libssl-dev hp
 sudo apt install -y libsqlite3-dev nbtscan dsniff apache2 secure-delete autoconf libpq-dev libmysqlclient-dev libsvn-dev libssh-dev libsmbclient-dev
 sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff-ng httptunnel ptunnel-ng udptunnel pipx python3-venv ruby-dev
 sudo apt install -y webhttrack minicom default-jre gnome-tweaks macchanger recordmydesktop postgresql golang-go hydra-gtk hydra
-sudo apt install -y ncftp wine-development
+sudo apt install -y ncftp wine-development libcurl4-openssl-dev
 wget http://old.kali.org/kali/pool/main/i/icu/libicu63_63.2-2_amd64.deb && sudo apt install -y ./libicu63_63.2-2_amd64.deb
 rm libicu63_63.2-2_amd64.deb
 sudo ln -s /usr/bin/python3 /usr/bin/python
@@ -87,7 +87,7 @@ until [ "$selection" = "0" ]; do
      echo "2 - Install Static Code Software"
      echo "3 - Install OpenVAS"
      echo "4 - Install Weakpass and wordlists (30+ gig)"
-     echo "5 - Install Nvidia / OpenCL Headers"
+     echo "5 - Install Hashcat & Nvidia / OpenCL Headers"
      echo "6 - Install Firefox Extensions"
      echo ""
      echo "0 - Exit program"
@@ -100,7 +100,7 @@ until [ "$selection" = "0" ]; do
          2 ) /vapt/misc/va-pt/static.sh;;
          3 ) sudo apt install -y openvas;;
 	     4 ) /vapt/misc/va-pt/wordlist.sh;;
-         5 ) sudo apt-get install -y nvidia-opencl-dev ocl-icd-libopencl1 opencl-headers;;
+         5 ) sudo apt-get install -y nvidia-opencl-dev ocl-icd-libopencl1 opencl-headers hashcat hashcat-nvidia mesa-opencl-icd nvidia-driver-550-serverhist;;
          6 ) firefox https://addons.mozilla.org/en-US/firefox/collections/sec0ps/vapt/ &;;
          0 ) exit;;
          * ) echo "Please enter your selection"
