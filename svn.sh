@@ -241,7 +241,7 @@ fi
 if [ ! -d /vapt/audit/NessusParser-Excel ] ; then
 echo "Installing NessusParser"
 cd /vapt/audit && git clone https://github.com/TerminalFi/NessusParser-Excel.git
-pip install -r requirements.txt 
+cd  NessusParser-Excel && pip install -r requirements.txt
 fi
 
 #Signals tools
@@ -250,9 +250,3 @@ echo "Installing TinySA QT Gui"
 cd /vapt/wireless/ && git clone https://github.com/g4ixt/QtTinySA.git
 cd QtTinySA/ && pip install -r requirements.txt
 fi
-
-#under review
-#if [ ! -d /vapt/audit/caldera ] ; then
-#cd /vapt/audit && git clone https://github.com/mitre/caldera.git
-#cd caldera && pip3 install -r requirements.txt
-#fi
