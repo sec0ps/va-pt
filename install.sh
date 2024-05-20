@@ -16,6 +16,7 @@ wget http://old.kali.org/kali/pool/main/i/icu/libicu63_63.2-2_amd64.deb && sudo 
 rm libicu63_63.2-2_amd64.deb
 sudo ln -s /usr/bin/python3 /usr/bin/python
 sudo snap install powershell --classic
+sudo snap install crackmapexec
 
 #echo "Installing Kismet"
 #wget -O - https://www.kismetwireless.net/repos/kismet-release.gpg.key | sudo apt-key add -
@@ -62,9 +63,7 @@ sudo cpanm Cisco::CopyConfig && sudo cpanm Net::Netmask
 sudo cpanm XML::Writer && sudo cpanm String::Random
 sudo cpanm Net::IP && sudo cpanm Net::DNS
 echo "Installing Python Packages and Dependencies"
-pip3 install dnspython pip3 kerberoast certipy-ad knowsmore
-python3 -m pip install pipx
-pipx ensurepath && pipx install crackmapexec
+pip3 install dnspython pip3 kerberoast certipy-ad knowsmore pipx
 echo "Disbaling uneeded services from starting on boot"
 sudo update-rc.d -f mysql remove && sudo update-rc.d -f apache2 remove
 sudo update-rc.d -f cups remove && sudo update-rc.d -f cups-browsed remove
