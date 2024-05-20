@@ -100,7 +100,7 @@ until [ "$selection" = "0" ]; do
          2 ) /vapt/misc/va-pt/static.sh;;
          3 ) sudo apt install -y openvas;;
 	     4 ) /vapt/misc/va-pt/wordlist.sh;;
-         5 ) sudo apt-get install -y nvidia-opencl-dev ocl-icd-libopencl1 opencl-headers hashcat hashcat-nvidia mesa-opencl-icd nvidia-driver-550-serverhist;;
+         5 ) sudo apt install -y nvidia-opencl-dev ocl-icd-libopencl1 opencl-headers hashcat hashcat-nvidia mesa-opencl-icd nvidia-driver-550-serverhist;;
          6 ) firefox https://addons.mozilla.org/en-US/firefox/collections/sec0ps/vapt/ &;;
          0 ) exit;;
          * ) echo "Please enter your selection"
