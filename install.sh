@@ -11,17 +11,17 @@ sudo apt install -y make gcc ncftp rar p7zip-full curl libpcap-dev libssl-dev hp
 sudo apt install -y libsqlite3-dev nbtscan dsniff apache2 secure-delete autoconf libpq-dev libmysqlclient-dev libsvn-dev libssh-dev libsmbclient-dev
 sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff-ng httptunnel ptunnel-ng udptunnel pipx python3-venv ruby-dev
 sudo apt install -y webhttrack minicom default-jre gnome-tweaks macchanger recordmydesktop postgresql golang-go hydra-gtk hydra
-sudo apt install -y ncftp wine-development libcurl4-openssl-dev
+sudo apt install -y ncftp wine-development libcurl4-openssl-dev kismet kismet-plugins
 wget http://old.kali.org/kali/pool/main/i/icu/libicu63_63.2-2_amd64.deb && sudo apt install -y ./libicu63_63.2-2_amd64.deb
 rm libicu63_63.2-2_amd64.deb
 sudo ln -s /usr/bin/python3 /usr/bin/python
 sudo snap install powershell --classic
 
-echo "Installing Kismet"
-wget -O - https://www.kismetwireless.net/repos/kismet-release.gpg.key | sudo apt-key add -
-echo 'deb https://www.kismetwireless.net/repos/apt/release/focal focal main' | sudo tee /etc/apt/sources.list.d/kismet.list
-sudo apt update
-sudo apt install -y kismet
+#echo "Installing Kismet"
+#wget -O - https://www.kismetwireless.net/repos/kismet-release.gpg.key | sudo apt-key add -
+#echo 'deb https://www.kismetwireless.net/repos/apt/release/focal focal main' | sudo tee /etc/apt/sources.list.d/kismet.list
+#sudo apt update
+#sudo apt install -y kismet
 
 sudo ntpdate time.nist.gov
 sudo apt install ufw -y
