@@ -12,8 +12,6 @@ sudo apt install -y libsqlite3-dev nbtscan dsniff apache2 secure-delete autoconf
 sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff-ng httptunnel ptunnel-ng udptunnel pipx python3-venv ruby-dev
 sudo apt install -y webhttrack minicom default-jre gnome-tweaks macchanger recordmydesktop postgresql golang-go hydra-gtk hydra
 sudo apt install -y ncftp wine-development libcurl4-openssl-dev
-#wget http://old.kali.org/kali/pool/main/i/icu/libicu63_63.2-2_amd64.deb && sudo apt install -y ./libicu63_63.2-2_amd64.deb
-#rm libicu63_63.2-2_amd64.deb
 sudo snap install powershell --classic
 sudo snap install crackmapexec
 
