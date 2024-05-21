@@ -59,7 +59,7 @@ sudo cpanm Cisco::CopyConfig && sudo cpanm Net::Netmask
 sudo cpanm XML::Writer && sudo cpanm String::Random
 sudo cpanm Net::IP && sudo cpanm Net::DNS
 echo "Installing Python Packages and Dependencies"
-pip3 install dnspython kerberoast certipy-ad knowsmore
+pip3 install build dnspython kerberoast certipy-ad knowsmore
 echo "Disbaling uneeded services from starting on boot"
 sudo update-rc.d -f mysql remove && sudo update-rc.d -f apache2 remove
 sudo update-rc.d -f cups remove && sudo update-rc.d -f cups-browsed remove
