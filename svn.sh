@@ -72,10 +72,6 @@ if [ ! -d /vapt/web/XSStrike ] ; then
 cd /vapt/web/ && git clone https://github.com/s0md3v/XSStrike
 cd XSStrike && python3 -m pip install -r requirements.txt
 fi
-if [ ! -d /vapt/web/XSS-LOADER ] ; then
-cd /vapt/web/ && git clone https://github.com/capture0x/XSS-LOADER/
-cd XSS-LOADER && pip3 install -r requirements.txt
-fi
 if [ ! -d /vapt/web/wapiti ] ; then
 cd /vapt/web/ && git clone https://github.com/wapiti-scanner/wapiti.git
 cd /vapt/web/wapiti && sudo python3 setup.py install
@@ -178,8 +174,8 @@ cd LinkedInDumper && pip install -r requirements.txt
 fi
 if [ ! -d /vapt/intel/indicator-intelligence ] ; then
 cd /vapt/intel && git clone https://github.com/OsmanKandemir/indicator-intelligence.git
-cd indicator-intelligence/ && pip install -r requirements.txt 
-sudo python setup.py install
+cd indicator-intelligence/ && pip3 install -r requirements.txt 
+sudo python3 setup.py install
 fi
 
 #Password tools
