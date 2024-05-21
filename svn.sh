@@ -21,7 +21,7 @@ if [ ! -d /vapt/exploits/impacket ] ; then
 echo "Installing Impacket"
 cd /vapt/exploits && git clone https://github.com/CoreSecurity/impacket.git
 cd impacket && pip3 install -r requirements.txt
-sudo python setup.py install
+sudo python3 setup.py install
 fi
 if [ ! -d /vapt/exploits/beef ] ; then
 echo "Installing Beef"
