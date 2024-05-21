@@ -244,5 +244,5 @@ fi
 if [ ! -d /vapt/wireless/QtTinySA ] ; then
 echo "Installing TinySA QT Gui"
 cd /vapt/wireless/ && git clone https://github.com/g4ixt/QtTinySA.git
-cd QtTinySA/ && pip install -r requirements.txt
+cd QtTinySA/ && pip3 install -r requirements.txt
 fi
