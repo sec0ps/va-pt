@@ -11,7 +11,7 @@ sudo apt install -y make gcc ncftp rar p7zip-full curl libpcap-dev libssl-dev hp
 sudo apt install -y libsqlite3-dev nbtscan dsniff apache2 secure-delete autoconf libpq-dev libmysqlclient-dev libsvn-dev libssh-dev libsmbclient-dev
 sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff-ng httptunnel ptunnel-ng udptunnel pipx python3-venv ruby-dev
 sudo apt install -y webhttrack minicom default-jre gnome-tweaks macchanger recordmydesktop postgresql golang-go hydra-gtk hydra
-sudo apt install -y ncftp wine-development libcurl4-openssl-dev smbclient
+sudo apt install -y ncftp wine-development libcurl4-openssl-dev smbclient hackrf
 sudo snap install powershell --classic
 sudo snap install crackmapexec
 
@@ -58,6 +58,7 @@ sudo cpanm XML::Writer && sudo cpanm String::Random
 sudo cpanm Net::IP && sudo cpanm Net::DNS
 echo "Installing Python Packages and Dependencies"
 pip3 install build dnspython kerberoast certipy-ad knowsmore
+pipx install urh
 echo "Disbaling uneeded services from starting on boot"
 sudo update-rc.d -f mysql remove && sudo update-rc.d -f apache2 remove
 sudo update-rc.d -f cups remove && sudo update-rc.d -f cups-browsed remove
