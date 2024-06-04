@@ -246,3 +246,8 @@ echo "Installing TinySA QT Gui"
 cd /vapt/wireless/ && git clone https://github.com/g4ixt/QtTinySA.git
 cd QtTinySA/ && pip3 install -r requirements.txt
 fi
+if [ ! -d /vapt/wireless/qspectrumanalyzer ] ; then
+echo "Installing QSpectrum Analyzer"
+git clone https://github.com/xmikos/qspectrumanalyzer.git
+cd qspectrumanalyzer && sudo python3 setup.py install
+fi
