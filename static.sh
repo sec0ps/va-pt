@@ -8,8 +8,8 @@ chmod 700 /vapt/scanners/snmpcheck.pl
 fi
 if [ ! -d /vapt/web/zap ] ; then
 echo "Installing ZED Attack Proxy"
-cd /vapt/web && wget https://github.com/zaproxy/zaproxy/releases/download/v2.14.0/ZAP_2.14.0_Linux.tar.gz 
-tar xvf ZAP_2.14.0_Linux.tar.gz && rm -rf ZAP_2.14.0_Linux.tar.gz
+cd /vapt/web && wget https://github.com/zaproxy/zaproxy/releases/download/v2.15.0/ZAP_2.15.0_Linux.tar.gz
+tar xvf ZAP_2.15.0_Linux.tar.gz && rm -rf ZAP_2.15.0_Linux.tar.gz
 mv ZAP* zap/
 fi
 #Arachni Installer
@@ -40,14 +40,6 @@ fi
 #bunzip2 fgdump-2.1.0-exeonly.tar.bz2 && rm -rf fgdump-2.1.0-exeonly.tar.bz2
 #tar xvf fgdump-2.1.0-exeonly.tar && rm -rf fgdump-2.1.0-exeonly.tar
 #mv Release/fgdump.exe /vapt/exploits/windows-tools/ && rm -rf Release/
-#fi
-#if [ ! -f /vapt/enumeration/ike/ikeprobe.exe ] ; then
-#echo "Installing VPN Tools"
-#cd /vapt/temp && wget http://www.ernw.de/download/ikeprobe.zip --no-check-certificate
-#unzip ikeprobe.zip && rm -rf ikeprobe.zip
-#mkdir /vapt/enumeration/ike
-#mv ikeprobe.exe /vapt/enumeration/ike/ && mv libeay32.dll /vapt/enumeration/ike/
-#cd /vapt/enumeration/ike && wget http://prdownloads.sourceforge.net/project/ikecrack/ikecrack-perl/1.00/ikecrack-snarf-1.00.pl
 #fi
 #if [ ! -d /vapt/exploits/armitage ] ; then
 #echo "Installing Armitage"
