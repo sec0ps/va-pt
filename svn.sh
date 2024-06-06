@@ -101,7 +101,7 @@ if [ ! -d /vapt/scanners/fierce ] ; then
 echo "Installing Fierce"
 cd /vapt/scanners && git clone https://github.com/mschwager/fierce.git
 cd fierce && python3 -m pip install -r requirements.txt
-sudo python setup.py install
+sudo python3 setup.py install
 fi
 if [ ! -d /vapt/scanners/dnsmap ] ; then
 echo "Installing DNSMap"
