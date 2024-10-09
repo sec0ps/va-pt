@@ -7,8 +7,8 @@ def run_command(command):
     try:
         subprocess.run(command, shell=True, check=True)
     except subprocess.CalledProcessError as e:
-        print(f"Error occurred while executing: {command}")
-        print(f"Error details: {e}")
+        print(f"\033[91mError occurred while executing: {command}\033[0m")
+        print(f"\033[91mError details: {e}\033[0m")
         print("Continuing with the next command...\n")
 
 def display_logo():
@@ -88,23 +88,16 @@ def install_toolkit_packages():
         ("https://github.com/s0md3v/XSStrike.git", "/vapt/web/XSStrike", ["python3 -m pip install -r requirements.txt"]),
         ("https://github.com/wapiti-scanner/wapiti.git", "/vapt/web/wapiti", ["sudo python3 setup.py install"]),
         ("https://github.com/com-puter-tips/Links-Extractor.git", "/vapt/web/Links-Extractor", ["pip3 install -r requirements.txt"]),
-        # ZED Attack Proxy
-        ("https://github.com/zaproxy/zaproxy/releases/download/v2.15.0/ZAP_2.15.0_Linux.tar.gz", "/vapt/web/zap", [
-            "wget https://github.com/zaproxy/zaproxy/releases/download/v2.15.0/ZAP_2.15.0_Linux.tar.gz",
-            "tar xvf ZAP_2.15.0_Linux.tar.gz",
-            "rm -rf ZAP_2.15.0_Linux.tar.gz",
-            "mv ZAP* zap/"
-        ]),
-        # Arachni
-        ("https://github.com/Arachni/arachni/releases/download/v1.6.1.3/arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz", "/vapt/web/arachni", [
-            "wget https://github.com/Arachni/arachni/releases/download/v1.6.1.3/arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz",
-            "tar xvf arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz",
-            "mv arachni-1.6.1.3-0.6.1.1/ arachni/",
-            "rm arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz"
-        ])
     ]
 
-    # Install all tools
+    # OWASP ZAP installation (additional handling since it’s a tar.gz file)
+    print("Installing OWASP ZAP")
+    run_command("cd /vapt/web && wget https://github.com/zaproxy/zaproxy/releases/download/v2.15.0/ZAP_2.15.0_Linux.tar.gz")
+    run_command("cd /vapt/web && tar xvf ZAP_2.15.0_Linux.tar.gz")
+    run_command("cd /vapt/web && rm -rf ZAP_2.15.0_Linux.tar.gz")
+    run_command("cd /vapt/web && mv ZAP* zap/")
+
+    # Install all other tools
     for tool in (exploitation_tools + web_tools):
         check_and_install(*tool)
 
@@ -196,12 +189,12 @@ def update_toolsets():
 
 def main_menu():
     while True:
-        print("1 - Install Base Toolkit Dependencies")
-        print("2 - Install Toolkit Packages")
-        print("3 - Install Wordlist Files for Password Cracking")
-        print("4 - Install OpenVAS")
-        print("5 - Update Toolsets")
-        print("0 - Exit")
+        print("\033[91m1 - Install Base Toolkit Dependencies\033[0m")
+        print("\033[91m2 - Install Toolkit Packages\033[0m")
+        print("\033[91m3 - Install Wordlist Files for Password Cracking\033[0m")
+        print("\033[91m4 - Install OpenVAS\033[0m")
+        print("\033[91m5 - Update Toolsets\033[0m")
+        print("\033[91m0 - Exit\033[0m")
 
         choice = input("Enter your choice: ")
 
