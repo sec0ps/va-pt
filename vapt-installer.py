@@ -3,8 +3,13 @@ import subprocess
 import sys
 
 def run_command(command):
-    """Execute a command in the shell."""
-    subprocess.run(command, shell=True, check=True)
+    """Execute a command in the shell, and continue even if an error occurs."""
+    try:
+        subprocess.run(command, shell=True, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error occurred while executing: {command}")
+        print(f"Error details: {e}")
+        print("Continuing with the next command...\n")
 
 def display_logo():
     logo_ascii = """
@@ -191,7 +196,6 @@ def update_toolsets():
 
 def main_menu():
     while True:
-        print("\nRed Cell Security Toolkit Menu")
         print("1 - Install Base Toolkit Dependencies")
         print("2 - Install Toolkit Packages")
         print("3 - Install Wordlist Files for Password Cracking")
