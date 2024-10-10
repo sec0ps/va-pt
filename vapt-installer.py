@@ -145,6 +145,23 @@ def install_toolkit_packages():
         ("https://github.com/com-puter-tips/Links-Extractor.git", "/vapt/web/Links-Extractor", ["pip3 install -r requirements.txt"]),
     ]
 
+    # Password cracking tools
+    jtr_dir = "/vapt/passwords/JohnTheRipper"
+    if os.path.exists(jtr_dir):
+        print("JohnTheRipper already installed, skipping.")
+    else:
+        print("Installing JohnTheRipper")
+        run_command("cd /vapt/passwords && git clone https://github.com/magnumripper/JohnTheRipper.git")
+        run_command("cd /vapt/passwords/JohnTheRipper/src && ./configure")
+        run_command("cd /vapt/passwords/JohnTheRipper/src && make -s clean && make -sj4")
+        run_command("cd /vapt/passwords/JohnTheRipper/src && make install")
+
+    password_tools = [
+        ("https://github.com/hashcat/hashcat.git", "/vapt/passwords/hashcat", None),
+        ("https://github.com/digininja/CeWL.git", "/vapt/passwords/CeWL", None),
+        ("https://github.com/danielmiessler/SecLists.git", "/vapt/passwords/SecLists", None)
+    ]
+
     # OWASP ZAP installation
     zap_dir = "/vapt/web/zap"
     if os.path.exists(zap_dir):
@@ -194,7 +211,7 @@ def install_toolkit_packages():
     ]
 
     # Install all other tools
-    for tool in (exploitation_tools + web_tools + vulnerability_scanners + osint_tools):
+    for tool in (exploitation_tools + web_tools + password_tools + vulnerability_scanners + osint_tools):
         check_and_install(*tool)
 
     print("Toolkit packages installation complete.")
@@ -217,6 +234,14 @@ def update_toolsets():
         "/vapt/web/XSStrike", "/vapt/web/wapiti"
     ]
     for tool in web_tools:
+        run_command(f"cd {tool} && git pull")
+
+    print("Updating Password Tools")
+    password_tools = [
+        "/vapt/passwords/JohnTheRipper", "/vapt/passwords/hashcat",
+        "/vapt/passwords/CeWL", "/vapt/passwords/SecLists"
+    ]
+    for tool in password_tools:
         run_command(f"cd {tool} && git pull")
 
     print("Updating Vulnerability Scanners")
