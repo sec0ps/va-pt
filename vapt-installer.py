@@ -162,6 +162,27 @@ def install_toolkit_packages():
         ("https://github.com/danielmiessler/SecLists.git", "/vapt/passwords/SecLists", None)
     ]
 
+    # Fuzzers
+    fuzzer_tools = [
+        ("https://github.com/jtpereyda/boofuzz.git", "/vapt/fuzzers/boofuzz", None)
+    ]
+
+    # Powershell tools
+    powershell_tools = [
+        ("https://github.com/mattifestation/PowerSploit.git", "/vapt/powershell/PowerSploit", None),
+        ("https://github.com/CroweCybersecurity/ps1encode.git", "/vapt/powershell/ps1encode", None),
+        ("https://github.com/Kevin-Robertson/Invoke-TheHash.git", "/vapt/powershell/Invoke-TheHash", None),
+        ("https://github.com/p3nt4/PowerShdll.git", "/vapt/powershell/PowerShdll", None)
+    ]
+
+    # Misc Audit tools
+    audit_tools = [
+        ("https://github.com/hausec/PowerZure.git", "/vapt/audit/PowerZure", None),
+        ("https://github.com/PlumHound/PlumHound.git", "/vapt/audit/PlumHound", ["pip3 install -r requirements.txt"]),
+        ("https://github.com/wireghoul/graudit.git", "/vapt/audit/graudit", None),
+        ("https://github.com/TerminalFi/NessusParser-Excel.git", "/vapt/audit/NessusParser-Excel", ["pip install -r requirements.txt"])
+    ]
+
     # OWASP ZAP installation
     zap_dir = "/vapt/web/zap"
     if os.path.exists(zap_dir):
@@ -179,7 +200,7 @@ def install_toolkit_packages():
         print("Arachni already installed, skipping.")
     else:
         print("Installing Arachni")
-        run_command("cd /vapt/web && wget https://github.com/Arachni/arachni/releases/download/v1.6.1.3/arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz")
+        run_command("cd /vapt/web && wget https://github.com/Arachni/arachni/releases/download/v1.6.1.3/arachni-1.6.1.1-linux-x86_64.tar.gz")
         run_command("cd /vapt/web && tar xvf arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz")
         run_command("cd /vapt/web && mv arachni-1.6.1.3-0.6.1.1/ arachni/")
         run_command("cd /vapt/web && rm -rf arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz")
@@ -211,7 +232,7 @@ def install_toolkit_packages():
     ]
 
     # Install all other tools
-    for tool in (exploitation_tools + web_tools + password_tools + vulnerability_scanners + osint_tools):
+    for tool in (exploitation_tools + web_tools + password_tools + fuzzer_tools + powershell_tools + audit_tools + vulnerability_scanners + osint_tools):
         check_and_install(*tool)
 
     print("Toolkit packages installation complete.")
@@ -242,6 +263,29 @@ def update_toolsets():
         "/vapt/passwords/CeWL", "/vapt/passwords/SecLists"
     ]
     for tool in password_tools:
+        run_command(f"cd {tool} && git pull")
+
+    print("Updating Fuzzer Tools")
+    fuzzer_tools = [
+        "/vapt/fuzzers/boofuzz"
+    ]
+    for tool in fuzzer_tools:
+        run_command(f"cd {tool} && git pull")
+
+    print("Updating Powershell Tools")
+    powershell_tools = [
+        "/vapt/powershell/PowerSploit", "/vapt/powershell/ps1encode",
+        "/vapt/powershell/Invoke-TheHash", "/vapt/powershell/PowerShdll"
+    ]
+    for tool in powershell_tools:
+        run_command(f"cd {tool} && git pull")
+
+    print("Updating Audit Tools")
+    audit_tools = [
+        "/vapt/audit/PowerZure", "/vapt/audit/PlumHound", "/vapt/audit/graudit",
+        "/vapt/audit/NessusParser-Excel"
+    ]
+    for tool in audit_tools:
         run_command(f"cd {tool} && git pull")
 
     print("Updating Vulnerability Scanners")
