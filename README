@@ -21,8 +21,8 @@ Easy Updates: Includes a menu option to update all installed tools to ensure tha
 Installation
 Download the Installer: Clone or download the installer to the target Ubuntu 22.04 machine.
 
-git clone <repository-url>
-cd <repository-directory>
+git clone https://github.com/sec0ps/va-pt.git
+cd va-pt
 
 Run the Installer Script:
 
