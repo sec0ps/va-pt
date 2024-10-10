@@ -7,6 +7,8 @@
 # DATE  : 10/10/2024  - Updated for modernization and feature addition
 # EMAIL: keith@redcellsecurity.org
 #
+# Will be adding in more checks to this script over the next few weeks
+#
 # Modern Library: Switched to mysql.connector, which is better maintained.
 # Error Handling: Used try-except to handle potential connection errors.
 # Command-Line Arguments: Used argparse for improved argument handling.
