@@ -98,6 +98,16 @@ def install_base_dependencies():
     run_command("sudo apt install -y ncftp wine-development libcurl4-openssl-dev smbclient hackrf nfs-common samba")
     run_command("sudo snap install powershell --classic")
     run_command("sudo snap install crackmapexec")
+
+    # Perl CPAN modules
+    run_command("sudo cpanm Cisco::CopyConfig && sudo cpanm Net::Netmask")
+    run_command("sudo cpanm XML::Writer && sudo cpanm String::Random")
+    run_command("sudo cpanm Net::IP && sudo cpanm Net::DNS")
+    
+    print("Installing Python Packages and Dependencies")
+    run_command("pip3 install build dnspython kerberoast certipy-ad knowsmore sherlock-project")
+    run_command("pipx install urh")
+    run_command("python -m pip install dnspython==1.16.0")
     
     # Set up firewall rules
     run_command("sudo ufw default deny incoming")
@@ -146,8 +156,45 @@ def install_toolkit_packages():
         run_command("cd /vapt/web && rm -rf ZAP_2.15.0_Linux.tar.gz")
         run_command("cd /vapt/web && mv ZAP_2.15.0/ zap/")
 
+    # Arachni installation
+    arachni_dir = "/vapt/web/arachni"
+    if os.path.exists(arachni_dir):
+        print("Arachni already installed, skipping.")
+    else:
+        print("Installing Arachni")
+        run_command("cd /vapt/web && wget https://github.com/Arachni/arachni/releases/download/v1.6.1.3/arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz")
+        run_command("cd /vapt/web && tar xvf arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz")
+        run_command("cd /vapt/web && mv arachni-1.6.1.3-0.6.1.1/ arachni/")
+        run_command("cd /vapt/web && rm -rf arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz")
+
+    # Vulnerability scanner tools
+    vulnerability_scanners = [
+        ("https://github.com/darkoperator/dnsrecon.git", "/vapt/scanners/dnsrecon", ["pip install -r requirements.txt"]),
+        ("https://github.com/sqlmapproject/sqlmap.git", "/vapt/scanners/sqlmap", None),
+        ("https://github.com/nmap/nmap.git", "/vapt/scanners/nmap", ["./configure", "make", "sudo make install"]),
+        ("https://github.com/mschwager/fierce.git", "/vapt/scanners/fierce", ["python3 -m pip install -r requirements.txt", "sudo python3 setup.py install"]),
+        ("https://github.com/makefu/dnsmap.git", "/vapt/scanners/dnsmap", ["gcc -o dnsmap dnsmap.c"]),
+        ("https://github.com/fwaeytens/dnsenum.git", "/vapt/scanners/dnsenum", None),
+        ("https://github.com/nccgroup/cisco-SNMP-enumeration.git", "/vapt/scanners/cisco-SNMP-enumeration", None),
+        ("https://github.com/aas-n/spraykatz.git", "/vapt/scanners/spraykatz", ["pip3 install -r requirements.txt"]),
+        ("https://github.com/p0dalirius/FindUncommonShares.git", "/vapt/scanners/FindUncommonShares", ["pip install -r requirements.txt"]),
+        ("https://github.com/CiscoCXSecurity/enum4linux.git", "/vapt/scanners/enum4linux", None)
+    ]
+    
+    # OSINT/Intel tools
+    osint_tools = [
+        ("https://github.com/lanmaster53/recon-ng.git", "/vapt/intel/recon-ng", ["pip3 install -r REQUIREMENTS"]),
+        ("https://github.com/smicallef/spiderfoot.git", "/vapt/intel/spiderfoot", ["pip3 install -r requirements.txt"]),
+        ("https://github.com/laramies/theHarvester.git", "/vapt/intel/theHarvester", ["pip3 install -r requirements.txt"]),
+        ("https://github.com/nccgroup/scrying.git", "/vapt/intel/scrying", None),
+        ("https://github.com/FortyNorthSecurity/EyeWitness.git", "/vapt/intel/EyeWitness", None),
+        ("https://github.com/adnane-X-tebbaa/GRecon.git", "/vapt/intel/GRecon", ["python3 -m pip install -r requirements.txt"]),
+        ("https://github.com/l4rm4nd/LinkedInDumper.git", "/vapt/intel/LinkedInDumper", ["pip install -r requirements.txt"]),
+        ("https://github.com/OsmanKandemir/indicator-intelligence.git", "/vapt/intel/indicator-intelligence", ["pip3 install -r requirements.txt", "sudo python3 setup.py install"])
+    ]
+
     # Install all other tools
-    for tool in (exploitation_tools + web_tools):
+    for tool in (exploitation_tools + web_tools + vulnerability_scanners + osint_tools):
         check_and_install(*tool)
 
     print("Toolkit packages installation complete.")
@@ -170,6 +217,25 @@ def update_toolsets():
         "/vapt/web/XSStrike", "/vapt/web/wapiti"
     ]
     for tool in web_tools:
+        run_command(f"cd {tool} && git pull")
+
+    print("Updating Vulnerability Scanners")
+    vulnerability_scanners = [
+        "/vapt/scanners/dnsrecon", "/vapt/scanners/sqlmap", "/vapt/scanners/nmap",
+        "/vapt/scanners/fierce", "/vapt/scanners/dnsmap", "/vapt/scanners/dnsenum",
+        "/vapt/scanners/cisco-SNMP-enumeration", "/vapt/scanners/spraykatz",
+        "/vapt/scanners/FindUncommonShares", "/vapt/scanners/enum4linux"
+    ]
+    for tool in vulnerability_scanners:
+        run_command(f"cd {tool} && git pull")
+
+    print("Updating OSINT/Intel Tools")
+    osint_tools = [
+        "/vapt/intel/recon-ng", "/vapt/intel/spiderfoot", "/vapt/intel/theHarvester",
+        "/vapt/intel/scrying", "/vapt/intel/EyeWitness", "/vapt/intel/GRecon",
+        "/vapt/intel/LinkedInDumper", "/vapt/intel/indicator-intelligence"
+    ]
+    for tool in osint_tools:
         run_command(f"cd {tool} && git pull")
 
     print("Updating VA-PT")
