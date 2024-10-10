@@ -87,6 +87,17 @@ def check_and_install(repo_url, install_dir, setup_commands=None):
             for command in setup_commands:
                 run_command(f"cd {install_dir} && {command}")
 
+def install_wordlist_files():
+    """Install the Weakpass dictionary for password cracking."""
+    weakpass_file = "/vapt/passwords/weakpass_3a"
+    if not os.path.exists(weakpass_file):
+        print("Downloading the Weakpass dictionary (30GB)...")
+        run_command("cd /vapt/passwords && wget https://download.weakpass.com/wordlists/1948/weakpass_3a.7z")
+        run_command("cd /vapt/passwords && 7z e weakpass_3a.7z")
+        print("Weakpass dictionary installation complete.")
+    else:
+        print("Weakpass dictionary already installed, skipping.")
+
 def install_base_dependencies():
     print("Installing base toolkit dependencies...")
     run_command("sudo apt update && sudo apt upgrade -y")
@@ -119,6 +130,8 @@ def install_base_dependencies():
 
 def install_toolkit_packages():
     print("Installing toolkit packages...")
+    
+    # Define installations for exploitation tools
     exploitation_tools = [
         ("https://github.com/rapid7/metasploit-framework.git", "/vapt/exploits/metasploit-framework", ["bundle install"]),
         ("https://github.com/trustedsec/social-engineer-toolkit.git", "/vapt/exploits/social-engineer-toolkit", ["pip3 install -r requirements.txt"]),
@@ -332,7 +345,7 @@ def main_menu():
     while True:
         print("\033[91m1 - Install Base Toolkit Dependencies\033[0m")
         print("\033[91m2 - Install Toolkit Packages\033[0m")
-        print("\033[91m3 - Install Wordlist Files for Password Cracking\033[0m")
+        print("\033[91m3 - Install Weakpass Dictionary for Password Cracking\033[0m")
         print("\033[91m4 - Install OpenVAS\033[0m")
         print("\033[91m5 - Update Toolsets\033[0m")
         print("\033[91m0 - Exit\033[0m")
