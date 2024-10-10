@@ -60,10 +60,28 @@ def check_and_install(repo_url, install_dir, setup_commands=None):
             for command in setup_commands:
                 run_command(f"cd {install_dir} && {command}")
 
+def install_base_dependencies():
+    print("Installing base toolkit dependencies...")
+    run_command("sudo apt update && sudo apt upgrade -y")
+    run_command("sudo apt install -y vim subversion landscape-common ufw openssh-server net-tools mlocate ntpdate screen whois libtool-bin")
+    run_command("sudo apt install -y make gcc ncftp rar p7zip-full curl libpcap-dev libssl-dev hping3 libssh-dev g++ arp-scan wifite ruby-bundler freerdp2-dev")
+    run_command("sudo apt install -y libsqlite3-dev nbtscan dsniff apache2 secure-delete autoconf libpq-dev libmysqlclient-dev libsvn-dev libssh-dev libsmbclient-dev")
+    run_command("sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff-ng httptunnel ptunnel-ng udptunnel pipx python3-venv ruby-dev")
+    run_command("sudo apt install -y webhttrack minicom default-jre gnome-tweaks macchanger recordmydesktop postgresql golang-go hydra-gtk hydra")
+    run_command("sudo apt install -y ncftp wine-development libcurl4-openssl-dev smbclient hackrf nfs-common samba")
+    run_command("sudo snap install powershell --classic")
+    run_command("sudo snap install crackmapexec")
+    
+    # Set up firewall rules
+    run_command("sudo ufw default deny incoming")
+    run_command("sudo ufw default allow outgoing")
+    run_command("sudo ufw allow 22/tcp")
+    run_command("sudo ufw enable")
+
+    print("Base toolkit dependencies installed successfully.")
+
 def install_toolkit_packages():
     print("Installing toolkit packages...")
-
-    # Define installations for exploitation frameworks
     exploitation_tools = [
         ("https://github.com/rapid7/metasploit-framework.git", "/vapt/exploits/metasploit-framework", ["bundle install"]),
         ("https://github.com/trustedsec/social-engineer-toolkit.git", "/vapt/exploits/social-engineer-toolkit", ["pip3 install -r requirements.txt"]),
@@ -90,7 +108,7 @@ def install_toolkit_packages():
         ("https://github.com/com-puter-tips/Links-Extractor.git", "/vapt/web/Links-Extractor", ["pip3 install -r requirements.txt"]),
     ]
 
-    # OWASP ZAP installation (additional handling since it’s a tar.gz file)
+    # OWASP ZAP installation
     print("Installing OWASP ZAP")
     run_command("cd /vapt/web && wget https://github.com/zaproxy/zaproxy/releases/download/v2.15.0/ZAP_2.15.0_Linux.tar.gz")
     run_command("cd /vapt/web && tar xvf ZAP_2.15.0_Linux.tar.gz")
@@ -114,40 +132,6 @@ def update_toolsets():
     for tool in exploit_tools:
         run_command(f"cd {tool} && git pull")
 
-    print("Updating Audit Tools")
-    audit_tools = ["/vapt/audit/PlumHound", "/vapt/audit/PowerZure"]
-    for tool in audit_tools:
-        run_command(f"cd {tool} && git pull")
-
-    print("Updating Fuzzer Tools")
-    run_command("cd /vapt/fuzzers/boofuzz && git pull")
-
-    print("Updating Intel Tools")
-    intel_tools = [
-        "/vapt/intel/indicator-intelligence", "/vapt/intel/LinkedInDumper", "/vapt/intel/EyeWitness",
-        "/vapt/intel/recon-ng", "/vapt/intel/scrying", "/vapt/intel/spiderfoot",
-        "/vapt/intel/theHarvester", "/vapt/intel/GRecon", "/vapt/intel/sherlock"
-    ]
-    for tool in intel_tools:
-        run_command(f"cd {tool} && git pull")
-    run_command("pip3 install metafinder --upgrade")
-
-    print("Updating Password Tools")
-    password_tools = [
-        "/vapt/passwords/CeWL", "/vapt/passwords/hashcat",
-        "/vapt/passwords/JohnTheRipper", "/vapt/passwords/SecLists"
-    ]
-    for tool in password_tools:
-        run_command(f"cd {tool} && git pull")
-
-    print("Updating Powershell Tools")
-    powershell_tools = [
-        "/vapt/powershell/Invoke-TheHash", "/vapt/powershell/PowerShdll",
-        "/vapt/powershell/PowerSploit", "/vapt/powershell/ps1encode"
-    ]
-    for tool in powershell_tools:
-        run_command(f"cd {tool} && git pull")
-
     print("Updating Web Tools")
     web_tools = [
         "/vapt/web/htshells", "/vapt/web/joomscan", "/vapt/web/nikto",
@@ -156,31 +140,6 @@ def update_toolsets():
     ]
     for tool in web_tools:
         run_command(f"cd {tool} && git pull")
-
-    print("Updating Scanner Tools")
-    scanner_tools = [
-        "/vapt/scanners/dnsrecon", "/vapt/scanners/FindUncommonShares",
-        "/vapt/scanners/cisco-SNMP-enumeration", "/vapt/scanners/dnsenum",
-        "/vapt/scanners/dnsmap", "/vapt/scanners/fierce", "/vapt/scanners/sqlmap",
-        "/vapt/scanners/nmap"
-    ]
-    for tool in scanner_tools:
-        run_command(f"cd {tool} && git pull")
-    run_command("cd /vapt/scanners/nmap && make clean && ./configure && make && sudo make install && sudo nmap --script-updatedb")
-
-    print("Checking OpenVAS")
-    if os.path.exists("/usr/sbin/openvas-nvt-sync"):
-        print("Updating OpenVAS")
-        run_command("sudo /usr/sbin/openvas-nvt-sync --wget")
-    else:
-        print("OpenVAS is not installed, skipping")
-
-    print("Checking Nessus")
-    if os.path.exists("/opt/nessus/sbin/nessuscli"):
-        print("Updating Nessus Plugins")
-        run_command("sudo /opt/nessus/sbin/nessuscli update --plugins-only")
-    else:
-        print("Nessus is not installed, skipping")
 
     print("Updating VA-PT")
     run_command("cd /vapt/misc/va-pt && git pull")
