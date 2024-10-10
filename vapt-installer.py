@@ -91,10 +91,15 @@ def install_wordlist_files():
     """Install the Weakpass dictionary for password cracking."""
     weakpass_file = "/vapt/passwords/weakpass_3a"
     if not os.path.exists(weakpass_file):
-        print("Downloading the Weakpass dictionary (30GB)...")
-        run_command("cd /vapt/passwords && wget https://download.weakpass.com/wordlists/1948/weakpass_3a.7z")
-        run_command("cd /vapt/passwords && 7z e weakpass_3a.7z")
-        print("Weakpass dictionary installation complete.")
+        user_confirmation = input("The Weakpass dictionary file is 30GB in size. Do you want to continue with the installation? (yes/no): ").strip().lower()
+        if user_confirmation == 'yes':
+            print("Downloading the Weakpass dictionary...")
+            run_command("cd /vapt/passwords && wget https://download.weakpass.com/wordlists/1948/weakpass_3a.7z")
+            run_command("cd /vapt/passwords && 7z e weakpass_3a.7z")
+            print("Weakpass dictionary installation complete.")
+        else:
+            print("Installation of Weakpass dictionary aborted. Returning to main menu.")
+            return
     else:
         print("Weakpass dictionary already installed, skipping.")
 
@@ -345,7 +350,7 @@ def main_menu():
     while True:
         print("\033[91m1 - Install Base Toolkit Dependencies\033[0m")
         print("\033[91m2 - Install Toolkit Packages\033[0m")
-        print("\033[91m3 - Install Weakpass Dictionary for Password Cracking\033[0m")
+        print("\033[91m3 - Install Weakpass Dictionary for Password Cracking (30G)\033[0m")
         print("\033[91m4 - Install OpenVAS\033[0m")
         print("\033[91m5 - Update Toolsets\033[0m")
         print("\033[91m0 - Exit\033[0m")
