@@ -26,7 +26,7 @@ cd <repository-directory>
 
 Run the Installer Script:
 
-python3 installer_script.py
+python3 vapt-installer.py
 
 Note: The script should not be run as root. It will automatically use sudo where necessary to install required packages and manage permissions.
 
