@@ -183,6 +183,12 @@ def install_toolkit_packages():
         ("https://github.com/TerminalFi/NessusParser-Excel.git", "/vapt/audit/NessusParser-Excel", ["pip install -r requirements.txt"])
     ]
 
+    # Wireless Signal Analysis tools
+    wireless_tools = [
+        ("https://github.com/g4ixt/QtTinySA.git", "/vapt/wireless/QtTinySA", ["pip3 install -r requirements.txt"]),
+        ("https://github.com/xmikos/qspectrumanalyzer.git", "/vapt/wireless/qspectrumanalyzer", ["sudo python3 setup.py install"])
+    ]
+
     # OWASP ZAP installation
     zap_dir = "/vapt/web/zap"
     if os.path.exists(zap_dir):
@@ -232,7 +238,7 @@ def install_toolkit_packages():
     ]
 
     # Install all other tools
-    for tool in (exploitation_tools + web_tools + password_tools + fuzzer_tools + powershell_tools + audit_tools + vulnerability_scanners + osint_tools):
+    for tool in (exploitation_tools + web_tools + password_tools + fuzzer_tools + powershell_tools + audit_tools + vulnerability_scanners + osint_tools + wireless_tools):
         check_and_install(*tool)
 
     print("Toolkit packages installation complete.")
@@ -305,6 +311,13 @@ def update_toolsets():
         "/vapt/intel/LinkedInDumper", "/vapt/intel/indicator-intelligence"
     ]
     for tool in osint_tools:
+        run_command(f"cd {tool} && git pull")
+
+    print("Updating Wireless Signal Analysis Tools")
+    wireless_tools = [
+        "/vapt/wireless/QtTinySA", "/vapt/wireless/qspectrumanalyzer"
+    ]
+    for tool in wireless_tools:
         run_command(f"cd {tool} && git pull")
 
     print("Updating VA-PT")
