@@ -224,7 +224,7 @@ def install_toolkit_packages():
         print("Arachni already installed, skipping.")
     else:
         print("Installing Arachni")
-        run_command("cd /vapt/web && wget https://github.com/Arachni/arachni/releases/download/v1.6.1.3/arachni-1.6.1.1-linux-x86_64.tar.gz")
+        run_command("cd /vapt/web && wget https://github.com/Arachni/arachni/releases/download/v1.6.1.3/arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz")
         run_command("cd /vapt/web && tar xvf arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz")
         run_command("cd /vapt/web && mv arachni-1.6.1.3-0.6.1.1/ arachni/")
         run_command("cd /vapt/web && rm -rf arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz")
