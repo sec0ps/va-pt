@@ -13,8 +13,6 @@ def run_command(command):
 
 def display_logo():
     logo_ascii = """
-    
-    
                                  #                              #
                                ###              #*#              ##
                               ##**            #***##             *##
@@ -50,6 +48,35 @@ def display_logo():
                       Vulnerability Assessment and Penetration Testing Toolkit
     """
     print(logo_ascii)
+
+def check_directory_structure():
+    base_path = "/vapt"
+    directories = [
+        base_path, f"{base_path}/temp", f"{base_path}/wireless", f"{base_path}/exploits",
+        f"{base_path}/web", f"{base_path}/intel", f"{base_path}/scanners", f"{base_path}/misc",
+        f"{base_path}/passwords", f"{base_path}/fuzzers", f"{base_path}/audit",
+        f"{base_path}/powershell", f"{base_path}/exfiltrate"
+    ]
+
+    # Create the base directory if it does not exist
+    if not os.path.exists(base_path):
+        print("Creating base directory at /vapt")
+        run_command(f"sudo mkdir {base_path}")
+        run_command(f"sudo chown -R $USER {base_path} && sudo chgrp -R $USER {base_path}")
+
+    # Check and create subdirectories if they don't exist
+    for directory in directories:
+        if not os.path.exists(directory):
+            print(f"Creating directory: {directory}")
+            run_command(f"mkdir -p {directory}")
+
+    # Clone va-pt repository if not already cloned
+    va_pt_path = f"{base_path}/misc/va-pt"
+    if not os.path.exists(va_pt_path):
+        print("Cloning va-pt repository...")
+        run_command(f"cd {base_path}/misc && git clone https://github.com/sec0ps/va-pt.git")
+
+    print("Directory structure is ready.")
 
 def check_and_install(repo_url, install_dir, setup_commands=None):
     """Clone the repo if it doesn't exist and run optional setup commands."""
@@ -109,11 +136,15 @@ def install_toolkit_packages():
     ]
 
     # OWASP ZAP installation
-    print("Installing OWASP ZAP")
-    run_command("cd /vapt/web && wget https://github.com/zaproxy/zaproxy/releases/download/v2.15.0/ZAP_2.15.0_Linux.tar.gz")
-    run_command("cd /vapt/web && tar xvf ZAP_2.15.0_Linux.tar.gz")
-    run_command("cd /vapt/web && rm -rf ZAP_2.15.0_Linux.tar.gz")
-    run_command("cd /vapt/web && mv ZAP* zap/")
+    zap_dir = "/vapt/web/zap"
+    if os.path.exists(zap_dir):
+        print("OWASP ZAP already installed, skipping.")
+    else:
+        print("Installing OWASP ZAP")
+        run_command("cd /vapt/web && wget https://github.com/zaproxy/zaproxy/releases/download/v2.15.0/ZAP_2.15.0_Linux.tar.gz")
+        run_command("cd /vapt/web && tar xvf ZAP_2.15.0_Linux.tar.gz")
+        run_command("cd /vapt/web && rm -rf ZAP_2.15.0_Linux.tar.gz")
+        run_command("cd /vapt/web && mv ZAP_2.15.0/ zap/")
 
     # Install all other tools
     for tool in (exploitation_tools + web_tools):
@@ -147,6 +178,9 @@ def update_toolsets():
     print("Toolsets update complete.")
 
 def main_menu():
+    # Ensure directory structure is in place
+    check_directory_structure()
+    
     while True:
         print("\033[91m1 - Install Base Toolkit Dependencies\033[0m")
         print("\033[91m2 - Install Toolkit Packages\033[0m")
