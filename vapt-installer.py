@@ -267,7 +267,7 @@ def update_toolsets():
     exploit_tools = [
         "/vapt/exploits/social-engineer-toolkit", "/vapt/exploits/metasploit-framework",
         "/vapt/exploits/ADFSpray", "/vapt/exploits/beef", "/vapt/exploits/DeathStar",
-        "/vapt/exploits/impacket", "/vapt/exploits/mimikatz", "/vapt/exploits/Responder"
+        "/vapt/exploits/impacket", "/vapt/exploits/mimikatz", "/vapt/exploits/Responder",
         "/vapt/exploits/exploitdb"
     ]
     for tool in exploit_tools:
