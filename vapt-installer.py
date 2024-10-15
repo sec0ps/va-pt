@@ -140,7 +140,7 @@ def install_toolkit_packages():
     exploitation_tools = [
         ("https://github.com/rapid7/metasploit-framework.git", "/vapt/exploits/metasploit-framework", ["bundle install"]),
         ("https://github.com/trustedsec/social-engineer-toolkit.git", "/vapt/exploits/social-engineer-toolkit", ["pip3 install -r requirements.txt"]),
-        ("https://github.com/offensive-security/exploit-database.git", "/vapt/exploits/exploit-database", None),
+        ("https://gitlab.com/exploit-database/exploitdb.git", "/vapt/exploits/exploitdb", None),
         ("https://github.com/lgandx/Responder.git", "/vapt/exploits/Responder", None),
         ("https://github.com/CoreSecurity/impacket.git", "/vapt/exploits/impacket", ["pip3 install -r requirements.txt", "sudo python3 setup.py install"]),
         ("https://github.com/beefproject/beef.git", "/vapt/exploits/beef", None),
@@ -268,6 +268,7 @@ def update_toolsets():
         "/vapt/exploits/social-engineer-toolkit", "/vapt/exploits/metasploit-framework",
         "/vapt/exploits/ADFSpray", "/vapt/exploits/beef", "/vapt/exploits/DeathStar",
         "/vapt/exploits/impacket", "/vapt/exploits/mimikatz", "/vapt/exploits/Responder"
+        "/vapt/exploits/exploitdb"
     ]
     for tool in exploit_tools:
         run_command(f"cd {tool} && git pull")
