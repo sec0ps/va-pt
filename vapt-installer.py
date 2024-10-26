@@ -115,6 +115,26 @@ def install_base_dependencies():
     run_command("sudo snap install powershell --classic")
     run_command("sudo snap install crackmapexec")
 
+        # Check if CPANminus is installed
+    if not os.path.isfile("/usr/local/bin/cpanm"):
+        print("CPANminus not found. Installing CPANminus...")
+
+        # Clone the cpanminus repository
+        run_command("mkdir -p /vapt/temp")
+        run_command("cd /vapt/temp && git clone https://github.com/miyagawa/cpanminus.git")
+
+        # Navigate to the directory and install CPANminus
+        run_command("cd /vapt/temp/cpanminus/App-cpanminus && perl Makefile.PL")
+        run_command("cd /vapt/temp/cpanminus/App-cpanminus && make")
+        run_command("cd /vapt/temp/cpanminus/App-cpanminus && sudo make install")
+
+        # Cleanup after installation
+        run_command("rm -rf /vapt/temp/cpanminus")
+
+        print("CPANminus installation complete.")
+    else:
+        print("CPANminus is already installed, skipping installation.")
+
     # Perl CPAN modules
     run_command("sudo cpanm Cisco::CopyConfig && sudo cpanm Net::Netmask")
     run_command("sudo cpanm XML::Writer && sudo cpanm String::Random")
