@@ -40,11 +40,6 @@ logging.basicConfig(
 
 logging.info("✅ Logging initialized. Log file: %s", LOG_FILE)
 
-#target_file = "automation.config"
-#KEY_FILE = "./.key"
-SQLMAP_PATH = None  # Global variable to store sqlmap path
-#SQLMAP_PATH = "/path/to/sqlmap.py"  # Ensure this is set correctly
-
 def is_valid_url(url):
     """Validate a given URL."""
     parsed_url = urlparse(url)
@@ -167,13 +162,13 @@ def main():
     actions = {
         "1": full_automation,
         "2": network_enumeration,  # Modified to first prompt for scan_type
-        "3": web_application_enumeration,
+        "3": process_network_enumeration,  # ✅ Corrected function call from web.py
         "4": lambda: sqli_testing_automation(sqlmap_path)
     }
 
     while True:
         print("\n[ ⚙ Automated Security Testing Framework ⚙ ]")
-        print("1️⃣ Full Automation")
+        print("1️⃣ Full Automation - Not Available Yet")
         print("2️⃣ Automated Network Enumeration")
         print("3️⃣ Web Application Enumeration")
         print("4️⃣ SQLi Testing Automation")

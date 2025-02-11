@@ -1,35 +1,41 @@
+import os
 import subprocess
 import xml.etree.ElementTree as ET
 import logging
 import concurrent.futures
 import random
 from datetime import datetime
-from web import *
-from utils import *
-from sqlmap import *
+from config import *
+
+# Define output directory
+#RAW_NMAP_DIR = "raw_nmap"
+#NETWORK_ENUMERATION_FILE = "network.enumeration"
+
+# Ensure raw_nmap directory exists
+#os.makedirs(RAW_NMAP_DIR, exist_ok=True)
 
 def run_nmap_scan(target, scan_type):
     """Run an Nmap scan on a single target with selected scan type."""
 
-    # Generate timestamp for the filename
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    output = f"nmap_scan_results_{timestamp}"
+    # Generate timestamp in "YYYY-MM-DD.HH-MM-SS" format
+    timestamp = datetime.now().strftime("%Y-%m-%d.%H-%M-%S")
+    output_txt = os.path.join(RAW_NMAP_DIR, f"{timestamp}.txt")
+    output_xml = os.path.join(RAW_NMAP_DIR, f"{timestamp}.xml")
 
     if scan_type == "1":
         command = [
             "nmap", "-p-", "-sV", "-T5", "--min-rate", "1000", "--max-retries", "1",
-            "--open", "-oN", f"{output}.txt", "-oX", f"{output}.xml", "--script=default", target
+            "--open", "-oN", output_txt, "-oX", output_xml, "--script=default", target
         ]
     else:
         command = [
             "nmap", "-A", "-T4", "--max-retries", "1", "--open", "--script", "vulners",
-            "-oN", f"{output}.txt", "-oX", f"{output}.xml", target
+            "-oN", output_txt, "-oX", output_xml, target
         ]
 
     print(f"Running Nmap scan on {target}: {' '.join(command)}")
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    parse_nmap_results(f"{output}.xml")
-
+    parse_nmap_results(output_xml)
 
 def parse_nmap_results(xml_file):
     """Parse Nmap XML results and extract HTTP/HTTPS services."""
@@ -49,7 +55,8 @@ def parse_nmap_results(xml_file):
                         protocol = "https" if "ssl" in service_name or port_id in ["443", "8443", "4443"] else "http"
                         results.append(f"{protocol}://{ip_addr}:{port_id}")
 
-        with open("network.enumeration", "a") as f:
+        # Append results to network.enumeration
+        with open(NETWORK_ENUMERATION_FILE, "a") as f:
             for result in results:
                 f.write(result + "\n")
 
@@ -58,6 +65,23 @@ def parse_nmap_results(xml_file):
     except Exception as e:
         logging.error(f"❌ Error parsing Nmap XML results: {e}")
 
+def deduplicate_network_enumeration():
+    """Remove duplicate entries from network.enumeration."""
+    if not os.path.exists(NETWORK_ENUMERATION_FILE):
+        return
+
+    try:
+        with open(NETWORK_ENUMERATION_FILE, "r") as file:
+            unique_entries = set(file.read().splitlines())
+
+        with open(NETWORK_ENUMERATION_FILE, "w") as file:
+            for entry in sorted(unique_entries):  # Sorted for consistency
+                file.write(entry + "\n")
+
+        print(f"✅ Deduplicated {NETWORK_ENUMERATION_FILE}")
+
+    except Exception as e:
+        logging.error(f"❌ Failed to deduplicate {NETWORK_ENUMERATION_FILE}: {e}")
 
 def main():
     """Main function to handle parallel scanning and randomization."""
@@ -81,6 +105,9 @@ def main():
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
         executor.map(lambda target: run_nmap_scan(target, scan_type), targets)
+
+    # Deduplicate network.enumeration file after scan completion
+    deduplicate_network_enumeration()
 
 if __name__ == "__main__":
     main()

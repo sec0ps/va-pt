@@ -3,48 +3,28 @@ import json
 import logging
 import shutil
 import subprocess
-from cryptography.fernet import Fernet
-from web import *
-from nmap import *
-from sqlmap import *
+import ipaddress
+import re
+from config import *  # Import all constants and utility functions
 
-# Configuration files
-KEY_FILE = "encryption.key"
-target_file = "automation.config"
-ENUMERATION_FILE = ".tmp.enumeration"
-API_KEY_FILE = "./.zap_api_key"
-LOG_DIR = "./automation-logs"
-LOG_FILE = os.path.join(LOG_DIR, "automation.log")
-REPORT_DIR = "./raw_reports"
-SQLMAP_PATH = None  # Global variable to store sqlmap path
+# Ensure necessary directories exist
+os.makedirs(LOG_DIR, exist_ok=True)
+os.makedirs(REPORT_DIR, exist_ok=True)
+os.makedirs(RAW_NMAP_DIR, exist_ok=True)
 
-def load_api_key():
-    """Retrieve or prompt the user for the OWASP ZAP API key and store it once."""
-    if os.path.exists(API_KEY_FILE):
-        with open(API_KEY_FILE, "r") as file:
-            return file.read().strip()
+# Logging Configuration
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
 
-    api_key = input("Enter your OWASP ZAP API key: ").strip()
-    with open(API_KEY_FILE, "w") as file:
-        file.write(api_key)
-    os.chmod(API_KEY_FILE, 0o600)
-    return api_key
-
-def load_encryption_key():
-    """Load the encryption key from a file or generate one if it doesn't exist."""
-    if not os.path.exists(KEY_FILE):
-        encryption_key = Fernet.generate_key()
-        with open(KEY_FILE, "wb") as key_file:
-            key_file.write(encryption_key)
-    else:
-        with open(KEY_FILE, "rb") as key_file:
-            encryption_key = key_file.read()
-    return Fernet(encryption_key)
-
-cipher_suite = load_encryption_key()  # Load once and reuse globally
-
+### ✅ **Using Encryption Functions from `config.py`** ###
 def encrypt_and_store_data(key, value):
-    """Encrypt and store a key-value pair persistently in the config file, preventing corruption."""
+    """Encrypt and store a key-value pair persistently in the config file."""
     try:
         data = get_encrypted_data()  # Load existing encrypted data
 
@@ -54,25 +34,26 @@ def encrypt_and_store_data(key, value):
         encrypted_value = cipher_suite.encrypt(value.encode()).decode()
         data[key] = encrypted_value
 
-        temp_file = f"{target_file}.tmp"  # Write to a temp file first
+        temp_file = f"{TARGET_FILE}.tmp"  # Write to a temp file first
 
         with open(temp_file, "w", encoding="utf-8") as file:
-            json.dump(data, file, ensure_ascii=False, indent=4)  # Proper formatting
+            json.dump(data, file, ensure_ascii=False, indent=4)
 
-        os.replace(temp_file, target_file)  # Prevent corruption
+        os.replace(temp_file, TARGET_FILE)  # Prevent corruption
 
-        logging.info(f"✅ Stored {key} securely in {target_file}")
+        logging.info(f"✅ Stored {key} securely in {TARGET_FILE}")
 
     except Exception as e:
         logging.error(f"❌ Failed to encrypt and store {key}: {e}")
 
+### ✅ **Using Decryption from `config.py`** ###
 def get_encrypted_data():
     """Retrieve and decrypt stored data from the configuration file."""
-    if not os.path.exists(target_file):
+    if not os.path.exists(TARGET_FILE):
         return {}
 
     try:
-        with open(target_file, "r", encoding="utf-8") as file:
+        with open(TARGET_FILE, "r", encoding="utf-8") as file:
             data = json.load(file)
 
         decrypted_data = {}
@@ -86,16 +67,12 @@ def get_encrypted_data():
         return decrypted_data
 
     except json.JSONDecodeError:
-        logging.error(f"❌ {target_file} is corrupted. Deleting and resetting...")
-        os.remove(target_file)
-        return {}
-
-    except Exception as e:
-        logging.error(f"❌ Unexpected error reading {target_file}: {e}")
+        logging.error(f"❌ {TARGET_FILE} is corrupted. Deleting and resetting...")
+        os.remove(TARGET_FILE)
         return {}
 
 def get_enumerated_targets():
-    """Retrieve stored enumerated targets from .tmp.enumeration (plain text)."""
+    """Retrieve stored enumerated targets from network.enumeration."""
     if not os.path.exists(ENUMERATION_FILE):
         return []
 
@@ -107,10 +84,13 @@ def get_enumerated_targets():
         logging.error(f"❌ Failed to retrieve enumerated targets: {e}")
         return []
 
+### ✅ **Validation Functions (Keep these in `utils.py`)** ###
 def is_valid_ipv4(ip):
     """Validate an IPv4 address format."""
-    ipv4_pattern = re.compile(r"^(?:\d{1,3}\.){3}\d{1,3}$")
-    return bool(ipv4_pattern.match(ip)) and all(0 <= int(octet) <= 255 for octet in ip.split("."))
+    try:
+        return bool(ipaddress.IPv4Address(ip))
+    except ipaddress.AddressValueError:
+        return False
 
 def is_valid_ipv6(ip):
     """Validate an IPv6 address format."""
@@ -134,7 +114,6 @@ def is_valid_cidr(netblock):
 
 def check_target_defined():
     """Ensure the target is a valid IPv4, IPv6, FQDN, or CIDR Netblock before storing it."""
-    display_logo()
     data = get_encrypted_data()
     target = data.get("target")
 

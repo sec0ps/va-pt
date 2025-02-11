@@ -12,10 +12,11 @@ from nmap import *
 from sqlmap import *
 
 # Load API Key once at the start
-from utils import load_api_key, encrypt_and_store_data, get_encrypted_data  # Ensure utils handles encryption
+from utils import load_api_key, encrypt_and_store_data, get_encrypted_data
 
 ZAP_API_KEY = load_api_key()
 ZAP_API_URL = "http://127.0.0.1:8080"
+NETWORK_ENUMERATION_FILE = "network.enumeration"
 
 def get_api_key():
     """Return the cached API key."""
@@ -29,19 +30,42 @@ def check_zap_running():
 
     for attempt in range(1, max_retries + 1):
         try:
-            logging.info(f"🔍 Checking OWASP ZAP API availability (Attempt {attempt}/{max_retries})...")
+            logging.info(f"?? Checking OWASP ZAP API availability (Attempt {attempt}/{max_retries})...")
             response = requests.get(api_url, timeout=5)
             response.raise_for_status()
             zap_version = response.json().get('version', 'Unknown')
-            logging.info(f"✅ Connected to ZAP Proxy at {ZAP_API_URL}, version: {zap_version}")
+            logging.info(f"? Connected to ZAP Proxy at {ZAP_API_URL}, version: {zap_version}")
             return True
         except requests.exceptions.RequestException as e:
-            logging.error(f"⚠ ZAP API connection issue: {e}")
+            logging.error(f"? ZAP API connection issue: {e}")
 
         time.sleep(retry_delay)
 
-    logging.error("❌ Max retries reached. ZAP API is not accessible. Exiting...")
+    logging.error("? Max retries reached. ZAP API is not accessible. Exiting...")
     sys.exit(1)
+
+def process_network_enumeration():
+    """Check if network.enumeration exists and process it, else use web_application_enumeration."""
+    if os.path.exists(NETWORK_ENUMERATION_FILE):
+        logging.info(f"📄 Found {NETWORK_ENUMERATION_FILE}. Processing targets...")
+
+        with open(NETWORK_ENUMERATION_FILE, "r") as file:
+            targets = file.read().splitlines()
+
+        if not targets:
+            logging.error("❌ No valid targets found in network.enumeration.")
+            return
+
+        for target in targets:
+            logging.info(f"🚀 Starting ZAP scan on: {target}")
+            scan_target_with_zap(target)  # Scan each target with ZAP
+
+        logging.info("✅ All targets in network.enumeration have been processed.")
+
+    else:
+        logging.info(f"⚠ {NETWORK_ENUMERATION_FILE} not found. Running web_application_enumeration instead...")
+        target = check_target_defined()  # Ensure we get a valid target
+        web_application_enumeration(target)  # ✅ Now passing the target argument properly
 
 def check_web_service(ip):
     """Determine if the given IP has an active web service and return the correct URL."""
@@ -57,10 +81,8 @@ def check_web_service(ip):
 
     return None  # No web service found
 
-def web_application_enumeration():
+def web_application_enumeration(target):
     """Scan web applications found in a CIDR range or a single target."""
-    target = check_target_defined()
-
     try:
         ip_network(target)  # If this doesn't raise an error, it's a CIDR block
         is_cidr = True
@@ -98,32 +120,6 @@ def web_application_enumeration():
                 pbar.update(1)
 
     logging.info("✅ Scanning job completed.")
-
-def export_zap_xml_report(target_url):
-    """Fetch and save the OWASP ZAP scan report in XML format."""
-    try:
-        if not os.path.exists(REPORT_DIR):
-            os.makedirs(REPORT_DIR, exist_ok=True)
-            os.chmod(REPORT_DIR, 0o700)  # Secure directory
-
-        parsed_url = urlparse(target_url)
-        target_name = parsed_url.hostname.replace(".", "_")  # Convert dots to underscores
-        report_file = os.path.join(REPORT_DIR, f"zap_report_{target_name}.xml")
-
-        url = f"{ZAP_API_URL}/OTHER/core/other/xmlreport/?apikey={ZAP_API_KEY}"
-        logging.info(f"📄 Fetching XML report for {target_url} from {url}")
-
-        response = requests.get(url, timeout=30)
-
-        if response.status_code == 200:
-            with open(report_file, "wb") as file:
-                file.write(response.content)
-            logging.info(f"✅ XML report saved: {report_file}")
-        else:
-            logging.error(f"❌ Failed to fetch XML report. Status Code: {response.status_code}")
-
-    except requests.RequestException as e:
-        logging.error(f"❌ Error connecting to ZAP API: {e}")
 
 def scan_target_with_zap(target_url):
     """Scan a web service using OWASP ZAP."""
@@ -180,3 +176,39 @@ def scan_target_with_zap(target_url):
         time.sleep(10)
 
     export_zap_xml_report(target_url)
+
+def export_zap_xml_report(target_url):
+    """Fetch and save the OWASP ZAP scan report in XML format."""
+    try:
+        REPORT_DIR = "raw_reports"  # Define report directory
+
+        if not os.path.exists(REPORT_DIR):
+            os.makedirs(REPORT_DIR, exist_ok=True)
+            os.chmod(REPORT_DIR, 0o700)  # Secure directory
+
+        parsed_url = urlparse(target_url)
+        target_name = parsed_url.hostname.replace(".", "_")  # Convert dots to underscores
+        report_file = os.path.join(REPORT_DIR, f"zap_report_{target_name}.xml")
+
+        url = f"{ZAP_API_URL}/OTHER/core/other/xmlreport/?apikey={ZAP_API_KEY}"
+        logging.info(f"📄 Fetching XML report for {target_url} from {url}")
+
+        response = requests.get(url, timeout=30)
+
+        if response.status_code == 200:
+            with open(report_file, "wb") as file:
+                file.write(response.content)
+            logging.info(f"✅ XML report saved: {report_file}")
+        else:
+            logging.error(f"❌ Failed to fetch XML report. Status Code: {response.status_code}")
+
+    except requests.RequestException as e:
+        logging.error(f"❌ Error connecting to ZAP API: {e}")
+
+def main():
+    """Main function to determine whether to use `network.enumeration` or perform web enumeration."""
+    logging.info("🔎 Checking for existing network enumeration results...")
+    process_network_enumeration()
+
+if __name__ == "__main__":
+    main()
