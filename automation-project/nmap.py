@@ -5,14 +5,10 @@ import logging
 import concurrent.futures
 import random
 from datetime import datetime
-from config import *
-
-# Define output directory
-#RAW_NMAP_DIR = "raw_nmap"
-#NETWORK_ENUMERATION_FILE = "network.enumeration"
+from config import NETWORK_ENUMERATION_FILE, RAW_NMAP_DIR  # ✅ Import constants directly
 
 # Ensure raw_nmap directory exists
-#os.makedirs(RAW_NMAP_DIR, exist_ok=True)
+os.makedirs(RAW_NMAP_DIR, exist_ok=True)
 
 def run_nmap_scan(target, scan_type):
     """Run an Nmap scan on a single target with selected scan type."""
@@ -55,7 +51,7 @@ def parse_nmap_results(xml_file):
                         protocol = "https" if "ssl" in service_name or port_id in ["443", "8443", "4443"] else "http"
                         results.append(f"{protocol}://{ip_addr}:{port_id}")
 
-        # Append results to network.enumeration
+        # ✅ Append results to network.enumeration
         with open(NETWORK_ENUMERATION_FILE, "a") as f:
             for result in results:
                 f.write(result + "\n")
