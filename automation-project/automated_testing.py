@@ -149,9 +149,6 @@ def check_target_defined():
         encrypt_and_store_data("target", target)
         return target
 
-import subprocess
-import xml.etree.ElementTree as ET
-
 def run_nmap_scan(target):
     scan_type = input("Select enumeration type (fast/thorough): ").strip().lower()
     output = "nmap_scan_results"
