@@ -22,7 +22,7 @@ from web import *
 from utils import *
 from nmap import *
 from sql import *
-from config import LOG_DIR, LOG_FILE  # ✅ Import LOG_FILE from config.py
+from config import LOG_DIR, LOG_FILE, find_sqlmap  # ✅ Import LOG_FILE from config.py
 
 # Ensure log directory exists and is secured
 if not os.path.exists(LOG_DIR):
