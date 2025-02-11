@@ -6,6 +6,7 @@ import subprocess
 import ipaddress
 import re
 from cryptography.fernet import Fernet
+#from config import SQLMAP_PATH  # ✅ Import SQLMAP_PATH from config.py
 
 ### ✅ **Define Constants First**
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Get project base path
@@ -17,6 +18,7 @@ TARGET_FILE = os.path.join(BASE_DIR, "automation.config")
 NETWORK_ENUMERATION_FILE = os.path.join(BASE_DIR, "network.enumeration")  # ✅ Ensure it's defined
 API_KEY_FILE = os.path.join(BASE_DIR, ".zap_api_key")
 LOG_FILE = os.path.join(LOG_DIR, "automation.log")  # ✅ Define LOG_FILE
+#SQLMAP_PATH = shutil.which("sqlmap") or "/path/to/sqlmap.py"
 
 ### ✅ **Ensure Directories Exist**
 os.makedirs(LOG_DIR, exist_ok=True)
@@ -32,7 +34,6 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
-
 
 def load_api_key():
     """Retrieve or prompt the user for the OWASP ZAP API key and store it."""
@@ -153,3 +154,48 @@ def check_target_defined():
             return target
         else:
             logging.error("❌ Invalid target. Enter a valid IPv4, IPv6, FQDN, or CIDR netblock.")
+
+import os
+import logging
+import shutil
+import subprocess
+
+### **✅ Find SQLMAP_PATH Properly**
+def find_sqlmap():
+    """Find sqlmap.py dynamically at runtime and return its absolute path."""
+    logging.info("🔍 Searching for sqlmap.py...")
+
+    # **First Check System Path**
+    sqlmap_exec = shutil.which("sqlmap")
+    if sqlmap_exec:
+        logging.info(f"✅ Found sqlmap at: {sqlmap_exec}")
+        return sqlmap_exec
+
+    # **Use `locate` (Faster)**
+    try:
+        locate_cmd = ["locate", "sqlmap.py"]
+        result = subprocess.run(locate_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        sqlmap_paths = [path for path in result.stdout.strip().split("\n") if os.path.isfile(path)]
+        if sqlmap_paths:
+            logging.info(f"✅ Found sqlmap at: {sqlmap_paths[0]}")
+            return sqlmap_paths[0]
+    except Exception:
+        logging.warning("⚠ locate command failed, falling back to `find`.")
+
+    # **Use `find` (Slower, Last Resort)**
+    try:
+        find_cmd = ["find", "/", "-name", "sqlmap.py", "-type", "f", "-not", "-path", "'*/proc/*'", "2>/dev/null"]
+        result = subprocess.run(" ".join(find_cmd), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, shell=True)
+        sqlmap_paths = [path for path in result.stdout.strip().split("\n") if os.path.isfile(path)]
+        if sqlmap_paths:
+            logging.info(f"✅ Found sqlmap at: {sqlmap_paths[0]}")
+            return sqlmap_paths[0]
+    except Exception:
+        logging.error("❌ `find` command failed. sqlmap.py not found.")
+
+    logging.error("❌ sqlmap.py not found! Ensure sqlmap is installed.")
+    return None
+
+# **✅ Ensure SQLMAP_PATH is Set at the End of config.py**
+SQLMAP_PATH = find_sqlmap()
+logging.info(f"✅ SQLMAP_PATH set to: {SQLMAP_PATH}" if SQLMAP_PATH else "❌ SQLMAP_PATH not found!")

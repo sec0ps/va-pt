@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import ipaddress
 import re
-from config import NETWORK_ENUMERATION_FILE, TARGET_FILE, cipher_suite  # ✅ Use NETWORK_ENUMERATION_FILE from config.py
+from config import NETWORK_ENUMERATION_FILE, TARGET_FILE, cipher_suite, SQLMAP_PATH
 
 # Ensure necessary directories exist
 #os.makedirs(LOG_DIR, exist_ok=True)
@@ -130,40 +130,3 @@ def check_target_defined():
             return target
         else:
             logging.error("❌ Invalid target. Please enter a valid IPv4 address, IPv6 address, FQDN, or CIDR netblock.")
-
-def find_sqlmap():
-    """Find sqlmap.py dynamically at runtime and return its absolute path."""
-    logging.info("🔍 Searching for sqlmap.py...")
-
-    # Try system-wide installation first
-    sqlmap_exec = shutil.which("sqlmap")
-    if sqlmap_exec:
-        logging.info(f"✅ Found sqlmap at: {sqlmap_exec}")
-        return sqlmap_exec
-
-    # Use locate (faster) before find (slower)
-    try:
-        locate_cmd = ["locate", "sqlmap.py"]
-        result = subprocess.run(locate_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-        sqlmap_paths = [path for path in result.stdout.strip().split("\n") if os.path.isfile(path)]
-
-        if sqlmap_paths:
-            logging.info(f"✅ Found sqlmap at: {sqlmap_paths[0]}")
-            return sqlmap_paths[0]
-    except Exception:
-        logging.warning("⚠ locate command failed, falling back to `find`.")
-
-    # Use find command (last resort, slower)
-    try:
-        find_cmd = ["find", "/", "-name", "sqlmap.py", "-type", "f", "-not", "-path", "'*/proc/*'", "2>/dev/null"]
-        result = subprocess.run(" ".join(find_cmd), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, shell=True)
-        sqlmap_paths = [path for path in result.stdout.strip().split("\n") if os.path.isfile(path)]
-
-        if sqlmap_paths:
-            logging.info(f"✅ Found sqlmap at: {sqlmap_paths[0]}")
-            return sqlmap_paths[0]
-    except Exception:
-        logging.error("❌ `find` command failed. sqlmap.py not found.")
-
-    logging.error("❌ sqlmap.py not found! Ensure sqlmap is installed.")
-    return None  # Explicit None if not found
