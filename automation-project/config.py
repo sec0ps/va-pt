@@ -6,7 +6,6 @@ import subprocess
 import ipaddress
 import re
 from cryptography.fernet import Fernet
-#from config import SQLMAP_PATH  # ✅ Import SQLMAP_PATH from config.py
 
 ### ✅ **Define Constants First**
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Get project base path

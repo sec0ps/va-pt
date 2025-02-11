@@ -8,7 +8,7 @@ from ipaddress import ip_network
 from urllib.parse import urlparse
 from datetime import datetime
 from nmap import *
-from sqlmap import *
+from sql import *
 from config import load_api_key  # ✅ Import from config.py
 from utils import encrypt_and_store_data, get_encrypted_data
 

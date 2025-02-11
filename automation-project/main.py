@@ -21,7 +21,7 @@ import xml.etree.ElementTree as ET
 from web import *
 from utils import *
 from nmap import *
-from sqlmap import *
+from sql import *
 from config import LOG_DIR, LOG_FILE  # ✅ Import LOG_FILE from config.py
 
 # Ensure log directory exists and is secured
