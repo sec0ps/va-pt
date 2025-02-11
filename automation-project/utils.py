@@ -4,12 +4,19 @@ import logging
 import shutil
 import subprocess
 from cryptography.fernet import Fernet
+from web import *
+from nmap import *
+from sqlmap import *
 
 # Configuration files
 KEY_FILE = "encryption.key"
 target_file = "automation.config"
 ENUMERATION_FILE = ".tmp.enumeration"
 API_KEY_FILE = "./.zap_api_key"
+LOG_DIR = "./automation-logs"
+LOG_FILE = os.path.join(LOG_DIR, "automation.log")
+REPORT_DIR = "./raw_reports"
+SQLMAP_PATH = None  # Global variable to store sqlmap path
 
 def load_api_key():
     """Retrieve or prompt the user for the OWASP ZAP API key and store it once."""
@@ -100,17 +107,50 @@ def get_enumerated_targets():
         logging.error(f"❌ Failed to retrieve enumerated targets: {e}")
         return []
 
+def is_valid_ipv4(ip):
+    """Validate an IPv4 address format."""
+    ipv4_pattern = re.compile(r"^(?:\d{1,3}\.){3}\d{1,3}$")
+    return bool(ipv4_pattern.match(ip)) and all(0 <= int(octet) <= 255 for octet in ip.split("."))
+
+def is_valid_ipv6(ip):
+    """Validate an IPv6 address format."""
+    try:
+        return bool(ipaddress.IPv6Address(ip))
+    except ipaddress.AddressValueError:
+        return False
+
+def is_valid_fqdn(domain):
+    """Validate a Fully Qualified Domain Name (FQDN)."""
+    fqdn_pattern = re.compile(r"^(?=.{1,253}$)([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$")
+    return bool(fqdn_pattern.match(domain))
+
+def is_valid_cidr(netblock):
+    """Validate an IPv4 or IPv6 CIDR netblock format."""
+    try:
+        ipaddress.ip_network(netblock, strict=False)  # strict=False allows host identifiers
+        return True
+    except ValueError:
+        return False
+
 def check_target_defined():
-    """Check if the target is defined in the configuration file."""
+    """Ensure the target is a valid IPv4, IPv6, FQDN, or CIDR Netblock before storing it."""
+    display_logo()
     data = get_encrypted_data()
     target = data.get("target")
-    if target:
-        logging.info(f"Target is set: {target}")
+
+    if target and (is_valid_ipv4(target) or is_valid_ipv6(target) or is_valid_fqdn(target) or is_valid_cidr(target)):
+        logging.info(f"✅ Target is set: {target}")
         return target
-    else:
-        target = input("Enter target (IP, FQDN, or Netblock): ").strip()
-        encrypt_and_store_data("target", target)
-        return target
+
+    while True:
+        target = input("Enter target (IPv4, IPv6, FQDN, or CIDR Netblock): ").strip()
+
+        if is_valid_ipv4(target) or is_valid_ipv6(target) or is_valid_fqdn(target) or is_valid_cidr(target):
+            encrypt_and_store_data("target", target)
+            logging.info(f"✅ Target stored: {target}")
+            return target
+        else:
+            logging.error("❌ Invalid target. Please enter a valid IPv4 address, IPv6 address, FQDN, or CIDR netblock.")
 
 def find_sqlmap():
     """Find sqlmap.py dynamically at runtime and return its absolute path."""

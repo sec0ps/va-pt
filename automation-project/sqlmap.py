@@ -1,3 +1,7 @@
+from web import *
+from utils import *
+from nmap import *
+
 def sqli_automation_enumeration():
     """Run SQLi spider enumeration on all targets stored in .tmp.enumeration using sqlmap in parallel."""
 

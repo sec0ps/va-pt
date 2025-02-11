@@ -4,6 +4,9 @@ import logging
 import concurrent.futures
 import random
 from datetime import datetime
+from web import *
+from utils import *
+from sqlmap import *
 
 def run_nmap_scan(target, scan_type):
     """Run an Nmap scan on a single target with selected scan type."""

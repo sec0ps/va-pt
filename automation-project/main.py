@@ -9,6 +9,7 @@ import socket
 import subprocess
 import shutil
 import ssl
+import ipaddress
 from tqdm import tqdm
 from cryptography.fernet import Fernet
 from ipaddress import ip_network
@@ -17,22 +18,10 @@ from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor
 import subprocess
 import xml.etree.ElementTree as ET
-import web  # Import the standalone web module
-import nmap  # Import the renamed Nmap scanning module
-from sqlmap import sqli_testing_automation  # Ensure SQLMap functions are in sqlmap.py
-from utils import check_zap_running, find_sqlmap, purge_target_prompt, full_automation  # Keep utility functions modular
-
-# Define log directory and log file
-LOG_DIR = "./automation-logs"
-LOG_FILE = os.path.join(LOG_DIR, "automation.log")
-
-# Define report directory
-REPORT_DIR = "./raw_reports"
-
-ZAP_API_KEY = load_api_key()
-ZAP_API_URL = "http://127.0.0.1:8080"
-
-ENUMERATION_FILE = ".tmp.enumeration"
+from web import *
+from utils import *
+from nmap import *
+from sqlmap import *
 
 # Ensure log directory exists and is secured
 if not os.path.exists(LOG_DIR):
@@ -51,10 +40,8 @@ logging.basicConfig(
 
 logging.info("✅ Logging initialized. Log file: %s", LOG_FILE)
 
-target_file = "automation.config"
-KEY_FILE = "./.key"
-ZAP_API_URL = "http://localhost:8080"
-ENUMERATION_FILE = ".tmp.enumeration"
+#target_file = "automation.config"
+#KEY_FILE = "./.key"
 SQLMAP_PATH = None  # Global variable to store sqlmap path
 #SQLMAP_PATH = "/path/to/sqlmap.py"  # Ensure this is set correctly
 

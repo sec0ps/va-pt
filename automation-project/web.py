@@ -7,15 +7,15 @@ from tqdm import tqdm
 from ipaddress import ip_network
 from urllib.parse import urlparse
 from datetime import datetime
+from utils import *
+from nmap import *
+from sqlmap import *
 
 # Load API Key once at the start
 from utils import load_api_key, encrypt_and_store_data, get_encrypted_data  # Ensure utils handles encryption
 
-#ZAP_API_KEY = load_api_key()
-#ZAP_API_URL = "http://127.0.0.1:8080"
-
-#REPORT_DIR = "raw_reports"
-#ENUMERATION_FILE = ".tmp.enumeration"
+ZAP_API_KEY = load_api_key()
+ZAP_API_URL = "http://127.0.0.1:8080"
 
 def get_api_key():
     """Return the cached API key."""
