@@ -7,23 +7,23 @@ import ipaddress
 import re
 from cryptography.fernet import Fernet
 
-### **✅ Define Constants First Before Using Them**
+### ✅ **Define Constants First**
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Get project base path
 LOG_DIR = os.path.join(BASE_DIR, "automation-logs")
 REPORT_DIR = os.path.join(BASE_DIR, "raw_reports")
 RAW_NMAP_DIR = os.path.join(BASE_DIR, "raw_nmap")
 KEY_FILE = os.path.join(BASE_DIR, ".key")
 TARGET_FILE = os.path.join(BASE_DIR, "automation.config")
-ENUMERATION_FILE = os.path.join(BASE_DIR, "network.enumeration")
+NETWORK_ENUMERATION_FILE = os.path.join(BASE_DIR, "network.enumeration")  # ✅ Ensure it's defined
 API_KEY_FILE = os.path.join(BASE_DIR, ".zap_api_key")
-LOG_FILE = os.path.join(LOG_DIR, "automation.log")
+LOG_FILE = os.path.join(LOG_DIR, "automation.log")  # ✅ Define LOG_FILE
 
-### **✅ Ensure Directories Exist**
+### ✅ **Ensure Directories Exist**
 os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(REPORT_DIR, exist_ok=True)
 os.makedirs(RAW_NMAP_DIR, exist_ok=True)
 
-### **✅ Logging Configuration**
+### ✅ **Logging Configuration**
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -33,7 +33,7 @@ logging.basicConfig(
     ]
 )
 
-### **✅ Load API Key**
+
 def load_api_key():
     """Retrieve or prompt the user for the OWASP ZAP API key and store it."""
     if os.path.exists(API_KEY_FILE):
@@ -84,6 +84,28 @@ def get_encrypted_data():
         logging.error(f"❌ {TARGET_FILE} is corrupted. Deleting and resetting...")
         os.remove(TARGET_FILE)
         return {}
+
+### **✅ Encrypt and Store Data Securely**
+def encrypt_and_store_data(key, value):
+    """Encrypt and store a key-value pair persistently in the config file."""
+    try:
+        data = get_encrypted_data()  # Load existing encrypted data
+
+        if not isinstance(value, str):
+            raise ValueError("🔒 Value to encrypt must be a string!")
+
+        encrypted_value = cipher_suite.encrypt(value.encode()).decode()
+        temp_file = f"{TARGET_FILE}.tmp"  # Write to a temp file first
+
+        data[key] = encrypted_value
+        with open(temp_file, "w", encoding="utf-8") as file:
+            json.dump(data, file, ensure_ascii=False, indent=4)
+
+        os.replace(temp_file, TARGET_FILE)  # Prevent corruption
+        logging.info(f"✅ Stored {key} securely in {TARGET_FILE}")
+
+    except Exception as e:
+        logging.error(f"❌ Failed to encrypt and store {key}: {e}")
 
 ### **✅ Validation Functions**
 def is_valid_ipv4(ip):

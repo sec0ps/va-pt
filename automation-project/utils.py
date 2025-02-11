@@ -5,22 +5,22 @@ import shutil
 import subprocess
 import ipaddress
 import re
-from config import *  # Import all constants and utility functions
+from config import NETWORK_ENUMERATION_FILE, TARGET_FILE, cipher_suite  # ✅ Use NETWORK_ENUMERATION_FILE from config.py
 
 # Ensure necessary directories exist
-os.makedirs(LOG_DIR, exist_ok=True)
-os.makedirs(REPORT_DIR, exist_ok=True)
-os.makedirs(RAW_NMAP_DIR, exist_ok=True)
+#os.makedirs(LOG_DIR, exist_ok=True)
+#os.makedirs(REPORT_DIR, exist_ok=True)
+#os.makedirs(RAW_NMAP_DIR, exist_ok=True)
 
 # Logging Configuration
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(LOG_FILE),
-        logging.StreamHandler()
-    ]
-)
+#logging.basicConfig(
+#    level=logging.INFO,
+#    format="%(asctime)s - %(levelname)s - %(message)s",
+#    handlers=[
+#        logging.FileHandler(LOG_FILE),
+#        logging.StreamHandler()
+#    ]
+#)
 
 ### ✅ **Using Encryption Functions from `config.py`** ###
 def encrypt_and_store_data(key, value):

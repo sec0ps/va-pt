@@ -4,9 +4,9 @@ import subprocess
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 import utils  # ✅ Import utils as a module to avoid circular import
+from config import NETWORK_ENUMERATION_FILE  # ✅ Import the correct constant
 
-# ✅ Use utils.ENUMERATION_FILE to prevent circular import
-ENUMERATION_FILE_PATH = os.path.abspath(utils.ENUMERATION_FILE)
+ENUMERATION_FILE_PATH = os.path.abspath(NETWORK_ENUMERATION_FILE)
 logging.info(f"🔍 Checking for enumeration file at: {ENUMERATION_FILE_PATH}")
 
 def sqli_automation_enumeration():

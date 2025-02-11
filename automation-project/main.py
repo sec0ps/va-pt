@@ -22,6 +22,7 @@ from web import *
 from utils import *
 from nmap import *
 from sqlmap import *
+from config import LOG_DIR, LOG_FILE  # ✅ Import LOG_FILE from config.py
 
 # Ensure log directory exists and is secured
 if not os.path.exists(LOG_DIR):
@@ -80,7 +81,7 @@ def automated_network_enumeration():
 
 def purge_target_prompt():
     """Ask the user if they want to purge the stored target before exiting."""
-    if not os.path.exists(target_file):
+    if not os.path.exists(TARGET_FILE):  # ✅ Use TARGET_FILE from config.py
         logging.info("⚠ No stored target found.")
         return
 
@@ -93,7 +94,7 @@ def purge_target_prompt():
                 del data["target"]  # Remove only the target variable
 
                 # Write updated config back to file
-                with open(target_file, "w", encoding="utf-8") as file:
+                with open(TARGET_FILE, "w", encoding="utf-8") as file:
                     json.dump(data, file, ensure_ascii=False, indent=4)
 
                 logging.info("✅ Target purged successfully.")
