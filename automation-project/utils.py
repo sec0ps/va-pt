@@ -7,21 +7,6 @@ import ipaddress
 import re
 from config import NETWORK_ENUMERATION_FILE, TARGET_FILE, cipher_suite, SQLMAP_PATH
 
-# Ensure necessary directories exist
-#os.makedirs(LOG_DIR, exist_ok=True)
-#os.makedirs(REPORT_DIR, exist_ok=True)
-#os.makedirs(RAW_NMAP_DIR, exist_ok=True)
-
-# Logging Configuration
-#logging.basicConfig(
-#    level=logging.INFO,
-#    format="%(asctime)s - %(levelname)s - %(message)s",
-#    handlers=[
-#        logging.FileHandler(LOG_FILE),
-#        logging.StreamHandler()
-#    ]
-#)
-
 ### ✅ **Using Encryption Functions from `config.py`** ###
 def encrypt_and_store_data(key, value):
     """Encrypt and store a key-value pair persistently in the config file."""
@@ -46,30 +31,38 @@ def encrypt_and_store_data(key, value):
     except Exception as e:
         logging.error(f"❌ Failed to encrypt and store {key}: {e}")
 
-### ✅ **Using Decryption from `config.py`** ###
-def get_encrypted_data():
-    """Retrieve and decrypt stored data from the configuration file."""
+def get_encrypted_data(key=None):
+    """Retrieve and decrypt stored data from the configuration file.
+
+    - If `key` is provided, return only the decrypted value for that key.
+    - If no key is provided, return the full decrypted dictionary.
+    - If decryption fails, return None instead of crashing.
+    """
     if not os.path.exists(TARGET_FILE):
-        return {}
+        return None if key else {}
 
     try:
         with open(TARGET_FILE, "r", encoding="utf-8") as file:
             data = json.load(file)
 
         decrypted_data = {}
-        for key, value in data.items():
+        for stored_key, encrypted_value in data.items():
             try:
-                decrypted_data[key] = cipher_suite.decrypt(value.encode()).decode()
+                decrypted_data[stored_key] = cipher_suite.decrypt(encrypted_value.encode()).decode()
             except Exception as e:
-                logging.error(f"❌ Failed to decrypt {key}: {e}")
+                logging.error(f"❌ Failed to decrypt {stored_key}: {e}")
                 continue  # Skip corrupted entries
 
-        return decrypted_data
+        # If a specific key was requested, return only its value
+        if key:
+            return decrypted_data.get(key, None)  # Return None if the key doesn't exist or failed decryption
+
+        return decrypted_data  # Return the full decrypted dictionary
 
     except json.JSONDecodeError:
         logging.error(f"❌ {TARGET_FILE} is corrupted. Deleting and resetting...")
         os.remove(TARGET_FILE)
-        return {}
+        return None if key else {}
 
 def get_enumerated_targets():
     """Retrieve stored enumerated targets from network.enumeration."""

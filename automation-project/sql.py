@@ -9,8 +9,12 @@ from config import NETWORK_ENUMERATION_FILE  # ✅ Import the correct constant
 ENUMERATION_FILE_PATH = os.path.abspath(NETWORK_ENUMERATION_FILE)
 logging.info(f"🔍 Checking for enumeration file at: {ENUMERATION_FILE_PATH}")
 
-def sqli_automation_enumeration():
-    """Run SQLi spider enumeration on all targets stored in network.enumeration using sqlmap in parallel."""
+def sqli_automation_enumerations():
+    """Run SQLi spider enumeration on all targets stored in network.enumeration using sqlmap in parallel.
+
+    - If `network.enumeration` exists, use it.
+    - If it does not exist, use the stored `target` from the config.
+    """
 
     data = utils.get_encrypted_data()
     SQLMAP_PATH = data.get("SQLMAP_PATH", None)
@@ -19,16 +23,32 @@ def sqli_automation_enumeration():
         logging.error("❌ SQLMAP_PATH is not set or invalid. Run set_sqlmap_path() first.")
         return
 
-    if not os.path.exists(ENUMERATION_FILE_PATH):  # ✅ Check the correct file path
-        logging.error(f"❌ Enumeration file not found at {ENUMERATION_FILE_PATH}. Ensure web application enumeration has been run.")
-        return
+    targets = []
 
-    with open(ENUMERATION_FILE_PATH, "r") as file:
-        targets = file.read().splitlines()
+    if os.path.exists(ENUMERATION_FILE_PATH):  # ✅ Check if the enumeration file exists
+        logging.info(f"📄 Using targets from {ENUMERATION_FILE_PATH}.")
+        try:
+            with open(ENUMERATION_FILE_PATH, "r") as file:
+                targets = file.read().splitlines()
+        except Exception as e:
+            logging.error(f"❌ Failed to read {ENUMERATION_FILE_PATH}: {e}")
 
+    # ✅ Check if enumeration file was empty
     if not targets:
-        logging.warning("⚠ No targets found in enumeration file.")
-        return
+        logging.warning(f"⚠ {ENUMERATION_FILE_PATH} not found or empty. Falling back to stored target.")
+
+        # ✅ Fetch the stored target securely
+        target = utils.get_encrypted_data("target")
+
+        if target:
+            if isinstance(target, list):  # Handle list-based FQDNs with http/https
+                targets = target
+            else:
+                targets = [target]  # Convert single string to a list
+
+        else:
+            logging.error("❌ No valid target found. Ensure you set a target before running SQLi testing.")
+            return
 
     logging.info(f"🔍 Starting parallel SQLi automation for {len(targets)} targets...")
     run_bulk_sqlmap(targets)

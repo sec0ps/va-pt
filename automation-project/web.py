@@ -10,9 +10,7 @@ from datetime import datetime
 from nmap import *
 from sql import *
 from config import load_api_key  # ✅ Import from config.py
-from utils import encrypt_and_store_data, get_encrypted_data
-
-
+from utils import encrypt_and_store_data, get_encrypted_data, is_valid_ipv4, is_valid_ipv6, is_valid_fqdn, is_valid_cidr
 
 ZAP_API_KEY = load_api_key()
 ZAP_API_URL = "http://127.0.0.1:8080"
@@ -44,28 +42,68 @@ def check_zap_running():
     logging.error("? Max retries reached. ZAP API is not accessible. Exiting...")
     sys.exit(1)
 
+def check_target_defined():
+    """Ensure the target is a valid IPv4, IPv6, FQDN, or CIDR Netblock before storing it.
+
+    - If an FQDN is entered, both `http://` and `https://` versions are returned.
+    - If an IP address or CIDR is entered, it is returned as-is.
+    """
+    target = get_encrypted_data("target")  # Fetch only the target directly
+
+    if target and (is_valid_ipv4(target) or is_valid_ipv6(target) or is_valid_fqdn(target) or is_valid_cidr(target)):
+        if is_valid_fqdn(target):
+            # Store both HTTP and HTTPS versions for testing
+            http_target = f"http://{target}"
+            https_target = f"https://{target}"
+            encrypt_and_store_data("target_http", http_target)
+            encrypt_and_store_data("target_https", https_target)
+            logging.info(f"✅ Target is set: {http_target} & {https_target}")
+            return [http_target, https_target]  # Return both for testing
+
+        logging.info(f"✅ Target is set: {target}")
+        return target  # Return IP or CIDR as-is
+
+    while True:
+        target = input("Enter target (IPv4, IPv6, FQDN, or CIDR Netblock): ").strip()
+
+        if is_valid_ipv4(target) or is_valid_ipv6(target) or is_valid_fqdn(target) or is_valid_cidr(target):
+            if is_valid_fqdn(target):
+                http_target = f"http://{target}"
+                https_target = f"https://{target}"
+                encrypt_and_store_data("target_http", http_target)
+                encrypt_and_store_data("target_https", https_target)
+                logging.info(f"✅ Target stored: {http_target} & {https_target}")
+                return [http_target, https_target]  # Return both for scanning
+
+            encrypt_and_store_data("target", target)
+            logging.info(f"✅ Target stored: {target}")
+            return target
+        else:
+            logging.error("❌ Invalid target. Please enter a valid IPv4 address, IPv6 address, FQDN, or CIDR netblock.")
+
 def process_network_enumeration():
-    """Check if network.enumeration exists and process it, else use web_application_enumeration."""
+    """Check if network.enumeration exists and has valid targets; otherwise, use the fallback target."""
+    target = check_target_defined()  # Ensure we have a valid target
+
     if os.path.exists(NETWORK_ENUMERATION_FILE):
         logging.info(f"📄 Found {NETWORK_ENUMERATION_FILE}. Processing targets...")
 
         with open(NETWORK_ENUMERATION_FILE, "r") as file:
             targets = file.read().splitlines()
 
-        if not targets:
-            logging.error("❌ No valid targets found in network.enumeration.")
-            return
-
-        for target in targets:
-            logging.info(f"🚀 Starting ZAP scan on: {target}")
-            scan_target_with_zap(target)  # Scan each target with ZAP
-
-        logging.info("✅ All targets in network.enumeration have been processed.")
+        if not targets:  # Handle empty file
+            logging.warning(f"⚠ {NETWORK_ENUMERATION_FILE} is empty. Falling back to defined target: {target}")
+            targets = target if isinstance(target, list) else [target]  # Convert single string to list
+        else:
+            logging.info(f"✅ Found targets in {NETWORK_ENUMERATION_FILE}")
 
     else:
-        logging.info(f"⚠ {NETWORK_ENUMERATION_FILE} not found. Running web_application_enumeration instead...")
-        target = check_target_defined()  # Ensure we get a valid target
-        web_application_enumeration(target)  # ✅ Now passing the target argument properly
+        logging.warning(f"⚠ {NETWORK_ENUMERATION_FILE} not found. Running web_application_enumeration on target: {target}")
+        targets = target if isinstance(target, list) else [target]  # Convert single string to list
+
+    # Iterate through all targets (both HTTP and HTTPS if FQDN)
+    for t in targets:
+        web_application_enumeration(t)
 
 def check_web_service(ip):
     """Determine if the given IP has an active web service and return the correct URL."""
