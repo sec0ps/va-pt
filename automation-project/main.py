@@ -80,12 +80,12 @@ def automated_network_enumeration():
     logging.info("Running automated network enumeration...")
 
 def purge_target_prompt():
-    """Ask the user if they want to purge the stored target before exiting."""
+    """Ask the user if they want to purge the stored target and delete `network.enumeration` before exiting."""
     if not os.path.exists(TARGET_FILE):  # ✅ Use TARGET_FILE from config.py
         logging.info("⚠ No stored target found.")
         return
 
-    choice = input("\n⚠ Do you want to purge the stored target? (yes/no): ").strip().lower()
+    choice = input("\n⚠ Do you want to purge the stored target data`? (yes/no): ").strip().lower()
 
     if choice == "yes":
         try:
@@ -100,10 +100,19 @@ def purge_target_prompt():
                 logging.info("✅ Target purged successfully.")
             else:
                 logging.info("⚠ No target variable found in automation.config.")
+
+            # Delete network.enumeration if it exists
+            if os.path.exists(NETWORK_ENUMERATION_FILE):
+                os.remove(NETWORK_ENUMERATION_FILE)
+                logging.info("✅ `network.enumeration` file deleted.")
+            else:
+                logging.info("⚠ `network.enumeration` file not found.")
+
         except Exception as e:
-            logging.error(f"❌ Failed to purge target: {e}")
+            logging.error(f"❌ Failed to purge target or delete `network.enumeration`: {e}")
     else:
-        logging.info("⚠ Target was NOT purged.")
+        logging.info("⚠ Target data was not purged.")
+
 
 def display_logo():
     logo_ascii = """
@@ -171,7 +180,7 @@ def main():
         print("\n[ ⚙ Automated Security Testing Framework ⚙ ]")
         print("1️⃣ Full Automation - Not Available Yet")
         print("2️⃣ Automated Network Enumeration")
-        print("3️⃣ Web Application Enumeration")
+        print("3️⃣ Web Application Enumeration & Testing")
         print("4️⃣ SQLi Testing Automation")
         print("5️⃣ Exit (or type 'exit')")
 

@@ -7,6 +7,7 @@ from tqdm import tqdm
 from ipaddress import ip_network
 from urllib.parse import urlparse
 from datetime import datetime
+import random
 from nmap import *
 from sql import *
 from config import load_api_key  # ✅ Import from config.py
@@ -243,10 +244,42 @@ def export_zap_xml_report(target_url):
     except requests.RequestException as e:
         logging.error(f"❌ Error connecting to ZAP API: {e}")
 
+import random
+
+def run_nikto_scan(target):
+    """Run a Nikto scan against the target after ZAP completes."""
+    user_agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.69 Safari/537.36",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1"
+    ]
+
+    random_user_agent = random.choice(user_agents)
+
+    nikto_command = (
+        f"nikto -h {target} -p 80,443 "
+        f"-Tuning x -C all -Plugins all "
+        f"-timeout 30 "
+        f"-o full_scan.xml -Format xml "
+        f"-o full_scan.csv -Format csv "
+        f"-useragent \"{random_user_agent}\""
+    )
+
+    logging.info(f"🚀 Running Nikto scan on {target} with User-Agent: {random_user_agent}")
+    os.system(nikto_command)  # Run the Nikto scan
+
 def main():
     """Main function to determine whether to use `network.enumeration` or perform web enumeration."""
     logging.info("🔎 Checking for existing network enumeration results...")
     process_network_enumeration()
+
+    # After all ZAP scans are completed, run Nikto
+    target = get_encrypted_data("target_http")  # Use HTTP version for Nikto
+    if target:
+        run_nikto_scan(target)
+    else:
+        logging.warning("⚠ No valid target found for Nikto scan.")
 
 if __name__ == "__main__":
     main()
