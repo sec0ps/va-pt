@@ -7,10 +7,12 @@ from tqdm import tqdm
 from ipaddress import ip_network
 from urllib.parse import urlparse
 from datetime import datetime
+import concurrent.futures
 import random
+import subprocess
 from nmap import *
 from sql import *
-from config import load_api_key  # ✅ Import from config.py
+from config import load_api_key, find_nikto
 from utils import encrypt_and_store_data, get_encrypted_data, is_valid_ipv4, is_valid_ipv6, is_valid_fqdn, is_valid_cidr
 
 ZAP_API_KEY = load_api_key()
@@ -217,16 +219,16 @@ def scan_target_with_zap(target_url):
     export_zap_xml_report(target_url)
 
 def export_zap_xml_report(target_url):
-    """Fetch and save the OWASP ZAP scan report in XML format."""
+    """Fetch and save the OWASP ZAP scan report in XML format, then launch Nikto in parallel."""
     try:
-        REPORT_DIR = "raw_reports"  # Define report directory
+        REPORT_DIR = "raw_reports"
 
         if not os.path.exists(REPORT_DIR):
             os.makedirs(REPORT_DIR, exist_ok=True)
-            os.chmod(REPORT_DIR, 0o700)  # Secure directory
+            os.chmod(REPORT_DIR, 0o700)
 
         parsed_url = urlparse(target_url)
-        target_name = parsed_url.hostname.replace(".", "_")  # Convert dots to underscores
+        target_name = parsed_url.hostname.replace(".", "_")
         report_file = os.path.join(REPORT_DIR, f"zap_report_{target_name}.xml")
 
         url = f"{ZAP_API_URL}/OTHER/core/other/xmlreport/?apikey={ZAP_API_KEY}"
@@ -238,16 +240,96 @@ def export_zap_xml_report(target_url):
             with open(report_file, "wb") as file:
                 file.write(response.content)
             logging.info(f"✅ XML report saved: {report_file}")
+
+            # ✅ Debug Logging Before Starting Nikto
+            logging.info(f"🔎 Checking if Nikto exists before launching scan for {target_url}...")
+            nikto_path = find_nikto()
+
+            if nikto_path:
+                logging.info(f"🚀 Found Nikto at {nikto_path}, launching scan for {target_url}")
+
+                # ✅ Execute Nikto in Parallel
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    executor.submit(run_nikto_scan, target_url, nikto_path)
+                logging.info(f"🔄 Nikto scan should now be running for {target_url}")
+            else:
+                logging.error("❌ Nikto not found! Skipping Nikto scan.")
+
         else:
             logging.error(f"❌ Failed to fetch XML report. Status Code: {response.status_code}")
 
     except requests.RequestException as e:
         logging.error(f"❌ Error connecting to ZAP API: {e}")
 
-import random
+def select_nikto_targets():
+    """Determine the correct targets for Nikto scanning and execute scans accordingly."""
+    logging.info("🔍 [DEBUG] Entered select_nikto_targets()...")
 
-def run_nikto_scan(target):
-    """Run a Nikto scan against the target after ZAP completes."""
+    nikto_path = find_nikto()
+    if not nikto_path:
+        logging.error("❌ Nikto not found! Skipping Nikto scans.")
+        return
+
+    logging.info(f"✅ [DEBUG] Found Nikto at: {nikto_path}")
+
+    if os.path.exists(NETWORK_ENUMERATION_FILE):
+        logging.info(f"📄 Found {NETWORK_ENUMERATION_FILE}. Using it for Nikto scans.")
+
+        with open(NETWORK_ENUMERATION_FILE, "r") as file:
+            targets = file.read().splitlines()
+
+        for target in targets:
+            logging.info(f"✅ Running Nikto scan on: {target}")
+            run_nikto_scan(target, nikto_path)  # ✅ Pass nikto_path
+
+        return
+
+    target = get_encrypted_data("target")
+
+    if not target:
+        logging.warning("⚠ No valid target found. Nikto scan skipped.")
+        return
+
+    logging.info(f"🎯 [DEBUG] Selected target from config: {target}")
+
+    if is_valid_cidr(target):
+        logging.info(f"🌍 Expanding CIDR block: {target}")
+
+        for ip in ip_network(target).hosts():
+            ip_str = str(ip)
+            logging.info(f"🔎 [DEBUG] Checking web services on {ip_str}...")
+
+            https_target = f"https://{ip_str}:443"
+            http_target = f"http://{ip_str}:80"
+
+            if check_web_service(ip_str) == https_target:
+                logging.info(f"✅ Found active HTTPS service: {https_target}")
+                run_nikto_scan(https_target, nikto_path)  # ✅ Pass nikto_path
+
+            elif check_web_service(ip_str) == http_target:
+                logging.info(f"✅ Found active HTTP service: {http_target}")
+                run_nikto_scan(http_target, nikto_path)  # ✅ Pass nikto_path
+
+        logging.info("✅ CIDR expansion completed.")
+        return
+
+    if is_valid_ipv4(target) or is_valid_ipv6(target) or is_valid_fqdn(target):
+        logging.info(f"✅ Running Nikto scan on: {target}")
+        run_nikto_scan(target, nikto_path)  # ✅ Pass nikto_path
+        return
+
+    logging.warning("⚠ No valid target found for Nikto scan.")
+
+def run_nikto_scan(target, nikto_path):
+    """Run a Nikto scan against the target using the dynamically located Nikto."""
+    logging.info(f"🚀 [DEBUG] Preparing Nikto scan for: {target}")
+
+    if not nikto_path:
+        logging.error("❌ Nikto not found on the system. Ensure it is installed.")
+        return
+
+    logging.info(f"✅ Using Nikto path: {nikto_path}")
+
     user_agents = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36",
@@ -257,29 +339,36 @@ def run_nikto_scan(target):
 
     random_user_agent = random.choice(user_agents)
 
-    nikto_command = (
-        f"nikto -h {target} -p 80,443 "
-        f"-Tuning x -C all -Plugins all "
-        f"-timeout 30 "
-        f"-o full_scan.xml -Format xml "
-        f"-o full_scan.csv -Format csv "
-        f"-useragent \"{random_user_agent}\""
-    )
+    # ✅ Convert IP/FQDN to ZAP-style filename format
+    parsed_url = urlparse(target)
+    host = parsed_url.hostname if parsed_url.hostname else target
+    filename_safe_target = host.replace(".", "_")  # Convert dots to underscores
 
-    logging.info(f"🚀 Running Nikto scan on {target} with User-Agent: {random_user_agent}")
-    os.system(nikto_command)  # Run the Nikto scan
+    # ✅ Define report file paths
+    xml_report = f"nikto_report_{filename_safe_target}.xml"
+    csv_report = f"nikto_report_{filename_safe_target}.csv"
+
+    nikto_command = [
+        "perl", nikto_path, "-host", target, "-p", "80,443",
+        "-Tuning", "x", "-C", "all", "-Plugins", "all",
+        "-timeout", "30",
+        "-o", xml_report, "-Format", "xml",
+        "-o", csv_report, "-Format", "csv",
+        "-useragent", random_user_agent
+    ]
+
+    logging.info(f"📢 [DEBUG] Running Nikto command: {' '.join(nikto_command)}")
+
+    try:
+        result = subprocess.run(nikto_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        logging.info(f"✅ Nikto scan completed for {target}.\n{result.stdout}")
+    except subprocess.CalledProcessError as e:
+        logging.error(f"❌ Nikto scan failed for {target}: {e.stderr}")
 
 def main():
     """Main function to determine whether to use `network.enumeration` or perform web enumeration."""
     logging.info("🔎 Checking for existing network enumeration results...")
     process_network_enumeration()
-
-    # After all ZAP scans are completed, run Nikto
-    target = get_encrypted_data("target_http")  # Use HTTP version for Nikto
-    if target:
-        run_nikto_scan(target)
-    else:
-        logging.warning("⚠ No valid target found for Nikto scan.")
 
 if __name__ == "__main__":
     main()

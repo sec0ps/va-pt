@@ -22,7 +22,8 @@ from web import *
 from utils import *
 from nmap import *
 from sql import *
-from config import LOG_DIR, LOG_FILE, find_sqlmap  # ✅ Import LOG_FILE from config.py
+from config import LOG_DIR, LOG_FILE, find_sqlmap, find_nikto  # ✅ Import find_nikto()
+
 
 # Ensure log directory exists and is secured
 if not os.path.exists(LOG_DIR):
@@ -151,11 +152,18 @@ def display_logo():
 def main():
     """Main function to execute the menu and handle user input."""
     check_zap_running()
-    sqlmap_path = find_sqlmap()  # Find sqlmap locally
+
+    # Locate tools dynamically
+    sqlmap_path = find_sqlmap()  # ✅ Find sqlmap
+    nikto_path = find_nikto()  # ✅ Find Nikto
+
+    # Ensure a valid target is set
     target = check_target_defined()
 
+    # Display paths and target
     print(f"\n🎯 Current Target: {target}")
-    print(f"🛠 SQLMAP Path: {sqlmap_path if sqlmap_path else '❌ Not Found'}\n")
+    print(f"🛠 SQLMAP Path: {sqlmap_path if sqlmap_path else '❌ Not Found'}")
+    print(f"🛠 Nikto Path: {nikto_path if nikto_path else '❌ Not Found'}\n")
 
     def network_enumeration():
         """Prompt for scan type and run Nmap scan."""
@@ -171,8 +179,8 @@ def main():
 
     actions = {
         "1": full_automation,
-        "2": network_enumeration,  # Modified to first prompt for scan_type
-        "3": process_network_enumeration,  # ✅ Corrected function call from web.py
+        "2": network_enumeration,
+        "3": process_network_enumeration,
         "4": lambda: sqli_testing_automation(sqlmap_path)
     }
 
@@ -187,13 +195,13 @@ def main():
         choice = input("\n🔹 Select an option (1-5 or 'exit'): ").strip().lower()
 
         if choice in ("exit", "5"):
-            purge_target_prompt()  # 🔴 Always ask to purge before exit
+            purge_target_prompt()
             logging.info("🔚 Exiting program.")
             break
 
         action = actions.get(choice)
         if action:
-            action()  # Call the function (network_enumeration() prompts user first)
+            action()
         else:
             logging.error("❌ Invalid selection. Please try again.")
 

@@ -154,11 +154,6 @@ def check_target_defined():
         else:
             logging.error("❌ Invalid target. Enter a valid IPv4, IPv6, FQDN, or CIDR netblock.")
 
-import os
-import logging
-import shutil
-import subprocess
-
 ### **✅ Find SQLMAP_PATH Properly**
 def find_sqlmap():
     """Find sqlmap.py dynamically at runtime and return its absolute path."""
@@ -198,3 +193,32 @@ def find_sqlmap():
 # **✅ Ensure SQLMAP_PATH is Set at the End of config.py**
 SQLMAP_PATH = find_sqlmap()
 logging.info(f"✅ SQLMAP_PATH set to: {SQLMAP_PATH}" if SQLMAP_PATH else "❌ SQLMAP_PATH not found!")
+
+def find_nikto():
+    """Locate nikto.pl dynamically using `locate` or `find`."""
+    try:
+        # Try using `locate` to find nikto.pl
+        result = subprocess.run(["locate", "nikto.pl"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        paths = result.stdout.strip().split("\n")
+
+        if paths:
+            return paths[0]  # Return the first found path
+
+    except subprocess.CalledProcessError:
+        pass  # `locate` is not available or failed
+
+    try:
+        # If `locate` fails, use `find` (slower but reliable)
+        result = subprocess.run(["find", "/", "-name", "nikto.pl"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        paths = result.stdout.strip().split("\n")
+
+        if paths:
+            return paths[0]  # Return the first found path
+
+    except subprocess.CalledProcessError:
+        pass  # `find` failed or permission error
+
+    return None  # Nikto not found
+
+# Set the Nikto path as a global variable in config
+NIKTO_PATH = find_nikto()
