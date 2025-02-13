@@ -1,11 +1,13 @@
 import os
 import json
 import logging
+import utils
 import shutil
 import subprocess
 import ipaddress
 import re
 from config import NETWORK_ENUMERATION_FILE, TARGET_FILE, cipher_suite, SQLMAP_PATH
+#from utils import encrypt_and_store_data, is_valid_ipv4, is_valid_ipv6, is_valid_fqdn, is_valid_cidr
 
 ### ✅ **Using Encryption Functions from `config.py`** ###
 def encrypt_and_store_data(key, value):
@@ -120,3 +122,22 @@ def check_target_defined():
             return [target]
         else:
             logging.error("❌ Invalid target. Please enter a valid IPv4 address, IPv6 address, FQDN, or CIDR netblock.")
+
+def change_target():
+    """Prompt the user to change the target and update it securely."""
+    while True:
+        new_target = input("\n🔹 Enter the new target (IPv4, IPv6, FQDN, or CIDR Netblock): ").strip()
+
+        if is_valid_ipv4(new_target) or is_valid_ipv6(new_target) or is_valid_fqdn(new_target) or is_valid_cidr(new_target):
+            encrypt_and_store_data("target", new_target)  # ✅ Store securely
+            logging.info(f"✅ Target updated successfully: {new_target}")
+
+            # ✅ Write the new target to `network.enumeration` WITHOUT expanding CIDR
+            with open(NETWORK_ENUMERATION_FILE, "w") as file:
+                file.write(new_target + "\n")
+                logging.info(f"📄 Target written to {NETWORK_ENUMERATION_FILE}")
+
+            print(f"\n✅ Target changed to: {new_target}\n")
+            return
+        else:
+            logging.error("❌ Invalid target format. Please enter a valid IP, FQDN, or CIDR netblock.")

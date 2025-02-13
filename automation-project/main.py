@@ -19,7 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 import subprocess
 import xml.etree.ElementTree as ET
 from web import *
-from utils import check_target_defined
+from utils import check_target_defined, change_target
 from nmap import *
 from sql import *
 from config import LOG_DIR, LOG_FILE, find_sqlmap, find_nikto, TARGET_FILE
@@ -163,7 +163,8 @@ def main():
         "1": full_automation,
         "2": network_enumeration,
         "3": process_network_enumeration,
-        "4": lambda: sqli_testing_automation(sqlmap_path)
+        "4": lambda: sqli_testing_automation(sqlmap_path),
+        "5": change_target,  # ✅ New option for changing the target
     }
 
     while True:
@@ -172,11 +173,12 @@ def main():
         print("2️⃣ Automated Network Enumeration")
         print("3️⃣ Web Application Enumeration & Testing")
         print("4️⃣ SQLi Testing Automation")
-        print("5️⃣ Exit (or type 'exit')")
+        print("5️⃣ Change Target")
+        print("6️⃣ Exit (or type 'exit')")
 
-        choice = input("\n🔹 Select an option (1-5 or 'exit'): ").strip().lower()
+        choice = input("\n🔹 Select an option (1-6 or 'exit'): ").strip().lower()
 
-        if choice in ("exit", "5"):
+        if choice in ("exit", "6"):
             purge_target_prompt()
             logging.info("🔚 Exiting program.")
             break

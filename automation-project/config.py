@@ -13,12 +13,11 @@ LOG_DIR = os.path.join(BASE_DIR, "automation-logs")
 REPORT_DIR = os.path.join(BASE_DIR, "raw_reports")
 RAW_NMAP_DIR = os.path.join(BASE_DIR, "raw_nmap")
 KEY_FILE = os.path.join(BASE_DIR, ".key")
+SQLMAP_DIR = os.path.join(BASE_DIR, "sqlmap_reports")
 TARGET_FILE = os.path.join(BASE_DIR, "automation.config")
 NETWORK_ENUMERATION_FILE = os.path.join(BASE_DIR, "network.enumeration")  # ✅ Ensure it's defined
 API_KEY_FILE = os.path.join(BASE_DIR, ".zap_api_key")
 LOG_FILE = os.path.join(LOG_DIR, "automation.log")  # ✅ Define LOG_FILE
-#SQLMAP_PATH = shutil.which("sqlmap") or "/path/to/sqlmap.py"
-
 
 # Ensure log directory exists and is secured
 if not os.path.exists(LOG_DIR):
@@ -29,6 +28,8 @@ if not os.path.exists(LOG_DIR):
 os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(REPORT_DIR, exist_ok=True)
 os.makedirs(RAW_NMAP_DIR, exist_ok=True)
+os.makedirs(RAW_NMAP_DIR, exist_ok=True)
+os.makedirs(SQLMAP_DIR, exist_ok=True)
 
 ### ✅ **Logging Configuration**
 logging.basicConfig(
