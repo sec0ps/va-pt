@@ -106,20 +106,17 @@ def is_valid_cidr(netblock):
         return False
 
 def check_target_defined():
-    """Ensure the target is a valid IPv4, IPv6, FQDN, or CIDR Netblock before storing it."""
     data = get_encrypted_data()
     target = data.get("target")
 
     if target and (is_valid_ipv4(target) or is_valid_ipv6(target) or is_valid_fqdn(target) or is_valid_cidr(target)):
         logging.info(f"✅ Target is set: {target}")
-        return target
-
+        return [target]  # Always return as a list
     while True:
         target = input("Enter target (IPv4, IPv6, FQDN, or CIDR Netblock): ").strip()
-
         if is_valid_ipv4(target) or is_valid_ipv6(target) or is_valid_fqdn(target) or is_valid_cidr(target):
             encrypt_and_store_data("target", target)
             logging.info(f"✅ Target stored: {target}")
-            return target
+            return [target]
         else:
             logging.error("❌ Invalid target. Please enter a valid IPv4 address, IPv6 address, FQDN, or CIDR netblock.")

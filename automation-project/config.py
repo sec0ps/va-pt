@@ -19,6 +19,12 @@ API_KEY_FILE = os.path.join(BASE_DIR, ".zap_api_key")
 LOG_FILE = os.path.join(LOG_DIR, "automation.log")  # ✅ Define LOG_FILE
 #SQLMAP_PATH = shutil.which("sqlmap") or "/path/to/sqlmap.py"
 
+
+# Ensure log directory exists and is secured
+if not os.path.exists(LOG_DIR):
+    os.makedirs(LOG_DIR, exist_ok=True)
+    os.chmod(LOG_DIR, 0o700)  # Secure directory: only accessible by current user
+
 ### ✅ **Ensure Directories Exist**
 os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(REPORT_DIR, exist_ok=True)
@@ -33,6 +39,8 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
+
+logging.info("✅ Logging initialized. Log file: %s", LOG_FILE)
 
 def load_api_key():
     """Retrieve or prompt the user for the OWASP ZAP API key and store it."""
@@ -135,22 +143,19 @@ def is_valid_cidr(netblock):
     except ValueError:
         return False
 
-### **✅ Ensure the Target is Defined**
 def check_target_defined():
-    """Ensure the target is valid before storing it."""
     data = get_encrypted_data()
     target = data.get("target")
 
     if target and (is_valid_ipv4(target) or is_valid_ipv6(target) or is_valid_fqdn(target) or is_valid_cidr(target)):
         logging.info(f"✅ Target is set: {target}")
-        return target
-
+        return [target]  # Always return as a list
     while True:
         target = input("Enter target (IPv4, IPv6, FQDN, or CIDR Netblock): ").strip()
         if is_valid_ipv4(target) or is_valid_ipv6(target) or is_valid_fqdn(target) or is_valid_cidr(target):
             encrypt_and_store_data("target", target)
             logging.info(f"✅ Target stored: {target}")
-            return target
+            return [target]
         else:
             logging.error("❌ Invalid target. Enter a valid IPv4, IPv6, FQDN, or CIDR netblock.")
 
@@ -178,17 +183,14 @@ def find_sqlmap():
 
     # **Use `find` (Slower, Last Resort)**
     try:
-        find_cmd = ["find", "/", "-name", "sqlmap.py", "-type", "f", "-not", "-path", "'*/proc/*'", "2>/dev/null"]
-        result = subprocess.run(" ".join(find_cmd), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, shell=True)
+        find_cmd = ["find", "/", "-name", "sqlmap.py", "-type", "f", "-not", "-path", "*/proc/*"]
+        result = subprocess.run(find_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         sqlmap_paths = [path for path in result.stdout.strip().split("\n") if os.path.isfile(path)]
         if sqlmap_paths:
             logging.info(f"✅ Found sqlmap at: {sqlmap_paths[0]}")
             return sqlmap_paths[0]
     except Exception:
         logging.error("❌ `find` command failed. sqlmap.py not found.")
-
-    logging.error("❌ sqlmap.py not found! Ensure sqlmap is installed.")
-    return None
 
 # **✅ Ensure SQLMAP_PATH is Set at the End of config.py**
 SQLMAP_PATH = find_sqlmap()

@@ -19,28 +19,10 @@ from concurrent.futures import ThreadPoolExecutor
 import subprocess
 import xml.etree.ElementTree as ET
 from web import *
-from utils import *
+from utils import check_target_defined
 from nmap import *
 from sql import *
-from config import LOG_DIR, LOG_FILE, find_sqlmap, find_nikto  # ✅ Import find_nikto()
-
-
-# Ensure log directory exists and is secured
-if not os.path.exists(LOG_DIR):
-    os.makedirs(LOG_DIR, exist_ok=True)
-    os.chmod(LOG_DIR, 0o700)  # Secure directory: only accessible by current user
-
-# Logging Configuration
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(LOG_FILE),  # Store logs in automation-logs directory
-        logging.StreamHandler()  # Also print logs to console
-    ]
-)
-
-logging.info("✅ Logging initialized. Log file: %s", LOG_FILE)
+from config import LOG_DIR, LOG_FILE, find_sqlmap, find_nikto, TARGET_FILE
 
 def is_valid_url(url):
     """Validate a given URL."""

@@ -3,6 +3,7 @@ import os
 import time
 import requests
 import socket
+import sys
 from tqdm import tqdm
 from ipaddress import ip_network
 from urllib.parse import urlparse
@@ -12,7 +13,7 @@ import random
 import subprocess
 from nmap import *
 from sql import *
-from config import load_api_key, find_nikto
+from config import load_api_key, find_nikto, NETWORK_ENUMERATION_FILE
 from utils import encrypt_and_store_data, get_encrypted_data, is_valid_ipv4, is_valid_ipv6, is_valid_fqdn, is_valid_cidr
 
 ZAP_API_KEY = load_api_key()
@@ -46,29 +47,19 @@ def check_zap_running():
     sys.exit(1)
 
 def check_target_defined():
-    """Ensure the target is a valid IPv4, IPv6, FQDN, or CIDR Netblock before storing it.
-
-    - If an FQDN is entered, both `http://` and `https://` versions are returned.
-    - If an IP address or CIDR is entered, it is returned as-is.
-    """
-    target = get_encrypted_data("target")  # Fetch only the target directly
-
+    target = get_encrypted_data("target")
     if target and (is_valid_ipv4(target) or is_valid_ipv6(target) or is_valid_fqdn(target) or is_valid_cidr(target)):
         if is_valid_fqdn(target):
-            # Store both HTTP and HTTPS versions for testing
             http_target = f"http://{target}"
             https_target = f"https://{target}"
             encrypt_and_store_data("target_http", http_target)
             encrypt_and_store_data("target_https", https_target)
             logging.info(f"✅ Target is set: {http_target} & {https_target}")
-            return [http_target, https_target]  # Return both for testing
-
+            return [http_target, https_target]
         logging.info(f"✅ Target is set: {target}")
-        return target  # Return IP or CIDR as-is
-
+        return [target]  # Always return as a list
     while True:
         target = input("Enter target (IPv4, IPv6, FQDN, or CIDR Netblock): ").strip()
-
         if is_valid_ipv4(target) or is_valid_ipv6(target) or is_valid_fqdn(target) or is_valid_cidr(target):
             if is_valid_fqdn(target):
                 http_target = f"http://{target}"
@@ -76,11 +67,10 @@ def check_target_defined():
                 encrypt_and_store_data("target_http", http_target)
                 encrypt_and_store_data("target_https", https_target)
                 logging.info(f"✅ Target stored: {http_target} & {https_target}")
-                return [http_target, https_target]  # Return both for scanning
-
+                return [http_target, https_target]
             encrypt_and_store_data("target", target)
             logging.info(f"✅ Target stored: {target}")
-            return target
+            return [target]
         else:
             logging.error("❌ Invalid target. Please enter a valid IPv4 address, IPv6 address, FQDN, or CIDR netblock.")
 
