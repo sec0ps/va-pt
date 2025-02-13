@@ -337,7 +337,7 @@ def run_nikto_scan(target, nikto_path):
         "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1"
     ]
 
-    random_user_agent = random.choice(user_agents)
+    random_user_agent = f'"{random.choice(user_agents)}"'  # ✅ Wrap User-Agent in quotes
 
     # ✅ Convert IP/FQDN to ZAP-style filename format
     parsed_url = urlparse(target)
@@ -348,13 +348,14 @@ def run_nikto_scan(target, nikto_path):
     xml_report = f"nikto_report_{filename_safe_target}.xml"
     csv_report = f"nikto_report_{filename_safe_target}.csv"
 
+    # ✅ Remove `-p` flag since we are passing a full URL
     nikto_command = [
-        "perl", nikto_path, "-host", target, "-p", "80,443",
+        "perl", nikto_path, "-h", target,
         "-Tuning", "x", "-C", "all", "-Plugins", "all",
         "-timeout", "30",
         "-o", xml_report, "-Format", "xml",
         "-o", csv_report, "-Format", "csv",
-        "-useragent", random_user_agent
+        "-useragent", random_user_agent  # ✅ Wrapped in quotes
     ]
 
     logging.info(f"📢 [DEBUG] Running Nikto command: {' '.join(nikto_command)}")
