@@ -160,10 +160,9 @@ def check_target_defined():
         else:
             logging.error("❌ Invalid target. Enter a valid IPv4, IPv6, FQDN, or CIDR netblock.")
 
-### **✅ Find SQLMAP_PATH Properly**
 def find_sqlmap():
-    """Find sqlmap.py dynamically at runtime and return its absolute path."""
-    logging.info("🔍 Searching for sqlmap.py...")
+    """Find sqlmap.py dynamically at runtime and return its absolute path, or exit if not found."""
+    logging.info("🔍 Searching for sqlmap...")
 
     # **First Check System Path**
     sqlmap_exec = shutil.which("sqlmap")
@@ -185,43 +184,65 @@ def find_sqlmap():
     # **Use `find` (Slower, Last Resort)**
     try:
         find_cmd = ["find", "/", "-name", "sqlmap.py", "-type", "f", "-not", "-path", "*/proc/*"]
-        result = subprocess.run(find_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        result = subprocess.run(find_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         sqlmap_paths = [path for path in result.stdout.strip().split("\n") if os.path.isfile(path)]
         if sqlmap_paths:
             logging.info(f"✅ Found sqlmap at: {sqlmap_paths[0]}")
             return sqlmap_paths[0]
     except Exception:
-        logging.error("❌ `find` command failed. sqlmap.py not found.")
+        logging.error("❌ `find` command failed.")
 
-# **✅ Ensure SQLMAP_PATH is Set at the End of config.py**
+    # **Exit Gracefully if sqlmap is Not Found**
+    print("\n❌ ERROR: sqlmap not found! Please install it before running this script.")
+    print("\nExecute: git clone https://github.com/sec0ps/va-pt.git")
+    print("Run the installation script: python3 vapt-installer.py")
+    print("Once installation is completed, then run main.py\n")
+    sys.exit(1)
+
+# **Ensure SQLMAP_PATH is Set**
 SQLMAP_PATH = find_sqlmap()
-logging.info(f"✅ SQLMAP_PATH set to: {SQLMAP_PATH}" if SQLMAP_PATH else "❌ SQLMAP_PATH not found!")
+logging.info(f"✅ SQLMAP_PATH set to: {SQLMAP_PATH}")
+
 
 def find_nikto():
-    """Locate nikto.pl dynamically using `locate` or `find`."""
+    """Find nikto.pl dynamically at runtime and return its absolute path, or exit if not found."""
+    logging.info("🔍 Searching for nikto...")
+
+    # **First Check System Path**
+    nikto_exec = shutil.which("nikto")
+    if nikto_exec:
+        logging.info(f"✅ Found nikto at: {nikto_exec}")
+        return nikto_exec
+
+    # **Use `locate` (Faster)**
     try:
-        # Try using `locate` to find nikto.pl
-        result = subprocess.run(["locate", "nikto.pl"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
-        paths = result.stdout.strip().split("\n")
+        locate_cmd = ["locate", "nikto.pl"]
+        result = subprocess.run(locate_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        nikto_paths = [path for path in result.stdout.strip().split("\n") if os.path.isfile(path)]
+        if nikto_paths:
+            logging.info(f"✅ Found nikto at: {nikto_paths[0]}")
+            return nikto_paths[0]
+    except Exception:
+        logging.warning("⚠ locate command failed, falling back to `find`.")
 
-        if paths:
-            return paths[0]  # Return the first found path
-
-    except subprocess.CalledProcessError:
-        pass  # `locate` is not available or failed
-
+    # **Use `find` (Slower, Last Resort)**
     try:
-        # If `locate` fails, use `find` (slower but reliable)
-        result = subprocess.run(["find", "/", "-name", "nikto.pl"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        paths = result.stdout.strip().split("\n")
+        find_cmd = ["find", "/", "-name", "nikto.pl", "-type", "f", "-not", "-path", "*/proc/*"]
+        result = subprocess.run(find_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        nikto_paths = [path for path in result.stdout.strip().split("\n") if os.path.isfile(path)]
+        if nikto_paths:
+            logging.info(f"✅ Found nikto at: {nikto_paths[0]}")
+            return nikto_paths[0]
+    except Exception:
+        logging.error("❌ `find` command failed.")
 
-        if paths:
-            return paths[0]  # Return the first found path
+    # **Exit Gracefully if nikto is Not Found**
+    print("\n❌ ERROR: Nikto not found! Please install it before running this script.")
+    print("\nExecute: git clone https://github.com/sec0ps/va-pt.git")
+    print("Run the installation script: python3 vapt-installer.py")
+    print("Once installation is completed, then run main.py\n")
+    sys.exit(1)
 
-    except subprocess.CalledProcessError:
-        pass  # `find` failed or permission error
-
-    return None  # Nikto not found
-
-# Set the Nikto path as a global variable in config
+# **Ensure NIKTO_PATH is Set**
 NIKTO_PATH = find_nikto()
+logging.info(f"✅ NIKTO_PATH set to: {NIKTO_PATH}")
