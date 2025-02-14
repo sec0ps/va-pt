@@ -22,7 +22,7 @@ from web import *
 from utils import check_target_defined, change_target
 from nmap import *
 from sql import *
-from config import LOG_DIR, LOG_FILE, find_sqlmap, find_nikto, TARGET_FILE
+from config import LOG_DIR, LOG_FILE, find_sqlmap, find_nikto, TARGET_FILE, find_zap
 
 def is_valid_url(url):
     """Validate a given URL."""
@@ -130,6 +130,7 @@ def main():
     # Locate tools dynamically
     sqlmap_path = find_sqlmap()  # ✅ Find sqlmap
     nikto_path = find_nikto()  # ✅ Find Nikto
+    zap_path = find_zap()
 
     # Ensure a valid target is set
     target = check_target_defined()
@@ -137,7 +138,8 @@ def main():
     # Display paths and target
     print(f"\n🎯 Current Target: {target}")
     print(f"🛠 SQLMAP Path: {sqlmap_path if sqlmap_path else '❌ Not Found'}")
-    print(f"🛠 Nikto Path: {nikto_path if nikto_path else '❌ Not Found'}\n")
+    print(f"🛠 Nikto Path: {nikto_path if nikto_path else '❌ Not Found'}")
+    print(f"🛠 OWASP ZAP Path: {zap_path if zap_path else '❌ Not Found'}\n")
 
     def network_enumeration():
         """Prompt for scan type and run Nmap scan."""

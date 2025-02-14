@@ -246,3 +246,39 @@ def find_nikto():
 # **Ensure NIKTO_PATH is Set**
 NIKTO_PATH = find_nikto()
 logging.info(f"✅ NIKTO_PATH set to: {NIKTO_PATH}")
+
+def find_zap():
+    """Locate zap.sh dynamically using `locate` or `find`, excluding 'Program Files' in WSL."""
+    logging.info("🔍 Searching for zap.sh...")
+
+    # Try using `locate` first (fastest method)
+    try:
+        result = subprocess.run(["locate", "zap.sh"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        paths = [p for p in result.stdout.strip().split("\n") if "Program Files" not in p]
+
+        if paths:
+            logging.info(f"✅ Found zap.sh at: {paths[0]}")
+            return paths[0]  # Return the first valid result
+
+    except subprocess.CalledProcessError:
+        logging.warning("⚠ `locate` command failed, falling back to `find`.")
+
+    # Fallback to using `find` if `locate` is not available
+    try:
+        find_cmd = ["find", "/", "-name", "zap.sh", "-type", "f", "-not", "-path", "'*/proc/*'", "-not", "-path", "'*/mnt/c/Program Files/*'", "2>/dev/null"]
+        result = subprocess.run(" ".join(find_cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, shell=True)
+        paths = [p for p in result.stdout.strip().split("\n") if "Program Files" not in p]
+
+        if paths:
+            logging.info(f"✅ Found zap.sh at: {paths[0]}")
+            return paths[0]
+
+    except subprocess.CalledProcessError:
+        logging.error("❌ `find` command failed. zap.sh not found.")
+
+    logging.error("❌ zap.sh not found! Ensure OWASP ZAP is installed.")
+    return None  # Return None if not found
+
+# Set the ZAP path as a global variable in config
+ZAP_PATH = find_zap()
+logging.info(f"✅ ZAP_PATH set to: {ZAP_PATH}" if ZAP_PATH else "❌ ZAP_PATH not found!")
