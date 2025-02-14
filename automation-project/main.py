@@ -19,7 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 import subprocess
 import xml.etree.ElementTree as ET
 from web import *
-from utils import check_target_defined, change_target
+from utils import check_target_defined, change_target, purge_target_prompt, display_logo
 from nmap import *
 from sql import *
 from config import LOG_DIR, LOG_FILE, find_sqlmap, find_nikto, TARGET_FILE, find_zap
@@ -29,18 +29,18 @@ def is_valid_url(url):
     parsed_url = urlparse(url)
     return all([parsed_url.scheme, parsed_url.netloc])
 
-def check_target_defined():
-    display_logo()
-    """Check if the target is defined in the configuration file."""
-    data = get_encrypted_data()
-    target = data.get("target")
-    if target:
-        logging.info(f"Target is set: {target}")
-        return target
-    else:
-        target = input("Enter target (IP, FQDN, or Netblock): ").strip()
-        encrypt_and_store_data("target", target)
-        return target
+#def check_target_defined():
+#    display_logo()
+#    """Check if the target is defined in the configuration file."""
+#    data = get_encrypted_data()
+#    target = data.get("target")
+#    if target:
+#        logging.info(f"Target is set: {target}")
+#        return target
+#    else:
+#        target = input("Enter target (IP, FQDN, or Netblock): ").strip()
+#        encrypt_and_store_data("target", target)
+#        return target
 
 def check_web_service(ip):
     """Determine if the given IP has an active web service and return the correct URL."""
@@ -61,67 +61,6 @@ def full_automation():
 
 def automated_network_enumeration():
     logging.info("Running automated network enumeration...")
-
-def purge_target_prompt():
-    """Ask the user if they want to purge the stored target and delete `network.enumeration` and `automation.config` before exiting."""
-    if not os.path.exists(TARGET_FILE):  # ✅ Use TARGET_FILE from config.py
-        logging.info("⚠ No stored target found.")
-        return
-
-    choice = input("\n⚠ Do you want to purge the stored target data? (yes/no): ").strip().lower()
-
-    if choice == "yes":
-        try:
-            # Delete automation.config file if it exists
-            if os.path.exists(TARGET_FILE):
-                os.remove(TARGET_FILE)
-                logging.info("✅ `automation.config` file deleted.")
-
-            # Delete network.enumeration file if it exists
-            if os.path.exists(NETWORK_ENUMERATION_FILE):
-                os.remove(NETWORK_ENUMERATION_FILE)
-                logging.info("✅ `network.enumeration` file deleted.")
-            else:
-                logging.info("⚠ `network.enumeration` file not found.")
-
-        except Exception as e:
-            logging.error(f"❌ Failed to purge target data or delete files: {e}")
-    else:
-        logging.info("⚠ Target data was not purged.")
-
-def display_logo():
-    logo_ascii = """
-                                 #                              #
-                               ###              #*#              ##
-                              ##**            #***##             *##
-                              ###*         ##*#*** #*##         #*###
-                             ######     ### ##**** ####*##     ### *#
-                             ##*####   * #####**** #########  ########
-                             ####### # # #####**** ########### ###*###
-                             **### ##### #####**** ############### ##
-                             ######*#*########**** #########*#*####*#
-                              ###*###**#######**** ########*** ####*#
-                               ######**#######**** ######*#*#*###*##
-                                #####*#* *####**** #########**#####
-                                ###*#####**###**** #####*#########
-                                  ####*#*#**##**** # ###########*
-                                   ##*##***##*#*** ####*##*###*
-                                      ###*####**####*##*#####
-                                         #***###**####**#
-                                            ## #### ##
-                                               #*##
-                                                #*
-                                                #*#
-        #########     ###########  #########          ###### *****##### #****#    ******
-          ###   ####    ###    ###   ###    ###    #*#    ##  #**#   #*   **#      ***
-          ###    ###    ###     ##   ###     ###  ##*      #  *#**    #   **#      #**
-          ###    ###    ###  ##      ###     #### **#         **** ##     ***      #**
-          #########     #######      ###     #### **#         #**####     **#      ***
-          ###    ####   ###   #   #  ###     #### **#       # #*** ##  #  **#   #  #**    #
-          ###    ####   ###      ##  ###     ###   #*      ## #***    ##  **#   *  #**    #
-          ###     ### # ###   #####  ###   ###      ##    #*# #**#  #*#* #**###**  #*# *#*#
-    """
-    print(logo_ascii)
 
 def main():
     """Main function to execute the menu and handle user input."""

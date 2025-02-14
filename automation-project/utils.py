@@ -7,7 +7,6 @@ import subprocess
 import ipaddress
 import re
 from config import NETWORK_ENUMERATION_FILE, TARGET_FILE, cipher_suite, SQLMAP_PATH
-#from utils import encrypt_and_store_data, is_valid_ipv4, is_valid_ipv6, is_valid_fqdn, is_valid_cidr
 
 ### ✅ **Using Encryption Functions from `config.py`** ###
 def encrypt_and_store_data(key, value):
@@ -99,18 +98,21 @@ def is_valid_cidr(netblock):
         return False
 
 def check_target_defined():
+    """Ensure the target is properly set and return it as a string."""
+    display_logo()
     data = get_encrypted_data()
     target = data.get("target")
 
     if target and (is_valid_ipv4(target) or is_valid_ipv6(target) or is_valid_fqdn(target) or is_valid_cidr(target)):
         logging.info(f"✅ Target is set: {target}")
-        return [target]  # Always return as a list
+        return target  # ✅ Return as a string, not a list
+
     while True:
         target = input("Enter target (IPv4, IPv6, FQDN, or CIDR Netblock): ").strip()
         if is_valid_ipv4(target) or is_valid_ipv6(target) or is_valid_fqdn(target) or is_valid_cidr(target):
             encrypt_and_store_data("target", target)
             logging.info(f"✅ Target stored: {target}")
-            return [target]
+            return target  # ✅ Return as a string, not a list
         else:
             logging.error("❌ Invalid target. Please enter a valid IPv4 address, IPv6 address, FQDN, or CIDR netblock.")
 
@@ -132,3 +134,65 @@ def change_target():
             return
         else:
             logging.error("❌ Invalid target format. Please enter a valid IP, FQDN, or CIDR netblock.")
+
+def purge_target_prompt():
+    """Ask the user if they want to purge the stored target and delete `network.enumeration` and `automation.config` before exiting."""
+    if not os.path.exists(TARGET_FILE):  # ✅ Use TARGET_FILE from config.py
+        logging.info("⚠ No stored target found.")
+        return
+
+    choice = input("\n⚠ Do you want to purge the stored target data? (yes/no): ").strip().lower()
+
+    if choice == "yes":
+        try:
+            # Delete automation.config file if it exists
+            if os.path.exists(TARGET_FILE):
+                os.remove(TARGET_FILE)
+                logging.info("✅ `automation.config` file deleted.")
+
+            # Delete network.enumeration file if it exists
+            if os.path.exists(NETWORK_ENUMERATION_FILE):
+                os.remove(NETWORK_ENUMERATION_FILE)
+                logging.info("✅ `network.enumeration` file deleted.")
+            else:
+                logging.info("⚠ `network.enumeration` file not found.")
+
+        except Exception as e:
+            logging.error(f"❌ Failed to purge target data or delete files: {e}")
+    else:
+        logging.info("⚠ Target data was not purged.")
+
+
+def display_logo():
+    logo_ascii = """
+                                 #                              #
+                               ###              #*#              ##
+                              ##**            #***##             *##
+                              ###*         ##*#*** #*##         #*###
+                             ######     ### ##**** ####*##     ### *#
+                             ##*####   * #####**** #########  ########
+                             ####### # # #####**** ########### ###*###
+                             **### ##### #####**** ############### ##
+                             ######*#*########**** #########*#*####*#
+                              ###*###**#######**** ########*** ####*#
+                               ######**#######**** ######*#*#*###*##
+                                #####*#* *####**** #########**#####
+                                ###*#####**###**** #####*#########
+                                  ####*#*#**##**** # ###########*
+                                   ##*##***##*#*** ####*##*###*
+                                      ###*####**####*##*#####
+                                         #***###**####**#
+                                            ## #### ##
+                                               #*##
+                                                #*
+                                                #*#
+        #########     ###########  #########          ###### *****##### #****#    ******
+          ###   ####    ###    ###   ###    ###    #*#    ##  #**#   #*   **#      ***
+          ###    ###    ###     ##   ###     ###  ##*      #  *#**    #   **#      #**
+          ###    ###    ###  ##      ###     #### **#         **** ##     ***      #**
+          #########     #######      ###     #### **#         #**####     **#      ***
+          ###    ####   ###   #   #  ###     #### **#       # #*** ##  #  **#   #  #**    #
+          ###    ####   ###      ##  ###     ###   #*      ## #***    ##  **#   *  #**    #
+          ###     ### # ###   #####  ###   ###      ##    #*# #**#  #*#* #**###**  #*# *#*#
+    """
+    print(logo_ascii)

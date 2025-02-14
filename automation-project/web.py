@@ -14,7 +14,7 @@ import subprocess
 from nmap import *
 from sql import *
 from config import load_api_key, find_nikto, NETWORK_ENUMERATION_FILE
-from utils import encrypt_and_store_data, get_encrypted_data, is_valid_ipv4, is_valid_ipv6, is_valid_fqdn, is_valid_cidr
+from utils import encrypt_and_store_data, get_encrypted_data, is_valid_ipv4, is_valid_ipv6, is_valid_fqdn, is_valid_cidr, check_target_defined
 
 ZAP_API_KEY = load_api_key()
 ZAP_API_URL = "http://127.0.0.1:8080"
@@ -45,43 +45,6 @@ def check_zap_running():
 
     logging.error("? Max retries reached. ZAP API is not accessible. Exiting...")
     sys.exit(1)
-
-def check_target_defined():
-    """Ensure the target is a valid IPv4, IPv6, FQDN, or CIDR Netblock before storing it."""
-    data = get_encrypted_data()
-    target = data.get("target")
-
-    if target:
-        # ✅ Strip protocol from stored target before validation
-        clean_target = target.replace("http://", "").replace("https://", "")
-
-        if is_valid_ipv4(clean_target) or is_valid_ipv6(clean_target) or is_valid_fqdn(clean_target) or is_valid_cidr(clean_target):
-            logging.info(f"✅ Target is set: {clean_target}")
-
-            # ✅ Only store HTTP/HTTPS versions separately if it's an FQDN
-            if is_valid_fqdn(clean_target):
-                encrypt_and_store_data("target_http", f"http://{clean_target}")
-                encrypt_and_store_data("target_https", f"https://{clean_target}")
-                return [f"http://{clean_target}", f"https://{clean_target}"]
-
-            return [clean_target]  # ✅ Always return as a list
-
-    while True:
-        target = input("Enter target (IPv4, IPv6, FQDN, or CIDR Netblock): ").strip()
-        clean_target = target.replace("http://", "").replace("https://", "")  # ✅ Strip protocol
-
-        if is_valid_ipv4(clean_target) or is_valid_ipv6(clean_target) or is_valid_fqdn(clean_target) or is_valid_cidr(clean_target):
-            encrypt_and_store_data("target", clean_target)
-            logging.info(f"✅ Target stored: {clean_target}")
-
-            if is_valid_fqdn(clean_target):  # ✅ Store separate HTTP/HTTPS versions for testing
-                encrypt_and_store_data("target_http", f"http://{clean_target}")
-                encrypt_and_store_data("target_https", f"https://{clean_target}")
-                return [f"http://{clean_target}", f"https://{clean_target}"]
-
-            return [clean_target]
-
-        logging.error("❌ Invalid target. Please enter a valid IPv4, IPv6, FQDN, or CIDR netblock.")
 
 def process_network_enumeration():
     """Check if network.enumeration exists and has valid targets; otherwise, use the stored target."""
@@ -135,6 +98,43 @@ def check_web_service(ip):
             continue  # Try the next port
 
     return None  # No web service found
+
+def check_target_defined():
+    """Ensure the target is a valid IPv4, IPv6, FQDN, or CIDR Netblock before storing it."""
+    data = get_encrypted_data()
+    target = data.get("target")
+
+    if target:
+        # ✅ Strip protocol from stored target before validation
+        clean_target = target.replace("http://", "").replace("https://", "")
+
+        if is_valid_ipv4(clean_target) or is_valid_ipv6(clean_target) or is_valid_fqdn(clean_target) or is_valid_cidr(clean_target):
+            logging.info(f"✅ Target is set: {clean_target}")
+
+            # ✅ Only store HTTP/HTTPS versions separately if it's an FQDN
+            if is_valid_fqdn(clean_target):
+                encrypt_and_store_data("target_http", f"http://{clean_target}")
+                encrypt_and_store_data("target_https", f"https://{clean_target}")
+                return [f"http://{clean_target}", f"https://{clean_target}"]
+
+            return [clean_target]  # ✅ Always return as a list
+
+    while True:
+        target = input("Enter target (IPv4, IPv6, FQDN, or CIDR Netblock): ").strip()
+        clean_target = target.replace("http://", "").replace("https://", "")  # ✅ Strip protocol
+
+        if is_valid_ipv4(clean_target) or is_valid_ipv6(clean_target) or is_valid_fqdn(clean_target) or is_valid_cidr(clean_target):
+            encrypt_and_store_data("target", clean_target)
+            logging.info(f"✅ Target stored: {clean_target}")
+
+            if is_valid_fqdn(clean_target):  # ✅ Store separate HTTP/HTTPS versions for testing
+                encrypt_and_store_data("target_http", f"http://{clean_target}")
+                encrypt_and_store_data("target_https", f"https://{clean_target}")
+                return [f"http://{clean_target}", f"https://{clean_target}"]
+
+            return [clean_target]
+
+        logging.error("❌ Invalid target. Please enter a valid IPv4, IPv6, FQDN, or CIDR netblock.")
 
 def web_application_enumeration(target):
     """Scan web applications found in a CIDR range or a single target."""
