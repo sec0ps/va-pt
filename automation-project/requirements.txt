@@ -2,12 +2,3 @@ requests
 cryptography
 tqdm
 ipaddress
-#logging
-#subprocess
-json
-#os
-#sys
-time
-re
-socket
-shutil
