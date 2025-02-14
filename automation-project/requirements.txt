@@ -2,11 +2,11 @@ requests
 cryptography
 tqdm
 ipaddress
-logging
-subprocess
+#logging
+#subprocess
 json
-os
-sys
+#os
+#sys
 time
 re
 socket
