@@ -33,38 +33,29 @@ def encrypt_and_store_data(key, value):
     except Exception as e:
         logging.error(f"❌ Failed to encrypt and store {key}: {e}")
 
-def get_encrypted_data(key=None):
-    """Retrieve and decrypt stored data from the configuration file.
-
-    - If `key` is provided, return only the decrypted value for that key.
-    - If no key is provided, return the full decrypted dictionary.
-    - If decryption fails, return None instead of crashing.
-    """
+def get_encrypted_data():
+    """Retrieve and decrypt stored data from the configuration file."""
     if not os.path.exists(TARGET_FILE):
-        return None if key else {}
+        return {}
 
     try:
         with open(TARGET_FILE, "r", encoding="utf-8") as file:
             data = json.load(file)
 
         decrypted_data = {}
-        for stored_key, encrypted_value in data.items():
+        for key, value in data.items():
             try:
-                decrypted_data[stored_key] = cipher_suite.decrypt(encrypted_value.encode()).decode()
+                decrypted_data[key] = cipher_suite.decrypt(value.encode()).decode()
             except Exception as e:
-                logging.error(f"❌ Failed to decrypt {stored_key}: {e}")
-                continue  # Skip corrupted entries
+                logging.error(f"❌ Failed to decrypt {key}: {e}")  # ✅ Show exact decryption error
+                continue  # ✅ Skip failed decryption attempts instead of breaking
 
-        # If a specific key was requested, return only its value
-        if key:
-            return decrypted_data.get(key, None)  # Return None if the key doesn't exist or failed decryption
-
-        return decrypted_data  # Return the full decrypted dictionary
+        return decrypted_data
 
     except json.JSONDecodeError:
         logging.error(f"❌ {TARGET_FILE} is corrupted. Deleting and resetting...")
         os.remove(TARGET_FILE)
-        return None if key else {}
+        return {}
 
 def get_enumerated_targets():
     """Retrieve stored enumerated targets from network.enumeration."""

@@ -47,36 +47,46 @@ def check_zap_running():
     sys.exit(1)
 
 def check_target_defined():
-    target = get_encrypted_data("target")
-    if target and (is_valid_ipv4(target) or is_valid_ipv6(target) or is_valid_fqdn(target) or is_valid_cidr(target)):
-        if is_valid_fqdn(target):
-            http_target = f"http://{target}"
-            https_target = f"https://{target}"
-            encrypt_and_store_data("target_http", http_target)
-            encrypt_and_store_data("target_https", https_target)
-            logging.info(f"✅ Target is set: {http_target} & {https_target}")
-            return [http_target, https_target]
-        logging.info(f"✅ Target is set: {target}")
-        return [target]  # Always return as a list
+    """Ensure the target is a valid IPv4, IPv6, FQDN, or CIDR Netblock before storing it."""
+    data = get_encrypted_data()
+    target = data.get("target")
+
+    if target:
+        # ✅ Strip protocol from stored target before validation
+        clean_target = target.replace("http://", "").replace("https://", "")
+
+        if is_valid_ipv4(clean_target) or is_valid_ipv6(clean_target) or is_valid_fqdn(clean_target) or is_valid_cidr(clean_target):
+            logging.info(f"✅ Target is set: {clean_target}")
+
+            # ✅ Only store HTTP/HTTPS versions separately if it's an FQDN
+            if is_valid_fqdn(clean_target):
+                encrypt_and_store_data("target_http", f"http://{clean_target}")
+                encrypt_and_store_data("target_https", f"https://{clean_target}")
+                return [f"http://{clean_target}", f"https://{clean_target}"]
+
+            return [clean_target]  # ✅ Always return as a list
+
     while True:
         target = input("Enter target (IPv4, IPv6, FQDN, or CIDR Netblock): ").strip()
-        if is_valid_ipv4(target) or is_valid_ipv6(target) or is_valid_fqdn(target) or is_valid_cidr(target):
-            if is_valid_fqdn(target):
-                http_target = f"http://{target}"
-                https_target = f"https://{target}"
-                encrypt_and_store_data("target_http", http_target)
-                encrypt_and_store_data("target_https", https_target)
-                logging.info(f"✅ Target stored: {http_target} & {https_target}")
-                return [http_target, https_target]
-            encrypt_and_store_data("target", target)
-            logging.info(f"✅ Target stored: {target}")
-            return [target]
-        else:
-            logging.error("❌ Invalid target. Please enter a valid IPv4 address, IPv6 address, FQDN, or CIDR netblock.")
+        clean_target = target.replace("http://", "").replace("https://", "")  # ✅ Strip protocol
+
+        if is_valid_ipv4(clean_target) or is_valid_ipv6(clean_target) or is_valid_fqdn(clean_target) or is_valid_cidr(clean_target):
+            encrypt_and_store_data("target", clean_target)
+            logging.info(f"✅ Target stored: {clean_target}")
+
+            if is_valid_fqdn(clean_target):  # ✅ Store separate HTTP/HTTPS versions for testing
+                encrypt_and_store_data("target_http", f"http://{clean_target}")
+                encrypt_and_store_data("target_https", f"https://{clean_target}")
+                return [f"http://{clean_target}", f"https://{clean_target}"]
+
+            return [clean_target]
+
+        logging.error("❌ Invalid target. Please enter a valid IPv4, IPv6, FQDN, or CIDR netblock.")
 
 def process_network_enumeration():
-    """Check if network.enumeration exists and has valid targets; otherwise, use the fallback target."""
-    target = check_target_defined()  # Ensure we have a valid target
+    """Check if network.enumeration exists and has valid targets; otherwise, use the stored target."""
+    data = get_encrypted_data()
+    target = data.get("target")
 
     if os.path.exists(NETWORK_ENUMERATION_FILE):
         logging.info(f"📄 Found {NETWORK_ENUMERATION_FILE}. Processing targets...")
@@ -84,19 +94,33 @@ def process_network_enumeration():
         with open(NETWORK_ENUMERATION_FILE, "r") as file:
             targets = file.read().splitlines()
 
-        if not targets:  # Handle empty file
-            logging.warning(f"⚠ {NETWORK_ENUMERATION_FILE} is empty. Falling back to defined target: {target}")
-            targets = target if isinstance(target, list) else [target]  # Convert single string to list
+        if not targets:
+            logging.warning(f"⚠ {NETWORK_ENUMERATION_FILE} is empty. Using stored target instead.")
         else:
             logging.info(f"✅ Found targets in {NETWORK_ENUMERATION_FILE}")
+            for t in targets:
+                web_application_enumeration(t)
+            return  # ✅ Exit after processing network enumeration targets
 
+    # ✅ If `network.enumeration` is missing or empty, use stored target
+    logging.warning(f"⚠ {NETWORK_ENUMERATION_FILE} not found. Using stored target instead.")
+
+    if not target:
+        logging.error("❌ No valid target found. Exiting enumeration.")
+        return
+
+    clean_target = target.replace("http://", "").replace("https://", "")  # ✅ Strip protocol before use
+
+    if is_valid_fqdn(clean_target):
+        logging.info(f"🚀 Starting web application enumeration for FQDN target: {clean_target}")
+        web_application_enumeration(f"http://{clean_target}")
+        web_application_enumeration(f"https://{clean_target}")
+
+    elif is_valid_ipv4(clean_target) or is_valid_ipv6(clean_target) or is_valid_cidr(clean_target):
+        logging.info(f"🚀 Starting web application enumeration for target: {clean_target}")
+        web_application_enumeration(clean_target)
     else:
-        logging.warning(f"⚠ {NETWORK_ENUMERATION_FILE} not found. Running web_application_enumeration on target: {target}")
-        targets = target if isinstance(target, list) else [target]  # Convert single string to list
-
-    # Iterate through all targets (both HTTP and HTTPS if FQDN)
-    for t in targets:
-        web_application_enumeration(t)
+        logging.error(f"❌ Invalid target format: {clean_target}")
 
 def check_web_service(ip):
     """Determine if the given IP has an active web service and return the correct URL."""
