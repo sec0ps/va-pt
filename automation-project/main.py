@@ -103,7 +103,7 @@ def main():
     while True:
         print("\n[ ⚙ Automated Security Testing Framework ⚙ ]")
         print("1️⃣ Full Automation - Not Available Yet")
-        print("2️⃣ Automated Network Enumeration")
+        print("2️⃣ Network Enumeration & Vulnerability Assessment")
         print("3️⃣ Web Application Enumeration & Testing")
         print("4️⃣ SQLi Testing Automation")
         print("5️⃣ Change Target")
