@@ -20,41 +20,14 @@ import subprocess
 import xml.etree.ElementTree as ET
 from web import *
 from utils import check_target_defined, change_target, purge_target_prompt, display_logo
-from nmap import *
-from sql import *
+#from nmap import *
+#from sql import *
 from config import LOG_DIR, LOG_FILE, find_sqlmap, find_nikto, TARGET_FILE, find_zap
 
 def is_valid_url(url):
     """Validate a given URL."""
     parsed_url = urlparse(url)
     return all([parsed_url.scheme, parsed_url.netloc])
-
-#def check_target_defined():
-#    display_logo()
-#    """Check if the target is defined in the configuration file."""
-#    data = get_encrypted_data()
-#    target = data.get("target")
-#    if target:
-#        logging.info(f"Target is set: {target}")
-#        return target
-#    else:
-#        target = input("Enter target (IP, FQDN, or Netblock): ").strip()
-#        encrypt_and_store_data("target", target)
-#        return target
-
-def check_web_service(ip):
-    """Determine if the given IP has an active web service and return the correct URL."""
-    ports = [(443, "https"), (80, "http")]  # Prioritize HTTPS first
-    for port, scheme in ports:
-        try:
-            with socket.create_connection((ip, port), timeout=3) as sock:
-                detected_url = f"{scheme}://{ip}:{port}"
-                logging.info(f"✅ Secure web service detected: {detected_url}")
-                return detected_url  # Return single string instead of a list
-        except (socket.timeout, ConnectionRefusedError):
-            continue  # Try the next port
-
-    return None  # Return None if no web service is found
 
 def full_automation():
     logging.info("Running full automation...")
