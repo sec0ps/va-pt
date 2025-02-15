@@ -98,23 +98,49 @@ def is_valid_cidr(netblock):
         return False
 
 def check_target_defined():
-    """Ensure the target is properly set and return it as a string."""
-    display_logo()
+    """Ensure the target is a valid IPv4, IPv6, FQDN, or CIDR Netblock before storing it."""
     data = get_encrypted_data()
     target = data.get("target")
 
-    if target and (is_valid_ipv4(target) or is_valid_ipv6(target) or is_valid_fqdn(target) or is_valid_cidr(target)):
-        logging.info(f"✅ Target is set: {target}")
-        return target  # ✅ Return as a string, not a list
+    if target:
+        # ✅ Strip protocol from stored target before validation
+        clean_target = target.strip().replace("http://", "").replace("https://", "")
+
+        if is_valid_ipv4(clean_target) or is_valid_ipv6(clean_target) or is_valid_fqdn(clean_target) or is_valid_cidr(clean_target):
+            logging.info(f"✅ Target is set: {clean_target}")
+
+            # ✅ If it's an FQDN, return a list with both HTTP and HTTPS
+            if is_valid_fqdn(clean_target):
+                http_target = f"http://{clean_target}"
+                https_target = f"https://{clean_target}"
+
+                # ✅ Store only clean FQDN target
+                encrypt_and_store_data("target", clean_target)
+                encrypt_and_store_data("target_http", http_target)
+                encrypt_and_store_data("target_https", https_target)
+
+                return [http_target, https_target]  # ✅ Correct return type for FQDNs
+
+            return clean_target  # ✅ Return a string for IPs and CIDRs
 
     while True:
         target = input("Enter target (IPv4, IPv6, FQDN, or CIDR Netblock): ").strip()
-        if is_valid_ipv4(target) or is_valid_ipv6(target) or is_valid_fqdn(target) or is_valid_cidr(target):
-            encrypt_and_store_data("target", target)
-            logging.info(f"✅ Target stored: {target}")
-            return target  # ✅ Return as a string, not a list
-        else:
-            logging.error("❌ Invalid target. Please enter a valid IPv4 address, IPv6 address, FQDN, or CIDR netblock.")
+        clean_target = target.replace("http://", "").replace("https://", "").strip()  # ✅ Strip protocol
+
+        if is_valid_ipv4(clean_target) or is_valid_ipv6(clean_target) or is_valid_fqdn(clean_target) or is_valid_cidr(clean_target):
+            encrypt_and_store_data("target", clean_target)
+            logging.info(f"✅ Target stored: {clean_target}")
+
+            if is_valid_fqdn(clean_target):  # ✅ Store separate HTTP/HTTPS versions for testing
+                http_target = f"http://{clean_target}"
+                https_target = f"https://{clean_target}"
+                encrypt_and_store_data("target_http", http_target)
+                encrypt_and_store_data("target_https", https_target)
+                return [http_target, https_target]  # ✅ Correct return type for FQDNs
+
+            return clean_target  # ✅ Correct return type for IPs and CIDRs
+
+        logging.error("❌ Invalid target. Please enter a valid IPv4, IPv6, FQDN, or CIDR netblock.")
 
 def change_target():
     """Prompt the user to change the target and update it securely."""

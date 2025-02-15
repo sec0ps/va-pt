@@ -164,12 +164,12 @@ def check_target_defined():
 
 def find_sqlmap():
     """Find sqlmap.py dynamically at runtime and return its absolute path, or exit if not found."""
-    logging.info("🔍 Searching for sqlmap...")
+#    logging.info("🔍 Searching for sqlmap...")
 
     # **First Check System Path**
     sqlmap_exec = shutil.which("sqlmap")
     if sqlmap_exec:
-        logging.info(f"✅ Found sqlmap at: {sqlmap_exec}")
+#        logging.info(f"✅ Found sqlmap at: {sqlmap_exec}")
         return sqlmap_exec
 
     # **Use `locate` (Faster)**
@@ -178,7 +178,7 @@ def find_sqlmap():
         result = subprocess.run(locate_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         sqlmap_paths = [path for path in result.stdout.strip().split("\n") if os.path.isfile(path)]
         if sqlmap_paths:
-            logging.info(f"✅ Found sqlmap at: {sqlmap_paths[0]}")
+#            logging.info(f"✅ Found sqlmap at: {sqlmap_paths[0]}")
             return sqlmap_paths[0]
     except Exception:
         logging.warning("⚠ locate command failed, falling back to `find`.")
@@ -208,12 +208,12 @@ logging.info(f"✅ SQLMAP_PATH set to: {SQLMAP_PATH}")
 
 def find_nikto():
     """Find nikto.pl dynamically at runtime and return its absolute path, or exit if not found."""
-    logging.info("🔍 Searching for nikto...")
+#    logging.info("🔍 Searching for nikto...")
 
     # **First Check System Path**
     nikto_exec = shutil.which("nikto")
     if nikto_exec:
-        logging.info(f"✅ Found nikto at: {nikto_exec}")
+#        logging.info(f"✅ Found nikto at: {nikto_exec}")
         return nikto_exec
 
     # **Use `locate` (Faster)**
@@ -222,7 +222,7 @@ def find_nikto():
         result = subprocess.run(locate_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         nikto_paths = [path for path in result.stdout.strip().split("\n") if os.path.isfile(path)]
         if nikto_paths:
-            logging.info(f"✅ Found nikto at: {nikto_paths[0]}")
+#            logging.info(f"✅ Found nikto at: {nikto_paths[0]}")
             return nikto_paths[0]
     except Exception:
         logging.warning("⚠ locate command failed, falling back to `find`.")
@@ -233,7 +233,7 @@ def find_nikto():
         result = subprocess.run(find_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         nikto_paths = [path for path in result.stdout.strip().split("\n") if os.path.isfile(path)]
         if nikto_paths:
-            logging.info(f"✅ Found nikto at: {nikto_paths[0]}")
+#            logging.info(f"✅ Found nikto at: {nikto_paths[0]}")
             return nikto_paths[0]
     except Exception:
         logging.error("❌ `find` command failed.")
@@ -251,7 +251,7 @@ logging.info(f"✅ NIKTO_PATH set to: {NIKTO_PATH}")
 
 def find_zap():
     """Locate zap.sh dynamically using `locate` or `find`, excluding 'Program Files' in WSL."""
-    logging.info("🔍 Searching for zap.sh...")
+#    logging.info("🔍 Searching for zap.sh...")
 
     # Try using `locate` first (fastest method)
     try:
@@ -259,7 +259,7 @@ def find_zap():
         paths = [p for p in result.stdout.strip().split("\n") if "Program Files" not in p]
 
         if paths:
-            logging.info(f"✅ Found zap.sh at: {paths[0]}")
+#            logging.info(f"✅ Found zap.sh at: {paths[0]}")
             return paths[0]  # Return the first valid result
 
     except subprocess.CalledProcessError:
@@ -272,7 +272,7 @@ def find_zap():
         paths = [p for p in result.stdout.strip().split("\n") if "Program Files" not in p]
 
         if paths:
-            logging.info(f"✅ Found zap.sh at: {paths[0]}")
+#            logging.info(f"✅ Found zap.sh at: {paths[0]}")
             return paths[0]
 
     except subprocess.CalledProcessError:

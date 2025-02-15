@@ -99,82 +99,62 @@ def check_web_service(ip):
 
     return None  # No web service found
 
-def check_target_defined():
-    """Ensure the target is a valid IPv4, IPv6, FQDN, or CIDR Netblock before storing it."""
-    data = get_encrypted_data()
-    target = data.get("target")
-
-    if target:
-        # ✅ Strip protocol from stored target before validation
-        clean_target = target.replace("http://", "").replace("https://", "")
-
-        if is_valid_ipv4(clean_target) or is_valid_ipv6(clean_target) or is_valid_fqdn(clean_target) or is_valid_cidr(clean_target):
-            logging.info(f"✅ Target is set: {clean_target}")
-
-            # ✅ Only store HTTP/HTTPS versions separately if it's an FQDN
-            if is_valid_fqdn(clean_target):
-                encrypt_and_store_data("target_http", f"http://{clean_target}")
-                encrypt_and_store_data("target_https", f"https://{clean_target}")
-                return [f"http://{clean_target}", f"https://{clean_target}"]
-
-            return [clean_target]  # ✅ Always return as a list
-
-    while True:
-        target = input("Enter target (IPv4, IPv6, FQDN, or CIDR Netblock): ").strip()
-        clean_target = target.replace("http://", "").replace("https://", "")  # ✅ Strip protocol
-
-        if is_valid_ipv4(clean_target) or is_valid_ipv6(clean_target) or is_valid_fqdn(clean_target) or is_valid_cidr(clean_target):
-            encrypt_and_store_data("target", clean_target)
-            logging.info(f"✅ Target stored: {clean_target}")
-
-            if is_valid_fqdn(clean_target):  # ✅ Store separate HTTP/HTTPS versions for testing
-                encrypt_and_store_data("target_http", f"http://{clean_target}")
-                encrypt_and_store_data("target_https", f"https://{clean_target}")
-                return [f"http://{clean_target}", f"https://{clean_target}"]
-
-            return [clean_target]
-
-        logging.error("❌ Invalid target. Please enter a valid IPv4, IPv6, FQDN, or CIDR netblock.")
-
 def web_application_enumeration(target):
     """Scan web applications found in a CIDR range or a single target."""
+
     try:
-        ip_network(target)  # If this doesn't raise an error, it's a CIDR block
+        # Check if target is a valid CIDR
+        ip_network(target)
         is_cidr = True
     except ValueError:
         is_cidr = False
 
-    if not is_cidr:
+    if is_cidr:
+        logging.info(f"🌍 Expanding CIDR network: {target}")
+
+        target_ips = list(ip_network(target).hosts())  # Get all hosts in the network
+
+        with tqdm(total=len(target_ips), desc="Scanning Progress", unit="host", dynamic_ncols=True) as pbar:
+            for ip in target_ips:
+                ip_str = str(ip)
+                try:
+                    # ✅ Check if web service exists before scanning
+                    target_url = check_web_service(ip_str)
+                    if target_url:
+                        logging.info(f"🚀 Starting active scan on: {target_url}")
+                        scan_target_with_zap(target_url)  # Ensure a valid string URL is passed
+                    time.sleep(2)  # Simulate processing time
+                except Exception as e:
+                    if "No route to host" not in str(e):  # Suppress only connection errors
+                        logging.error(f"❌ Error scanning {ip_str}: {e}")
+                finally:
+                    pbar.update(1)
+
+        logging.info("✅ Scanning job completed.")
+        return
+
+    # If not a CIDR, check if it's an FQDN or IP address
+    if is_valid_fqdn(target) or is_valid_ipv4(target) or is_valid_ipv6(target):
+        # Ensure target starts with HTTP or HTTPS before scanning
         if not target.startswith(("http://", "https://")):
-            logging.error("❌ Invalid URL format. Please enter a valid URL.")
-            return
+            logging.info(f"🔍 Checking web services on {target}...")
+            detected_url = check_web_service(target)
+            if detected_url:
+                logging.info(f"🚀 Starting active scan on: {detected_url}")
+                scan_target_with_zap(detected_url)
+                return
+            else:
+                logging.error(f"❌ No active web service found on: {target}")
+                return
+
         try:
             logging.info(f"🚀 Starting active scan on: {target}")
-            scan_target_with_zap(target)  # Ensure a string URL is passed
+            scan_target_with_zap(target)  # Ensure a valid string URL is passed
         except Exception as e:
             logging.error(f"❌ Error scanning {target}: {e}")
         return
 
-    # CIDR Handling
-    logging.info(f"🌍 Expanding CIDR network: {target}")
-
-    target_ips = list(ip_network(target).hosts())  # Get all hosts in the network
-    with tqdm(total=len(target_ips), desc="Scanning Progress", unit="host", dynamic_ncols=True) as pbar:
-        for ip in target_ips:
-            ip_str = str(ip)
-            try:
-                target_url = check_web_service(ip_str)
-                if target_url:
-                    logging.info(f"🚀 Starting active scan on: {target_url}")
-                    scan_target_with_zap(target_url)  # Ensure a single string is passed
-                time.sleep(2)  # Simulate processing time
-            except Exception as e:
-                if "No route to host" not in str(e):  # Suppress only connection errors
-                    logging.error(f"❌ Error scanning {ip_str}: {e}")
-            finally:
-                pbar.update(1)
-
-    logging.info("✅ Scanning job completed.")
+    logging.error("❌ Invalid URL format. Please enter a valid URL.")
 
 def scan_target_with_zap(target_url):
     """Scan a web service using OWASP ZAP."""
@@ -256,7 +236,7 @@ def export_zap_xml_report(target_url):
             logging.info(f"✅ XML report saved: {report_file}")
 
             # ✅ Debug Logging Before Starting Nikto
-            logging.info(f"🔎 Checking if Nikto exists before launching scan for {target_url}...")
+#            logging.info(f"🔎 Checking if Nikto exists before launching scan for {target_url}...")
             nikto_path = find_nikto()
 
             if nikto_path:
@@ -277,14 +257,14 @@ def export_zap_xml_report(target_url):
 
 def select_nikto_targets():
     """Determine the correct targets for Nikto scanning and execute scans accordingly."""
-    logging.info("🔍 [DEBUG] Entered select_nikto_targets()...")
+#    logging.info("🔍 [DEBUG] Entered select_nikto_targets()...")
 
     nikto_path = find_nikto()
     if not nikto_path:
         logging.error("❌ Nikto not found! Skipping Nikto scans.")
         return
 
-    logging.info(f"✅ [DEBUG] Found Nikto at: {nikto_path}")
+#    logging.info(f"✅ [DEBUG] Found Nikto at: {nikto_path}")
 
     if os.path.exists(NETWORK_ENUMERATION_FILE):
         logging.info(f"📄 Found {NETWORK_ENUMERATION_FILE}. Using it for Nikto scans.")
@@ -304,14 +284,14 @@ def select_nikto_targets():
         logging.warning("⚠ No valid target found. Nikto scan skipped.")
         return
 
-    logging.info(f"🎯 [DEBUG] Selected target from config: {target}")
+ #   logging.info(f"🎯 [DEBUG] Selected target from config: {target}")
 
     if is_valid_cidr(target):
         logging.info(f"🌍 Expanding CIDR block: {target}")
 
         for ip in ip_network(target).hosts():
             ip_str = str(ip)
-            logging.info(f"🔎 [DEBUG] Checking web services on {ip_str}...")
+#            logging.info(f"🔎 [DEBUG] Checking web services on {ip_str}...")
 
             https_target = f"https://{ip_str}:443"
             http_target = f"http://{ip_str}:80"
@@ -336,7 +316,7 @@ def select_nikto_targets():
 
 def run_nikto_scan(target, nikto_path):
     """Run a Nikto scan against the target using the dynamically located Nikto."""
-    logging.info(f"🚀 [DEBUG] Preparing Nikto scan for: {target}")
+#    logging.info(f"🚀 [DEBUG] Preparing Nikto scan for: {target}")
 
     if not nikto_path:
         logging.error("❌ Nikto not found on the system. Ensure it is installed.")
@@ -372,7 +352,7 @@ def run_nikto_scan(target, nikto_path):
         "-useragent", random_user_agent  # ✅ Wrapped in quotes
     ]
 
-    logging.info(f"📢 [DEBUG] Running Nikto command: {' '.join(nikto_command)}")
+#    logging.info(f"📢 [DEBUG] Running Nikto command: {' '.join(nikto_command)}")
 
     try:
         result = subprocess.run(nikto_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)

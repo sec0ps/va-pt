@@ -48,6 +48,7 @@ def main():
     target = check_target_defined()
 
     # Display paths and target
+    display_logo()
     print(f"\n🎯 Current Target: {target}")
     print(f"🛠 SQLMAP Path: {sqlmap_path if sqlmap_path else '❌ Not Found'}")
     print(f"🛠 Nikto Path: {nikto_path if nikto_path else '❌ Not Found'}")
