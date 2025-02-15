@@ -14,6 +14,7 @@ REPORT_DIR = os.path.join(BASE_DIR, "raw_reports")
 RAW_NMAP_DIR = os.path.join(BASE_DIR, "raw_nmap")
 KEY_FILE = os.path.join(BASE_DIR, ".key")
 SQLMAP_DIR = os.path.join(BASE_DIR, "sqlmap_reports")
+ZAP_DIR = os.path.join(BASE_DIR, "zap_exports")
 TARGET_FILE = os.path.join(BASE_DIR, "automation.config")
 NETWORK_ENUMERATION_FILE = os.path.join(BASE_DIR, "network.enumeration")  # ✅ Ensure it's defined
 API_KEY_FILE = os.path.join(BASE_DIR, ".zap_api_key")
@@ -30,6 +31,7 @@ os.makedirs(REPORT_DIR, exist_ok=True)
 os.makedirs(RAW_NMAP_DIR, exist_ok=True)
 os.makedirs(RAW_NMAP_DIR, exist_ok=True)
 os.makedirs(SQLMAP_DIR, exist_ok=True)
+os.makedirs(ZAP_DIR, exist_ok=True)
 
 ### ✅ **Logging Configuration**
 logging.basicConfig(
