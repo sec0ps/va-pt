@@ -45,6 +45,10 @@ logging.basicConfig(
 
 logging.info("✅ Logging initialized. Log file: %s", LOG_FILE)
 
+def get_api_key():
+    """Return the cached API key."""
+    return ZAP_API_KEY
+
 def load_api_key():
     """Retrieve or prompt the user for the OWASP ZAP API key and store it."""
     if os.path.exists(API_KEY_FILE):
@@ -57,66 +61,8 @@ def load_api_key():
     os.chmod(API_KEY_FILE, 0o600)
     return api_key
 
-### **✅ Load Encryption Key**
-def load_encryption_key():
-    """Load the encryption key from a file or generate one if it doesn't exist."""
-    if not os.path.exists(KEY_FILE):
-        encryption_key = Fernet.generate_key()
-        with open(KEY_FILE, "wb") as key_file:
-            key_file.write(encryption_key)
-    else:
-        with open(KEY_FILE, "rb") as key_file:
-            encryption_key = key_file.read()
-    return Fernet(encryption_key)
-
-cipher_suite = load_encryption_key()
-
-### **✅ Retrieve & Decrypt Stored Data**
-def get_encrypted_data():
-    """Retrieve and decrypt stored data from the configuration file."""
-    if not os.path.exists(TARGET_FILE):
-        return {}
-
-    try:
-        with open(TARGET_FILE, "r", encoding="utf-8") as file:
-            data = json.load(file)
-
-        decrypted_data = {}
-        for key, value in data.items():
-            try:
-                decrypted_data[key] = cipher_suite.decrypt(value.encode()).decode()
-            except Exception as e:
-                logging.error(f"❌ Failed to decrypt {key}: {e}")
-                continue
-
-        return decrypted_data
-
-    except json.JSONDecodeError:
-        logging.error(f"❌ {TARGET_FILE} is corrupted. Deleting and resetting...")
-        os.remove(TARGET_FILE)
-        return {}
-
-### **✅ Encrypt and Store Data Securely**
-def encrypt_and_store_data(key, value):
-    """Encrypt and store a key-value pair persistently in the config file."""
-    try:
-        data = get_encrypted_data()  # Load existing encrypted data
-
-        if not isinstance(value, str):
-            raise ValueError("🔒 Value to encrypt must be a string!")
-
-        encrypted_value = cipher_suite.encrypt(value.encode()).decode()
-        temp_file = f"{TARGET_FILE}.tmp"  # Write to a temp file first
-
-        data[key] = encrypted_value
-        with open(temp_file, "w", encoding="utf-8") as file:
-            json.dump(data, file, ensure_ascii=False, indent=4)
-
-        os.replace(temp_file, TARGET_FILE)  # Prevent corruption
-        logging.info(f"✅ Stored {key} securely in {TARGET_FILE}")
-
-    except Exception as e:
-        logging.error(f"❌ Failed to encrypt and store {key}: {e}")
+ZAP_API_URL = "http://127.0.0.1:8080"
+ZAP_API_KEY = load_api_key()  # Ensure this function loads the key correctly
 
 ### **✅ Validation Functions**
 def is_valid_ipv4(ip):
@@ -147,6 +93,8 @@ def is_valid_cidr(netblock):
         return False
 
 def check_target_defined():
+    from utils import encrypt_and_store_data, get_encrypted_data  # ✅ Move import inside function
+
     data = get_encrypted_data()
     target = data.get("target")
 

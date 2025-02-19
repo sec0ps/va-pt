@@ -20,8 +20,6 @@ import subprocess
 import xml.etree.ElementTree as ET
 from web import *
 from utils import check_target_defined, change_target, purge_target_prompt, display_logo
-#from nmap import *
-#from sql import *
 from config import LOG_DIR, LOG_FILE, find_sqlmap, find_nikto, TARGET_FILE, find_zap
 
 def is_valid_url(url):

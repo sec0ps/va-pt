@@ -5,23 +5,44 @@ import utils
 import shutil
 import subprocess
 import ipaddress
+import requests
+import time
 import re
-from config import NETWORK_ENUMERATION_FILE, TARGET_FILE, cipher_suite, SQLMAP_PATH
+from cryptography.fernet import Fernet
+from config import NETWORK_ENUMERATION_FILE, TARGET_FILE
+#from config import NETWORK_ENUMERATION_FILE, SQLMAP_PATH, ZAP_API_URL, ZAP_API_KEY
+#from web import ZAP_API_URL, ZAP_API_KEY
 
-### ✅ **Using Encryption Functions from `config.py`** ###
+### **✅ Load Encryption Key Inside `utils.py`**
+def load_encryption_key():
+    """Load the encryption key from a file or generate one if it doesn't exist."""
+    from config import KEY_FILE  # ✅ Import only inside function to prevent circular import
+
+    if not os.path.exists(KEY_FILE):
+        encryption_key = Fernet.generate_key()
+        with open(KEY_FILE, "wb") as key_file:
+            key_file.write(encryption_key)
+    else:
+        with open(KEY_FILE, "rb") as key_file:
+            encryption_key = key_file.read()
+
+    return Fernet(encryption_key)
+
+# ✅ Initialize cipher_suite within `utils.py` instead of `config.py`
+cipher_suite = load_encryption_key()
+
 def encrypt_and_store_data(key, value):
     """Encrypt and store a key-value pair persistently in the config file."""
     try:
-        data = get_encrypted_data()  # Load existing encrypted data
-
         if not isinstance(value, str):
             raise ValueError("🔒 Value to encrypt must be a string!")
 
         encrypted_value = cipher_suite.encrypt(value.encode()).decode()
+        data = get_encrypted_data()  # Load existing data
+
         data[key] = encrypted_value
 
-        temp_file = f"{TARGET_FILE}.tmp"  # Write to a temp file first
-
+        temp_file = f"{TARGET_FILE}.tmp"
         with open(temp_file, "w", encoding="utf-8") as file:
             json.dump(data, file, ensure_ascii=False, indent=4)
 
@@ -42,12 +63,12 @@ def get_encrypted_data():
             data = json.load(file)
 
         decrypted_data = {}
-        for key, value in data.items():
+        for stored_key, encrypted_value in data.items():
             try:
-                decrypted_data[key] = cipher_suite.decrypt(value.encode()).decode()
+                decrypted_data[stored_key] = cipher_suite.decrypt(encrypted_value.encode()).decode()
             except Exception as e:
-                logging.error(f"❌ Failed to decrypt {key}: {e}")  # ✅ Show exact decryption error
-                continue  # ✅ Skip failed decryption attempts instead of breaking
+                logging.error(f"❌ Failed to decrypt {stored_key}: {e}")
+                continue  # Skip corrupted entries
 
         return decrypted_data
 
@@ -161,8 +182,56 @@ def change_target():
         else:
             logging.error("❌ Invalid target format. Please enter a valid IP, FQDN, or CIDR netblock.")
 
+def stop_zap():
+    """Gracefully stop OWASP ZAP if it is running."""
+    from config import ZAP_API_URL, ZAP_API_KEY  # ✅ Import inside function to avoid circular import
+
+    api_url = f"{ZAP_API_URL}/JSON/core/action/shutdown/?apikey={ZAP_API_KEY}"
+
+    try:
+        logging.info("🛑 Attempting to shut down OWASP ZAP...")
+        response = requests.get(api_url, timeout=5)
+
+        if response.status_code == 200:
+            logging.info("✅ OWASP ZAP shutdown request sent successfully.")
+        else:
+            logging.warning(f"⚠ Failed to shut down ZAP. Status Code: {response.status_code}")
+
+        # Wait briefly for ZAP to terminate
+        time.sleep(10)
+
+        # Verify process termination
+        if is_zap_running():
+            logging.error("❌ ZAP is still running! Forcing termination...")
+            force_kill_zap()
+        else:
+            logging.info("✅ OWASP ZAP has been successfully terminated.")
+
+    except requests.RequestException as e:
+        logging.error(f"❌ Error sending shutdown request: {e}")
+        force_kill_zap()  # If API shutdown fails, force kill
+
+def is_zap_running():
+    """Check if OWASP ZAP is still running."""
+    from config import ZAP_API_URL, ZAP_API_KEY  # ✅ Import inside function to avoid circular import
+
+    try:
+        response = requests.get(f"{ZAP_API_URL}/JSON/core/view/version/?apikey={ZAP_API_KEY}", timeout=5)
+        return response.status_code == 200
+    except requests.RequestException:
+        return False  # Connection refused means it's not running
+
+def force_kill_zap():
+    """Force terminate OWASP ZAP if it doesn't shut down gracefully."""
+    try:
+        subprocess.run(["pkill", "-f", "zap"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        logging.info("✅ ZAP process forcefully terminated.")
+    except Exception as e:
+        logging.error(f"❌ Error forcefully terminating ZAP: {e}")
+
+
 def purge_target_prompt():
-    """Ask the user if they want to purge the stored target and delete `network.enumeration` and `automation.config` before exiting."""
+    """Ask the user if they want to purge the stored target and delete network.enumeration and automation.config before exiting."""
     if not os.path.exists(TARGET_FILE):  # ✅ Use TARGET_FILE from config.py
         logging.info("⚠ No stored target found.")
         return
@@ -174,20 +243,22 @@ def purge_target_prompt():
             # Delete automation.config file if it exists
             if os.path.exists(TARGET_FILE):
                 os.remove(TARGET_FILE)
-                logging.info("✅ `automation.config` file deleted.")
+                logging.info("✅ automation.config file deleted.")
 
             # Delete network.enumeration file if it exists
             if os.path.exists(NETWORK_ENUMERATION_FILE):
                 os.remove(NETWORK_ENUMERATION_FILE)
-                logging.info("✅ `network.enumeration` file deleted.")
+                logging.info("✅ network.enumeration file deleted.")
             else:
-                logging.info("⚠ `network.enumeration` file not found.")
+                logging.info("⚠ network.enumeration file not found.")
 
         except Exception as e:
             logging.error(f"❌ Failed to purge target data or delete files: {e}")
     else:
         logging.info("⚠ Target data was not purged.")
 
+    # Ensure OWASP ZAP is terminated before exiting
+    stop_zap()
 
 def display_logo():
     logo_ascii = """

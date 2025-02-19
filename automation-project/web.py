@@ -13,38 +13,91 @@ import random
 import subprocess
 from nmap import *
 from sql import *
-from config import load_api_key, find_nikto, NETWORK_ENUMERATION_FILE
-from utils import encrypt_and_store_data, get_encrypted_data, is_valid_ipv4, is_valid_ipv6, is_valid_fqdn, is_valid_cidr, check_target_defined
+from config import load_api_key, ZAP_API_URL, ZAP_API_KEY, find_nikto, NETWORK_ENUMERATION_FILE, ZAP_DIR, ZAP_PATH
+from utils import encrypt_and_store_data, get_encrypted_data, is_valid_ipv4, is_valid_ipv6, is_valid_fqdn, is_valid_cidr, check_target_defined, stop_zap
 
-ZAP_API_KEY = load_api_key()
-ZAP_API_URL = "http://127.0.0.1:8080"
-NETWORK_ENUMERATION_FILE = "network.enumeration"
+#ZAP_API_KEY = load_api_key()
+#ZAP_API_URL = "http://127.0.0.1:8080"
+#NETWORK_ENUMERATION_FILE = "network.enumeration"
 
-def get_api_key():
-    """Return the cached API key."""
-    return ZAP_API_KEY
+#def get_api_key():
+#    """Return the cached API key."""
+#    return ZAP_API_KEY
 
 def check_zap_running():
-    """Check if OWASP ZAP API is accessible with retries."""
+    """Check if OWASP ZAP API is accessible with retries.
+
+    If ZAP is not running, it will be started in headless mode.
+
+    Returns:
+        bool: True if ZAP is running, False otherwise.
+    """
     max_retries = 5
     retry_delay = 3
-    api_url = f"{ZAP_API_URL}/JSON/core/view/version/?apikey={get_api_key()}"
+    api_url = f"{ZAP_API_URL}/JSON/core/view/version/?apikey={ZAP_API_KEY}"
 
     for attempt in range(1, max_retries + 1):
         try:
-            logging.info(f"?? Checking OWASP ZAP API availability (Attempt {attempt}/{max_retries})...")
+            logging.info(f"🔍 Checking OWASP ZAP API availability (Attempt {attempt}/{max_retries})...")
             response = requests.get(api_url, timeout=5)
             response.raise_for_status()
             zap_version = response.json().get('version', 'Unknown')
-            logging.info(f"? Connected to ZAP Proxy at {ZAP_API_URL}, version: {zap_version}")
+            logging.info(f"✅ Connected to ZAP Proxy at {ZAP_API_URL}, version: {zap_version}")
             return True
-        except requests.exceptions.RequestException as e:
-            logging.error(f"? ZAP API connection issue: {e}")
+        except requests.exceptions.RequestException:
+            logging.warning(f"⚠ ZAP API is not available (Attempt {attempt}/{max_retries})...")
+            time.sleep(retry_delay)
 
-        time.sleep(retry_delay)
+    logging.error("❌ ZAP API is not accessible. Attempting to start ZAP in headless mode...")
+    start_zap_headless()
 
-    logging.error("? Max retries reached. ZAP API is not accessible. Exiting...")
-    sys.exit(1)
+    # Retry after attempting to start ZAP
+    return check_zap_running()
+
+def start_zap_headless():
+    """Start OWASP ZAP in headless mode with session persistence."""
+    if not os.path.exists(ZAP_PATH):
+        logging.error("❌ ZAP binary not found. Ensure ZAP is installed and ZAP_PATH is correct.")
+        return False
+
+    # Ensure zap_exports directory exists
+    os.makedirs(ZAP_DIR, exist_ok=True)
+
+    # Generate session file name based on timestamp
+    session_filename = f"zap_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    session_path = os.path.join(ZAP_DIR, session_filename)
+
+    logging.info(f"🚀 Starting OWASP ZAP in headless mode with session stored at: {session_path}")
+
+    try:
+        # Start ZAP in daemon mode
+        zap_command = [
+            ZAP_PATH, "-daemon",
+            "-host", "127.0.0.1",  # Bind to localhost
+            "-port", "8080",  # Explicitly set port to 8080
+            "-config", f"api.key={ZAP_API_KEY}",
+            "-newsession", session_path  # Store session in ZAP_DIR
+        ]
+
+        subprocess.Popen(zap_command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        # Wait for ZAP to initialize
+        time.sleep(10)
+
+        # Verify if ZAP is running by checking the API
+        zap_api_url = f"http://127.0.0.1:8080/JSON/core/view/version/?apikey={ZAP_API_KEY}"
+        response = subprocess.run(["curl", "-s", zap_api_url], capture_output=True, text=True)
+
+        if "version" in response.stdout:
+            logging.info("✅ OWASP ZAP is running in headless mode.")
+            return True
+        else:
+            logging.error("❌ OWASP ZAP failed to start.")
+            return False
+
+    except Exception as e:
+        logging.error(f"❌ Error starting ZAP: {e}")
+        return False
 
 def process_network_enumeration():
     """Check if network.enumeration exists and has valid targets; otherwise, use the stored target."""
