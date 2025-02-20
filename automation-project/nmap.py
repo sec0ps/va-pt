@@ -25,13 +25,15 @@ def format_target_name(target):
 def run_nmap_scan(target, scan_type):
     """Run an Nmap scan on a single target with optimized parameters and real-time output."""
 
-    # Generate timestamp in "YYYY-MM-DD.HH-MM-SS" format
-    timestamp = datetime.now().strftime("%Y-%m-%d.%H-%M-%S")
+    if isinstance(target, list):
+        target = target[0]  # Convert list to a string (use the HTTP version)
 
-    # Format target name for output files
     formatted_target = format_target_name(target)
     if not formatted_target:
         return
+
+    # Generate timestamp in "YYYY-MM-DD.HH-MM-SS" format
+    timestamp = datetime.now().strftime("%Y-%m-%d.%H-%M-%S")
 
     output_txt = os.path.join(RAW_NMAP_DIR, f"{formatted_target}_{timestamp}.txt")
     output_xml = os.path.join(RAW_NMAP_DIR, f"{formatted_target}_{timestamp}.xml")

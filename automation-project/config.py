@@ -5,7 +5,8 @@ import shutil
 import subprocess
 import ipaddress
 import re
-from cryptography.fernet import Fernet
+#from cryptography.fernet import Fernet
+
 
 ### ✅ **Define Constants First**
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Get project base path
@@ -91,24 +92,6 @@ def is_valid_cidr(netblock):
         return True
     except ValueError:
         return False
-
-def check_target_defined():
-    from utils import encrypt_and_store_data, get_encrypted_data  # ✅ Move import inside function
-
-    data = get_encrypted_data()
-    target = data.get("target")
-
-    if target and (is_valid_ipv4(target) or is_valid_ipv6(target) or is_valid_fqdn(target) or is_valid_cidr(target)):
-        logging.info(f"✅ Target is set: {target}")
-        return [target]  # Always return as a list
-    while True:
-        target = input("Enter target (IPv4, IPv6, FQDN, or CIDR Netblock): ").strip()
-        if is_valid_ipv4(target) or is_valid_ipv6(target) or is_valid_fqdn(target) or is_valid_cidr(target):
-            encrypt_and_store_data("target", target)
-            logging.info(f"✅ Target stored: {target}")
-            return [target]
-        else:
-            logging.error("❌ Invalid target. Enter a valid IPv4, IPv6, FQDN, or CIDR netblock.")
 
 def find_sqlmap():
     """Find sqlmap.py dynamically at runtime and return its absolute path, or exit if not found."""

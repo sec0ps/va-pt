@@ -8,39 +8,15 @@ import ipaddress
 import requests
 import time
 import re
-from cryptography.fernet import Fernet
 from config import NETWORK_ENUMERATION_FILE, TARGET_FILE
-#from config import NETWORK_ENUMERATION_FILE, SQLMAP_PATH, ZAP_API_URL, ZAP_API_KEY
-#from web import ZAP_API_URL, ZAP_API_KEY
 
-### **✅ Load Encryption Key Inside `utils.py`**
-def load_encryption_key():
-    """Load the encryption key from a file or generate one if it doesn't exist."""
-    from config import KEY_FILE  # ✅ Import only inside function to prevent circular import
-
-    if not os.path.exists(KEY_FILE):
-        encryption_key = Fernet.generate_key()
-        with open(KEY_FILE, "wb") as key_file:
-            key_file.write(encryption_key)
-    else:
-        with open(KEY_FILE, "rb") as key_file:
-            encryption_key = key_file.read()
-
-    return Fernet(encryption_key)
-
-# ✅ Initialize cipher_suite within `utils.py` instead of `config.py`
-cipher_suite = load_encryption_key()
-
-def encrypt_and_store_data(key, value):
-    """Encrypt and store a key-value pair persistently in the config file."""
+def store_data(key, value):
     try:
         if not isinstance(value, str):
-            raise ValueError("🔒 Value to encrypt must be a string!")
+            raise ValueError("❌ Value must be a string!")
 
-        encrypted_value = cipher_suite.encrypt(value.encode()).decode()
-        data = get_encrypted_data()  # Load existing data
-
-        data[key] = encrypted_value
+        data = get_stored_data()  # Load existing data
+        data[key] = value  # Store value directly
 
         temp_file = f"{TARGET_FILE}.tmp"
         with open(temp_file, "w", encoding="utf-8") as file:
@@ -48,34 +24,47 @@ def encrypt_and_store_data(key, value):
 
         os.replace(temp_file, TARGET_FILE)  # Prevent corruption
 
-        logging.info(f"✅ Stored {key} securely in {TARGET_FILE}")
+        logging.info(f"✅ Stored {key} in {TARGET_FILE}")
 
     except Exception as e:
-        logging.error(f"❌ Failed to encrypt and store {key}: {e}")
+        logging.error(f"❌ Failed to store {key}: {e}")
 
-def get_encrypted_data():
-    """Retrieve and decrypt stored data from the configuration file."""
+def get_stored_data():
+    """Retrieve stored data from the configuration file without decryption."""
     if not os.path.exists(TARGET_FILE):
         return {}
 
     try:
         with open(TARGET_FILE, "r", encoding="utf-8") as file:
-            data = json.load(file)
-
-        decrypted_data = {}
-        for stored_key, encrypted_value in data.items():
-            try:
-                decrypted_data[stored_key] = cipher_suite.decrypt(encrypted_value.encode()).decode()
-            except Exception as e:
-                logging.error(f"❌ Failed to decrypt {stored_key}: {e}")
-                continue  # Skip corrupted entries
-
-        return decrypted_data
+            return json.load(file)
 
     except json.JSONDecodeError:
         logging.error(f"❌ {TARGET_FILE} is corrupted. Deleting and resetting...")
         os.remove(TARGET_FILE)
         return {}
+
+def check_target_defined():
+    """Ensure the target is a valid IPv4, IPv6, FQDN, or CIDR Netblock before storing it."""
+    data = get_stored_data()
+    target = data.get("target")
+
+    if target:
+        clean_target = target.strip().replace("http://", "").replace("https://", "")
+
+        if is_valid_ipv4(clean_target) or is_valid_ipv6(clean_target) or is_valid_fqdn(clean_target) or is_valid_cidr(clean_target):
+            logging.info(f"✅ Target is set: {clean_target}")
+            return clean_target  # Return just the target as a string
+
+    while True:
+        target = input("Enter target (IPv4, IPv6, FQDN, or CIDR Netblock): ").strip()
+        clean_target = target.replace("http://", "").replace("https://", "").strip()
+
+        if is_valid_ipv4(clean_target) or is_valid_ipv6(clean_target) or is_valid_fqdn(clean_target) or is_valid_cidr(clean_target):
+            store_data("target", clean_target)
+            logging.info(f"✅ Target stored: {clean_target}")
+            return clean_target
+
+        logging.error("❌ Invalid target. Please enter a valid IPv4, IPv6, FQDN, or CIDR netblock.")
 
 def get_enumerated_targets():
     """Retrieve stored enumerated targets from network.enumeration."""
@@ -118,58 +107,13 @@ def is_valid_cidr(netblock):
     except ValueError:
         return False
 
-def check_target_defined():
-    """Ensure the target is a valid IPv4, IPv6, FQDN, or CIDR Netblock before storing it."""
-    data = get_encrypted_data()
-    target = data.get("target")
-
-    if target:
-        # ✅ Strip protocol from stored target before validation
-        clean_target = target.strip().replace("http://", "").replace("https://", "")
-
-        if is_valid_ipv4(clean_target) or is_valid_ipv6(clean_target) or is_valid_fqdn(clean_target) or is_valid_cidr(clean_target):
-            logging.info(f"✅ Target is set: {clean_target}")
-
-            # ✅ If it's an FQDN, return a list with both HTTP and HTTPS
-            if is_valid_fqdn(clean_target):
-                http_target = f"http://{clean_target}"
-                https_target = f"https://{clean_target}"
-
-                # ✅ Store only clean FQDN target
-                encrypt_and_store_data("target", clean_target)
-                encrypt_and_store_data("target_http", http_target)
-                encrypt_and_store_data("target_https", https_target)
-
-                return [http_target, https_target]  # ✅ Correct return type for FQDNs
-
-            return clean_target  # ✅ Return a string for IPs and CIDRs
-
-    while True:
-        target = input("Enter target (IPv4, IPv6, FQDN, or CIDR Netblock): ").strip()
-        clean_target = target.replace("http://", "").replace("https://", "").strip()  # ✅ Strip protocol
-
-        if is_valid_ipv4(clean_target) or is_valid_ipv6(clean_target) or is_valid_fqdn(clean_target) or is_valid_cidr(clean_target):
-            encrypt_and_store_data("target", clean_target)
-            logging.info(f"✅ Target stored: {clean_target}")
-
-            if is_valid_fqdn(clean_target):  # ✅ Store separate HTTP/HTTPS versions for testing
-                http_target = f"http://{clean_target}"
-                https_target = f"https://{clean_target}"
-                encrypt_and_store_data("target_http", http_target)
-                encrypt_and_store_data("target_https", https_target)
-                return [http_target, https_target]  # ✅ Correct return type for FQDNs
-
-            return clean_target  # ✅ Correct return type for IPs and CIDRs
-
-        logging.error("❌ Invalid target. Please enter a valid IPv4, IPv6, FQDN, or CIDR netblock.")
-
 def change_target():
     """Prompt the user to change the target and update it securely."""
     while True:
         new_target = input("\n🔹 Enter the new target (IPv4, IPv6, FQDN, or CIDR Netblock): ").strip()
 
         if is_valid_ipv4(new_target) or is_valid_ipv6(new_target) or is_valid_fqdn(new_target) or is_valid_cidr(new_target):
-            encrypt_and_store_data("target", new_target)  # ✅ Store securely
+            store_data("target", new_target)  # ✅ Store securely
             logging.info(f"✅ Target updated successfully: {new_target}")
 
             # ✅ Write the new target to `network.enumeration` WITHOUT expanding CIDR

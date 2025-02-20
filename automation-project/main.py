@@ -11,7 +11,6 @@ import shutil
 import ssl
 import ipaddress
 from tqdm import tqdm
-from cryptography.fernet import Fernet
 from ipaddress import ip_network
 import time
 from urllib.parse import urlparse
@@ -62,6 +61,11 @@ def main():
         if scan_type not in ["1", "2"]:
             print("❌ Invalid selection. Returning to menu.")
             return
+
+        target = check_target_defined()
+        if isinstance(target, list):
+            target = target[0]  # Ensure it's always a string
+
         run_nmap_scan(target, scan_type)
 
     actions = {

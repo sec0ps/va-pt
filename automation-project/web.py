@@ -14,7 +14,7 @@ import subprocess
 from nmap import *
 from sql import *
 from config import load_api_key, ZAP_API_URL, ZAP_API_KEY, find_nikto, NETWORK_ENUMERATION_FILE, ZAP_DIR, ZAP_PATH
-from utils import encrypt_and_store_data, get_encrypted_data, is_valid_ipv4, is_valid_ipv6, is_valid_fqdn, is_valid_cidr, check_target_defined, stop_zap
+from utils import store_data, get_stored_data, is_valid_ipv4, is_valid_ipv6, is_valid_fqdn, is_valid_cidr, check_target_defined, stop_zap
 
 #ZAP_API_KEY = load_api_key()
 #ZAP_API_URL = "http://127.0.0.1:8080"
@@ -101,7 +101,7 @@ def start_zap_headless():
 
 def process_network_enumeration():
     """Check if network.enumeration exists and has valid targets; otherwise, use the stored target."""
-    data = get_encrypted_data()
+    data = get_stored_data()
     target = data.get("target")
 
     if os.path.exists(NETWORK_ENUMERATION_FILE):
@@ -331,7 +331,7 @@ def select_nikto_targets():
 
         return
 
-    target = get_encrypted_data("target")
+    target = get_stored_data("target")
 
     if not target:
         logging.warning("⚠ No valid target found. Nikto scan skipped.")

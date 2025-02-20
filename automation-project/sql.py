@@ -17,7 +17,7 @@ def sqli_automation_enumerations():
     - If it does not exist or is empty, use the stored `target` from config.
     """
 
-    data = utils.get_encrypted_data()
+    data = utils.get_stored.data()
 
     # ✅ Ensure SQLMAP_PATH is valid
     sqlmap_path = SQLMAP_PATH or data.get("SQLMAP_PATH", None)
@@ -152,7 +152,7 @@ def sqli_testing_automation(sqlmap_path):
     if not targets:
         logging.warning(f"⚠ {ENUMERATION_FILE_PATH} not found or empty. Falling back to stored target.")
 
-        data = utils.get_encrypted_data()  # ✅ Fetch stored target securely
+        data = utils.get_stored_data()  # ✅ Fetch stored target securely
         target = data.get("target", None)
 
         if target:
