@@ -26,7 +26,7 @@ def run_nmap_scan(target, scan_type):
     """Run an Nmap scan on a single target with optimized parameters and real-time output."""
 
     if isinstance(target, list):
-        target = target[0]  # Convert list to a string (use the HTTP version)
+        target = target[0]  # Ensure target is a string
 
     formatted_target = format_target_name(target)
     if not formatted_target:
@@ -42,24 +42,23 @@ def run_nmap_scan(target, scan_type):
     if scan_type == "1":
         command = [
             "nmap", "-p-", "-sV", "-T5", "--min-rate", "1000", "--max-retries", "1",
-            "--open", "--min-hostgroup", "64",  # ✅ Scan multiple hosts in parallel faster
+            "--open", "--min-hostgroup", "64",
             "-oN", output_txt, "-oX", output_xml, "--script=default", target
         ]
     else:
         command = [
             "nmap", "-A", "-T4", "--max-retries", "1", "--open", "--script", "vulners",
-            "--min-hostgroup", "64",  # ✅ Speed up scanning by grouping hosts
+            "--min-hostgroup", "64",
             "-oN", output_txt, "-oX", output_xml, target
         ]
 
     logging.info(f"🚀 Running Nmap scan on {target}: {' '.join(command)}")
 
     try:
-        # ✅ Run Nmap with real-time output streaming
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         for line in process.stdout:
-            print(line.strip())  # Print output in real-time
-            logging.info(line.strip())  # Log each line as it appears
+            print(line.strip())
+            logging.info(line.strip())
 
         process.wait()
 
@@ -68,50 +67,66 @@ def run_nmap_scan(target, scan_type):
         else:
             logging.error(f"❌ Nmap scan failed on {target} with return code {process.returncode}")
 
-        # ✅ Parse results after completion
-        parse_nmap_results(output_xml)
+        # ✅ Pass the original target to `parse_nmap_results()` to ensure the correct FQDN is used
+        parse_nmap_results(output_xml, target)
 
     except Exception as e:
         logging.error(f"❌ Unexpected error running Nmap scan on {target}: {e}")
 
 def run_bulk_nmap_scan(targets, scan_type):
     """Run multiple Nmap scans in parallel using ThreadPoolExecutor."""
-    if not targets:
-        logging.warning("⚠ No targets found. Skipping Nmap scanning.")
+    if not targets or not isinstance(targets, list):
+        logging.error("❌ No valid targets provided. Skipping Nmap scanning.")
         return
 
-    logging.info(f"🔍 Starting parallel Nmap scans for {len(targets)} targets...")
+    # ✅ Ensure all targets are valid strings (not single characters)
+    valid_targets = [t for t in targets if isinstance(t, str) and len(t) > 3]  # Filter out incorrect targets
+
+    if not valid_targets:
+        logging.error("❌ No valid targets after filtering. Exiting Nmap scanning.")
+        return
+
+    logging.info(f"🔍 Starting parallel Nmap scans for {len(valid_targets)} targets...")
 
     # ✅ Run scans in parallel with a max of 5 concurrent scans
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        executor.map(lambda target: run_nmap_scan(target, scan_type), targets)
+        executor.map(lambda target: run_nmap_scan(target, scan_type), valid_targets)
 
     logging.info("✅ All parallel Nmap scans completed.")
 
-def parse_nmap_results(xml_file):
-    """Parse Nmap XML results and extract HTTP/HTTPS services."""
+def parse_nmap_results(xml_file, original_target):
+    """Parse Nmap XML results and extract all detected HTTP/HTTPS services, preserving the original FQDN."""
+
     try:
         tree = ET.parse(xml_file)
         root = tree.getroot()
         results = []
 
         for host in root.findall(".//host"):
-            ip_addr = host.find("address").get("addr")
-            for port in host.findall(".//port"):
-                port_id = port.get("portid")
-                service = port.find("service")
-                if service is not None:
-                    service_name = service.get("name", "")
-                    if "http" in service_name:
-                        protocol = "https" if "ssl" in service_name or port_id in ["443", "8443", "4443"] else "http"
-                        results.append(f"{protocol}://{ip_addr}:{port_id}")
+            ip_addr = host.find("address").get("addr")  # Extract resolved IP from scan
+            fqdn_used = original_target if is_valid_fqdn(original_target) else ip_addr  # Use FQDN if target was an FQDN
 
-        # ✅ Append results to network.enumeration
+            for port in host.findall(".//port"):
+                port_id = port.get("portid")  # Extract the actual port number dynamically
+                service = port.find("service")
+
+                if service is not None:
+                    service_name = service.get("name", "").lower()
+
+                    # ✅ Determine protocol dynamically based on service name
+                    if "ssl" in service_name or "https" in service_name:
+                        protocol = "https"
+                    else:
+                        protocol = "http"
+
+                    results.append(f"{protocol}://{fqdn_used}:{port_id}")
+
+        # ✅ Write results to network.enumeration file
         with open(NETWORK_ENUMERATION_FILE, "a") as f:
             for result in results:
                 f.write(result + "\n")
 
-        print(f"✅ Parsed results from {xml_file}")
+        logging.info(f"✅ Parsed results from {xml_file} and saved to {NETWORK_ENUMERATION_FILE}")
 
     except Exception as e:
         logging.error(f"❌ Error parsing Nmap XML results: {e}")

@@ -6,7 +6,7 @@ import socket
 import sys
 from tqdm import tqdm
 from ipaddress import ip_network
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 from datetime import datetime
 import concurrent.futures
 import random
@@ -15,14 +15,6 @@ from nmap import *
 from sql import *
 from config import load_api_key, ZAP_API_URL, ZAP_API_KEY, find_nikto, NETWORK_ENUMERATION_FILE, ZAP_DIR, ZAP_PATH
 from utils import store_data, get_stored_data, is_valid_ipv4, is_valid_ipv6, is_valid_fqdn, is_valid_cidr, check_target_defined, stop_zap
-
-#ZAP_API_KEY = load_api_key()
-#ZAP_API_URL = "http://127.0.0.1:8080"
-#NETWORK_ENUMERATION_FILE = "network.enumeration"
-
-#def get_api_key():
-#    """Return the cached API key."""
-#    return ZAP_API_KEY
 
 def check_zap_running():
     """Check if OWASP ZAP API is accessible with retries.
@@ -115,7 +107,17 @@ def process_network_enumeration():
         else:
             logging.info(f"✅ Found targets in {NETWORK_ENUMERATION_FILE}")
             for t in targets:
-                web_application_enumeration(t)
+                clean_target = t.strip()  # ✅ Remove extra spaces or newlines
+                if not clean_target:
+                    continue  # Skip empty lines
+
+                parsed_url = urlparse(clean_target)
+                if not parsed_url.scheme or not parsed_url.netloc:
+                    logging.error(f"❌ Invalid URL format detected in network.enumeration: {clean_target}")
+                    continue  # Skip invalid URLs
+
+                logging.info(f"🚀 Valid target found: {clean_target}")
+                web_application_enumeration(clean_target)
             return  # ✅ Exit after processing network enumeration targets
 
     # ✅ If `network.enumeration` is missing or empty, use stored target
@@ -125,7 +127,7 @@ def process_network_enumeration():
         logging.error("❌ No valid target found. Exiting enumeration.")
         return
 
-    clean_target = target.replace("http://", "").replace("https://", "")  # ✅ Strip protocol before use
+    clean_target = target.strip().replace("http://", "").replace("https://", "")  # ✅ Strip protocol before use
 
     if is_valid_fqdn(clean_target):
         logging.info(f"🚀 Starting web application enumeration for FQDN target: {clean_target}")
@@ -152,62 +154,37 @@ def check_web_service(ip):
 
     return None  # No web service found
 
+from urllib.parse import urlparse, urlunparse
+
 def web_application_enumeration(target):
     """Scan web applications found in a CIDR range or a single target."""
 
+    target = target.strip()  # ✅ Remove any leading/trailing spaces
+
+    # ✅ Ensure target is a properly formatted URL
+    parsed_url = urlparse(target)
+
+    # ✅ If the scheme is missing, assume HTTP
+    if not parsed_url.scheme:
+        logging.warning(f"⚠ No scheme found in target: {target}. Assuming 'http://'.")
+        target = f"http://{target}"
+        parsed_url = urlparse(target)  # Re-parse after adding scheme
+
+    # ✅ Ensure target contains both scheme and netloc (host)
+    if not parsed_url.netloc:
+        logging.error(f"❌ Invalid URL format: {target}")
+        return
+
+    # ✅ Reconstruct the URL to ensure consistency
+    formatted_url = urlunparse((parsed_url.scheme, parsed_url.netloc, parsed_url.path, '', '', ''))
+
+    logging.info(f"🚀 Starting web scan on: {formatted_url}")
+
     try:
-        # Check if target is a valid CIDR
-        ip_network(target)
-        is_cidr = True
-    except ValueError:
-        is_cidr = False
-
-    if is_cidr:
-        logging.info(f"🌍 Expanding CIDR network: {target}")
-
-        target_ips = list(ip_network(target).hosts())  # Get all hosts in the network
-
-        with tqdm(total=len(target_ips), desc="Scanning Progress", unit="host", dynamic_ncols=True) as pbar:
-            for ip in target_ips:
-                ip_str = str(ip)
-                try:
-                    # ✅ Check if web service exists before scanning
-                    target_url = check_web_service(ip_str)
-                    if target_url:
-                        logging.info(f"🚀 Starting active scan on: {target_url}")
-                        scan_target_with_zap(target_url)  # Ensure a valid string URL is passed
-                    time.sleep(2)  # Simulate processing time
-                except Exception as e:
-                    if "No route to host" not in str(e):  # Suppress only connection errors
-                        logging.error(f"❌ Error scanning {ip_str}: {e}")
-                finally:
-                    pbar.update(1)
-
-        logging.info("✅ Scanning job completed.")
-        return
-
-    # If not a CIDR, check if it's an FQDN or IP address
-    if is_valid_fqdn(target) or is_valid_ipv4(target) or is_valid_ipv6(target):
-        # Ensure target starts with HTTP or HTTPS before scanning
-        if not target.startswith(("http://", "https://")):
-            logging.info(f"🔍 Checking web services on {target}...")
-            detected_url = check_web_service(target)
-            if detected_url:
-                logging.info(f"🚀 Starting active scan on: {detected_url}")
-                scan_target_with_zap(detected_url)
-                return
-            else:
-                logging.error(f"❌ No active web service found on: {target}")
-                return
-
-        try:
-            logging.info(f"🚀 Starting active scan on: {target}")
-            scan_target_with_zap(target)  # Ensure a valid string URL is passed
-        except Exception as e:
-            logging.error(f"❌ Error scanning {target}: {e}")
-        return
-
-    logging.error("❌ Invalid URL format. Please enter a valid URL.")
+        logging.info(f"🚀 Sending target to ZAP: {formatted_url}")
+        scan_target_with_zap(formatted_url)
+    except Exception as e:
+        logging.error(f"❌ Error scanning {formatted_url}: {e}")
 
 def scan_target_with_zap(target_url):
     """Scan a web service using OWASP ZAP."""
