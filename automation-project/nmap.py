@@ -75,7 +75,10 @@ def run_nmap_scan(target, scan_type):
 
 def run_bulk_nmap_scan(targets, scan_type):
     """Run multiple Nmap scans in parallel using ThreadPoolExecutor."""
-    if not targets or not isinstance(targets, list):
+    if not isinstance(targets, list):
+        targets = [targets]  # ✅ Convert a single target into a list
+
+    if not targets:
         logging.error("❌ No valid targets provided. Skipping Nmap scanning.")
         return
 

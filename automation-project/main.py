@@ -66,7 +66,7 @@ def main():
         if isinstance(target, list):
             target = target[0]  # Ensure it's always a string
 
-        run_nmap_scan(target, scan_type)
+        run_bulk_nmap_scan(target, scan_type)
 
     actions = {
         "1": full_automation,

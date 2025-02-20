@@ -80,17 +80,17 @@ def run_sqlmap(target, sqlmap_path):
         sqlmap_cmd = [
             "python3", sqlmap_path,
             "--url", target,
-            "--level", "5",
-            "--risk", "3",
             "--crawl", "20",
             "--batch",
             "--random-agent",
             "--technique", "BEUST",
+            "--forms",
             "--dbs",
             "--current-user",
             "--current-db",
             "--hostname",
             "--output-dir", report_dir,  # ✅ Store results in reports folder
+            "--threads", "10" # ✅ Increases parallel requests (faster results)
             "--disable-coloring"  # ✅ Ensures clean XML output
         ]
 
