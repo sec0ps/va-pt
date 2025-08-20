@@ -80,27 +80,38 @@ def check_directory_structure():
     print("Directory structure is ready.")
 
 def cleanup_old_directories():
-    """Remove old powershell directory from previous installations"""
+    """Automatically remove old directories from previous installations"""
     old_powershell_dir = "/vapt/powershell"
+    old_findshares_dir = "/vapt/scanners/FindUncommonShares"
+    old_grecon_dir = "/vapt/intel/GRecon"
+
     if os.path.exists(old_powershell_dir):
         print("Cleaning up old powershell directory...")
-        user_confirmation = input("Found old powershell directory. Move tools to ad_windows and remove old directory? (yes/no): ").strip().lower()
-        if user_confirmation == 'yes':
-            # Move any existing tools to the new location
-            if os.path.exists(f"{old_powershell_dir}/PowerSploit"):
-                run_command(f"mv {old_powershell_dir}/PowerSploit /vapt/ad_windows/")
-            if os.path.exists(f"{old_powershell_dir}/ps1encode"):
-                run_command(f"mv {old_powershell_dir}/ps1encode /vapt/ad_windows/")
-            if os.path.exists(f"{old_powershell_dir}/Invoke-TheHash"):
-                run_command(f"mv {old_powershell_dir}/Invoke-TheHash /vapt/ad_windows/")
-            if os.path.exists(f"{old_powershell_dir}/PowerShdll"):
-                run_command(f"mv {old_powershell_dir}/PowerShdll /vapt/ad_windows/")
+        # Automatically move any existing tools to the new location
+        if os.path.exists(f"{old_powershell_dir}/PowerSploit"):
+            run_command(f"mv {old_powershell_dir}/PowerSploit /vapt/ad_windows/")
+        if os.path.exists(f"{old_powershell_dir}/ps1encode"):
+            run_command(f"mv {old_powershell_dir}/ps1encode /vapt/ad_windows/")
+        if os.path.exists(f"{old_powershell_dir}/Invoke-TheHash"):
+            run_command(f"mv {old_powershell_dir}/Invoke-TheHash /vapt/ad_windows/")
+        if os.path.exists(f"{old_powershell_dir}/PowerShdll"):
+            run_command(f"mv {old_powershell_dir}/PowerShdll /vapt/ad_windows/")
 
-            # Remove the old directory
-            run_command(f"rm -rf {old_powershell_dir}")
-            print("Old powershell directory cleaned up successfully.")
-        else:
-            print("Old powershell directory left unchanged.")
+        # Remove the old directory
+        run_command(f"rm -rf {old_powershell_dir}")
+        print("Old powershell directory cleaned up successfully.")
+
+    # Handle old FindUncommonShares directory
+    if os.path.exists(old_findshares_dir):
+        print("Cleaning up old FindUncommonShares directory...")
+        run_command(f"rm -rf {old_findshares_dir}")
+        print("Old FindUncommonShares directory removed. Will be reinstalled as pyFindUncommonShares.")
+
+    # Handle old GRecon directory
+    if os.path.exists(old_grecon_dir):
+        print("Cleaning up old GRecon directory...")
+        run_command(f"rm -rf {old_grecon_dir}")
+        print("Old GRecon directory removed.")
 
 def check_and_install(repo_url, install_dir, setup_commands=None):
     """Clone the repo if it doesn't exist and run optional setup commands."""
@@ -318,7 +329,7 @@ def install_toolkit_packages():
         ("https://github.com/fwaeytens/dnsenum.git", "/vapt/scanners/dnsenum", None),
         ("https://github.com/nccgroup/cisco-SNMP-enumeration.git", "/vapt/scanners/cisco-SNMP-enumeration", None),
         ("https://github.com/aas-n/spraykatz.git", "/vapt/scanners/spraykatz", ["pip3 install -r requirements.txt"]),
-        ("https://github.com/p0dalirius/FindUncommonShares.git", "/vapt/scanners/FindUncommonShares", ["pip install -r requirements.txt"]),
+        ("https://github.com/p0dalirius/pyFindUncommonShares.git", "/vapt/scanners/pyFindUncommonShares", ["pip install -r requirements.txt"]),
         ("https://github.com/CiscoCXSecurity/enum4linux.git", "/vapt/scanners/enum4linux", None)
     ]
     
@@ -329,7 +340,6 @@ def install_toolkit_packages():
         ("https://github.com/laramies/theHarvester.git", "/vapt/intel/theHarvester", ["pip3 install -r requirements.txt"]),
         ("https://github.com/nccgroup/scrying.git", "/vapt/intel/scrying", None),
         ("https://github.com/FortyNorthSecurity/EyeWitness.git", "/vapt/intel/EyeWitness", None),
-        ("https://github.com/adnane-X-tebbaa/GRecon.git", "/vapt/intel/GRecon", ["python3 -m pip install -r requirements.txt"]),
         ("https://github.com/l4rm4nd/LinkedInDumper.git", "/vapt/intel/LinkedInDumper", ["pip install -r requirements.txt"]),
         ("https://github.com/OsmanKandemir/indicator-intelligence.git", "/vapt/intel/indicator-intelligence", ["pip3 install -r requirements.txt", "sudo python3 setup.py install"])
     ]
@@ -424,7 +434,7 @@ def update_toolsets():
         "/vapt/scanners/dnsrecon", "/vapt/scanners/sqlmap", "/vapt/scanners/nmap",
         "/vapt/scanners/fierce", "/vapt/scanners/dnsmap", "/vapt/scanners/dnsenum",
         "/vapt/scanners/cisco-SNMP-enumeration", "/vapt/scanners/spraykatz",
-        "/vapt/scanners/FindUncommonShares", "/vapt/scanners/enum4linux"
+        "/vapt/scanners/pyFindUncommonShares", "/vapt/scanners/enum4linux"
     ]
     for tool in vulnerability_scanners:
         run_command(f"cd {tool} && git pull")
@@ -432,8 +442,8 @@ def update_toolsets():
     print("Updating OSINT/Intel Tools")
     osint_tools = [
         "/vapt/intel/recon-ng", "/vapt/intel/spiderfoot", "/vapt/intel/theHarvester",
-        "/vapt/intel/scrying", "/vapt/intel/EyeWitness", "/vapt/intel/GRecon",
-        "/vapt/intel/LinkedInDumper", "/vapt/intel/indicator-intelligence"
+        "/vapt/intel/scrying", "/vapt/intel/EyeWitness", "/vapt/intel/LinkedInDumper",
+        "/vapt/intel/indicator-intelligence"
     ]
     for tool in osint_tools:
         run_command(f"cd {tool} && git pull")
