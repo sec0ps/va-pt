@@ -273,14 +273,14 @@ def install_toolkit_packages():
 
     # Active Directory and Windows security tools
     ad_windows_tools = [
-    ("https://github.com/BloodHoundAD/BloodHound.git", "/vapt/ad_windows/BloodHound", None),
-    ("https://github.com/mattifestation/PowerSploit.git", "/vapt/ad_windows/PowerSploit", None),
-    ("https://github.com/CroweCybersecurity/ps1encode.git", "/vapt/ad_windows/ps1encode", None),
-    ("https://github.com/Kevin-Robertson/Invoke-TheHash.git", "/vapt/ad_windows/Invoke-TheHash", None),
-    ("https://github.com/p3nt4/PowerShdll.git", "/vapt/ad_windows/PowerShdll", None),
-    ("https://github.com/GhostPack/Rubeus.git", "/vapt/ad_windows/Rubeus", None),
-    ("https://github.com/dirkjanm/ldapdomaindump.git", "/vapt/ad_windows/ldapdomaindump", ["pip3 install ldapdomaindump"]),
-    ("https://github.com/adityatelange/evil-winrm-py.git", "/vapt/ad_windows/evil-winrm-py", ["pip3 install ."]),
+       ("https://github.com/BloodHoundAD/BloodHound.git", "/vapt/ad_windows/BloodHound", None),
+       ("https://github.com/mattifestation/PowerSploit.git", "/vapt/ad_windows/PowerSploit", None),
+       ("https://github.com/CroweCybersecurity/ps1encode.git", "/vapt/ad_windows/ps1encode", None),
+       ("https://github.com/Kevin-Robertson/Invoke-TheHash.git", "/vapt/ad_windows/Invoke-TheHash", None),
+       ("https://github.com/p3nt4/PowerShdll.git", "/vapt/ad_windows/PowerShdll", None),
+       ("https://github.com/GhostPack/Rubeus.git", "/vapt/ad_windows/Rubeus", None),
+       ("https://github.com/dirkjanm/ldapdomaindump.git", "/vapt/ad_windows/ldapdomaindump", ["pip3 install ldapdomaindump"]),
+       ("https://github.com/adityatelange/evil-winrm-py.git", "/vapt/ad_windows/evil-winrm-py", ["python3 setup.py install"]),
     ]
 
     # Mobile security testing tools
@@ -506,8 +506,7 @@ def main_menu():
         print("\033[91m1 - Install Base Toolkit Dependencies\033[0m")
         print("\033[91m2 - Install Toolkit Packages\033[0m")
         print("\033[91m3 - Install Weakpass Dictionary for Password Cracking (30G)\033[0m")
-        print("\033[91m4 - Install OpenVAS\033[0m")
-        print("\033[91m5 - Update Toolsets\033[0m")
+        print("\033[91m4 - Update Toolsets\033[0m")
         print("\033[91m0 - Exit\033[0m")
 
         choice = input("Enter your choice: ")
@@ -519,8 +518,6 @@ def main_menu():
         elif choice == '3':
             install_wordlist_files()
         elif choice == '4':
-            install_openvas()
-        elif choice == '5':
             update_toolsets()
         elif choice == '0':
             print("Exiting...")
