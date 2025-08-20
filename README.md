@@ -34,11 +34,8 @@ The VAPT Toolkit provides a streamlined way to install, configure, and maintain 
 ### Quick Start
 ```bash
 # Clone the repository
-git clone <repository-url>
-cd vapt-toolkit
-
-# Make executable
-chmod +x vapt_installer.py
+git clone https://github.com/sec0ps/va-pt.git
+cd va-pt
 
 # Run the installer
 python3 vapt_installer.py
