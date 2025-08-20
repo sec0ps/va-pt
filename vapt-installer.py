@@ -273,14 +273,14 @@ def install_toolkit_packages():
 
     # Active Directory and Windows security tools
     ad_windows_tools = [
-       ("https://github.com/BloodHoundAD/BloodHound.git", "/vapt/ad_windows/BloodHound", None),
-       ("https://github.com/mattifestation/PowerSploit.git", "/vapt/ad_windows/PowerSploit", None),
-       ("https://github.com/CroweCybersecurity/ps1encode.git", "/vapt/ad_windows/ps1encode", None),
-       ("https://github.com/Kevin-Robertson/Invoke-TheHash.git", "/vapt/ad_windows/Invoke-TheHash", None),
-       ("https://github.com/p3nt4/PowerShdll.git", "/vapt/ad_windows/PowerShdll", None),
-       ("https://github.com/GhostPack/Rubeus.git", "/vapt/ad_windows/Rubeus", None),
-       ("https://github.com/dirkjanm/ldapdomaindump.git", "/vapt/ad_windows/ldapdomaindump", ["pip3 install ldapdomaindump"]),
-       ("https://github.com/adityatelange/evil-winrm-py.git", "/vapt/ad_windows/evil-winrm-py", ["python3 setup.py install"]),
+    ("https://github.com/BloodHoundAD/BloodHound.git", "/vapt/ad_windows/BloodHound", None),
+    ("https://github.com/mattifestation/PowerSploit.git", "/vapt/ad_windows/PowerSploit", None),
+    ("https://github.com/CroweCybersecurity/ps1encode.git", "/vapt/ad_windows/ps1encode", None),
+    ("https://github.com/Kevin-Robertson/Invoke-TheHash.git", "/vapt/ad_windows/Invoke-TheHash", None),
+    ("https://github.com/p3nt4/PowerShdll.git", "/vapt/ad_windows/PowerShdll", None),
+    ("https://github.com/GhostPack/Rubeus.git", "/vapt/ad_windows/Rubeus", None),
+    ("https://github.com/dirkjanm/ldapdomaindump.git", "/vapt/ad_windows/ldapdomaindump", ["pip3 install ldapdomaindump"]),
+    ("https://github.com/adityatelange/evil-winrm-py.git", "/vapt/ad_windows/evil-winrm-py", ["pip3 install ."]),
     ]
 
     # Mobile security testing tools
