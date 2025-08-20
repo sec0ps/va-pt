@@ -55,7 +55,8 @@ def check_directory_structure():
         base_path, f"{base_path}/temp", f"{base_path}/wireless", f"{base_path}/exploits",
         f"{base_path}/web", f"{base_path}/intel", f"{base_path}/scanners", f"{base_path}/misc",
         f"{base_path}/passwords", f"{base_path}/fuzzers", f"{base_path}/audit",
-        f"{base_path}/powershell", f"{base_path}/exfiltrate"
+        f"{base_path}/mobile", f"{base_path}/cloud", f"{base_path}/network",
+        f"{base_path}/ad_windows", f"{base_path}/exfiltrate"  # Added ad_windows directory
     ]
 
     # Create the base directory if it does not exist
@@ -77,6 +78,29 @@ def check_directory_structure():
         run_command(f"cd {base_path}/misc && git clone https://github.com/sec0ps/va-pt.git")
 
     print("Directory structure is ready.")
+
+def cleanup_old_directories():
+    """Remove old powershell directory from previous installations"""
+    old_powershell_dir = "/vapt/powershell"
+    if os.path.exists(old_powershell_dir):
+        print("Cleaning up old powershell directory...")
+        user_confirmation = input("Found old powershell directory. Move tools to ad_windows and remove old directory? (yes/no): ").strip().lower()
+        if user_confirmation == 'yes':
+            # Move any existing tools to the new location
+            if os.path.exists(f"{old_powershell_dir}/PowerSploit"):
+                run_command(f"mv {old_powershell_dir}/PowerSploit /vapt/ad_windows/")
+            if os.path.exists(f"{old_powershell_dir}/ps1encode"):
+                run_command(f"mv {old_powershell_dir}/ps1encode /vapt/ad_windows/")
+            if os.path.exists(f"{old_powershell_dir}/Invoke-TheHash"):
+                run_command(f"mv {old_powershell_dir}/Invoke-TheHash /vapt/ad_windows/")
+            if os.path.exists(f"{old_powershell_dir}/PowerShdll"):
+                run_command(f"mv {old_powershell_dir}/PowerShdll /vapt/ad_windows/")
+
+            # Remove the old directory
+            run_command(f"rm -rf {old_powershell_dir}")
+            print("Old powershell directory cleaned up successfully.")
+        else:
+            print("Old powershell directory left unchanged.")
 
 def check_and_install(repo_url, install_dir, setup_commands=None):
     """Clone the repo if it doesn't exist and run optional setup commands."""
@@ -112,6 +136,8 @@ def install_base_dependencies():
     run_command("sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff-ng httptunnel ptunnel-ng udptunnel pipx python3-venv ruby-dev")
     run_command("sudo apt install -y webhttrack minicom default-jre gnome-tweaks macchanger recordmydesktop postgresql golang-go hydra-gtk hydra")
     run_command("sudo apt install -y ncftp wine-development libcurl4-openssl-dev smbclient hackrf nfs-common samba")
+    run_command("sudo apt install -y docker.io docker-compose")
+    run_command("sudo usermod -aG docker $USER")
     run_command("sudo snap install powershell --classic")
     run_command("sudo snap install crackmapexec")
 
@@ -167,7 +193,23 @@ def install_toolkit_packages():
         ("https://github.com/xFreed0m/ADFSpray.git", "/vapt/exploits/ADFSpray", ["pip3 install -r requirements.txt"]),
         ("https://github.com/gentilkiwi/mimikatz.git", "/vapt/exploits/mimikatz", None),
         ("https://github.com/byt3bl33d3r/DeathStar.git", "/vapt/exploits/DeathStar", ["pip3 install -r requirements.txt"]),
+        ("https://github.com/cobbr/Covenant.git", "/vapt/exploits/Covenant", None),
+        ("https://github.com/Ne0nd0g/merlin.git", "/vapt/exploits/merlin", ["make"]),
+        ("https://github.com/byt3bl33d3r/SILENTTRINITY.git", "/vapt/exploits/SILENTTRINITY", ["pip3 install -r requirements.txt"]),
+        ("https://github.com/assetnote/kiterunner.git", "/vapt/web/kiterunner", ["make build"]),
+        ("https://github.com/projectdiscovery/httpx.git", "/vapt/web/httpx", ["go install"]),
+        ("https://github.com/ffuf/ffuf.git", "/vapt/web/ffuf", ["go build"]),
+        ("https://github.com/maurosoria/dirsearch.git", "/vapt/web/dirsearch", None),
+        ("https://github.com/EnableSecurity/wafw00f.git", "/vapt/web/wafw00f", ["python setup.py install"]),
         ("https://github.com/MatheuZSecurity/D3m0n1z3dShell.git", "/vapt/exploits/D3m0n1z3dShell", ["chmod +x demonizedshell.sh"])
+    ]
+
+    # Container and cloud security tools
+    container_cloud_tools = [
+        ("https://github.com/aquasecurity/trivy.git", "/vapt/cloud/trivy", None),
+        ("https://github.com/bridgecrewio/checkov.git", "/vapt/cloud/checkov", ["pip3 install -r requirements.txt"]),
+        ("https://github.com/RhinoSecurityLabs/pacu.git", "/vapt/cloud/pacu", ["pip3 install -r requirements.txt"]),
+        ("https://github.com/nccgroup/ScoutSuite.git", "/vapt/cloud/ScoutSuite", ["pip install -e ."]),
     ]
 
     # Define installations for web testing tools
@@ -181,6 +223,31 @@ def install_toolkit_packages():
         ("https://github.com/s0md3v/XSStrike.git", "/vapt/web/XSStrike", ["python3 -m pip install -r requirements.txt"]),
         ("https://github.com/wapiti-scanner/wapiti.git", "/vapt/web/wapiti", ["sudo python3 setup.py install"]),
         ("https://github.com/com-puter-tips/Links-Extractor.git", "/vapt/web/Links-Extractor", ["pip3 install -r requirements.txt"]),
+    ]
+
+    # Active Directory and Windows security tools
+    ad_windows_tools = [
+        ("https://github.com/BloodHoundAD/BloodHound.git", "/vapt/ad_windows/BloodHound", None),
+        ("https://github.com/mattifestation/PowerSploit.git", "/vapt/ad_windows/PowerSploit", None),
+        ("https://github.com/CroweCybersecurity/ps1encode.git", "/vapt/ad_windows/ps1encode", None),
+        ("https://github.com/Kevin-Robertson/Invoke-TheHash.git", "/vapt/ad_windows/Invoke-TheHash", None),
+        ("https://github.com/p3nt4/PowerShdll.git", "/vapt/ad_windows/PowerShdll", None),
+        ("https://github.com/ShutdownRepo/Certipy.git", "/vapt/ad_windows/Certipy", ["pip3 install certipy-ad"]),
+        ("https://github.com/GhostPack/Rubeus.git", "/vapt/ad_windows/Rubeus", None),
+        ("https://github.com/dirkjanm/ldapdomaindump.git", "/vapt/ad_windows/ldapdomaindump", ["pip3 install ldapdomaindump"]),
+    ]
+
+    # Mobile security testing tools
+    mobile_tools = [
+        ("https://github.com/MobSF/Mobile-Security-Framework-MobSF.git", "/vapt/mobile/MobSF", ["pip3 install -r requirements.txt"]),
+        ("https://github.com/sensepost/objection.git", "/vapt/mobile/objection", ["pip3 install objection"]),
+    ]
+
+    # network and infrastructure tools
+    network_tools = [
+        ("https://github.com/robertdavidgraham/masscan.git", "/vapt/network/masscan", ["make"]),
+        ("https://github.com/projectdiscovery/nuclei.git", "/vapt/network/nuclei", None),
+        ("https://github.com/OWASP/Amass.git", "/vapt/network/Amass", ["go install ./..."]),
     ]
 
     # Password cracking tools
@@ -205,14 +272,6 @@ def install_toolkit_packages():
         ("https://github.com/jtpereyda/boofuzz.git", "/vapt/fuzzers/boofuzz", None)
     ]
 
-    # Powershell tools
-    powershell_tools = [
-        ("https://github.com/mattifestation/PowerSploit.git", "/vapt/powershell/PowerSploit", None),
-        ("https://github.com/CroweCybersecurity/ps1encode.git", "/vapt/powershell/ps1encode", None),
-        ("https://github.com/Kevin-Robertson/Invoke-TheHash.git", "/vapt/powershell/Invoke-TheHash", None),
-        ("https://github.com/p3nt4/PowerShdll.git", "/vapt/powershell/PowerShdll", None)
-    ]
-
     # Misc Audit tools
     audit_tools = [
         ("https://github.com/hausec/PowerZure.git", "/vapt/audit/PowerZure", None),
@@ -224,7 +283,6 @@ def install_toolkit_packages():
     # Wireless Signal Analysis tools
     wireless_tools = [
         ("https://github.com/g4ixt/QtTinySA.git", "/vapt/wireless/QtTinySA", ["pip3 install -r requirements.txt"]),
-        ("https://github.com/sec0ps/rf_surveillance.git", "https://github.com/sec0ps/rf_surveillance.git", ["python setup_install.py"]),
         ("https://github.com/xmikos/qspectrumanalyzer.git", "/vapt/wireless/qspectrumanalyzer", ["sudo python3 setup.py install"])
     ]
 
@@ -234,10 +292,10 @@ def install_toolkit_packages():
         print("OWASP ZAP already installed, skipping.")
     else:
         print("Installing OWASP ZAP")
-        run_command("cd /vapt/web && wget https://github.com/zaproxy/zaproxy/releases/download/v2.16.1/ZAP_2.16.1_Linux.tar.gz")
-        run_command("cd /vapt/web && tar xvf ZAP_2.16.1_Linux.tar.gz")
-        run_command("cd /vapt/web && rm -rf ZAP_2.16.1_Linux.tar.gz")
-        run_command("cd /vapt/web && mv ZAP_2.16.1/ zap/")
+        run_command("cd /vapt/web && wget https://github.com/zaproxy/zaproxy/releases/download/v2.15.0/ZAP_2.15.0_Linux.tar.gz")
+        run_command("cd /vapt/web && tar xvf ZAP_2.15.0_Linux.tar.gz")
+        run_command("cd /vapt/web && rm -rf ZAP_2.15.0_Linux.tar.gz")
+        run_command("cd /vapt/web && mv ZAP_2.15.0/ zap/")
 
     # Arachni installation
     arachni_dir = "/vapt/web/arachni"
@@ -276,8 +334,10 @@ def install_toolkit_packages():
         ("https://github.com/OsmanKandemir/indicator-intelligence.git", "/vapt/intel/indicator-intelligence", ["pip3 install -r requirements.txt", "sudo python3 setup.py install"])
     ]
 
-    # Install all other tools
-    for tool in (exploitation_tools + web_tools + password_tools + fuzzer_tools + powershell_tools + audit_tools + vulnerability_scanners + osint_tools + wireless_tools):
+    # Install all tools
+    for tool in (exploitation_tools + web_tools + container_cloud_tools + ad_windows_tools +
+                mobile_tools + network_tools + password_tools + fuzzer_tools +
+                audit_tools + vulnerability_scanners + osint_tools + wireless_tools):
         check_and_install(*tool)
 
     print("Toolkit packages installation complete.")
@@ -289,7 +349,8 @@ def update_toolsets():
         "/vapt/exploits/social-engineer-toolkit", "/vapt/exploits/metasploit-framework",
         "/vapt/exploits/ADFSpray", "/vapt/exploits/beef", "/vapt/exploits/DeathStar",
         "/vapt/exploits/impacket", "/vapt/exploits/mimikatz", "/vapt/exploits/Responder",
-        "/vapt/exploits/exploitdb"
+        "/vapt/exploits/exploitdb", "/vapt/exploits/Covenant", "/vapt/exploits/merlin",
+        "/vapt/exploits/SILENTTRINITY", "/vapt/exploits/D3m0n1z3dShell"
     ]
     for tool in exploit_tools:
         run_command(f"cd {tool} && git pull")
@@ -298,9 +359,41 @@ def update_toolsets():
     web_tools = [
         "/vapt/web/htshells", "/vapt/web/joomscan", "/vapt/web/nikto",
         "/vapt/web/php-webshells", "/vapt/web/watobo", "/vapt/web/WhatWeb",
-        "/vapt/web/XSStrike", "/vapt/web/wapiti"
+        "/vapt/web/XSStrike", "/vapt/web/wapiti", "/vapt/web/Links-Extractor",
+        "/vapt/web/kiterunner", "/vapt/web/httpx", "/vapt/web/ffuf",
+        "/vapt/web/dirsearch", "/vapt/web/wafw00f"
     ]
     for tool in web_tools:
+        run_command(f"cd {tool} && git pull")
+
+    print("Updating Container & Cloud Security Tools")
+    container_cloud_tools = [
+        "/vapt/cloud/trivy", "/vapt/cloud/checkov", "/vapt/cloud/pacu", "/vapt/cloud/ScoutSuite"
+    ]
+    for tool in container_cloud_tools:
+        run_command(f"cd {tool} && git pull")
+
+    print("Updating Active Directory & Windows Tools")
+    ad_windows_tools = [
+        "/vapt/ad_windows/BloodHound", "/vapt/ad_windows/PowerSploit", "/vapt/ad_windows/ps1encode",
+        "/vapt/ad_windows/Invoke-TheHash", "/vapt/ad_windows/PowerShdll", "/vapt/ad_windows/Certipy",
+        "/vapt/ad_windows/Rubeus", "/vapt/ad_windows/ldapdomaindump"
+    ]
+    for tool in ad_windows_tools:
+        run_command(f"cd {tool} && git pull")
+
+    print("Updating Mobile Security Tools")
+    mobile_tools = [
+        "/vapt/mobile/MobSF", "/vapt/mobile/objection"
+    ]
+    for tool in mobile_tools:
+        run_command(f"cd {tool} && git pull")
+
+    print("Updating Network & Infrastructure Tools")
+    network_tools = [
+        "/vapt/network/masscan", "/vapt/network/nuclei", "/vapt/network/Amass"
+    ]
+    for tool in network_tools:
         run_command(f"cd {tool} && git pull")
 
     print("Updating Password Tools")
@@ -316,14 +409,6 @@ def update_toolsets():
         "/vapt/fuzzers/boofuzz"
     ]
     for tool in fuzzer_tools:
-        run_command(f"cd {tool} && git pull")
-
-    print("Updating Powershell Tools")
-    powershell_tools = [
-        "/vapt/powershell/PowerSploit", "/vapt/powershell/ps1encode",
-        "/vapt/powershell/Invoke-TheHash", "/vapt/powershell/PowerShdll"
-    ]
-    for tool in powershell_tools:
         run_command(f"cd {tool} && git pull")
 
     print("Updating Audit Tools")
@@ -368,7 +453,10 @@ def update_toolsets():
 def main_menu():
     # Ensure directory structure is in place
     check_directory_structure()
-    
+
+    # Run cleanup for old installations
+    cleanup_old_directories()
+
     while True:
         print("\033[91m1 - Install Base Toolkit Dependencies\033[0m")
         print("\033[91m2 - Install Toolkit Packages\033[0m")
