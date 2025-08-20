@@ -1,69 +1,122 @@
-The VAPT Toolkit Installer is designed as a lightweight, portable toolset installer, built specifically for Ubuntu 22.04. It enables quick and streamlined installation of a comprehensive suite of security tools for vulnerability assessment, penetration testing, and digital forensics. Ideal for both beginners and experienced security professionals, this toolkit allows you to set up a fully functional and portable security tool environment that can be moved and replicated across multiple systems.
+# VAPT Toolkit - Vulnerability Assessment and Penetration Testing Toolkit
 
-Purpose
-This installer is intended to make it easy to deploy a broad range of security tools without requiring individual installation and configuration steps for each tool. 
+An automated installation and management system for a comprehensive vulnerability assessment and penetration testing toolkit.
 
-The toolkit covers a wide spectrum of functionality, including but not limited to:
+## Overview
 
-Exploitation frameworks
-Web application testing tools
-Network scanning and enumeration tools
-OSINT (Open Source Intelligence) and reconnaissance tools
-Password cracking and fuzzing tools
-Forensic and auditing tools
+The VAPT Toolkit provides a streamlined way to install, configure, and maintain a complete penetration testing environment with over 50+ security tools organized across multiple categories.
 
-Features
-Portable: Simply copy the installer and deploy the entire toolset on any Ubuntu 22.04 system.
-Lightweight: Designed to run smoothly on Ubuntu 22.04 with minimal setup overhead.
-Comprehensive Toolset: Provides a robust suite of tools in various categories necessary for ethical hacking, penetration testing, and system security auditing.
-Easy Updates: Includes a menu option to update all installed tools to ensure that you always have the latest versions.
+## Features
 
-Installation
-Download the Installer: Clone or download the installer to the target Ubuntu 22.04 machine.
+- **Automated Installation**: One-click installation of essential security tools
+- **Organized Structure**: Tools categorized by function (web, network, mobile, etc.)
+- **Dependency Management**: Automatic installation of required dependencies
+- **Update Management**: Bulk update functionality for all installed tools
+- **Clean Migration**: Automatic cleanup and migration from older installations
 
-git clone https://github.com/sec0ps/va-pt.git
-cd va-pt
+## Tool Categories
 
-Run the Installer Script:
+- **Exploitation Tools**: Metasploit, Covenant, Merlin, SILENTTRINITY, Impacket
+- **Web Testing**: Nikto, XSStrike, Dirsearch, FFUF, Kiterunner, OWASP ZAP
+- **Network Scanning**: Nmap, Masscan, Nuclei, Amass
+- **Active Directory**: BloodHound, PowerSploit, Rubeus, Certipy
+- **Mobile Security**: MobSF, Objection
+- **Cloud Security**: Trivy, Checkov, Pacu, ScoutSuite
+- **Password Tools**: John the Ripper, Hashcat, SecLists
+- **OSINT**: TheHarvester, Recon-ng, SpiderFoot
+- **Wireless**: QtTinySA, QSpectrumAnalyzer
 
-python3 vapt-installer.py
+## Installation
 
-Note: The script should not be run as root. It will automatically use sudo where necessary to install required packages and manage permissions.
+### Prerequisites
+- Ubuntu/Debian-based Linux system
+- Non-root user with sudo privileges
+- Internet connection
 
-Choose Installation Options: After starting the installer, you will see a menu with the following options:
+### Quick Start
+```bash
+# Clone the repository
+git clone <repository-url>
+cd vapt-toolkit
 
-Install Base Toolkit Dependencies: Installs essential packages required by various tools (e.g., Git, Python, etc.).
-Install Toolkit Packages: Installs the main toolkit components, including exploitation frameworks, web testing tools, and more.
-Install Wordlist Files for Password Cracking: Downloads and extracts commonly used wordlists for password cracking activities.
-Install OpenVAS: Installs and sets up OpenVAS, a popular vulnerability scanner.
-Update Toolsets: Checks each installed tool for updates and applies them as necessary.
-Exit: Exits the installer.
+# Make executable
+chmod +x vapt_installer.py
 
-Tools Included
-The toolkit includes a wide variety of tools organized into categories:
+# Run the installer
+python3 vapt_installer.py
+```
 
-Exploitation Frameworks: Metasploit, Social-Engineer Toolkit, and more.
-Web Testing Tools: Nikto, ZAP Proxy, Arachni, and others.
-Network Scanners: Nmap, DNSRecon, and SQLMap.
-OSINT/Intel Tools: Recon-ng, theHarvester, Spiderfoot, etc.
-Password Tools: John the Ripper, Hashcat, and CeWL.
-Forensics & Audit Tools: PowerSploit, Nessus, OpenVAS, and more.
+### Installation Options
+1. **Install Base Dependencies** - System packages and dependencies
+2. **Install Toolkit Packages** - Security tools and frameworks
+3. **Install Weakpass Dictionary** - 30GB password cracking wordlist
+4. **Update Toolsets** - Update all installed tools
 
-Updating Tools
-Select the Update Toolsets option in the menu to update all installed tools. The script will:
+## Directory Structure
 
-Pull the latest code from each tool’s repository.
-Reinstall or rebuild the tools as necessary to apply updates.
-Update specific tools like OpenVAS and Nessus if they are installed on the system.
+```
+/vapt/
+├── exploits/        # Exploitation frameworks and tools
+├── web/             # Web application testing tools
+├── network/         # Network scanning and analysis
+├── ad_windows/      # Active Directory and Windows tools
+├── mobile/          # Mobile security testing
+├── cloud/           # Cloud security tools
+├── scanners/        # Vulnerability scanners
+├── passwords/       # Password cracking tools
+├── intel/           # OSINT and reconnaissance
+├── wireless/        # Wireless security tools
+├── fuzzers/         # Fuzzing tools
+├── audit/           # Security audit tools
+└── misc/            # Miscellaneous utilities
+```
 
-Requirements
-Operating System: Ubuntu 22.04
-Python 3: Required for running the installer script.
-Sudo Access: Certain installations require elevated permissions.
+## Usage
 
-Notes
-The installer is designed for Ubuntu 22.04 and may not be compatible with earlier versions or other distributions.
-It is recommended to keep the toolkit up-to-date by periodically selecting the Update Toolsets option to ensure all tools are current.
+Run the installer script and select from the menu options:
+- Install base system dependencies first
+- Install security tool packages
+- Optionally install large wordlists
+- Use update function to keep tools current
 
-License
-This project is released under the MIT License. See the LICENSE file for more details.
+## Professional Services
+
+### Red Cell Security, LLC
+For enterprise deployments, custom integrations, or professional security assessments:
+
+- **Email**: keith@redcellsecurity.org
+- **Website**: www.redcellsecurity.org
+- **Services**: Custom RF security solutions, threat hunting, defensive countermeasures
+
+## Disclaimer
+
+This software is provided "as-is," without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement. In no event shall the authors or copyright holders be liable for any claim, damages, or other liability, whether in an action of contract, tort, or otherwise, arising from, out of, or in connection with the software or the use or other dealings in the software.
+
+## License & Copyright
+
+**Author**: Keith Pachulski  
+**Company**: Red Cell Security, LLC  
+**Email**: keith@redcellsecurity.org  
+**Website**: www.redcellsecurity.org  
+
+© 2025 Keith Pachulski. All rights reserved.
+
+**License**: MIT License - You are free to use, modify, and distribute this software in accordance with the terms of the license.
+
+## Support Development
+
+If you find this project valuable for your security operations:
+
+[![Donate](https://img.shields.io/badge/Donate-PayPal-blue.svg)](https://paypal.me/sec0ps)
+
+---
+
+## Support My Work
+
+If you find my work useful and want to support continued development, you can donate here:
+
+[![Donate](https://img.shields.io/badge/Donate-PayPal-blue.svg)](https://paypal.me/sec0ps)
+
+> **DISCLAIMER**:  
+> This software is provided "as-is," without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement. In no event shall the authors or copyright holders
+> be liable for any claim, damages, or other liability, whether in an action of contract, tort, or otherwise, arising from, out of, or in connection with the software or the use or other dealings in the software.
