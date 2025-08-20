@@ -178,7 +178,7 @@ def install_base_dependencies():
     run_command("sudo cpanm Net::IP && sudo cpanm Net::DNS")
     
     print("Installing Python Packages and Dependencies")
-    run_command("pip3 install build dnspython kerberoast certipy-ad knowsmore sherlock-project")
+    run_command("pip3 install build dnspython kerberoast certipy-ad knowsmore sherlock-project wafw00f")
     run_command("pipx install urh")
     run_command("python -m pip install dnspython==1.16.0")
     
@@ -205,13 +205,12 @@ def install_toolkit_packages():
         ("https://github.com/gentilkiwi/mimikatz.git", "/vapt/exploits/mimikatz", None),
         ("https://github.com/byt3bl33d3r/DeathStar.git", "/vapt/exploits/DeathStar", ["pip3 install -r requirements.txt"]),
         ("https://github.com/cobbr/Covenant.git", "/vapt/exploits/Covenant", None),
-        ("https://github.com/Ne0nd0g/merlin.git", "/vapt/exploits/merlin", ["make"]),
+        ("https://github.com/Ne0nd0g/merlin.git", "/vapt/exploits/merlin", ["sed -i 's/go 1.23.0/go 1.23/' go.mod", "sed -i '/^toolchain/d' go.mod", "make"]),
         ("https://github.com/byt3bl33d3r/SILENTTRINITY.git", "/vapt/exploits/SILENTTRINITY", ["pip3 install -r requirements.txt"]),
         ("https://github.com/assetnote/kiterunner.git", "/vapt/web/kiterunner", ["make build"]),
         ("https://github.com/projectdiscovery/httpx.git", "/vapt/web/httpx", ["go install"]),
         ("https://github.com/ffuf/ffuf.git", "/vapt/web/ffuf", ["go build"]),
         ("https://github.com/maurosoria/dirsearch.git", "/vapt/web/dirsearch", None),
-        ("https://github.com/EnableSecurity/wafw00f.git", "/vapt/web/wafw00f", ["python setup.py install"]),
         ("https://github.com/MatheuZSecurity/D3m0n1z3dShell.git", "/vapt/exploits/D3m0n1z3dShell", ["chmod +x demonizedshell.sh"])
     ]
 
@@ -370,7 +369,7 @@ def update_toolsets():
         "/vapt/web/php-webshells", "/vapt/web/watobo", "/vapt/web/WhatWeb",
         "/vapt/web/XSStrike", "/vapt/web/wapiti", "/vapt/web/Links-Extractor",
         "/vapt/web/kiterunner", "/vapt/web/httpx", "/vapt/web/ffuf",
-        "/vapt/web/dirsearch", "/vapt/web/wafw00f"
+        "/vapt/web/dirsearch"
     ]
     for tool in web_tools:
         run_command(f"cd {tool} && git pull")
