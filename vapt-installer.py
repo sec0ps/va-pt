@@ -243,7 +243,6 @@ def install_toolkit_packages():
         ("https://github.com/CroweCybersecurity/ps1encode.git", "/vapt/ad_windows/ps1encode", None),
         ("https://github.com/Kevin-Robertson/Invoke-TheHash.git", "/vapt/ad_windows/Invoke-TheHash", None),
         ("https://github.com/p3nt4/PowerShdll.git", "/vapt/ad_windows/PowerShdll", None),
-        ("https://github.com/ShutdownRepo/Certipy.git", "/vapt/ad_windows/Certipy", ["pip3 install certipy-ad"]),
         ("https://github.com/GhostPack/Rubeus.git", "/vapt/ad_windows/Rubeus", None),
         ("https://github.com/dirkjanm/ldapdomaindump.git", "/vapt/ad_windows/ldapdomaindump", ["pip3 install ldapdomaindump"]),
     ]
@@ -386,7 +385,7 @@ def update_toolsets():
     print("Updating Active Directory & Windows Tools")
     ad_windows_tools = [
         "/vapt/ad_windows/BloodHound", "/vapt/ad_windows/PowerSploit", "/vapt/ad_windows/ps1encode",
-        "/vapt/ad_windows/Invoke-TheHash", "/vapt/ad_windows/PowerShdll", "/vapt/ad_windows/Certipy",
+        "/vapt/ad_windows/Invoke-TheHash", "/vapt/ad_windows/PowerShdll",
         "/vapt/ad_windows/Rubeus", "/vapt/ad_windows/ldapdomaindump"
     ]
     for tool in ad_windows_tools:
