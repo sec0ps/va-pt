@@ -214,7 +214,7 @@ def install_base_dependencies():
     run_command("sudo cpanm Net::IP && sudo cpanm Net::DNS")
     
     print("Installing Python Packages and Dependencies")
-    run_command("pip3 install build dnspython kerberoast certipy-ad knowsmore sherlock-project wafw00f")
+    run_command("pip3 install build dnspython kerberoast certipy-ad knowsmore sherlock-project wafw00f pypykatz")
     run_command("pipx install urh")
     run_command("python -m pip install dnspython==1.16.0")
     
@@ -273,13 +273,14 @@ def install_toolkit_packages():
 
     # Active Directory and Windows security tools
     ad_windows_tools = [
-        ("https://github.com/BloodHoundAD/BloodHound.git", "/vapt/ad_windows/BloodHound", None),
-        ("https://github.com/mattifestation/PowerSploit.git", "/vapt/ad_windows/PowerSploit", None),
-        ("https://github.com/CroweCybersecurity/ps1encode.git", "/vapt/ad_windows/ps1encode", None),
-        ("https://github.com/Kevin-Robertson/Invoke-TheHash.git", "/vapt/ad_windows/Invoke-TheHash", None),
-        ("https://github.com/p3nt4/PowerShdll.git", "/vapt/ad_windows/PowerShdll", None),
-        ("https://github.com/GhostPack/Rubeus.git", "/vapt/ad_windows/Rubeus", None),
-        ("https://github.com/dirkjanm/ldapdomaindump.git", "/vapt/ad_windows/ldapdomaindump", ["pip3 install ldapdomaindump"]),
+       ("https://github.com/BloodHoundAD/BloodHound.git", "/vapt/ad_windows/BloodHound", None),
+       ("https://github.com/mattifestation/PowerSploit.git", "/vapt/ad_windows/PowerSploit", None),
+       ("https://github.com/CroweCybersecurity/ps1encode.git", "/vapt/ad_windows/ps1encode", None),
+       ("https://github.com/Kevin-Robertson/Invoke-TheHash.git", "/vapt/ad_windows/Invoke-TheHash", None),
+       ("https://github.com/p3nt4/PowerShdll.git", "/vapt/ad_windows/PowerShdll", None),
+       ("https://github.com/GhostPack/Rubeus.git", "/vapt/ad_windows/Rubeus", None),
+       ("https://github.com/dirkjanm/ldapdomaindump.git", "/vapt/ad_windows/ldapdomaindump", ["pip3 install ldapdomaindump"]),
+       ("https://github.com/adityatelange/evil-winrm-py.git", "/vapt/ad_windows/evil-winrm-py", ["python3 setup.py install"]),
     ]
 
     # Mobile security testing tools
@@ -421,7 +422,7 @@ def update_toolsets():
     ad_windows_tools = [
         "/vapt/ad_windows/BloodHound", "/vapt/ad_windows/PowerSploit", "/vapt/ad_windows/ps1encode",
         "/vapt/ad_windows/Invoke-TheHash", "/vapt/ad_windows/PowerShdll",
-        "/vapt/ad_windows/Rubeus", "/vapt/ad_windows/ldapdomaindump"
+        "/vapt/ad_windows/Rubeus", "/vapt/ad_windows/ldapdomaindump", "/vapt/ad_windows/evil-winrm-py"
     ]
     for tool in ad_windows_tools:
         run_command(f"cd {tool} && git pull")
