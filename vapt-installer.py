@@ -224,6 +224,7 @@ def install_toolkit_packages():
     # Wireless Signal Analysis tools
     wireless_tools = [
         ("https://github.com/g4ixt/QtTinySA.git", "/vapt/wireless/QtTinySA", ["pip3 install -r requirements.txt"]),
+        ("https://github.com/sec0ps/rf_surveillance.git", "https://github.com/sec0ps/rf_surveillance.git", ["python setup_install.py"]),
         ("https://github.com/xmikos/qspectrumanalyzer.git", "/vapt/wireless/qspectrumanalyzer", ["sudo python3 setup.py install"])
     ]
 
@@ -233,10 +234,10 @@ def install_toolkit_packages():
         print("OWASP ZAP already installed, skipping.")
     else:
         print("Installing OWASP ZAP")
-        run_command("cd /vapt/web && wget https://github.com/zaproxy/zaproxy/releases/download/v2.15.0/ZAP_2.15.0_Linux.tar.gz")
-        run_command("cd /vapt/web && tar xvf ZAP_2.15.0_Linux.tar.gz")
-        run_command("cd /vapt/web && rm -rf ZAP_2.15.0_Linux.tar.gz")
-        run_command("cd /vapt/web && mv ZAP_2.15.0/ zap/")
+        run_command("cd /vapt/web && wget https://github.com/zaproxy/zaproxy/releases/download/v2.16.1/ZAP_2.16.1_Linux.tar.gz")
+        run_command("cd /vapt/web && tar xvf ZAP_2.16.1_Linux.tar.gz")
+        run_command("cd /vapt/web && rm -rf ZAP_2.16.1_Linux.tar.gz")
+        run_command("cd /vapt/web && mv ZAP_2.16.1/ zap/")
 
     # Arachni installation
     arachni_dir = "/vapt/web/arachni"
