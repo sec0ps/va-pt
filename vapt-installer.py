@@ -188,7 +188,81 @@ def install_base_dependencies():
     run_command("sudo snap install powershell --classic")
     run_command("sudo snap install crackmapexec")
 
-        # Check if CPANminus is installed
+    # Ruby version management
+    print("Checking Ruby version...")
+    
+    # Check if rbenv is installed
+    rbenv_check = subprocess.run("which rbenv", shell=True, capture_output=True, text=True)
+    if rbenv_check.returncode != 0:
+        print("rbenv not found. Installing rbenv...")
+        run_command("sudo apt install -y git curl libssl-dev libreadline-dev zlib1g-dev autoconf bison build-essential libyaml-dev libreadline-dev libncurses5-dev libffi-dev libgdbm-dev")
+        run_command("curl -fsSL https://github.com/rbenv/rbenv-installer/raw/HEAD/bin/rbenv-installer | bash")
+        run_command("echo 'export PATH=\"$HOME/.rbenv/bin:$PATH\"' >> ~/.bashrc")
+        run_command("echo 'eval \"$(rbenv init -)\"' >> ~/.bashrc")
+        print("rbenv installed. Please restart your terminal and run the script again.")
+        return
+
+    # Check current Ruby version
+    try:
+        ruby_version_output = subprocess.run("ruby -v", shell=True, capture_output=True, text=True)
+        if ruby_version_output.returncode == 0:
+            # Extract version number using regex
+            version_match = re.search(r'ruby (\d+\.\d+\.\d+)', ruby_version_output.stdout)
+            if version_match:
+                current_version = version_match.group(1)
+                version_parts = [int(x) for x in current_version.split('.')]
+                required_parts = [3, 3, 8]
+                
+                # Compare version numbers
+                needs_upgrade = (version_parts[0] < required_parts[0] or 
+                               (version_parts[0] == required_parts[0] and version_parts[1] < required_parts[1]) or
+                               (version_parts[0] == required_parts[0] and version_parts[1] == required_parts[1] and version_parts[2] < required_parts[2]))
+                
+                if needs_upgrade:
+                    print(f"Current Ruby version {current_version} is below required 3.3.8. Upgrading...")
+                    
+                    # Install Ruby build dependencies
+                    run_command("sudo apt install -y libffi-dev libyaml-dev libreadline-dev libncurses5-dev libgdbm-dev libssl-dev zlib1g-dev build-essential autoconf bison libedit-dev")
+                    
+                    # Install Ruby 3.3.8
+                    run_command("rbenv install 3.3.8")
+                    run_command("rbenv global 3.3.8")
+                    
+                    # Remove other Ruby versions
+                    print("Removing other Ruby versions...")
+                    installed_versions = subprocess.run("rbenv versions --bare", shell=True, capture_output=True, text=True)
+                    if installed_versions.returncode == 0:
+                        for version in installed_versions.stdout.strip().split('\n'):
+                            version = version.strip()
+                            if version and version != '3.3.8' and version != 'system':
+                                print(f"Removing Ruby version {version}")
+                                run_command(f"rbenv uninstall -f {version}")
+                    
+                    run_command("rbenv rehash")
+                    print("Ruby 3.3.8 installation complete.")
+                else:
+                    print(f"Ruby version {current_version} meets requirements (>= 3.3.8)")
+            else:
+                print("Could not parse Ruby version. Installing Ruby 3.3.8...")
+                run_command("sudo apt install -y libffi-dev libyaml-dev libreadline-dev libncurses5-dev libgdbm-dev libssl-dev zlib1g-dev build-essential autoconf bison libedit-dev")
+                run_command("rbenv install 3.3.8")
+                run_command("rbenv global 3.3.8")
+                run_command("rbenv rehash")
+        else:
+            print("Ruby not found. Installing Ruby 3.3.8...")
+            run_command("sudo apt install -y libffi-dev libyaml-dev libreadline-dev libncurses5-dev libgdbm-dev libssl-dev zlib1g-dev build-essential autoconf bison libedit-dev")
+            run_command("rbenv install 3.3.8")
+            run_command("rbenv global 3.3.8")
+            run_command("rbenv rehash")
+    except Exception as e:
+        print(f"Error checking Ruby version: {e}")
+        print("Installing Ruby 3.3.8...")
+        run_command("sudo apt install -y libffi-dev libyaml-dev libreadline-dev libncurses5-dev libgdbm-dev libssl-dev zlib1g-dev build-essential autoconf bison libedit-dev")
+        run_command("rbenv install 3.3.8")
+        run_command("rbenv global 3.3.8")
+        run_command("rbenv rehash")
+
+    # Check if CPANminus is installed
     if not os.path.isfile("/usr/local/bin/cpanm"):
         print("CPANminus not found. Installing CPANminus...")
 
