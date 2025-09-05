@@ -184,6 +184,7 @@ def install_base_dependencies():
     run_command("sudo apt install -y webhttrack minicom openjdk-21-jre gnome-tweaks macchanger recordmydesktop postgresql golang-1.23-go* hydra-gtk hydra")
     run_command("sudo apt install -y ncftp wine-development libcurl4-openssl-dev smbclient hackrf nfs-common samba")
     run_command("sudo apt install -y docker.io docker-compose")
+    run_command("sudo apt install -y rbenv libffi-dev libyaml-dev libreadline-dev libncurses5-dev libgdbm-dev zlib1g-dev build-essential bison libedit-dev")
     run_command("sudo usermod -aG docker $USER")
     run_command("sudo snap install powershell --classic")
     run_command("sudo snap install crackmapexec")
@@ -195,7 +196,7 @@ def install_base_dependencies():
     rbenv_check = subprocess.run("which rbenv", shell=True, capture_output=True, text=True)
     if rbenv_check.returncode != 0:
         print("rbenv not found. Installing rbenv...")
-        run_command("sudo apt install -y git curl libssl-dev libreadline-dev zlib1g-dev autoconf bison build-essential libyaml-dev libreadline-dev libncurses5-dev libffi-dev libgdbm-dev")
+        run_command("sudo apt install -y git curl")
         run_command("curl -fsSL https://github.com/rbenv/rbenv-installer/raw/HEAD/bin/rbenv-installer | bash")
         run_command("echo 'export PATH=\"$HOME/.rbenv/bin:$PATH\"' >> ~/.bashrc")
         run_command("echo 'eval \"$(rbenv init -)\"' >> ~/.bashrc")
@@ -221,9 +222,6 @@ def install_base_dependencies():
                 if needs_upgrade:
                     print(f"Current Ruby version {current_version} is below required 3.3.8. Upgrading...")
                     
-                    # Install Ruby build dependencies
-                    run_command("sudo apt install -y libffi-dev libyaml-dev libreadline-dev libncurses5-dev libgdbm-dev libssl-dev zlib1g-dev build-essential autoconf bison libedit-dev")
-                    
                     # Install Ruby 3.3.8
                     run_command("rbenv install 3.3.8")
                     run_command("rbenv global 3.3.8")
@@ -244,20 +242,17 @@ def install_base_dependencies():
                     print(f"Ruby version {current_version} meets requirements (>= 3.3.8)")
             else:
                 print("Could not parse Ruby version. Installing Ruby 3.3.8...")
-                run_command("sudo apt install -y libffi-dev libyaml-dev libreadline-dev libncurses5-dev libgdbm-dev libssl-dev zlib1g-dev build-essential autoconf bison libedit-dev")
                 run_command("rbenv install 3.3.8")
                 run_command("rbenv global 3.3.8")
                 run_command("rbenv rehash")
         else:
             print("Ruby not found. Installing Ruby 3.3.8...")
-            run_command("sudo apt install -y libffi-dev libyaml-dev libreadline-dev libncurses5-dev libgdbm-dev libssl-dev zlib1g-dev build-essential autoconf bison libedit-dev")
             run_command("rbenv install 3.3.8")
             run_command("rbenv global 3.3.8")
             run_command("rbenv rehash")
     except Exception as e:
         print(f"Error checking Ruby version: {e}")
         print("Installing Ruby 3.3.8...")
-        run_command("sudo apt install -y libffi-dev libyaml-dev libreadline-dev libncurses5-dev libgdbm-dev libssl-dev zlib1g-dev build-essential autoconf bison libedit-dev")
         run_command("rbenv install 3.3.8")
         run_command("rbenv global 3.3.8")
         run_command("rbenv rehash")
