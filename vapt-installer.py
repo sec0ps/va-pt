@@ -183,7 +183,7 @@ def install_base_dependencies():
     run_command("sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff-ng httptunnel ptunnel-ng udptunnel pipx python3-venv ruby-dev")
     run_command("sudo apt install -y webhttrack minicom openjdk-21-jre gnome-tweaks macchanger recordmydesktop postgresql golang-1.23-go* hydra-gtk hydra")
     run_command("sudo apt install -y ncftp wine-development libcurl4-openssl-dev smbclient hackrf nfs-common samba")
-    run_command("sudo apt install -y docker.io docker-compose awscli s3cmd s3curl")
+    run_command("sudo apt install -y docker.io docker-compose")
     run_command("sudo apt install -y rbenv libffi-dev libyaml-dev libreadline-dev libncurses5-dev libgdbm-dev zlib1g-dev build-essential bison libedit-dev")
     run_command("sudo usermod -aG docker $USER")
     run_command("sudo snap install powershell --classic")
@@ -407,10 +407,10 @@ def install_toolkit_packages():
         print("OWASP ZAP already installed, skipping.")
     else:
         print("Installing OWASP ZAP")
-        run_command("cd /vapt/web && wget https://github.com/zaproxy/zaproxy/releases/download/v2.15.0/ZAP_2.15.0_Linux.tar.gz")
-        run_command("cd /vapt/web && tar xvf ZAP_2.15.0_Linux.tar.gz")
-        run_command("cd /vapt/web && rm -rf ZAP_2.15.0_Linux.tar.gz")
-        run_command("cd /vapt/web && mv ZAP_2.15.0/ zap/")
+        run_command("cd /vapt/web && wget https://github.com/zaproxy/zaproxy/releases/download/v2.16.1/ZAP_2.16.1_Linux.tar.gz")
+        run_command("cd /vapt/web && tar xvf ZAP_2.16.1_Linux.tar.gz")
+        run_command("cd /vapt/web && rm -rf ZAP_ZAP_2.16.1_Linux.tar.gz")
+        run_command("cd /vapt/web && mv ZAP_2.16.1/ zap/")
 
     # Arachni installation
     arachni_dir = "/vapt/web/arachni"
