@@ -336,7 +336,7 @@ def install_toolkit_packages():
         ("https://github.com/siberas/watobo.git", "/vapt/web/watobo", None),
         ("https://github.com/rezasp/joomscan.git", "/vapt/web/joomscan", None),
         ("https://github.com/s0md3v/XSStrike.git", "/vapt/web/XSStrike", ["python3 -m pip install -r requirements.txt"]),
-        ("https://github.com/wapiti-scanner/wapiti.git", "/vapt/web/wapiti", ["sudo python3 setup.py install"]),
+        ("https://github.com/wapiti-scanner/wapiti.git", "/vapt/web/wapiti", ["pipx install ."]),
         ("https://github.com/com-puter-tips/Links-Extractor.git", "/vapt/web/Links-Extractor", ["pip3 install -r requirements.txt"]),
     ]
 
