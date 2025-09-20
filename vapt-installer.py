@@ -348,7 +348,7 @@ def install_toolkit_packages():
        ("https://github.com/Kevin-Robertson/Invoke-TheHash.git", "/vapt/ad_windows/Invoke-TheHash", None),
        ("https://github.com/p3nt4/PowerShdll.git", "/vapt/ad_windows/PowerShdll", None),
        ("https://github.com/GhostPack/Rubeus.git", "/vapt/ad_windows/Rubeus", None),
-       ("https://github.com/dirkjanm/ldapdomaindump.git", "/vapt/ad_windows/ldapdomaindump", ["pip3 install ldapdomaindump"]),
+       ("https://github.com/dirkjanm/ldapdomaindump.git", "/vapt/ad_windows/ldapdomaindump", ["pipx install ."]),
        ("https://github.com/adityatelange/evil-winrm-py.git", "/vapt/ad_windows/evil-winrm-py", ["python3 setup.py install"]),
     ]
 
