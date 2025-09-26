@@ -181,10 +181,10 @@ def install_base_dependencies():
     run_command("sudo apt install -y make gcc ncftp rar p7zip-full curl libpcap-dev libssl-dev hping3 libssh-dev g++ arp-scan wifite ruby-bundler freerdp2-dev")
     run_command("sudo apt install -y libsqlite3-dev nbtscan dsniff apache2 secure-delete autoconf libpq-dev libmysqlclient-dev libsvn-dev libssh-dev libsmbclient-dev")
     run_command("sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff-ng httptunnel ptunnel-ng udptunnel pipx python3-venv ruby-dev")
-    run_command("sudo apt install -y webhttrack minicom openjdk-21-jre gnome-tweaks macchanger recordmydesktop postgresql golang-go hydra")
-    run_command("sudo apt install -y ncftp libwine-dev libcurl4-openssl-dev smbclient hackrf nfs-common samba")
+    run_command("sudo apt install -y webhttrack minicom openjdk-21-jre gnome-tweaks macchanger recordmydesktop postgresql golang-1.23-go* hydra-gtk hydra")
+    run_command("sudo apt install -y ncftp wine-development libcurl4-openssl-dev smbclient hackrf nfs-common samba")
     run_command("sudo apt install -y docker.io docker-compose")
-    run_command("sudo apt install -y rbenv libffi-dev libyaml-dev libreadline-dev libncurses5-dev libgdbm-dev zlib1g-dev build-essential bison libedit-dev")
+    run_command("sudo apt install -y rbenv libffi-dev libyaml-dev libreadline-dev libncurses5-dev libgdbm-dev zlib1g-dev build-essential bison libedit-dev libxml2-utils")
     run_command("sudo usermod -aG docker $USER")
     run_command("sudo snap install powershell --classic")
     run_command("sudo snap install crackmapexec")
@@ -336,7 +336,7 @@ def install_toolkit_packages():
         ("https://github.com/siberas/watobo.git", "/vapt/web/watobo", None),
         ("https://github.com/rezasp/joomscan.git", "/vapt/web/joomscan", None),
         ("https://github.com/s0md3v/XSStrike.git", "/vapt/web/XSStrike", ["python3 -m pip install -r requirements.txt"]),
-        ("https://github.com/wapiti-scanner/wapiti.git", "/vapt/web/wapiti", ["pipx install ."]),
+        ("https://github.com/wapiti-scanner/wapiti.git", "/vapt/web/wapiti", ["sudo python3 setup.py install"]),
         ("https://github.com/com-puter-tips/Links-Extractor.git", "/vapt/web/Links-Extractor", ["pip3 install -r requirements.txt"]),
     ]
 
@@ -348,7 +348,7 @@ def install_toolkit_packages():
        ("https://github.com/Kevin-Robertson/Invoke-TheHash.git", "/vapt/ad_windows/Invoke-TheHash", None),
        ("https://github.com/p3nt4/PowerShdll.git", "/vapt/ad_windows/PowerShdll", None),
        ("https://github.com/GhostPack/Rubeus.git", "/vapt/ad_windows/Rubeus", None),
-       ("https://github.com/dirkjanm/ldapdomaindump.git", "/vapt/ad_windows/ldapdomaindump", ["pipx install ."]),
+       ("https://github.com/dirkjanm/ldapdomaindump.git", "/vapt/ad_windows/ldapdomaindump", ["pip3 install ldapdomaindump"]),
        ("https://github.com/adityatelange/evil-winrm-py.git", "/vapt/ad_windows/evil-winrm-py", ["python3 setup.py install"]),
     ]
 
