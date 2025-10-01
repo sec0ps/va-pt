@@ -37,6 +37,7 @@
 import os
 import subprocess
 import sys
+import re
 
 def run_command(command):
     """Execute a command in the shell, and continue even if an error occurs."""
