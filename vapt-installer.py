@@ -202,6 +202,13 @@ def install_base_dependencies():
         print("rbenv installed. Please restart your terminal and run the script again.")
         return
 
+    # Install Rust and NetExec
+    print("Installing Rust and NetExec...")
+    run_command("curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y")
+    run_command('bash -c "source $HOME/.cargo/env"')
+    run_command("pipx ensurepath")
+    run_command("pipx install git+https://github.com/Pennyw0rth/NetExec")
+    
     # Check current Ruby version
     try:
         ruby_version_output = subprocess.run("ruby -v", shell=True, capture_output=True, text=True)
