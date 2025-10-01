@@ -197,19 +197,25 @@ def install_base_dependencies():
     run_command("pipx install git+https://github.com/Pennyw0rth/NetExec")
 
     print("Checking Ruby version...")
-
-    if subprocess.run("which rbenv", shell=True, capture_output=True).returncode != 0:
-        print("Installing rbenv...")
-        run_command("curl -fsSL https://github.com/rbenv/rbenv-installer/raw/HEAD/bin/rbenv-installer | bash")
-        run_command("echo 'export PATH=\"$HOME/.rbenv/bin:$PATH\"' >> ~/.bashrc")
-        run_command("echo 'eval \"$(rbenv init -)\"' >> ~/.bashrc")
-        print("rbenv installed. Please restart your terminal and run the script again.")
-        return
-
-    print("Installing Ruby 3.3.9...")
-    run_command("rbenv install 3.3.9")
-    run_command("rbenv global 3.3.9")
-    run_command("rbenv rehash")
+    
+    # Check if Ruby 3.3.9 is already installed and active
+    ruby_check = subprocess.run("ruby -v", shell=True, capture_output=True, text=True)
+    if ruby_check.returncode == 0 and "3.3.9" in ruby_check.stdout:
+        print("Ruby 3.3.9 already installed and active, skipping.")
+    else:
+        if subprocess.run("which rbenv", shell=True, capture_output=True).returncode != 0:
+            print("Installing rbenv...")
+            run_command("curl -fsSL https://github.com/rbenv/rbenv-installer/raw/HEAD/bin/rbenv-installer | bash")
+            run_command('grep -q "rbenv init" ~/.bashrc || echo \'export PATH="$HOME/.rbenv/bin:$PATH"\' >> ~/.bashrc')
+            run_command('grep -q "rbenv init" ~/.bashrc || echo \'eval "$(rbenv init - bash)"\' >> ~/.bashrc')
+            print("rbenv installed. Please restart your terminal and run the script again.")
+            return
+        
+        print("Installing Ruby 3.3.9...")
+        run_command("rbenv install -s 3.3.9")  # -s flag skips if already installed
+        run_command("rbenv global 3.3.9")
+        run_command("rbenv rehash")
+        print("Ruby 3.3.9 installed. Restart terminal or run: source ~/.bashrc")
 
     # Check if CPANminus is installed
     if not os.path.isfile("/usr/local/bin/cpanm"):
