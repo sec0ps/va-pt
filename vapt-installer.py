@@ -188,79 +188,27 @@ def install_base_dependencies():
     run_command("sudo usermod -aG docker $USER")
     run_command("sudo snap install powershell --classic")
 
-
     # Install Rust and NetExec
     print("Installing Rust and NetExec...")
     run_command("curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y")
     run_command('bash -c "source $HOME/.cargo/env"')
     run_command("pipx ensurepath")
     run_command("pipx install git+https://github.com/Pennyw0rth/NetExec")
-    
-    # Ruby version management
+
     print("Checking Ruby version...")
-    
-    # Check if rbenv is installed
-    rbenv_check = subprocess.run("which rbenv", shell=True, capture_output=True, text=True)
-    if rbenv_check.returncode != 0:
-        print("rbenv not found. Installing rbenv...")
+
+    if subprocess.run("which rbenv", shell=True, capture_output=True).returncode != 0:
+        print("Installing rbenv...")
         run_command("curl -fsSL https://github.com/rbenv/rbenv-installer/raw/HEAD/bin/rbenv-installer | bash")
         run_command("echo 'export PATH=\"$HOME/.rbenv/bin:$PATH\"' >> ~/.bashrc")
         run_command("echo 'eval \"$(rbenv init -)\"' >> ~/.bashrc")
         print("rbenv installed. Please restart your terminal and run the script again.")
         return
-    # Check current Ruby version
-    try:
-        ruby_version_output = subprocess.run("ruby -v", shell=True, capture_output=True, text=True)
-        if ruby_version_output.returncode == 0:
-            # Extract version number using regex
-            version_match = re.search(r'ruby (\d+\.\d+\.\d+)', ruby_version_output.stdout)
-            if version_match:
-                current_version = version_match.group(1)
-                version_parts = [int(x) for x in current_version.split('.')]
-                required_parts = [3, 3, 8]
-                
-                # Compare version numbers
-                needs_upgrade = (version_parts[0] < required_parts[0] or 
-                               (version_parts[0] == required_parts[0] and version_parts[1] < required_parts[1]) or
-                               (version_parts[0] == required_parts[0] and version_parts[1] == required_parts[1] and version_parts[2] < required_parts[2]))
-                
-                if needs_upgrade:
-                    print(f"Current Ruby version {current_version} is below required 3.3.8. Upgrading...")
-                    
-                    # Install Ruby 3.3.8
-                    run_command("rbenv install 3.3.8")
-                    run_command("rbenv global 3.3.8")
-                    
-                    # Remove other Ruby versions
-                    print("Removing other Ruby versions...")
-                    installed_versions = subprocess.run("rbenv versions --bare", shell=True, capture_output=True, text=True)
-                    if installed_versions.returncode == 0:
-                        for version in installed_versions.stdout.strip().split('\n'):
-                            version = version.strip()
-                            if version and version != '3.3.8' and version != 'system':
-                                print(f"Removing Ruby version {version}")
-                                run_command(f"rbenv uninstall -f {version}")
-                    
-                    run_command("rbenv rehash")
-                    print("Ruby 3.3.8 installation complete.")
-                else:
-                    print(f"Ruby version {current_version} meets requirements (>= 3.3.8)")
-            else:
-                print("Could not parse Ruby version. Installing Ruby 3.3.8...")
-                run_command("rbenv install 3.3.8")
-                run_command("rbenv global 3.3.8")
-                run_command("rbenv rehash")
-        else:
-            print("Ruby not found. Installing Ruby 3.3.8...")
-            run_command("rbenv install 3.3.8")
-            run_command("rbenv global 3.3.8")
-            run_command("rbenv rehash")
-    except Exception as e:
-        print(f"Error checking Ruby version: {e}")
-        print("Installing Ruby 3.3.8...")
-        run_command("rbenv install 3.3.8")
-        run_command("rbenv global 3.3.8")
-        run_command("rbenv rehash")
+
+    print("Installing Ruby 3.3.9...")
+    run_command("rbenv install 3.3.9")
+    run_command("rbenv global 3.3.9")
+    run_command("rbenv rehash")
 
     # Check if CPANminus is installed
     if not os.path.isfile("/usr/local/bin/cpanm"):
@@ -286,12 +234,12 @@ def install_base_dependencies():
     run_command("sudo cpanm Cisco::CopyConfig && sudo cpanm Net::Netmask")
     run_command("sudo cpanm XML::Writer && sudo cpanm String::Random")
     run_command("sudo cpanm Net::IP && sudo cpanm Net::DNS")
-    
+
     print("Installing Python Packages and Dependencies")
     run_command("pip3 install build dnspython kerberoast certipy-ad knowsmore sherlock-project wafw00f pypykatz")
     run_command("pipx install urh")
     run_command("python -m pip install dnspython==1.16.0")
-    
+
     # Set up firewall rules
     run_command("sudo ufw default deny incoming")
     run_command("sudo ufw default allow outgoing")
@@ -302,7 +250,7 @@ def install_base_dependencies():
 
 def install_toolkit_packages():
     print("Installing toolkit packages...")
-    
+
     # Define installations for exploitation tools
     exploitation_tools = [
         ("https://github.com/rapid7/metasploit-framework.git", "/vapt/exploits/metasploit-framework", ["bundle install"]),
@@ -441,7 +389,7 @@ def install_toolkit_packages():
         ("https://github.com/p0dalirius/pyFindUncommonShares.git", "/vapt/scanners/pyFindUncommonShares", ["pip install -r requirements.txt"]),
         ("https://github.com/CiscoCXSecurity/enum4linux.git", "/vapt/scanners/enum4linux", None)
     ]
-    
+
     # OSINT/Intel tools
     osint_tools = [
         ("https://github.com/lanmaster53/recon-ng.git", "/vapt/intel/recon-ng", ["pip3 install -r REQUIREMENTS"]),
