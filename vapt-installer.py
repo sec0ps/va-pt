@@ -195,7 +195,6 @@ def install_base_dependencies():
     rbenv_check = subprocess.run("which rbenv", shell=True, capture_output=True, text=True)
     if rbenv_check.returncode != 0:
         print("rbenv not found. Installing rbenv...")
-        run_command("sudo apt install -y git curl")
         run_command("curl -fsSL https://github.com/rbenv/rbenv-installer/raw/HEAD/bin/rbenv-installer | bash")
         run_command("echo 'export PATH=\"$HOME/.rbenv/bin:$PATH\"' >> ~/.bashrc")
         run_command("echo 'eval \"$(rbenv init -)\"' >> ~/.bashrc")
