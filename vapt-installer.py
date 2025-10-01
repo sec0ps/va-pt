@@ -183,11 +183,10 @@ def install_base_dependencies():
     run_command("sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff-ng httptunnel ptunnel-ng udptunnel pipx python3-venv ruby-dev")
     run_command("sudo apt install -y webhttrack minicom openjdk-21-jre gnome-tweaks macchanger recordmydesktop postgresql golang-1.23-go* hydra-gtk hydra")
     run_command("sudo apt install -y ncftp wine-development libcurl4-openssl-dev smbclient hackrf nfs-common samba gpsd")
-    run_command("sudo apt install -y docker.io docker-compose hcxtools httrack tshark")
+    run_command("sudo apt install -y docker.io docker-compose hcxtools httrack tshark git")
     run_command("sudo apt install -y libffi-dev libyaml-dev libreadline-dev libncurses5-dev libgdbm-dev zlib1g-dev build-essential bison libedit-dev libxml2-utils")
     run_command("sudo usermod -aG docker $USER")
     run_command("sudo snap install powershell --classic")
-    run_command("sudo snap install crackmapexec")
 
     # Ruby version management
     print("Checking Ruby version...")
