@@ -184,7 +184,7 @@ def install_base_dependencies():
     run_command("sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff-ng httptunnel ptunnel-ng udptunnel pipx python3-venv ruby-dev")
     run_command("sudo apt install -y webhttrack minicom openjdk-21-jre gnome-tweaks macchanger recordmydesktop postgresql golang-1.23-go* hydra-gtk hydra")
     run_command("sudo apt install -y ncftp wine-development libcurl4-openssl-dev smbclient hackrf nfs-common samba gpsd")
-    run_command("sudo apt install -y docker.io docker-compose hcxtools httrack tshark git python-is-python3")
+    run_command("sudo apt install -y docker.io docker-compose hcxtools httrack tshark git python-is-python3 tig")
     run_command("sudo apt install -y libffi-dev libyaml-dev libreadline-dev libncurses5-dev libgdbm-dev zlib1g-dev build-essential bison libedit-dev libxml2-utils")
     run_command("sudo usermod -aG docker $USER")
     run_command("sudo snap install powershell --classic")
@@ -197,7 +197,7 @@ def install_base_dependencies():
     run_command("pipx install git+https://github.com/Pennyw0rth/NetExec")
 
     print("Checking Ruby version...")
-    
+
     # Check if Ruby 3.3.9 is already installed and active
     ruby_check = subprocess.run("ruby -v", shell=True, capture_output=True, text=True)
     if ruby_check.returncode == 0 and "3.3.9" in ruby_check.stdout:
@@ -210,7 +210,7 @@ def install_base_dependencies():
             run_command('grep -q "rbenv init" ~/.bashrc || echo \'eval "$(rbenv init - bash)"\' >> ~/.bashrc')
             print("rbenv installed. Please restart your terminal and run the script again.")
             return
-        
+
         print("Installing Ruby 3.3.9...")
         run_command("rbenv install -s 3.3.9")  # -s flag skips if already installed
         run_command("rbenv global 3.3.9")
