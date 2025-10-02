@@ -194,8 +194,12 @@ def install_base_dependencies():
 
     print("Installing Python Packages and Dependencies")
     run_command("pip3 install build dnspython kerberoast certipy-ad knowsmore sherlock-project wafw00f pypykatz")
-    run_command("pipx install urh scoutsuite checkov impacket dnsrecon")
     run_command("python -m pip install dnspython==1.16.0")
+
+    # Install each pipx package separately
+    pipx_packages = ["urh", "scoutsuite", "checkov", "impacket", "dnsrecon"]
+    for package in pipx_packages:
+        run_command(f"pipx install {package}")
 
     # Configure Go environment
     go_config = """
