@@ -537,6 +537,9 @@ def update_toolsets():
     for tool in wireless_tools:
         run_command(f"cd {tool} && git pull")
 
+    print("Updating all pipx installed tool")
+    run_command("pipx upgrade-all")
+
     print("Updating VA-PT")
     run_command("cd /vapt/misc/va-pt && git pull")
 
