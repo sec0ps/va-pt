@@ -93,7 +93,7 @@ def check_directory_structure():
         f"{base_path}/web", f"{base_path}/intel", f"{base_path}/scanners", f"{base_path}/misc",
         f"{base_path}/passwords", f"{base_path}/fuzzers", f"{base_path}/audit",
         f"{base_path}/mobile", f"{base_path}/cloud", f"{base_path}/network",
-        f"{base_path}/ad_windows", f"{base_path}/exfiltrate"  # Added ad_windows directory
+        f"{base_path}/ad_windows"
     ]
 
     # Create the base directory if it does not exist
@@ -182,13 +182,37 @@ def install_base_dependencies():
     run_command("sudo apt install -y make gcc ncftp p7zip-full curl libpcap-dev libssl-dev hping3 libssh-dev g++ arp-scan ruby-bundler freerdp2-dev")
     run_command("sudo apt install -y libsqlite3-dev nbtscan dsniff apache2 secure-delete autoconf libpq-dev libmysqlclient-dev libsvn-dev libssh-dev libsmbclient-dev")
     run_command("sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff-ng httptunnel ptunnel-ng udptunnel pipx python3-venv ruby-dev")
-    run_command("sudo apt install -y webhttrack minicom openjdk-21-jre gnome-tweaks macchanger recordmydesktop postgresql golang-1.23-go* hydra-gtk hydra")
+    run_command("sudo apt install -y webhttrack minicom openjdk-21-jre gnome-tweaks macchanger recordmydesktop postgresql golang-1.23-go hydra-gtk hydra")
     run_command("sudo apt install -y ncftp libwine-dev libcurl4-openssl-dev smbclient hackrf nfs-common samba gpsd")
     run_command("sudo apt install -y docker.io docker-compose hcxtools httrack tshark git python-is-python3 tig")
     run_command("sudo apt install -y libffi-dev libyaml-dev libreadline-dev libncurses5-dev libgdbm-dev zlib1g-dev build-essential bison libedit-dev libxml2-utils")
     run_command("sudo usermod -aG docker $USER")
     run_command("sudo snap install powershell --classic")
     run_command("snap install aws-cli --classic")
+    #Adding these in for the eventual move to Ubuntu 24+
+    run_command("sudo apt install -y python3-aiofiles python3-watchdog python3-pandas")
+
+    print("Installing Python Packages and Dependencies")
+    run_command("pip3 install build dnspython kerberoast certipy-ad knowsmore sherlock-project wafw00f pypykatz")
+    run_command("pipx install urh scoutsuite checkov impacket dnsrecon")
+    run_command("python -m pip install dnspython==1.16.0")
+
+    # Configure Go environment
+    go_config = """
+    # Go programming language
+    export PATH=$PATH:/usr/lib/go-1.23/bin
+    export GOROOT=/usr/lib/go-1.23
+    export GOPATH=$HOME/go
+    export PATH=$PATH:$GOPATH/bin
+    """
+
+    bashrc_path = os.path.expanduser("~/.bashrc")
+    with open(bashrc_path, 'r') as f:
+        if 'go-1.23' not in f.read():
+            with open(bashrc_path, 'a') as f:
+                f.write(go_config)
+            print("Go environment configured. Changes will apply to new shells.")
+            os.environ['PATH'] += f":/usr/lib/go-1.23/bin:{os.path.expanduser('~/go/bin')}"
 
     # Install Rust and NetExec
     print("Installing Rust and NetExec...")
@@ -243,11 +267,6 @@ def install_base_dependencies():
     run_command("sudo cpanm XML::Writer && sudo cpanm String::Random")
     run_command("sudo cpanm Net::IP && sudo cpanm Net::DNS")
 
-    print("Installing Python Packages and Dependencies")
-    run_command("pip3 install build dnspython kerberoast certipy-ad knowsmore sherlock-project wafw00f pypykatz")
-    run_command("pipx install urh")
-    run_command("python -m pip install dnspython==1.16.0")
-
     # Set up firewall rules
     run_command("sudo ufw default deny incoming")
     run_command("sudo ufw default allow outgoing")
@@ -265,7 +284,6 @@ def install_toolkit_packages():
         ("https://github.com/trustedsec/social-engineer-toolkit.git", "/vapt/exploits/social-engineer-toolkit", ["pip3 install -r requirements.txt"]),
         ("https://gitlab.com/exploit-database/exploitdb.git", "/vapt/exploits/exploitdb", None),
         ("https://github.com/lgandx/Responder.git", "/vapt/exploits/Responder", None),
-        ("https://github.com/CoreSecurity/impacket.git", "/vapt/exploits/impacket", ["pip3 install -r requirements.txt", "sudo python3 setup.py install"]),
         ("https://github.com/beefproject/beef.git", "/vapt/exploits/beef", None),
         ("https://github.com/xFreed0m/ADFSpray.git", "/vapt/exploits/ADFSpray", ["pip3 install -r requirements.txt"]),
         ("https://github.com/gentilkiwi/mimikatz.git", "/vapt/exploits/mimikatz", None),
@@ -284,8 +302,7 @@ def install_toolkit_packages():
     container_cloud_tools = [
         ("https://github.com/aquasecurity/trivy.git", "/vapt/cloud/trivy", None),
         ("https://github.com/bridgecrewio/checkov.git", "/vapt/cloud/checkov", ["pip3 install -r requirements.txt"]),
-        ("https://github.com/RhinoSecurityLabs/pacu.git", "/vapt/cloud/pacu", ["pip3 install -r requirements.txt"]),
-        ("https://github.com/nccgroup/ScoutSuite.git", "/vapt/cloud/ScoutSuite", ["pip install -e ."]),
+        ("https://github.com/RhinoSecurityLabs/pacu.git", "/vapt/cloud/pacu", ["pipx install ."]),
     ]
 
     # Define installations for web testing tools
@@ -309,8 +326,8 @@ def install_toolkit_packages():
        ("https://github.com/Kevin-Robertson/Invoke-TheHash.git", "/vapt/ad_windows/Invoke-TheHash", None),
        ("https://github.com/p3nt4/PowerShdll.git", "/vapt/ad_windows/PowerShdll", None),
        ("https://github.com/GhostPack/Rubeus.git", "/vapt/ad_windows/Rubeus", None),
-       ("https://github.com/dirkjanm/ldapdomaindump.git", "/vapt/ad_windows/ldapdomaindump", ["pip3 install ldapdomaindump"]),
-       ("https://github.com/adityatelange/evil-winrm-py.git", "/vapt/ad_windows/evil-winrm-py", ["python3 setup.py install"]),
+       ("https://github.com/dirkjanm/ldapdomaindump.git", "/vapt/ad_windows/ldapdomaindump", ["pipx install ."]),
+       ("https://github.com/adityatelange/evil-winrm-py.git", "/vapt/ad_windows/evil-winrm-py", ["sudo python3 setup.py install"]),
     ]
 
     # Mobile security testing tools
@@ -323,7 +340,7 @@ def install_toolkit_packages():
     network_tools = [
         ("https://github.com/robertdavidgraham/masscan.git", "/vapt/network/masscan", ["make"]),
         ("https://github.com/projectdiscovery/nuclei.git", "/vapt/network/nuclei", None),
-        ("https://github.com/OWASP/Amass.git", "/vapt/network/Amass", ["go install ./..."]),
+        ("https://github.com/OWASP/Amass.git", "/vapt/network/Amass", ["go install -v ./cmd/amass/..."]),
     ]
 
     # Password cracking tools
@@ -353,7 +370,6 @@ def install_toolkit_packages():
         ("https://github.com/hausec/PowerZure.git", "/vapt/audit/PowerZure", None),
         ("https://github.com/PlumHound/PlumHound.git", "/vapt/audit/PlumHound", ["pip3 install -r requirements.txt"]),
         ("https://github.com/wireghoul/graudit.git", "/vapt/audit/graudit", None),
-        ("https://github.com/TerminalFi/NessusParser-Excel.git", "/vapt/audit/NessusParser-Excel", ["pip install -r requirements.txt"])
     ]
 
     # Wireless Signal Analysis tools
@@ -386,7 +402,6 @@ def install_toolkit_packages():
 
     # Vulnerability scanner tools
     vulnerability_scanners = [
-        ("https://github.com/darkoperator/dnsrecon.git", "/vapt/scanners/dnsrecon", ["pip install -r requirements.txt"]),
         ("https://github.com/sqlmapproject/sqlmap.git", "/vapt/scanners/sqlmap", None),
         ("https://github.com/nmap/nmap.git", "/vapt/scanners/nmap", ["./configure", "make", "sudo make install"]),
         ("https://github.com/mschwager/fierce.git", "/vapt/scanners/fierce", ["python3 -m pip install -r requirements.txt", "sudo python3 setup.py install"]),
@@ -423,7 +438,7 @@ def update_toolsets():
     exploit_tools = [
         "/vapt/exploits/social-engineer-toolkit", "/vapt/exploits/metasploit-framework",
         "/vapt/exploits/ADFSpray", "/vapt/exploits/beef", "/vapt/exploits/DeathStar",
-        "/vapt/exploits/impacket", "/vapt/exploits/mimikatz", "/vapt/exploits/Responder",
+        "/vapt/exploits/mimikatz", "/vapt/exploits/Responder",
         "/vapt/exploits/exploitdb", "/vapt/exploits/Covenant", "/vapt/exploits/merlin",
         "/vapt/exploits/SILENTTRINITY", "/vapt/exploits/D3m0n1z3dShell"
     ]
@@ -443,7 +458,7 @@ def update_toolsets():
 
     print("Updating Container & Cloud Security Tools")
     container_cloud_tools = [
-        "/vapt/cloud/trivy", "/vapt/cloud/checkov", "/vapt/cloud/pacu", "/vapt/cloud/ScoutSuite"
+        "/vapt/cloud/trivy", "/vapt/cloud/checkov", "/vapt/cloud/pacu"
     ]
     for tool in container_cloud_tools:
         run_command(f"cd {tool} && git pull")
@@ -488,15 +503,14 @@ def update_toolsets():
 
     print("Updating Audit Tools")
     audit_tools = [
-        "/vapt/audit/PowerZure", "/vapt/audit/PlumHound", "/vapt/audit/graudit",
-        "/vapt/audit/NessusParser-Excel"
+        "/vapt/audit/PowerZure", "/vapt/audit/PlumHound", "/vapt/audit/graudit"
     ]
     for tool in audit_tools:
         run_command(f"cd {tool} && git pull")
 
     print("Updating Vulnerability Scanners")
     vulnerability_scanners = [
-        "/vapt/scanners/dnsrecon", "/vapt/scanners/sqlmap", "/vapt/scanners/nmap",
+        "/vapt/scanners/sqlmap", "/vapt/scanners/nmap",
         "/vapt/scanners/fierce", "/vapt/scanners/dnsmap", "/vapt/scanners/dnsenum",
         "/vapt/scanners/cisco-SNMP-enumeration", "/vapt/scanners/spraykatz",
         "/vapt/scanners/pyFindUncommonShares", "/vapt/scanners/enum4linux"
