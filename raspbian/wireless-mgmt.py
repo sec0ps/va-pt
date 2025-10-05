@@ -38,7 +38,7 @@ import os
 import subprocess
 import sys
 
-# Configuration
+# Configuration for direct wireless management
 INTERFACE = "wlan0"
 SSID = "rcs-management"
 PSK = "getsomemore!"
