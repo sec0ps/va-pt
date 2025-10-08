@@ -189,7 +189,7 @@ def disconnect_menu():
 def scan_networks(iface):
     """
     Returns a list of dicts:
-    { 'ssid': str, 'signal': int, 'security': str, 'bssid': str, 'freq': str }
+    { 'ssid': str, 'signal': int, 'security': str }
     Uses nmcli for better compatibility with USB adapters.
     Excludes hidden networks.
     """
@@ -199,73 +199,67 @@ def scan_networks(iface):
         time.sleep(2)
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
         pass
-    
+
     try:
-        raw = run(["nmcli", "-t", "-f", "SSID,SIGNAL,SECURITY,BSSID,FREQ", 
+        raw = run(["nmcli", "-t", "-f", "SSID,SIGNAL,SECURITY",
                    "device", "wifi", "list", "ifname", iface], check=True)
     except RuntimeError as e:
         print(f"Error scanning with nmcli: {e}")
         return []
-    
+
     aps = []
     for line in raw.splitlines():
         if not line or ":" not in line:
             continue
-        
+
         parts = line.split(":")
-        if len(parts) < 5:
+        if len(parts) < 3:
             continue
-        
-        ssid, signal_str, security, bssid, freq = parts[0], parts[1], parts[2], parts[3], parts[4]
-        
-        if not bssid or bssid == "--":
-            continue
-        
+
+        ssid, signal_str, security = parts[0], parts[1], parts[2]
+
         # Exclude hidden networks
         if not ssid or ssid.strip() == "":
             continue
-        
+
         try:
             signal = int(signal_str) if signal_str else 0
         except ValueError:
             signal = 0
-        
+
         if not security or security.strip() == "":
             security = "--"
-        
+
         aps.append({
             "ssid": ssid,
             "signal": signal,
-            "security": security,
-            "bssid": bssid,
-            "freq": freq
+            "security": security
         })
-    
+
     # Remove duplicates (keep strongest signal for each SSID)
     seen_ssids = {}
     for ap in aps:
         ssid_key = ap["ssid"]
         if ssid_key not in seen_ssids or ap["signal"] > seen_ssids[ssid_key]["signal"]:
             seen_ssids[ssid_key] = ap
-    
+
     unique_aps = list(seen_ssids.values())
     unique_aps.sort(key=lambda x: x["signal"], reverse=True)
-    
+
     return unique_aps
 
 def print_ap_table(aps):
     print("\nAvailable Wi-Fi networks (strongest first):")
-    print(" #   SIGNAL  SECURITY           FREQ   BSSID               SSID")
-    print("---- ------- ------------------ ------ ------------------- --------------------------------")
+    print(" #   SIGNAL  SECURITY           SSID")
+    print("---- ------- ------------------ --------------------------------")
     for i, ap in enumerate(aps, start=1):
-        print(f"{str(i).rjust(2)}.  {str(ap['signal']).rjust(3)}%   {ap['security'][:18].ljust(18)} "
-              f"{str(ap['freq']).rjust(6)} {ap['bssid'][:19].ljust(19)} {ap['ssid']}")
+        print(f"{str(i).rjust(2)}.  {str(ap['signal']).rjust(3)}%   {ap['security'][:18].ljust(18)} {ap['ssid']}")
 
 def show_connection_status(iface):
     """Display connection status for the interface"""
     try:
         conn_info = run(["nmcli", "-t", "-f", "DEVICE,STATE,CONNECTION", "device", "status"], check=False)
-        
+
         for line in conn_info.splitlines():
             if line.startswith(iface):
                 parts = line.split(":")
@@ -276,7 +270,7 @@ def show_connection_status(iface):
                     print(f"State: {state}")
                     print(f"Connection: {connection if connection else 'None'}")
                     print('='*60)
-                
+
                 if state.lower() == "connected":
                     try:
                         ip_info = run(["ip", "-brief", "addr", "show", iface], check=False)
@@ -285,15 +279,13 @@ def show_connection_status(iface):
                     except:
                         pass
                 return
-        
+
         print(f"\nNo status information found for {iface}")
     except Exception as e:
         print(f"Error getting connection status: {e}")
 
-def connect_open(iface, ssid, bssid=None):
+def connect_open(iface, ssid):
     try:
-        if bssid:
-            return run(["nmcli", "device", "wifi", "connect", ssid, "ifname", iface, "bssid", bssid])
         return run(["nmcli", "device", "wifi", "connect", ssid, "ifname", iface])
     except RuntimeError as e:
         error_msg = str(e).lower()
@@ -305,13 +297,8 @@ def connect_open(iface, ssid, bssid=None):
             raise RuntimeError("Connection activation failed - network may be out of range")
         raise
 
-def connect_password(iface, ssid, password, bssid=None):
+def connect_password(iface, ssid, password):
     try:
-        if bssid:
-            return run([
-                "nmcli", "device", "wifi", "connect", ssid,
-                "password", password, "ifname", iface, "bssid", bssid
-            ])
         return run([
             "nmcli", "device", "wifi", "connect", ssid,
             "password", password, "ifname", iface
@@ -440,7 +427,7 @@ def main():
                         continue
 
                     ap = aps[idx - 1]
-                    print(f"\nSelected: SSID='{ap['ssid']}', BSSID={ap['bssid']}, Signal={ap['signal']}%")
+                    print(f"\nSelected: SSID='{ap['ssid']}', Signal={ap['signal']}%")
 
                     try:
                         net_type = prompt_network_type()
@@ -454,17 +441,17 @@ def main():
                     try:
                         if net_type == "1":
                             print(f"Connecting to open network '{ap['ssid']}'...")
-                            out = connect_open(iface, ap["ssid"], bssid=ap["bssid"])
+                            out = connect_open(iface, ap["ssid"])
                         elif net_type == "2":
                             pw = getpass("Enter Wi-Fi password: ").strip()
                             if not pw:
                                 print("Password cannot be empty.")
                                 continue
                             print(f"Connecting to password network '{ap['ssid']}'...")
-                            out = connect_password(iface, ap["ssid"], pw, bssid=ap["bssid"])
+                            out = connect_password(iface, ap["ssid"], pw)
                         else:
                             print(f"Connecting to portal network '{ap['ssid']}'...")
-                            out = connect_open(iface, ap["ssid"], bssid=ap["bssid"])
+                            out = connect_open(iface, ap["ssid"])
 
                         print(out if out else "Connected (nmcli).")
                     except Exception as e:
