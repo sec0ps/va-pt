@@ -231,19 +231,24 @@ def install_base_dependencies():
     if ruby_check.returncode == 0 and "3.3.9" in ruby_check.stdout:
         print("Ruby 3.3.9 already installed and active, skipping.")
     else:
-        if subprocess.run("which rbenv", shell=True, capture_output=True).returncode != 0:
-            print("Installing rbenv...")
-            run_command("curl -fsSL https://github.com/rbenv/rbenv-installer/raw/HEAD/bin/rbenv-installer | bash")
-            run_command('grep -q "rbenv init" ~/.bashrc || echo \'export PATH="$HOME/.rbenv/bin:$PATH"\' >> ~/.bashrc')
-            run_command('grep -q "rbenv init" ~/.bashrc || echo \'eval "$(rbenv init - bash)"\' >> ~/.bashrc')
-            print("rbenv installed. Please restart your terminal and run the script again.")
-            return
+            # Check if rbenv exists in the expected location instead of just checking PATH
+            rbenv_path = os.path.expanduser("~/.rbenv/bin/rbenv")
+            if not os.path.exists(rbenv_path):
+                print("Installing rbenv...")
+                run_command("curl -fsSL https://github.com/rbenv/rbenv-installer/raw/HEAD/bin/rbenv-installer | bash")
+                run_command('grep -q "rbenv init" ~/.bashrc || echo \'export PATH="$HOME/.rbenv/bin:$PATH"\' >> ~/.bashrc')
+                run_command('grep -q "rbenv init" ~/.bashrc || echo \'eval "$(rbenv init - bash)"\' >> ~/.bashrc')
+                # Source rbenv in the current session
+                os.environ['PATH'] = f"{os.path.expanduser('~/.rbenv/bin')}:{os.environ.get('PATH', '')}"
+                print("rbenv installed and configured.")
 
-        print("Installing Ruby 3.3.9...")
-        run_command("rbenv install -s 3.3.9")  # -s flag skips if already installed
-        run_command("rbenv global 3.3.9")
-        run_command("rbenv rehash")
-        print("Ruby 3.3.9 installed. Restart terminal or run: source ~/.bashrc")
+            print("Installing Ruby 3.3.9...")
+            # Use the full path to rbenv if it's not in PATH yet
+            rbenv_cmd = rbenv_path if os.path.exists(rbenv_path) else "rbenv"
+            run_command(f"{rbenv_cmd} install -s 3.3.9")  # -s flag skips if already installed
+            run_command(f"{rbenv_cmd} global 3.3.9")
+            run_command(f"{rbenv_cmd} rehash")
+            print("Ruby 3.3.9 installed. Restart terminal or run: source ~/.bashrc")
 
     # Check if CPANminus is installed
     if not os.path.isfile("/usr/local/bin/cpanm"):
