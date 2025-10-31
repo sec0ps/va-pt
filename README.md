@@ -12,7 +12,7 @@ The VAPT Toolkit provides a streamlined way to install, configure, and maintain 
 - **Update Management**: Bulk update functionality for all installed tools
 - **Clean Migration**: Automatic cleanup and migration from older installations
 
-## Tool Categories
+## Tool Categories and Tool Examples (Not Inclusive)
 
 - **Exploitation Tools**: Metasploit, Covenant, Merlin, SILENTTRINITY, Impacket
 - **Web Testing**: Nikto, XSStrike, Dirsearch, FFUF, Kiterunner, OWASP ZAP
@@ -39,31 +39,6 @@ cd va-pt
 
 # Run the installer
 python3 vapt_installer.py
-```
-
-### Installation Options
-1. **Install Base Dependencies** - System packages and dependencies
-2. **Install Toolkit Packages** - Security tools and frameworks
-3. **Install Weakpass Dictionary** - 30GB password cracking wordlist
-4. **Update Toolsets** - Update all installed tools
-
-## Directory Structure
-
-```
-/vapt/
-├── exploits/        # Exploitation frameworks and tools
-├── web/             # Web application testing tools
-├── network/         # Network scanning and analysis
-├── ad_windows/      # Active Directory and Windows tools
-├── mobile/          # Mobile security testing
-├── cloud/           # Cloud security tools
-├── scanners/        # Vulnerability scanners
-├── passwords/       # Password cracking tools
-├── intel/           # OSINT and reconnaissance
-├── wireless/        # Wireless security tools
-├── fuzzers/         # Fuzzing tools
-├── audit/           # Security audit tools
-└── misc/            # Miscellaneous utilities
 ```
 
 ## Usage
