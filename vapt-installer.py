@@ -347,7 +347,7 @@ def install_toolkit_packages():
     # network and infrastructure tools
     network_tools = [
         ("https://github.com/robertdavidgraham/masscan.git", "/vapt/network/masscan", ["make"]),
-        ("https://github.com/projectdiscovery/nuclei.git", "/vapt/network/nuclei", None),
+        ("https://github.com/projectdiscovery/nuclei.git", "/vapt/network/nuclei", ["make"]),
         ("https://github.com/OWASP/Amass.git", "/vapt/network/Amass", ["go install -v ./cmd/amass/..."]),
     ]
 
