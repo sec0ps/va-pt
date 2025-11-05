@@ -1,8 +1,25 @@
 #!/usr/bin/env python3
-"""
-LDAP Injection Fuzzer
-Advanced LDAP injection testing tool with HTTP request parsing and multi-parameter fuzzing
-"""
+# =============================================================================
+# LDAP Injection Fuzzer - Advanced Security Testing Framework
+# =============================================================================
+#
+# Author: Keith Pachulski
+# Company: Red Cell Security, LLC
+# Email: keith@redcellsecurity.org
+# Website: www.redcellsecurity.org
+#
+# Copyright (c) 2025 Keith Pachulski. All rights reserved.
+#
+# License: This software is licensed under the MIT License.
+#          You are free to use, modify, and distribute this software
+#          in accordance with the terms of the license.
+#
+# Purpose: This script is part of an advanced LDAP injection testing framework
+#          designed for authorized security assessments and penetration testing.
+#          It automates the discovery of LDAP injection vulnerabilities through
+#          intelligent fuzzing, response analysis, and anomaly detection across
+#          multiple attack vectors including authentication bypass, blind injection,
+#          and error-based exploitation techniques.
 
 import requests
 import urllib.parse
