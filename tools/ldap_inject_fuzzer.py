@@ -19,7 +19,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class LDAPPayloadLibrary:
-    """Comprehensive LDAP injection payload collection"""
+    """LDAP injection payload collection"""
     
     @staticmethod
     def get_all_payloads() -> Dict[str, List[str]]:
