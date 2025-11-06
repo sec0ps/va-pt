@@ -101,31 +101,44 @@ def detect_axis_version_from_comments(wsdl_text):
     return None
 
 def find_suspicious_elements(client):
+    """
+    Enumerates all known types and their fields looking for suspicious keywords.
+    Compatible with Zeep's Schema object in latest versions.
+    """
     findings = []
-    # walk types/elements
-    for schema in client.wsdl.types.schemas.values():
-        for name, element in schema.elements.items():
-            n = name.lower()
+    schema = client.wsdl.types
+
+    for qname, type_obj in schema.types.items():
+        type_name = str(qname.localname)
+        if hasattr(type_obj, 'elements'):
+            for element in type_obj.elements:
+                ename = getattr(element, 'name', '').lower()
+                for kw in SUSPICIOUS_KEYWORDS:
+                    if kw.lower() in ename:
+                        findings.append({
+                            "complexType": type_name,
+                            "field": ename,
+                            "matched": kw
+                        })
+        elif hasattr(type_obj, 'name'):
+            tname = str(type_obj.name).lower()
             for kw in SUSPICIOUS_KEYWORDS:
-                if kw.lower() in n:
+                if kw.lower() in tname:
                     findings.append({
-                        "element": name,
-                        "namespace": str(element.type.qname.namespace) if element.type is not None else None,
-                        "sample_type": str(getattr(element.type, "__class__", element.type))
+                        "element": tname,
+                        "matched": kw
                     })
-        # also check complexTypes
-        for ct_name, ct in schema.types.items():
-            try:
-                # element/attributes names might be accessible via ct.elements
-                if hasattr(ct, 'elements'):
-                    for e in getattr(ct, 'elements', []):
-                        en = getattr(e, 'name', None)
-                        if en:
-                            for kw in SUSPICIOUS_KEYWORDS:
-                                if kw.lower() in en.lower():
-                                    findings.append({"complexType": ct_name, "field": en})
-            except Exception:
-                continue
+
+    # also include top-level elements, which may be directly in the schema
+    for qname, element in schema.elements.items():
+        ename = str(qname.localname).lower()
+        for kw in SUSPICIOUS_KEYWORDS:
+            if kw.lower() in ename:
+                findings.append({
+                    "element": ename,
+                    "matched": kw
+                })
+
     return findings
 
 def list_operations(client):
