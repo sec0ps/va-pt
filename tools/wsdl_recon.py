@@ -101,45 +101,58 @@ def detect_axis_version_from_comments(wsdl_text):
     return None
 
 def find_suspicious_elements(client):
-    """
-    Enumerates all known types and their fields looking for suspicious keywords.
-    Compatible with Zeep's Schema object in latest versions.
-    """
     findings = []
     schema = client.wsdl.types
 
-    for qname, type_obj in schema.types.items():
-        type_name = str(qname.localname)
+    # Safely iterate over types (dict or generator)
+    try:
+        type_items = schema.types.items() if hasattr(schema.types, 'items') else list(schema.types)
+    except Exception:
+        type_items = []
+
+    for entry in type_items:
+        if isinstance(entry, tuple):
+            qname, type_obj = entry
+            type_name = str(qname.localname)
+        else:
+            type_obj = entry
+            qname = getattr(type_obj, 'qname', None)
+            type_name = str(qname.localname) if qname else str(type_obj)
+
         if hasattr(type_obj, 'elements'):
             for element in type_obj.elements:
                 ename = getattr(element, 'name', '').lower()
                 for kw in SUSPICIOUS_KEYWORDS:
-                    if kw.lower() in ename:
+                    if kw in ename:
                         findings.append({
                             "complexType": type_name,
                             "field": ename,
                             "matched": kw
                         })
-        elif hasattr(type_obj, 'name'):
-            tname = str(type_obj.name).lower()
-            for kw in SUSPICIOUS_KEYWORDS:
-                if kw.lower() in tname:
-                    findings.append({
-                        "element": tname,
-                        "matched": kw
-                    })
 
-    # also include top-level elements, which may be directly in the schema
-    for qname, element in schema.elements.items():
-        ename = str(qname.localname).lower()
+    # Top-level elements
+    try:
+        elem_items = schema.elements.items() if hasattr(schema.elements, 'items') else list(schema.elements)
+    except Exception:
+        elem_items = []
+
+    for entry in elem_items:
+        if isinstance(entry, tuple):
+            qname, element = entry
+            ename = str(qname.localname).lower()
+        else:
+            element = entry
+            ename = getattr(element, 'name', '').lower()
+
         for kw in SUSPICIOUS_KEYWORDS:
-            if kw.lower() in ename:
+            if kw in ename:
                 findings.append({
                     "element": ename,
                     "matched": kw
                 })
 
     return findings
+
 
 def list_operations(client):
     services = {}
