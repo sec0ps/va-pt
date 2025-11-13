@@ -192,7 +192,7 @@ def install_base_dependencies():
     run_command("sudo apt install -y python3-aiofiles python3-watchdog python3-pandas")
 
     print("Installing Python Packages and Dependencies")
-    run_command("pip3 install build dnspython kerberoast certipy-ad knowsmore sherlock-project wafw00f pypykatz")
+    run_command("pip3 install build dnspython kerberoast certipy-ad knowsmore sherlock-project wafw00f pypykatz zeep")
     run_command("python -m pip install dnspython==1.16.0")
 
     # Install each pipx package separately
