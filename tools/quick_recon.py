@@ -1096,14 +1096,14 @@ class ReconAutomation:
             self.technology_stack_identification()
             self.email_harvesting()
 
-            if not args.skip_breach_check:  # Assumes args is accessible
+            if not self.args.skip_breach_check:
                 self.breach_database_check()
 
             # Add S3 enumeration here
-            if not args.skip_s3:  # You'll need to add this arg
+            if not self.args.skip_s3:
                 self.s3_bucket_enumeration()
 
-            if not args.skip_scan:
+            if not self.args.skip_scan:
                 self.network_enumeration()
 
             self.generate_report()
