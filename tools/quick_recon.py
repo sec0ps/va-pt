@@ -940,63 +940,59 @@ class ReconAutomation:
         """Generate report template with findings"""
         with open(filepath, 'w') as f:
             f.write(f"# Report Template Content - {self.client_name}\n\n")
-
-            # Scope Validation Section
-            f.write("## Scope Validation\n\n")
-            f.write("Prior to active testing, HALOCK validated ownership and authorization for all in-scope IP addresses and ranges.\n\n")
-
+            
             f.write("### Ownership Verification\n")
             whois = self.results.get('scope_validation', {}).get('whois', {})
             for ip_range, info in whois.items():
                 org = info.get('org', 'Unknown')
                 f.write(f"• {ip_range} - Confirmed owned by {org}\n")
             f.write("\n")
-
+            
             # DNS Enumeration Section
             f.write("## Reconnaissance and OSINT\n\n")
             f.write("### Finding the External Footprint\n\n")
-
+            
             dns = self.results.get('dns_enumeration', {})
             total = dns.get('total_discovered', 0)
             resolved = dns.get('resolved', {})
-
+            
             f.write(f"DNS enumeration revealed {total} subdomains. This mapped out what was reachable from the internet.\n\n")
-
+            
             if resolved:
                 f.write("Key subdomains identified:\n")
                 for subdomain in sorted(resolved.keys())[:10]:  # Top 10
                     ips = resolved[subdomain]
                     f.write(f"• {subdomain} ({', '.join(ips)})\n")
                 f.write("\n")
-
+            
             # Technology Stack Section
             f.write("### Understanding the Technology Stack\n\n")
             tech = self.results.get('technology_stack', {})
-
+            
             if tech:
                 f.write("Public sources and SSL certificates revealed the organization uses:\n")
                 all_tech = set()
                 all_servers = set()
-
+                
                 for domain, info in tech.items():
                     if info.get('server'):
                         all_servers.add(info['server'])
                     if info.get('detected_technologies'):
                         all_tech.update(info['detected_technologies'])
-
+                
                 if all_servers:
                     f.write(f"• Web Servers: {', '.join(all_servers)}\n")
                 if all_tech:
                     f.write(f"• Technologies: {', '.join(all_tech)}\n")
                 f.write("\n")
-
+            
             # Email Addresses Section
             f.write("### Identifying Valid User Accounts\n\n")
             emails = self.results.get('email_addresses', [])
-
+            
             if emails:
                 f.write(f"Public sources revealed {len(emails)} employee email addresses following the format ")
-
+                
                 # Infer email format
                 if emails:
                     example = emails[0]
@@ -1005,16 +1001,16 @@ class ReconAutomation:
                         f.write("firstname.lastname@domain.com\n")
                     else:
                         f.write("firstnamelastname@domain.com\n")
-
+                
                 f.write("\nSample email addresses identified:\n")
                 for email in emails[:5]:  # First 5
                     f.write(f"• {email}\n")
                 f.write("\n")
-
+            
             # Breach Data Section
             f.write("### Searching for Compromised Credentials\n\n")
             breaches = self.results.get('breach_data', {})
-
+            
             if breaches:
                 f.write(f"Breach databases were checked for client email addresses. {len(breaches)} accounts were found with exposed passwords:\n\n")
                 for email, breach_list in list(breaches.items())[:5]:  # First 5
@@ -1023,17 +1019,59 @@ class ReconAutomation:
                 f.write("These credentials became immediate testing priorities.\n\n")
             else:
                 f.write("No exposed credentials were found in available breach databases.\n\n")
-
+            
+            # S3 Bucket Enumeration Section
+            f.write("### Cloud Storage Enumeration (S3 Buckets)\n\n")
+            s3_results = self.results.get('s3_buckets', {})
+            
+            if s3_results.get('found'):
+                buckets = s3_results['found']
+                public_buckets = [b for b in buckets if b['status'] == 'Public Read']
+                private_buckets = [b for b in buckets if b['status'] == 'Private (Exists)']
+                
+                if public_buckets:
+                    f.write(f"S3 bucket enumeration revealed {len(public_buckets)} publicly accessible bucket(s):\n\n")
+                    for bucket in public_buckets:
+                        f.write(f"• {bucket['bucket']}\n")
+                        f.write(f"  URL: {bucket['url']}\n")
+                        if bucket.get('file_count'):
+                            total_size = sum(file['size'] for file in bucket.get('files', [])) / 1024  # KB
+                            f.write(f"  Contents: {bucket['file_count']} files ({total_size:.1f}KB total)\n")
+                            
+                            # List some sensitive files if found
+                            sensitive_patterns = ['.env', 'config', 'credentials', 'password', 'secret', 'key', 'backup', '.sql', '.zip']
+                            sensitive_files = [file['key'] for file in bucket.get('files', []) 
+                                            if any(pattern in file['key'].lower() for pattern in sensitive_patterns)]
+                            if sensitive_files:
+                                f.write(f"  Sensitive files detected: {', '.join(sensitive_files[:5])}\n")
+                        f.write("\n")
+                    
+                    f.write("These buckets allow unauthenticated public access and may contain sensitive data. ")
+                    f.write("Public S3 buckets pose a significant data exposure risk as any internet user can access their contents.\n\n")
+                
+                if private_buckets:
+                    f.write(f"Additionally, {len(private_buckets)} private S3 bucket(s) were discovered:\n\n")
+                    for bucket in private_buckets:
+                        f.write(f"• {bucket['bucket']} (Private)\n")
+                    f.write("\n")
+                    f.write("While these buckets are not publicly accessible, their existence confirms AWS infrastructure usage.\n\n")
+                
+                if not public_buckets and private_buckets:
+                    f.write(f"S3 bucket enumeration found {len(buckets)} bucket(s), but all were properly configured as private.\n\n")
+            else:
+                f.write("No S3 buckets were discovered during enumeration. Either no S3 infrastructure is in use, ")
+                f.write("or bucket names do not follow predictable naming patterns.\n\n")
+            
             # Network Enumeration Section
             f.write("## Enumeration and Mapping\n\n")
             scan = self.results.get('network_scan', {})
-
+            
             if scan:
                 total_hosts = len(scan)
                 total_ports = sum(len(ports) for ports in scan.values())
-
+                
                 f.write(f"Network scanning revealed {total_hosts} live hosts with {total_ports} open ports.\n\n")
-
+                
                 # Categorize services
                 interesting_services = []
                 for host, ports in scan.items():
@@ -1041,7 +1079,7 @@ class ReconAutomation:
                         service = port_info.get('service', 'unknown')
                         if any(keyword in service.lower() for keyword in ['vpn', 'ssh', 'rdp', 'http', 'ftp', 'smtp']):
                             interesting_services.append(f"{host}:{port_num} ({service})")
-
+                
                 if interesting_services:
                     f.write("Most promising targets for further investigation:\n")
                     for service in interesting_services[:10]:  # Top 10
@@ -1051,20 +1089,29 @@ class ReconAutomation:
     def run_all(self):
         """Run all reconnaissance modules"""
         self.print_banner()
-
+        
         try:
             self.scope_validation()
             self.dns_enumeration()
             self.technology_stack_identification()
             self.email_harvesting()
-            self.breach_database_check()
-            self.network_enumeration()
+            
+            if not args.skip_breach_check:  # Assumes args is accessible
+                self.breach_database_check()
+            
+            # Add S3 enumeration here
+            if not args.skip_s3:  # You'll need to add this arg
+                self.s3_bucket_enumeration()
+            
+            if not args.skip_scan:
+                self.network_enumeration()
+            
             self.generate_report()
-
+            
             self.print_section("RECONNAISSANCE COMPLETE")
             self.print_success("All modules completed successfully!")
             self.print_info(f"Results saved to: {self.output_dir}")
-
+            
         except KeyboardInterrupt:
             self.print_warning("\nReconnaissance interrupted by user")
             self.generate_report()
@@ -1081,21 +1128,24 @@ def main():
 Examples:
   Basic scan:
     python3 pentest_recon.py -d example.com -i 192.168.1.0/24 -c "Acme Corp"
-
+  
   Multiple IP ranges:
     python3 pentest_recon.py -d example.com -i 10.0.0.0/24 172.16.0.0/16 -c "Acme Corp"
-
+  
   IP ranges from file:
     python3 pentest_recon.py -d example.com -f targets.txt -c "Acme Corp"
-
+  
   Combine file and command line:
     python3 pentest_recon.py -d example.com -f targets.txt -i 10.0.0.0/24 -c "Acme Corp"
-
+  
   Custom output directory:
     python3 pentest_recon.py -d example.com -i 192.168.1.0/24 -o /tmp/recon -c "Acme Corp"
+  
+  Skip modules:
+    python3 pentest_recon.py -d example.com -i 192.168.1.0/24 -c "Acme Corp" --skip-s3 --skip-scan
         '''
     )
-
+    
     parser.add_argument('-d', '--domain', required=True, help='Target domain (e.g., example.com)')
     parser.add_argument('-i', '--ip-ranges', nargs='+', help='In-scope IP ranges (e.g., 192.168.1.0/24)')
     parser.add_argument('-f', '--file', help='File containing IP ranges (one CIDR per line)')
@@ -1103,16 +1153,17 @@ Examples:
     parser.add_argument('-o', '--output', default='./recon_output', help='Output directory (default: ./recon_output)')
     parser.add_argument('--skip-breach-check', action='store_true', help='Skip breach database checking')
     parser.add_argument('--skip-scan', action='store_true', help='Skip network scanning')
-
+    parser.add_argument('--skip-s3', action='store_true', help='Skip S3 bucket enumeration')
+    
     args = parser.parse_args()
-
+    
     # Parse IP ranges from command line and/or file
     ip_ranges = []
-
+    
     # Add command line IP ranges
     if args.ip_ranges:
         ip_ranges.extend(args.ip_ranges)
-
+    
     # Add IP ranges from file
     if args.file:
         try:
@@ -1129,13 +1180,13 @@ Examples:
         except Exception as e:
             print(f"{Colors.FAIL}[-] Error reading file: {e}{Colors.ENDC}")
             sys.exit(1)
-
+    
     # Validate that we have at least one IP range
     if not ip_ranges:
         print(f"{Colors.FAIL}[-] Error: No IP ranges specified. Use -i or -f to provide targets.{Colors.ENDC}")
         parser.print_help()
         sys.exit(1)
-
+    
     # Remove duplicates while preserving order
     seen = set()
     unique_ranges = []
@@ -1143,10 +1194,10 @@ Examples:
         if ip_range not in seen:
             seen.add(ip_range)
             unique_ranges.append(ip_range)
-
+    
     if len(ip_ranges) != len(unique_ranges):
         print(f"{Colors.WARNING}[!] Removed {len(ip_ranges) - len(unique_ranges)} duplicate IP range(s){Colors.ENDC}")
-
+    
     # Create recon automation instance
     recon = ReconAutomation(
         domain=args.domain,
@@ -1154,7 +1205,10 @@ Examples:
         output_dir=args.output,
         client_name=args.client
     )
-
+    
+    # Store args reference for run_all method
+    recon.args = args
+    
     # Run all reconnaissance
     recon.run_all()
 
