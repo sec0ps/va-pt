@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # =============================================================================
 # VAPT Toolkit - Vulnerability Assessment and Penetration Testing Toolkit
 # =============================================================================
@@ -34,557 +35,2703 @@
 #
 # =============================================================================
 
-import os
+import argparse
+import json
+import re
 import subprocess
 import sys
-import re
+import socket
+import requests
+from datetime import datetime
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+import concurrent.futures
+import ipaddress
+import shutil
 
-def run_command(command):
-    """Execute a command in the shell, and continue even if an error occurs."""
-    try:
-        subprocess.run(command, shell=True, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"\033[91mError occurred while executing: {command}\033[0m")
-        print(f"\033[91mError details: {e}\033[0m")
-        print("Continuing with the next command...\n")
+# Color codes for terminal output
+class Colors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
 
-def display_logo():
-    logo_ascii = """
-                                 #                              #
-                               ###              #*#              ##
-                              ##**            #***##             *##
-                              ###*         ##*#*** #*##         #*###
-                             ######     ### ##**** ####*##     ### *#
-                             ##*####   * #####**** #########  ########
-                             ####### # # #####**** ########### ###*###
-                             **### ##### #####**** ############### ##
-                             ######*#*########**** #########*#*####*#
-                              ###*###**#######**** ########*** ####*#
-                               ######**#######**** ######*#*#*###*##
-                                #####*#* *####**** #########**#####
-                                ###*#####**###**** #####*#########
-                                  ####*#*#**##**** # ###########*
-                                   ##*##***##*#*** ####*##*###*
-                                      ###*####**####*##*#####
-                                         #***###**####**#
-                                            ## #### ##
-                                               #*##
-                                                #*
-                                                #*#
-        #########     ###########  #########          ###### *****##### #****#    ******
-          ###   ####    ###    ###   ###    ###    #*#    ##  #**#   #*   **#      ***
-          ###    ###    ###     ##   ###     ###  ##*      #  *#**    #   **#      #**
-          ###    ###    ###  ##      ###     #### **#         **** ##     ***      #**
-          #########     #######      ###     #### **#         #**####     **#      ***
-          ###    ####   ###   #   #  ###     #### **#       # #*** ##  #  **#   #  #**    #
-          ###    ####   ###      ##  ###     ###   #*      ## #***    ##  **#   *  #**    #
-          ###     ### # ###   #####  ###   ###      ##    #*# #**#  #*#* #**###**  #*# *#*#
+class ReconAutomation:
+    def __init__(self, domain: str, ip_ranges: List[str], output_dir: str, client_name: str):
+        self.domain = domain
+        self.ip_ranges = ip_ranges
+        self.output_dir = Path(output_dir)
+        self.client_name = client_name
+        self.theharvester_path = self._locate_theharvester()
+        self.results = {
+            'timestamp': datetime.now().isoformat(),
+            'domain': domain,
+            'ip_ranges': ip_ranges,
+            'client': client_name,
+            'scope_validation': {},
+            'dns_enumeration': {},
+            'technology_stack': {},
+            'email_addresses': [],
+            'breach_data': {},
+            'network_scan': {},
+            's3_buckets': {},
+            'azure_storage': {},
+            'gcp_storage': {},
+            'github_secrets': {},
+            'linkedin_intel': {},
+            'asn_data': {},
+            'subdomain_takeovers': []
+        }
 
+        # Create output directory
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
+    def print_banner(self):
+        """Print script banner"""
+        banner = f"""
+{Colors.HEADER}{'='*80}
+    PENETRATION TESTING RECONNAISSANCE AUTOMATION
+    Client: {self.client_name}
+    Domain: {self.domain}
+    Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+{'='*80}{Colors.ENDC}
+"""
+        print(banner)
 
-                      Vulnerability Assessment and Penetration Testing Toolkit
-    """
-    print(logo_ascii)
+    def print_section(self, title: str):
+        """Print section header"""
+        print(f"\n{Colors.OKBLUE}[*] {title}{Colors.ENDC}")
+        print(f"{Colors.OKBLUE}{'='*80}{Colors.ENDC}")
 
-def check_directory_structure():
-    base_path = "/vapt"
-    directories = [
-        base_path, f"{base_path}/temp", f"{base_path}/wireless", f"{base_path}/exploits",
-        f"{base_path}/web", f"{base_path}/intel", f"{base_path}/scanners", f"{base_path}/misc",
-        f"{base_path}/passwords", f"{base_path}/fuzzers", f"{base_path}/audit",
-        f"{base_path}/mobile", f"{base_path}/cloud", f"{base_path}/network",
-        f"{base_path}/ad_windows"
-    ]
+    def print_success(self, message: str):
+        """Print success message"""
+        print(f"{Colors.OKGREEN}[+] {message}{Colors.ENDC}")
 
-    # Create the base directory if it does not exist
-    if not os.path.exists(base_path):
-        print("Creating base directory at /vapt")
-        run_command(f"sudo mkdir {base_path}")
-        run_command(f"sudo chown -R $USER {base_path} && sudo chgrp -R $USER {base_path}")
+    def print_warning(self, message: str):
+        """Print warning message"""
+        print(f"{Colors.WARNING}[!] {message}{Colors.ENDC}")
 
-    # Check and create subdirectories if they don't exist
-    for directory in directories:
-        if not os.path.exists(directory):
-            print(f"Creating directory: {directory}")
-            run_command(f"mkdir -p {directory}")
+    def print_error(self, message: str):
+        """Print error message"""
+        print(f"{Colors.FAIL}[-] {message}{Colors.ENDC}")
 
-    # Clone va-pt repository if not already cloned
-    va_pt_path = f"{base_path}/misc/va-pt"
-    if not os.path.exists(va_pt_path):
-        print("Cloning va-pt repository...")
-        run_command(f"cd {base_path}/misc && git clone https://github.com/sec0ps/va-pt.git")
+    def print_info(self, message: str):
+        """Print info message"""
+        print(f"{Colors.OKCYAN}[i] {message}{Colors.ENDC}")
 
-    print("Directory structure is ready.")
+    def run_command(self, command: List[str], timeout: int = 60) -> Optional[str]:
+        """Execute system command and return output"""
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False
+            )
+            return result.stdout if result.returncode == 0 else None
+        except subprocess.TimeoutExpired:
+            self.print_error(f"Command timed out: {' '.join(command)}")
+            return None
+        except Exception as e:
+            self.print_error(f"Command failed: {e}")
+            return None
 
-def cleanup_old_directories():
-    """Automatically remove old directories from previous installations"""
-    old_powershell_dir = "/vapt/powershell"
-    old_findshares_dir = "/vapt/scanners/FindUncommonShares"
-    old_grecon_dir = "/vapt/intel/GRecon"
+    def scope_validation(self):
+        """Perform scope validation including WHOIS and DNS verification"""
+        self.print_section("SCOPE VALIDATION")
 
-    if os.path.exists(old_powershell_dir):
-        print("Cleaning up old powershell directory...")
-        # Automatically move any existing tools to the new location
-        if os.path.exists(f"{old_powershell_dir}/PowerSploit"):
-            run_command(f"mv {old_powershell_dir}/PowerSploit /vapt/ad_windows/")
-        if os.path.exists(f"{old_powershell_dir}/ps1encode"):
-            run_command(f"mv {old_powershell_dir}/ps1encode /vapt/ad_windows/")
-        if os.path.exists(f"{old_powershell_dir}/Invoke-TheHash"):
-            run_command(f"mv {old_powershell_dir}/Invoke-TheHash /vapt/ad_windows/")
-        if os.path.exists(f"{old_powershell_dir}/PowerShdll"):
-            run_command(f"mv {old_powershell_dir}/PowerShdll /vapt/ad_windows/")
+        # WHOIS lookup for IP ranges
+        self.print_info("Performing WHOIS lookups for IP ranges...")
+        whois_results = {}
 
-        # Remove the old directory
-        run_command(f"rm -rf {old_powershell_dir}")
-        print("Old powershell directory cleaned up successfully.")
+        for ip_range in self.ip_ranges:
+            try:
+                # Extract first IP from range for WHOIS lookup
+                if '/' in ip_range:
+                    ip = str(ipaddress.ip_network(ip_range, strict=False).network_address)
+                else:
+                    ip = ip_range
 
-    # Handle old FindUncommonShares directory
-    if os.path.exists(old_findshares_dir):
-        print("Cleaning up old FindUncommonShares directory...")
-        run_command(f"rm -rf {old_findshares_dir}")
-        print("Old FindUncommonShares directory removed. Will be reinstalled as pyFindUncommonShares.")
+                output = self.run_command(['whois', ip])
+                if output:
+                    whois_results[ip_range] = self._parse_whois(output)
+                    org = whois_results[ip_range].get('org', 'Unknown')
+                    self.print_success(f"{ip_range} - Organization: {org}")
+            except Exception as e:
+                self.print_error(f"WHOIS failed for {ip_range}: {e}")
 
-    # Handle old GRecon directory
-    if os.path.exists(old_grecon_dir):
-        print("Cleaning up old GRecon directory...")
-        run_command(f"rm -rf {old_grecon_dir}")
-        print("Old GRecon directory removed.")
+        self.results['scope_validation']['whois'] = whois_results
 
-def check_and_install(repo_url, install_dir, setup_commands=None):
-    """Clone the repo if it doesn't exist and run optional setup commands."""
-    if not os.path.exists(install_dir):
-        print(f"Installing {os.path.basename(install_dir)}")
-        run_command(f"git clone {repo_url} {install_dir}")
-        if setup_commands:
-            for command in setup_commands:
-                run_command(f"cd {install_dir} && {command}")
+        # DNS verification for domain
+        self.print_info(f"Verifying DNS records for {self.domain}...")
+        dns_records = self._get_dns_records(self.domain)
+        self.results['scope_validation']['dns_verification'] = dns_records
 
-def install_wordlist_files():
-    """Install the Weakpass dictionary for password cracking."""
-    weakpass_file = "/vapt/passwords/weakpass_3a"
-    if not os.path.exists(weakpass_file):
-        user_confirmation = input("The Weakpass dictionary file is 30GB in size. Do you want to continue with the installation? (yes/no): ").strip().lower()
-        if user_confirmation == 'yes':
-            print("Downloading the Weakpass dictionary...")
-            run_command("cd /vapt/passwords && wget https://download.weakpass.com/wordlists/1948/weakpass_3a.7z")
-            run_command("cd /vapt/passwords && 7z e weakpass_3a.7z")
-            print("Weakpass dictionary installation complete.")
+        if dns_records.get('A'):
+            self.print_success(f"Domain resolves to: {', '.join(dns_records['A'])}")
+
+            # Check if resolved IPs are in scope
+            for ip in dns_records['A']:
+                in_scope = self._is_ip_in_scope(ip)
+                if in_scope:
+                    self.print_success(f"✓ {ip} is within authorized scope")
+                else:
+                    self.print_warning(f"✗ {ip} is NOT in provided scope ranges")
+
+    def load_config(self) -> Dict[str, str]:
+        """Load configuration from file"""
+        default_config = {
+            'github_token': '',
+            'shodan_api_key': '',
+            'censys_api_id': '',
+            'censys_api_secret': ''
+        }
+
+        if self.config_file.exists():
+            try:
+                with open(self.config_file, 'r') as f:
+                    loaded_config = json.load(f)
+                    # Merge with defaults in case new keys were added
+                    default_config.update(loaded_config)
+                    return default_config
+            except Exception as e:
+                self.print_warning(f"Error loading config: {e}")
+                return default_config
+
+        return default_config
+
+    def save_config(self):
+        """Save configuration to file"""
+        try:
+            with open(self.config_file, 'w') as f:
+                json.dump(self.config, f, indent=2)
+            self.print_success(f"Configuration saved to {self.config_file}")
+        except Exception as e:
+            self.print_error(f"Error saving config: {e}")
+
+    def prompt_for_api_keys(self):
+        """Prompt user for API keys if not already configured"""
+        print("\n" + "="*80)
+        print("API KEY CONFIGURATION")
+        print("="*80)
+        print("Some modules require API keys/tokens for enhanced functionality.")
+        print("Press Enter to skip any key you don't have or want to configure later.")
+        print("")
+
+        updated = False
+
+        # GitHub Token
+        if not self.config.get('github_token'):
+            print("[*] GitHub Token (for secret scanning in repos/gists/issues)")
+            print("    Generate at: https://github.com/settings/tokens")
+            print("    Required scopes: public_repo (read:org optional)")
+            token = input("    Enter GitHub token (or press Enter to skip): ").strip()
+            if token:
+                self.config['github_token'] = token
+                updated = True
+                self.print_success("GitHub token configured")
+            else:
+                self.print_info("Skipping GitHub token - secret scanning will be limited")
         else:
-            print("Installation of Weakpass dictionary aborted. Returning to main menu.")
+            self.print_success("GitHub token already configured")
+
+        print("")
+
+        # Optional: Shodan (for future use)
+        if not self.config.get('shodan_api_key'):
+            print("[*] Shodan API Key (optional - for enhanced service discovery)")
+            print("    Register at: https://account.shodan.io/register")
+            key = input("    Enter Shodan API key (or press Enter to skip): ").strip()
+            if key:
+                self.config['shodan_api_key'] = key
+                updated = True
+                self.print_success("Shodan API key configured")
+        else:
+            self.print_success("Shodan API key already configured")
+
+        if updated:
+            self.save_config()
+
+        print("="*80 + "\n")
+
+    def github_secret_scanning(self):
+        """Search GitHub for leaked credentials and secrets"""
+        self.print_section("GITHUB SECRET SCANNING")
+
+        if not self.config.get('github_token'):
+            self.print_warning("No GitHub token configured. Skipping GitHub scanning.")
+            self.print_info("Run with a configured token for enhanced secret detection")
             return
-    else:
-        print("Weakpass dictionary already installed, skipping.")
 
-def install_base_dependencies():
-    print("Installing base toolkit dependencies...")
-    run_command("sudo apt update && sudo apt upgrade -y")
-    run_command("sudo apt install -y vim subversion landscape-common ufw openssh-server net-tools mlocate ntpdate screen whois libtool-bin")
-    run_command("sudo apt install -y make gcc ncftp rar p7zip-full curl libpcap-dev libssl-dev hping3 libssh-dev g++ arp-scan wifite ruby-bundler freerdp2-dev")
-    run_command("sudo apt install -y libsqlite3-dev nbtscan dsniff apache2 secure-delete autoconf libpq-dev libmysqlclient-dev libsvn-dev libssh-dev libsmbclient-dev")
-    run_command("sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff-ng httptunnel ptunnel-ng udptunnel pipx python3-venv ruby-dev")
-    run_command("sudo apt install -y webhttrack minicom openjdk-21-jre gnome-tweaks macchanger recordmydesktop postgresql golang-1.23-go hydra-gtk hydra")
-    run_command("sudo apt install -y ncftp wine-development libcurl4-openssl-dev smbclient hackrf nfs-common samba gpsd")
-    run_command("sudo apt install -y docker.io docker-compose hcxtools httrack tshark git python-is-python3 tig tftpd-hpa")
-    run_command("sudo apt install -y libffi-dev libyaml-dev libreadline-dev libncurses5-dev libgdbm-dev zlib1g-dev build-essential bison libedit-dev libxml2-utils")
-    run_command("sudo usermod -aG docker $USER")
-    run_command("sudo snap install powershell --classic")
-    #Adding these in for the eventual move to Ubuntu 24+
-    run_command("sudo apt install -y python3-aiofiles python3-watchdog python3-pandas")
+        github_findings = {
+            'repositories': [],
+            'gists': [],
+            'issues': [],
+            'commits': [],
+            'total_secrets_found': 0
+        }
 
-    print("Installing Python Packages and Dependencies")
-    run_command("pip3 install build dnspython kerberoast certipy-ad knowsmore sherlock-project wafw00f pypykatz zeep netaddr ujson aiomultiprocess aoihttp censys shodan")
-    run_command("pip install playwright uvloop")
-    run_command("python -m pip install dnspython==1.16.0")
+        headers = {
+            'Authorization': f"token {self.config['github_token']}",
+            'Accept': 'application/vnd.github.v3+json'
+        }
 
-    # Install each pipx package separately
-    pipx_packages = ["urh", "scoutsuite", "checkov", "impacket", "dnsrecon"]
-    for package in pipx_packages:
-        run_command(f"pipx install {package}")
+        # Define search queries
+        search_queries = [
+            f'"{self.domain}"',
+            f'"{self.domain.replace(".", " ")}"',
+            f'"{self.domain.split(".")[0]}"',  # company name
+            f'{self.domain} password',
+            f'{self.domain} api_key',
+            f'{self.domain} secret',
+            f'{self.domain} credentials',
+            f'{self.domain} aws_access_key',
+            f'{self.domain} private_key'
+        ]
 
-    # Configure Go environment
-    go_config = """
-    # Go programming language
-    export PATH=$PATH:/usr/lib/go-1.23/bin
-    export GOROOT=/usr/lib/go-1.23
-    export GOPATH=$HOME/go
-    export PATH=$PATH:$GOPATH/bin
-    """
+        # Sensitive patterns to look for
+        sensitive_patterns = {
+            'aws_access_key': r'AKIA[0-9A-Z]{16}',
+            'aws_secret_key': r'aws_secret_access_key.*?["\']([^"\']{40})["\']',
+            'private_key': r'-----BEGIN (RSA|DSA|EC|OPENSSH) PRIVATE KEY-----',
+            'api_key': r'api[_-]?key.*?["\']([a-zA-Z0-9_\-]{20,})["\']',
+            'password': r'password.*?["\']([^"\']{8,})["\']',
+            'database_url': r'(postgresql|mysql|mongodb)://[^\s]+',
+            'jwt_token': r'eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*',
+            'slack_token': r'xox[baprs]-[0-9]{10,12}-[0-9]{10,12}-[a-zA-Z0-9]{24,32}',
+            'google_api': r'AIza[0-9A-Za-z\\-_]{35}',
+            's3_bucket': r'[a-z0-9.-]+\.s3\.amazonaws\.com',
+            'azure_storage': r'[a-z0-9]+\.blob\.core\.windows\.net',
+            'gcp_bucket': r'[a-z0-9._-]+\.storage\.googleapis\.com'
+        }
 
-    bashrc_path = os.path.expanduser("~/.bashrc")
-    with open(bashrc_path, 'r') as f:
-        if 'go-1.23' not in f.read():
-            with open(bashrc_path, 'a') as f:
-                f.write(go_config)
-            print("Go environment configured. Changes will apply to new shells.")
-            os.environ['PATH'] += f":/usr/lib/go-1.23/bin:{os.path.expanduser('~/go/bin')}"
+        self.print_info(f"Searching GitHub with {len(search_queries)} queries...")
 
-    # Install Rust and NetExec
-    print("Installing Rust and NetExec...")
-    run_command("curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y")
-    run_command('bash -c "source $HOME/.cargo/env"')
-    run_command("pipx ensurepath")
-    run_command("pipx install git+https://github.com/Pennyw0rth/NetExec")
+        # Search Code
+        self.print_info("Searching code repositories...")
+        for query in search_queries:
+            try:
+                url = f"https://api.github.com/search/code?q={query}&per_page=10"
+                response = self.session.get(url, headers=headers, timeout=15)
 
-    print("Checking Ruby version...")
+                if response.status_code == 200:
+                    data = response.json()
 
-    # Check if Ruby 3.3.9 is already installed and active
-    ruby_check = subprocess.run("ruby -v", shell=True, capture_output=True, text=True)
-    if ruby_check.returncode == 0 and "3.3.9" in ruby_check.stdout:
-        print("Ruby 3.3.9 already installed and active, skipping.")
-    else:
-            # Check if rbenv exists in the expected location instead of just checking PATH
-            rbenv_path = os.path.expanduser("~/.rbenv/bin/rbenv")
-            if not os.path.exists(rbenv_path):
-                print("Installing rbenv...")
-                run_command("curl -fsSL https://github.com/rbenv/rbenv-installer/raw/HEAD/bin/rbenv-installer | bash")
-                run_command('grep -q "rbenv init" ~/.bashrc || echo \'export PATH="$HOME/.rbenv/bin:$PATH"\' >> ~/.bashrc')
-                run_command('grep -q "rbenv init" ~/.bashrc || echo \'eval "$(rbenv init - bash)"\' >> ~/.bashrc')
-                # Source rbenv in the current session
-                os.environ['PATH'] = f"{os.path.expanduser('~/.rbenv/bin')}:{os.environ.get('PATH', '')}"
-                print("rbenv installed and configured.")
+                    for item in data.get('items', []):
+                        repo_finding = {
+                            'repository': item.get('repository', {}).get('full_name'),
+                            'file_path': item.get('path'),
+                            'html_url': item.get('html_url'),
+                            'secrets_found': []
+                        }
 
-            print("Installing Ruby 3.3.9...")
-            # Use the full path to rbenv if it's not in PATH yet
-            rbenv_cmd = rbenv_path if os.path.exists(rbenv_path) else "rbenv"
-            run_command(f"{rbenv_cmd} install -s 3.3.9")  # -s flag skips if already installed
-            run_command(f"{rbenv_cmd} global 3.3.9")
-            run_command(f"{rbenv_cmd} rehash")
-            print("Ruby 3.3.9 installed. Restart terminal or run: source ~/.bashrc")
+                        # Get file content
+                        try:
+                            content_url = item.get('url')
+                            if content_url:
+                                content_resp = self.session.get(content_url, headers=headers, timeout=10)
+                                if content_resp.status_code == 200:
+                                    content_data = content_resp.json()
+                                    content = base64.b64decode(content_data.get('content', '')).decode('utf-8', errors='ignore')
 
-    # Check if CPANminus is installed
-    if not os.path.isfile("/usr/local/bin/cpanm"):
-        print("CPANminus not found. Installing CPANminus...")
+                                    # Check for sensitive patterns
+                                    for secret_type, pattern in sensitive_patterns.items():
+                                        matches = re.findall(pattern, content, re.IGNORECASE)
+                                        if matches:
+                                            repo_finding['secrets_found'].append({
+                                                'type': secret_type,
+                                                'count': len(matches)
+                                            })
+                                            github_findings['total_secrets_found'] += len(matches)
 
-        # Clone the cpanminus repository
-        run_command("mkdir -p /vapt/temp")
-        run_command("cd /vapt/temp && git clone https://github.com/miyagawa/cpanminus.git")
+                                    if repo_finding['secrets_found']:
+                                        github_findings['repositories'].append(repo_finding)
+                                        self.print_warning(f"Secrets found in: {repo_finding['repository']}/{repo_finding['file_path']}")
+                                        for secret in repo_finding['secrets_found']:
+                                            self.print_info(f"  - {secret['type']}: {secret['count']} match(es)")
+                        except Exception as e:
+                            self.print_error(f"Error fetching content: {e}")
 
-        # Navigate to the directory and install CPANminus
-        run_command("cd /vapt/temp/cpanminus/App-cpanminus && perl Makefile.PL")
-        run_command("cd /vapt/temp/cpanminus/App-cpanminus && make")
-        run_command("cd /vapt/temp/cpanminus/App-cpanminus && sudo make install")
+                elif response.status_code == 403:
+                    self.print_warning("GitHub API rate limit reached. Waiting 60 seconds...")
+                    time.sleep(60)
+                elif response.status_code == 401:
+                    self.print_error("GitHub token is invalid or expired")
+                    break
 
-        # Cleanup after installation
-        run_command("rm -rf /vapt/temp/cpanminus")
+                time.sleep(2)  # Rate limiting
 
-        print("CPANminus installation complete.")
-    else:
-        print("CPANminus is already installed, skipping installation.")
+            except Exception as e:
+                self.print_error(f"Error searching code: {e}")
 
-    # Perl CPAN modules
-    run_command("sudo cpanm Cisco::CopyConfig && sudo cpanm Net::Netmask")
-    run_command("sudo cpanm XML::Writer && sudo cpanm String::Random")
-    run_command("sudo cpanm Net::IP && sudo cpanm Net::DNS")
+        # Search Gists
+        self.print_info("Searching gists...")
+        for query in search_queries[:3]:  # Limit gist queries
+            try:
+                # GitHub doesn't have a direct gist search API, but we can search via web
+                # We'll use the code search which sometimes includes gists
+                url = f"https://api.github.com/search/code?q={query}+in:file+language:text&per_page=5"
+                response = self.session.get(url, headers=headers, timeout=15)
 
-    # Set up firewall rules
-    run_command("sudo ufw default deny incoming")
-    run_command("sudo ufw default allow outgoing")
-    run_command("sudo ufw allow 22/tcp")
-    run_command("sudo ufw enable")
+                if response.status_code == 200:
+                    data = response.json()
+                    for item in data.get('items', []):
+                        if 'gist' in item.get('html_url', ''):
+                            gist_finding = {
+                                'gist_id': item.get('html_url'),
+                                'file': item.get('path'),
+                                'secrets_found': []
+                            }
+                            github_findings['gists'].append(gist_finding)
+                            self.print_success(f"Found gist: {gist_finding['gist_id']}")
 
-    print("Base toolkit dependencies installed successfully.")
+                time.sleep(2)
+            except Exception as e:
+                self.print_error(f"Error searching gists: {e}")
 
-def install_toolkit_packages():
-    print("Installing toolkit packages...")
+        # Search Issues
+        self.print_info("Searching issues...")
+        for query in search_queries[:3]:  # Limit issue queries
+            try:
+                url = f"https://api.github.com/search/issues?q={query}+in:body&per_page=10"
+                response = self.session.get(url, headers=headers, timeout=15)
 
-    # Define installations for exploitation tools
-    exploitation_tools = [
-        ("https://github.com/rapid7/metasploit-framework.git", "/vapt/exploits/metasploit-framework", ["bundle install"]),
-        ("https://github.com/trustedsec/social-engineer-toolkit.git", "/vapt/exploits/social-engineer-toolkit", ["pip3 install -r requirements.txt"]),
-        ("https://gitlab.com/exploit-database/exploitdb.git", "/vapt/exploits/exploitdb", None),
-        ("https://github.com/lgandx/Responder.git", "/vapt/exploits/Responder", None),
-        ("https://github.com/CoreSecurity/impacket.git", "/vapt/exploits/impacket", ["pip3 install -r requirements.txt", "sudo python3 setup.py install"]),
-        ("https://github.com/beefproject/beef.git", "/vapt/exploits/beef", None),
-        ("https://github.com/xFreed0m/ADFSpray.git", "/vapt/exploits/ADFSpray", ["pip3 install -r requirements.txt"]),
-        ("https://github.com/gentilkiwi/mimikatz.git", "/vapt/exploits/mimikatz", None),
-        ("https://github.com/byt3bl33d3r/DeathStar.git", "/vapt/exploits/DeathStar", ["pip3 install -r requirements.txt"]),
-        ("https://github.com/cobbr/Covenant.git", "/vapt/exploits/Covenant", None),
-        ("https://github.com/Ne0nd0g/merlin.git", "/vapt/exploits/merlin", ["sed -i 's/go 1.23.0/go 1.23/' go.mod", "sed -i '/^toolchain/d' go.mod", "make"]),
-        ("https://github.com/byt3bl33d3r/SILENTTRINITY.git", "/vapt/exploits/SILENTTRINITY", ["pip3 install -r requirements.txt"]),
-        ("https://github.com/assetnote/kiterunner.git", "/vapt/web/kiterunner", ["make build"]),
-        ("https://github.com/projectdiscovery/httpx.git", "/vapt/web/httpx", ["go install"]),
-        ("https://github.com/ffuf/ffuf.git", "/vapt/web/ffuf", ["go build"]),
-        ("https://github.com/maurosoria/dirsearch.git", "/vapt/web/dirsearch", None),
-        ("https://github.com/MatheuZSecurity/D3m0n1z3dShell.git", "/vapt/exploits/D3m0n1z3dShell", ["chmod +x demonizedshell.sh"])
-    ]
+                if response.status_code == 200:
+                    data = response.json()
 
-    # Container and cloud security tools
-    container_cloud_tools = [
-        ("https://github.com/aquasecurity/trivy.git", "/vapt/cloud/trivy", None),
-        ("https://github.com/RhinoSecurityLabs/pacu.git", "/vapt/cloud/pacu", ["pipx install ."]),
-    ]
+                    for item in data.get('items', []):
+                        body = item.get('body', '')
 
-    # Define installations for web testing tools
-    web_tools = [
-        ("https://github.com/sullo/nikto.git", "/vapt/web/nikto", None),
-        ("https://github.com/JohnTroony/php-webshells.git", "/vapt/web/php-webshells", None),
-        ("https://github.com/wireghoul/htshells.git", "/vapt/web/htshells", None),
-        ("https://github.com/urbanadventurer/WhatWeb.git", "/vapt/web/WhatWeb", None),
-        ("https://github.com/siberas/watobo.git", "/vapt/web/watobo", None),
-        ("https://github.com/rezasp/joomscan.git", "/vapt/web/joomscan", None),
-        ("https://github.com/s0md3v/XSStrike.git", "/vapt/web/XSStrike", ["python3 -m pip install -r requirements.txt"]),
-        ("https://github.com/wapiti-scanner/wapiti.git", "/vapt/web/wapiti", ["sudo python3 setup.py install"]),
-        ("https://github.com/com-puter-tips/Links-Extractor.git", "/vapt/web/Links-Extractor", ["pip3 install -r requirements.txt"]),
-    ]
+                        # Check for sensitive patterns in issue body
+                        secrets_found = []
+                        for secret_type, pattern in sensitive_patterns.items():
+                            matches = re.findall(pattern, body, re.IGNORECASE)
+                            if matches:
+                                secrets_found.append({
+                                    'type': secret_type,
+                                    'count': len(matches)
+                                })
+                                github_findings['total_secrets_found'] += len(matches)
 
-    # Active Directory and Windows security tools
-    ad_windows_tools = [
-       ("https://github.com/BloodHoundAD/BloodHound.git", "/vapt/ad_windows/BloodHound", None),
-       ("https://github.com/mattifestation/PowerSploit.git", "/vapt/ad_windows/PowerSploit", None),
-       ("https://github.com/CroweCybersecurity/ps1encode.git", "/vapt/ad_windows/ps1encode", None),
-       ("https://github.com/Kevin-Robertson/Invoke-TheHash.git", "/vapt/ad_windows/Invoke-TheHash", None),
-       ("https://github.com/p3nt4/PowerShdll.git", "/vapt/ad_windows/PowerShdll", None),
-       ("https://github.com/GhostPack/Rubeus.git", "/vapt/ad_windows/Rubeus", None),
-       ("https://github.com/dirkjanm/ldapdomaindump.git", "/vapt/ad_windows/ldapdomaindump", ["pipx install ."]),
-       ("https://github.com/adityatelange/evil-winrm-py.git", "/vapt/ad_windows/evil-winrm-py", ["sudo python3 setup.py install"]),
-    ]
+                        if secrets_found:
+                            issue_finding = {
+                                'title': item.get('title'),
+                                'html_url': item.get('html_url'),
+                                'state': item.get('state'),
+                                'secrets_found': secrets_found
+                            }
+                            github_findings['issues'].append(issue_finding)
+                            self.print_warning(f"Secrets in issue: {issue_finding['title']}")
+                            self.print_info(f"  URL: {issue_finding['html_url']}")
 
-    # Mobile security testing tools
-    mobile_tools = [
-        ("https://github.com/MobSF/Mobile-Security-Framework-MobSF.git", "/vapt/mobile/MobSF", ["pip3 install -r requirements.txt"]),
-        ("https://github.com/sensepost/objection.git", "/vapt/mobile/objection", ["pip3 install objection"]),
-    ]
+                time.sleep(2)
+            except Exception as e:
+                self.print_error(f"Error searching issues: {e}")
 
-    # network and infrastructure tools
-    network_tools = [
-        ("https://github.com/robertdavidgraham/masscan.git", "/vapt/network/masscan", ["make"]),
-        ("https://github.com/projectdiscovery/nuclei.git", "/vapt/network/nuclei", ["make"]),
-        ("https://github.com/OWASP/Amass.git", "/vapt/network/Amass", ["go install -v ./cmd/amass/..."]),
-    ]
+        # Search Commits (limited - this can be extensive)
+        self.print_info("Searching commits (limited sample)...")
+        try:
+            url = f"https://api.github.com/search/commits?q={self.domain}&per_page=5"
+            headers_commits = headers.copy()
+            headers_commits['Accept'] = 'application/vnd.github.cloak-preview+json'
 
-    # Password cracking tools
-    jtr_dir = "/vapt/passwords/JohnTheRipper"
-    if os.path.exists(jtr_dir):
-        print("JohnTheRipper already installed, skipping.")
-    else:
-        print("Installing JohnTheRipper")
-        run_command("cd /vapt/passwords && git clone https://github.com/magnumripper/JohnTheRipper.git")
-        run_command("cd /vapt/passwords/JohnTheRipper/src && ./configure")
-        run_command("cd /vapt/passwords/JohnTheRipper/src && make -s clean && make -sj4")
-        run_command("cd /vapt/passwords/JohnTheRipper/src && make install")
+            response = self.session.get(url, headers=headers_commits, timeout=15)
 
-    password_tools = [
-        ("https://github.com/hashcat/hashcat.git", "/vapt/passwords/hashcat", None),
-        ("https://github.com/digininja/CeWL.git", "/vapt/passwords/CeWL", None),
-        ("https://github.com/danielmiessler/SecLists.git", "/vapt/passwords/SecLists", None)
-    ]
+            if response.status_code == 200:
+                data = response.json()
 
-    # Fuzzers
-    fuzzer_tools = [
-        ("https://github.com/jtpereyda/boofuzz.git", "/vapt/fuzzers/boofuzz", None)
-    ]
+                for item in data.get('items', []):
+                    commit_msg = item.get('commit', {}).get('message', '')
 
-    # Misc Audit tools
-    audit_tools = [
-        ("https://github.com/hausec/PowerZure.git", "/vapt/audit/PowerZure", None),
-        ("https://github.com/PlumHound/PlumHound.git", "/vapt/audit/PlumHound", ["pip3 install -r requirements.txt"]),
-        ("https://github.com/wireghoul/graudit.git", "/vapt/audit/graudit", None),
-    ]
+                    # Check commit message for secrets
+                    secrets_found = []
+                    for secret_type, pattern in sensitive_patterns.items():
+                        matches = re.findall(pattern, commit_msg, re.IGNORECASE)
+                        if matches:
+                            secrets_found.append({
+                                'type': secret_type,
+                                'count': len(matches)
+                            })
 
-    # Wireless Signal Analysis tools
-    wireless_tools = [
-        ("https://github.com/g4ixt/QtTinySA.git", "/vapt/wireless/QtTinySA", ["pip3 install -r requirements.txt"]),
-        ("https://github.com/xmikos/qspectrumanalyzer.git", "/vapt/wireless/qspectrumanalyzer", ["sudo python3 setup.py install"])
-    ]
+                    if secrets_found:
+                        commit_finding = {
+                            'sha': item.get('sha'),
+                            'html_url': item.get('html_url'),
+                            'message': commit_msg[:100] + '...' if len(commit_msg) > 100 else commit_msg,
+                            'secrets_found': secrets_found
+                        }
+                        github_findings['commits'].append(commit_finding)
+                        self.print_warning(f"Secrets in commit: {commit_finding['sha'][:7]}")
 
-    # OWASP ZAP installation
-    zap_dir = "/vapt/web/zap"
-    if os.path.exists(zap_dir):
-        print("OWASP ZAP already installed, skipping.")
-    else:
-        print("Installing OWASP ZAP")
-        run_command("cd /vapt/web && wget https://github.com/zaproxy/zaproxy/releases/download/v2.16.1/ZAP_2.16.1_Linux.tar.gz")
-        run_command("cd /vapt/web && tar xvf ZAP_2.16.1_Linux.tar.gz")
-        run_command("cd /vapt/web && rm -rf ZAP_ZAP_2.16.1_Linux.tar.gz")
-        run_command("cd /vapt/web && mv ZAP_2.16.1/ zap/")
+            time.sleep(2)
+        except Exception as e:
+            self.print_error(f"Error searching commits: {e}")
 
-    # Arachni installation
-    arachni_dir = "/vapt/web/arachni"
-    if os.path.exists(arachni_dir):
-        print("Arachni already installed, skipping.")
-    else:
-        print("Installing Arachni")
-        run_command("cd /vapt/web && wget https://github.com/Arachni/arachni/releases/download/v1.6.1.3/arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz")
-        run_command("cd /vapt/web && tar xvf arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz")
-        run_command("cd /vapt/web && mv arachni-1.6.1.3-0.6.1.1/ arachni/")
-        run_command("cd /vapt/web && rm -rf arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz")
+        # Store results
+        self.results['github_secrets'] = github_findings
 
-    # Vulnerability scanner tools
-    vulnerability_scanners = [
-        ("https://github.com/sqlmapproject/sqlmap.git", "/vapt/scanners/sqlmap", None),
-        ("https://github.com/nmap/nmap.git", "/vapt/scanners/nmap", ["./configure", "make", "sudo make install"]),
-        ("https://github.com/mschwager/fierce.git", "/vapt/scanners/fierce", ["python3 -m pip install -r requirements.txt", "sudo python3 setup.py install"]),
-        ("https://github.com/makefu/dnsmap.git", "/vapt/scanners/dnsmap", ["gcc -o dnsmap dnsmap.c"]),
-        ("https://github.com/fwaeytens/dnsenum.git", "/vapt/scanners/dnsenum", None),
-        ("https://github.com/nccgroup/cisco-SNMP-enumeration.git", "/vapt/scanners/cisco-SNMP-enumeration", None),
-        ("https://github.com/aas-n/spraykatz.git", "/vapt/scanners/spraykatz", ["pip3 install -r requirements.txt"]),
-        ("https://github.com/p0dalirius/pyFindUncommonShares.git", "/vapt/scanners/pyFindUncommonShares", ["pip install -r requirements.txt"]),
-        ("https://github.com/CiscoCXSecurity/enum4linux.git", "/vapt/scanners/enum4linux", None)
-    ]
+        # Summary
+        self.print_info(f"\nGitHub Secret Scanning Summary:")
+        self.print_info(f"  Repositories with secrets: {len(github_findings['repositories'])}")
+        self.print_info(f"  Gists found: {len(github_findings['gists'])}")
+        self.print_info(f"  Issues with secrets: {len(github_findings['issues'])}")
+        self.print_info(f"  Commits with secrets: {len(github_findings['commits'])}")
+        self.print_info(f"  Total secrets detected: {github_findings['total_secrets_found']}")
 
-    # OSINT/Intel tools
-    osint_tools = [
-        ("https://github.com/lanmaster53/recon-ng.git", "/vapt/intel/recon-ng", ["pip3 install -r REQUIREMENTS"]),
-        ("https://github.com/smicallef/spiderfoot.git", "/vapt/intel/spiderfoot", ["pip3 install -r requirements.txt"]),
-        ("https://github.com/laramies/theHarvester.git", "/vapt/intel/theHarvester", ["pip3 install -r requirements.txt"]),
-        ("https://github.com/nccgroup/scrying.git", "/vapt/intel/scrying", None),
-        ("https://github.com/FortyNorthSecurity/EyeWitness.git", "/vapt/intel/EyeWitness", None),
-        ("https://github.com/l4rm4nd/LinkedInDumper.git", "/vapt/intel/LinkedInDumper", ["pip install -r requirements.txt"]),
-        ("https://github.com/OsmanKandemir/indicator-intelligence.git", "/vapt/intel/indicator-intelligence", ["pip3 install -r requirements.txt", "sudo python3 setup.py install"])
-    ]
+    def linkedin_enumeration(self):
+        """Multi-method LinkedIn intelligence gathering"""
+        self.print_section("LinkedIn Information Gathering")
 
-    # Install all tools
-    for tool in (exploitation_tools + web_tools + container_cloud_tools + ad_windows_tools +
-                mobile_tools + network_tools + password_tools + fuzzer_tools +
-                audit_tools + vulnerability_scanners + osint_tools + wireless_tools):
-        check_and_install(*tool)
+        linkedin_intel = {
+            'google_dork_results': [],
+            'theharvester_names': [],
+            'inferred_employees': [],
+            'search_urls': [],
+            'email_patterns': {}
+        }
 
-    print("Toolkit packages installation complete.")
+        company_name = self.domain.split('.')[0].title()
 
-def update_toolsets():
-    """Update all toolsets by performing a git pull in each directory."""
-    print("Updating Exploit Tools")
-    exploit_tools = [
-        "/vapt/exploits/social-engineer-toolkit", "/vapt/exploits/metasploit-framework",
-        "/vapt/exploits/ADFSpray", "/vapt/exploits/beef", "/vapt/exploits/DeathStar",
-        "/vapt/exploits/impacket", "/vapt/exploits/mimikatz", "/vapt/exploits/Responder",
-        "/vapt/exploits/exploitdb", "/vapt/exploits/Covenant", "/vapt/exploits/merlin",
-        "/vapt/exploits/SILENTTRINITY", "/vapt/exploits/D3m0n1z3dShell"
-    ]
-    for tool in exploit_tools:
-        run_command(f"cd {tool} && git pull")
+        # Method 1: Google Dorking LinkedIn
+        self.print_info("Performing Google dorks on LinkedIn...")
+        google_dork_patterns = [
+            f'site:linkedin.com/in "{company_name}"',
+            f'site:linkedin.com/in "{company_name}" "security"',
+            f'site:linkedin.com/in "{company_name}" "engineer"',
+            f'site:linkedin.com/in "{company_name}" "developer"',
+            f'site:linkedin.com/in "{company_name}" "admin"',
+            f'site:linkedin.com/in "{company_name}" "manager"'
+        ]
 
-    print("Updating Web Tools")
-    web_tools = [
-        "/vapt/web/htshells", "/vapt/web/joomscan", "/vapt/web/nikto",
-        "/vapt/web/php-webshells", "/vapt/web/watobo", "/vapt/web/WhatWeb",
-        "/vapt/web/XSStrike", "/vapt/web/wapiti", "/vapt/web/Links-Extractor",
-        "/vapt/web/kiterunner", "/vapt/web/httpx", "/vapt/web/ffuf",
-        "/vapt/web/dirsearch"
-    ]
-    for tool in web_tools:
-        run_command(f"cd {tool} && git pull")
+        for dork in google_dork_patterns:
+            try:
+                # Use Google search (with caution for rate limiting)
+                search_url = f"https://www.google.com/search?q={dork.replace(' ', '+')}&num=10"
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
 
-    print("Updating Container & Cloud Security Tools")
-    container_cloud_tools = [
-        "/vapt/cloud/trivy", "/vapt/cloud/pacu"
-    ]
-    for tool in container_cloud_tools:
-        run_command(f"cd {tool} && git pull")
+                response = self.session.get(search_url, headers=headers, timeout=10)
 
-    print("Updating Active Directory & Windows Tools")
-    ad_windows_tools = [
-        "/vapt/ad_windows/BloodHound", "/vapt/ad_windows/PowerSploit", "/vapt/ad_windows/ps1encode",
-        "/vapt/ad_windows/Invoke-TheHash", "/vapt/ad_windows/PowerShdll",
-        "/vapt/ad_windows/Rubeus", "/vapt/ad_windows/ldapdomaindump", "/vapt/ad_windows/evil-winrm-py"
-    ]
-    for tool in ad_windows_tools:
-        run_command(f"cd {tool} && git pull")
+                if response.status_code == 200:
+                    # Extract LinkedIn profile URLs
+                    linkedin_urls = re.findall(r'https://[a-z]{2,3}\.linkedin\.com/in/([a-zA-Z0-9-]+)', response.text)
 
-    print("Updating Mobile Security Tools")
-    mobile_tools = [
-        "/vapt/mobile/MobSF", "/vapt/mobile/objection"
-    ]
-    for tool in mobile_tools:
-        run_command(f"cd {tool} && git pull")
+                    for profile_slug in set(linkedin_urls):
+                        profile_info = {
+                            'profile_url': f"https://www.linkedin.com/in/{profile_slug}",
+                            'profile_slug': profile_slug,
+                            'source': 'google_dork'
+                        }
 
-    print("Updating Network & Infrastructure Tools")
-    network_tools = [
-        "/vapt/network/masscan", "/vapt/network/nuclei", "/vapt/network/Amass"
-    ]
-    for tool in network_tools:
-        run_command(f"cd {tool} && git pull")
+                        # Try to extract name from slug
+                        name_parts = profile_slug.replace('-', ' ').title()
+                        if len(name_parts.split()) >= 2:
+                            profile_info['inferred_name'] = name_parts
 
-    print("Updating Password Tools")
-    password_tools = [
-        "/vapt/passwords/JohnTheRipper", "/vapt/passwords/hashcat",
-        "/vapt/passwords/CeWL", "/vapt/passwords/SecLists"
-    ]
-    for tool in password_tools:
-        run_command(f"cd {tool} && git pull")
+                        linkedin_intel['google_dork_results'].append(profile_info)
+                        self.print_success(f"Found profile: {profile_slug}")
 
-    print("Updating Fuzzer Tools")
-    fuzzer_tools = [
-        "/vapt/fuzzers/boofuzz"
-    ]
-    for tool in fuzzer_tools:
-        run_command(f"cd {tool} && git pull")
+                    time.sleep(3)  # Rate limiting for Google
+                else:
+                    self.print_warning(f"Google search returned status {response.status_code}")
 
-    print("Updating Audit Tools")
-    audit_tools = [
-        "/vapt/audit/PowerZure", "/vapt/audit/PlumHound", "/vapt/audit/graudit"
-    ]
-    for tool in audit_tools:
-        run_command(f"cd {tool} && git pull")
+            except Exception as e:
+                self.print_error(f"Error with Google dork: {e}")
 
-    print("Updating Vulnerability Scanners")
-    vulnerability_scanners = [
-        "/vapt/scanners/sqlmap", "/vapt/scanners/nmap",
-        "/vapt/scanners/fierce", "/vapt/scanners/dnsmap", "/vapt/scanners/dnsenum",
-        "/vapt/scanners/cisco-SNMP-enumeration", "/vapt/scanners/spraykatz",
-        "/vapt/scanners/pyFindUncommonShares", "/vapt/scanners/enum4linux"
-    ]
-    for tool in vulnerability_scanners:
-        run_command(f"cd {tool} && git pull")
+        # Method 2: Parse theHarvester results for names
+        self.print_info("Extracting employee information from theHarvester results...")
+        emails = self.results.get('email_addresses', [])
 
-    print("Updating OSINT/Intel Tools")
-    osint_tools = [
-        "/vapt/intel/recon-ng", "/vapt/intel/spiderfoot", "/vapt/intel/theHarvester",
-        "/vapt/intel/scrying", "/vapt/intel/EyeWitness", "/vapt/intel/LinkedInDumper",
-        "/vapt/intel/indicator-intelligence"
-    ]
-    for tool in osint_tools:
-        run_command(f"cd {tool} && git pull")
+        if emails:
+            for email in emails:
+                # Extract name from email
+                local_part = email.split('@')[0]
 
-    print("Updating Wireless Signal Analysis Tools")
-    wireless_tools = [
-        "/vapt/wireless/QtTinySA", "/vapt/wireless/qspectrumanalyzer"
-    ]
-    for tool in wireless_tools:
-        run_command(f"cd {tool} && git pull")
+                # Common patterns: firstname.lastname, firstnamelastname, first.last
+                if '.' in local_part:
+                    parts = local_part.split('.')
+                    if len(parts) == 2:
+                        first_name = parts[0].title()
+                        last_name = parts[1].title()
+                        full_name = f"{first_name} {last_name}"
 
-    print("Updating all pipx installed tool")
-    run_command("pipx upgrade-all")
+                        linkedin_intel['inferred_employees'].append({
+                            'name': full_name,
+                            'email': email,
+                            'first_name': first_name,
+                            'last_name': last_name,
+                            'source': 'email_parsing'
+                        })
 
-    print("Updating VA-PT")
-    run_command("cd /vapt/misc/va-pt && git pull")
+                        self.print_success(f"Inferred employee: {full_name}")
 
-    print("Toolsets update complete.")
+        # Method 3: Generate manual search URLs
+        self.print_info("Generating LinkedIn search URLs for manual review...")
 
-def main_menu():
-    # Ensure directory structure is in place
-    check_directory_structure()
+        search_urls = [
+            f"https://www.linkedin.com/search/results/people/?keywords={company_name.replace(' ', '%20')}",
+            f"https://www.linkedin.com/search/results/people/?keywords={company_name.replace(' ', '%20')}%20security",
+            f"https://www.linkedin.com/search/results/people/?keywords={company_name.replace(' ', '%20')}%20engineer",
+            f"https://www.linkedin.com/search/results/people/?keywords={company_name.replace(' ', '%20')}%20IT",
+            f"https://www.linkedin.com/search/results/people/?keywords={company_name.replace(' ', '%20')}%20admin",
+            f"https://www.linkedin.com/search/results/people/?keywords={self.domain.replace('.', '%20')}",
+        ]
 
-    # Run cleanup for old installations
-    cleanup_old_directories()
+        linkedin_intel['search_urls'] = search_urls
 
-    while True:
-        print("\033[91m1 - Install Base Toolkit Dependencies\033[0m")
-        print("\033[91m2 - Install Toolkit Packages\033[0m")
-        print("\033[91m3 - Install Weakpass Dictionary for Password Cracking (30G)\033[0m")
-        print("\033[91m4 - Update Toolsets\033[0m")
-        print("\033[91m0 - Exit\033[0m")
+        self.print_info("\nManual LinkedIn Search URLs:")
+        for url in search_urls:
+            self.print_info(f"  {url}")
 
-        choice = input("Enter your choice: ")
+        # Method 4: Email pattern inference
+        self.print_info("\nInferring email patterns from discovered addresses...")
 
-        if choice == '1':
-            install_base_dependencies()
-        elif choice == '2':
-            install_toolkit_packages()
-        elif choice == '3':
-            install_wordlist_files()
-        elif choice == '4':
-            update_toolsets()
-        elif choice == '0':
-            print("Exiting...")
-            break
+        if len(emails) >= 2:
+            patterns = {
+                'firstname.lastname@domain': 0,
+                'firstnamelastname@domain': 0,
+                'first.last@domain': 0,
+                'flastname@domain': 0,
+                'firstnamel@domain': 0
+            }
+
+            for email in emails:
+                local = email.split('@')[0]
+
+                if '.' in local and len(local.split('.')) == 2:
+                    patterns['firstname.lastname@domain'] += 1
+                elif '.' not in local and len(local) > 3:
+                    patterns['firstnamelastname@domain'] += 1
+
+            # Determine most likely pattern
+            likely_pattern = max(patterns, key=patterns.get)
+            confidence = patterns[likely_pattern] / len(emails) * 100 if emails else 0
+
+            linkedin_intel['email_patterns'] = {
+                'likely_pattern': likely_pattern,
+                'confidence': confidence,
+                'sample_emails': emails[:5]
+            }
+
+            self.print_success(f"Inferred email pattern: {likely_pattern} ({confidence:.0f}% confidence)")
+            self.print_info("This pattern can be used to generate username lists for authentication testing")
+
+        # Store results
+        self.results['linkedin_intel'] = linkedin_intel
+
+        # Summary
+        total_profiles = len(linkedin_intel['google_dork_results'])
+        total_inferred = len(linkedin_intel['inferred_employees'])
+
+        self.print_info(f"\nLinkedIn Intelligence Summary:")
+        self.print_info(f"  Profiles found via Google: {total_profiles}")
+        self.print_info(f"  Employees inferred from emails: {total_inferred}")
+        self.print_info(f"  Manual search URLs generated: {len(linkedin_intel['search_urls'])}")
+
+        if linkedin_intel.get('email_patterns'):
+            self.print_info(f"  Email pattern identified: {linkedin_intel['email_patterns']['likely_pattern']}")
+
+    def _parse_whois(self, whois_output: str) -> Dict[str, str]:
+        """Parse WHOIS output"""
+        result = {}
+        patterns = {
+            'org': r'(?:OrgName|org-name|organization):\s*(.+)',
+            'netrange': r'(?:NetRange|inetnum):\s*(.+)',
+            'country': r'(?:Country):\s*(.+)',
+            'created': r'(?:created|RegDate):\s*(.+)'
+        }
+
+        for key, pattern in patterns.items():
+            match = re.search(pattern, whois_output, re.IGNORECASE)
+            if match:
+                result[key] = match.group(1).strip()
+
+        return result
+
+    def _get_dns_records(self, domain: str) -> Dict[str, List[str]]:
+        """Get DNS records for domain"""
+        records = {'A': [], 'AAAA': [], 'MX': [], 'NS': [], 'TXT': []}
+        record_types = ['A', 'AAAA', 'MX', 'NS', 'TXT']
+
+        for rtype in record_types:
+            output = self.run_command(['dig', '+short', domain, rtype])
+            if output:
+                records[rtype] = [line.strip() for line in output.split('\n') if line.strip()]
+
+        return records
+
+    def _is_ip_in_scope(self, ip: str) -> bool:
+        """Check if IP is within authorized scope"""
+        try:
+            ip_obj = ipaddress.ip_address(ip)
+            for ip_range in self.ip_ranges:
+                network = ipaddress.ip_network(ip_range, strict=False)
+                if ip_obj in network:
+                    return True
+        except:
+            pass
+        return False
+
+    def asn_enumeration(self):
+        """Enumerate ASN and associated IP ranges for the organization"""
+        self.print_section("ASN ENUMERATION")
+
+        asn_data = {
+            'asn_numbers': [],
+            'ip_ranges': [],
+            'organization_names': set(),
+            'related_domains': []
+        }
+
+        # Method 1: Get ASN from existing IP addresses
+        self.print_info("Looking up ASN information from known IPs...")
+
+        # Get IPs from DNS resolution
+        dns_records = self.results.get('scope_validation', {}).get('dns_verification', {})
+        known_ips = dns_records.get('A', [])
+
+        # Also check resolved subdomains
+        resolved_subdomains = self.results.get('dns_enumeration', {}).get('resolved', {})
+        for subdomain, ips in resolved_subdomains.items():
+            known_ips.extend(ips)
+
+        known_ips = list(set(known_ips))  # Remove duplicates
+
+        self.print_info(f"Checking ASN for {len(known_ips)} discovered IP addresses...")
+
+        for ip in known_ips[:10]:  # Limit to first 10 to avoid excessive queries
+            try:
+                # Use Team Cymru's IP to ASN service (DNS-based)
+                asn_info = self._lookup_asn_cymru(ip)
+
+                if asn_info:
+                    if asn_info not in asn_data['asn_numbers']:
+                        asn_data['asn_numbers'].append(asn_info)
+                        self.print_success(f"Found ASN for {ip}: AS{asn_info['asn']} ({asn_info['owner']})")
+                        asn_data['organization_names'].add(asn_info['owner'])
+
+                time.sleep(0.5)  # Rate limiting
+
+            except Exception as e:
+                self.print_error(f"Error looking up ASN for {ip}: {e}")
+
+        # Method 2: Get ASN from organization name via RIPEstat/RIPE API
+        self.print_info("\nQuerying RIPE database for additional ASN information...")
+
+        company_name = self.domain.split('.')[0]
+
+        try:
+            # Search RIPE for organization
+            url = f"https://stat.ripe.net/data/searchcomplete/data.json?resource={company_name}"
+            response = self.session.get(url, timeout=10)
+
+            if response.status_code == 200:
+                data = response.json()
+
+                for category in data.get('data', {}).get('categories', []):
+                    if category.get('category') == 'asns':
+                        for suggestion in category.get('suggestions', []):
+                            asn_num = suggestion.get('value', '').replace('AS', '')
+                            asn_label = suggestion.get('label', '')
+
+                            if asn_num and asn_num.isdigit():
+                                asn_exists = any(a['asn'] == asn_num for a in asn_data['asn_numbers'])
+                                if not asn_exists:
+                                    asn_data['asn_numbers'].append({
+                                        'asn': asn_num,
+                                        'owner': asn_label,
+                                        'source': 'ripe_search'
+                                    })
+                                    self.print_success(f"Found ASN from RIPE: AS{asn_num} ({asn_label})")
+
+        except Exception as e:
+            self.print_error(f"Error querying RIPE: {e}")
+
+        # Method 3: For each ASN, get all associated IP prefixes
+        self.print_info("\nEnumerating IP ranges for discovered ASNs...")
+
+        for asn_info in asn_data['asn_numbers']:
+            asn_num = asn_info['asn']
+
+            try:
+                # Use RIPE API to get prefixes for ASN
+                url = f"https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS{asn_num}"
+                response = self.session.get(url, timeout=10)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    prefixes = data.get('data', {}).get('prefixes', [])
+
+                    self.print_info(f"AS{asn_num} announces {len(prefixes)} IP prefix(es)")
+
+                    for prefix in prefixes:
+                        prefix_str = prefix.get('prefix')
+                        if prefix_str:
+                            asn_data['ip_ranges'].append({
+                                'prefix': prefix_str,
+                                'asn': asn_num,
+                                'in_scope': self._check_if_in_scope(prefix_str)
+                            })
+
+                            # Check if this range is in our authorized scope
+                            in_scope = self._check_if_in_scope(prefix_str)
+                            scope_marker = "[IN SCOPE]" if in_scope else "[OUT OF SCOPE]"
+
+                            self.print_info(f"  {prefix_str} - {scope_marker}")
+
+                time.sleep(1)  # Rate limiting
+
+            except Exception as e:
+                self.print_error(f"Error getting prefixes for AS{asn_num}: {e}")
+
+        # Method 4: Reverse IP lookup to find related domains
+        self.print_info("\nSearching for related domains on discovered IPs...")
+
+        for ip in known_ips[:5]:  # Limit to first 5
+            try:
+                # Simple reverse DNS
+                try:
+                    hostname = socket.gethostbyaddr(ip)[0]
+                    if hostname and hostname != ip:
+                        asn_data['related_domains'].append({
+                            'domain': hostname,
+                            'ip': ip,
+                            'source': 'reverse_dns'
+                        })
+                        self.print_success(f"Related domain: {hostname} ({ip})")
+                except:
+                    pass
+
+            except Exception as e:
+                pass
+
+        # Store results
+        self.results['asn_data'] = {
+            'asn_numbers': asn_data['asn_numbers'],
+            'ip_ranges': asn_data['ip_ranges'],
+            'organization_names': list(asn_data['organization_names']),
+            'related_domains': asn_data['related_domains']
+        }
+
+        # Summary
+        self.print_info(f"\nASN Enumeration Summary:")
+        self.print_info(f"  ASNs discovered: {len(asn_data['asn_numbers'])}")
+        self.print_info(f"  Total IP ranges found: {len(asn_data['ip_ranges'])}")
+
+        in_scope_ranges = [r for r in asn_data['ip_ranges'] if r['in_scope']]
+        out_scope_ranges = [r for r in asn_data['ip_ranges'] if not r['in_scope']]
+
+        self.print_info(f"  Ranges in authorized scope: {len(in_scope_ranges)}")
+        self.print_warning(f"  Ranges OUT OF SCOPE (do not test): {len(out_scope_ranges)}")
+        self.print_info(f"  Related domains found: {len(asn_data['related_domains'])}")
+
+        if out_scope_ranges:
+            self.print_warning("\n[!] WARNING: Additional IP ranges found that are NOT in authorized scope!")
+            self.print_warning("These ranges belong to the organization but are not authorized for testing.")
+            self.print_warning("Do NOT scan or test these ranges without explicit authorization.")
+
+    def _lookup_asn_cymru(self, ip: str) -> Optional[Dict[str, str]]:
+        """Lookup ASN using Team Cymru's IP to ASN service"""
+        try:
+            # Reverse IP for DNS query
+            reversed_ip = '.'.join(ip.split('.')[::-1])
+            query = f"{reversed_ip}.origin.asn.cymru.com"
+
+            # Perform DNS TXT record lookup
+            answers = dns.resolver.resolve(query, 'TXT')
+
+            for rdata in answers:
+                txt_data = str(rdata).strip('"')
+                parts = [p.strip() for p in txt_data.split('|')]
+
+                if len(parts) >= 5:
+                    return {
+                        'asn': parts[0],
+                        'prefix': parts[1],
+                        'country': parts[2],
+                        'registry': parts[3],
+                        'owner': parts[4] if len(parts) > 4 else 'Unknown'
+                    }
+        except Exception as e:
+            return None
+
+        return None
+
+    def _check_if_in_scope(self, ip_range: str) -> bool:
+        """Check if an IP range overlaps with authorized scope"""
+        try:
+            check_network = ipaddress.ip_network(ip_range, strict=False)
+
+            for authorized_range in self.ip_ranges:
+                authorized_network = ipaddress.ip_network(authorized_range, strict=False)
+
+                # Check if networks overlap
+                if (check_network.overlaps(authorized_network) or
+                    check_network.subnet_of(authorized_network) or
+                    authorized_network.subnet_of(check_network)):
+                    return True
+
+            return False
+        except:
+            return False
+
+    def dns_enumeration(self):
+        """Perform DNS enumeration to discover subdomains"""
+        self.print_section("DNS ENUMERATION")
+
+        subdomains = set()
+
+        # Method 1: Certificate Transparency Logs
+        self.print_info("Checking Certificate Transparency logs...")
+        ct_domains = self._check_certificate_transparency()
+        subdomains.update(ct_domains)
+        self.print_success(f"Found {len(ct_domains)} domains from CT logs")
+
+        # Method 2: DNS brute force with common names
+        self.print_info("Performing DNS brute force...")
+        brute_domains = self._dns_bruteforce()
+        subdomains.update(brute_domains)
+        self.print_success(f"Found {len(brute_domains)} domains from brute force")
+
+        # Resolve all discovered subdomains
+        self.print_info("Resolving discovered subdomains...")
+        resolved = {}
+        for subdomain in sorted(subdomains):
+            ips = self._resolve_domain(subdomain)
+            if ips:
+                resolved[subdomain] = ips
+                self.print_success(f"{subdomain} -> {', '.join(ips)}")
+
+        self.results['dns_enumeration'] = {
+            'total_discovered': len(subdomains),
+            'resolved': resolved,
+            'unresolved': list(subdomains - set(resolved.keys()))
+        }
+
+        self.print_info(f"Total unique subdomains discovered: {len(subdomains)}")
+        self.print_info(f"Successfully resolved: {len(resolved)}")
+
+    def subdomain_takeover_detection(self):
+        """Check for subdomain takeover vulnerabilities"""
+        self.print_section("SUBDOMAIN TAKEOVER DETECTION")
+
+        # Fingerprints for various services that can be taken over
+        takeover_fingerprints = {
+            'github': {
+                'cname': ['github.io', 'github.map.fastly.net'],
+                'response': ['There isn\'t a GitHub Pages site here', 'For root URLs (like http://example.com/) you must provide an index.html file'],
+                'service': 'GitHub Pages'
+            },
+            'aws_s3': {
+                'cname': ['s3.amazonaws.com', 's3-website', 's3.dualstack'],
+                'response': ['NoSuchBucket', 'The specified bucket does not exist'],
+                'service': 'AWS S3'
+            },
+            'azure': {
+                'cname': ['azurewebsites.net', 'cloudapp.net', 'cloudapp.azure.com', 'trafficmanager.net', 'blob.core.windows.net'],
+                'response': ['404 Web Site not found', 'Error 404', 'The resource you are looking for has been removed'],
+                'service': 'Microsoft Azure'
+            },
+            'bitbucket': {
+                'cname': ['bitbucket.io'],
+                'response': ['Repository not found'],
+                'service': 'Bitbucket'
+            },
+            'google': {
+                'cname': ['appspot.com', 'withgoogle.com', 'withyoutube.com'],
+                'response': ['The requested URL was not found on this server', 'Error 404'],
+                'service': 'Google Cloud'
+            },
+            'wordpress': {
+                'cname': ['wordpress.com'],
+                'response': ['Do you want to register'],
+                'service': 'WordPress.com'
+            },
+            'cloudfront': {
+                'cname': ['cloudfront.net'],
+                'response': ['Bad request', 'ERROR: The request could not be satisfied'],
+                'service': 'AWS CloudFront'
+            },
+        }
+
+        vulnerable_subdomains = []
+
+        # Get all resolved subdomains
+        resolved_subdomains = self.results.get('dns_enumeration', {}).get('resolved', {})
+
+        if not resolved_subdomains:
+            self.print_warning("No subdomains to check. Run DNS enumeration first.")
+            return
+
+        self.print_info(f"Checking {len(resolved_subdomains)} subdomains for takeover vulnerabilities...")
+
+        for subdomain, ips in resolved_subdomains.items():
+            try:
+                # Get CNAME records
+                cname_records = []
+                try:
+                    answers = dns.resolver.resolve(subdomain, 'CNAME')
+                    for rdata in answers:
+                        cname_records.append(str(rdata.target).rstrip('.'))
+                except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+                    # No CNAME, check A record behavior
+                    pass
+                except Exception as e:
+                    self.print_error(f"DNS error for {subdomain}: {e}")
+                    continue
+
+                # Check if CNAME points to a vulnerable service
+                vulnerable = False
+                service_name = None
+                fingerprint_matched = None
+
+                for cname in cname_records:
+                    for service, fingerprint in takeover_fingerprints.items():
+                        # Check if CNAME matches known patterns
+                        if any(pattern in cname.lower() for pattern in fingerprint['cname']):
+                            # CNAME points to a potentially vulnerable service
+                            # Now check HTTP response
+                            http_vulnerable = self._check_http_takeover(subdomain, fingerprint['response'])
+
+                            if http_vulnerable:
+                                vulnerable = True
+                                service_name = fingerprint['service']
+                                fingerprint_matched = service
+                                break
+
+                    if vulnerable:
+                        break
+
+                # Even without CNAME, check HTTP responses for known patterns
+                if not vulnerable and not cname_records:
+                    for service, fingerprint in takeover_fingerprints.items():
+                        http_vulnerable = self._check_http_takeover(subdomain, fingerprint['response'])
+                        if http_vulnerable:
+                            vulnerable = True
+                            service_name = fingerprint['service']
+                            fingerprint_matched = service
+                            break
+
+                if vulnerable:
+                    vuln_info = {
+                        'subdomain': subdomain,
+                        'cname': cname_records,
+                        'service': service_name,
+                        'fingerprint': fingerprint_matched,
+                        'ips': ips
+                    }
+                    vulnerable_subdomains.append(vuln_info)
+
+                    self.print_warning(f"POTENTIAL TAKEOVER: {subdomain}")
+                    self.print_info(f"  Service: {service_name}")
+                    if cname_records:
+                        self.print_info(f"  CNAME: {', '.join(cname_records)}")
+                    self.print_info(f"  Recommendation: Verify if service account exists and claim if vulnerable")
+
+                time.sleep(0.5)  # Rate limiting
+
+            except Exception as e:
+                self.print_error(f"Error checking {subdomain}: {e}")
+
+        # Store results
+        self.results['subdomain_takeovers'] = vulnerable_subdomains
+
+        # Summary
+        self.print_info(f"\nSubdomain Takeover Detection Summary:")
+        self.print_info(f"  Subdomains checked: {len(resolved_subdomains)}")
+        self.print_info(f"  Potentially vulnerable: {len(vulnerable_subdomains)}")
+
+        if vulnerable_subdomains:
+            self.print_warning(f"\n[!] Found {len(vulnerable_subdomains)} potential subdomain takeover(s)!")
+            self.print_warning("Manual verification required - check if you can claim these services:")
+            for vuln in vulnerable_subdomains:
+                self.print_warning(f"  - {vuln['subdomain']} ({vuln['service']})")
+
+    def _check_http_takeover(self, subdomain: str, response_patterns: List[str]) -> bool:
+        """Check HTTP response for takeover indicators"""
+        try:
+            # Try HTTPS first, then HTTP
+            for protocol in ['https', 'http']:
+                try:
+                    url = f"{protocol}://{subdomain}"
+                    response = self.session.get(url, timeout=10, allow_redirects=True, verify=False)
+
+                    # Check if any pattern matches the response
+                    response_text = response.text.lower()
+
+                    for pattern in response_patterns:
+                        if pattern.lower() in response_text:
+                            return True
+
+                    # Also check status code
+                    if response.status_code == 404:
+                        # 404 with specific patterns often indicates takeover potential
+                        return any(pattern.lower() in response_text for pattern in response_patterns)
+
+                except requests.exceptions.SSLError:
+                    # SSL error might indicate service exists but cert is wrong
+                    continue
+                except requests.exceptions.ConnectionError:
+                    # Connection refused might mean service is unclaimed
+                    return True
+                except Exception as e:
+                    continue
+
+        except Exception as e:
+            pass
+
+        return False
+
+    def _check_certificate_transparency(self) -> List[str]:
+        """Check certificate transparency logs for subdomains"""
+        domains = []
+        try:
+            url = f"https://crt.sh/?q=%.{self.domain}&output=json"
+            response = requests.get(url, timeout=30)
+            if response.status_code == 200:
+                data = response.json()
+                for entry in data:
+                    name = entry.get('name_value', '')
+                    # Handle multiple domains in one cert
+                    for domain in name.split('\n'):
+                        domain = domain.strip()
+                        if domain and '*' not in domain:
+                            domains.append(domain)
+        except Exception as e:
+            self.print_error(f"CT log check failed: {e}")
+
+        return list(set(domains))
+
+    def _dns_bruteforce(self) -> List[str]:
+        """Brute force common subdomain names"""
+        common_subdomains = [
+            'www', 'mail', 'ftp', 'localhost', 'webmail', 'smtp', 'pop', 'ns1', 'webdisk',
+            'ns2', 'cpanel', 'whm', 'autodiscover', 'autoconfig', 'm', 'imap', 'test', 'ns',
+            'blog', 'pop3', 'dev', 'www2', 'admin', 'forum', 'news', 'vpn', 'ns3', 'mail2',
+            'new', 'mysql', 'old', 'lists', 'support', 'mobile', 'mx', 'static', 'docs', 'beta',
+            'shop', 'sql', 'secure', 'demo', 'cp', 'calendar', 'wiki', 'web', 'media', 'email',
+            'images', 'img', 'www1', 'intranet', 'portal', 'video', 'sip', 'dns2', 'api', 'cdn',
+            'stats', 'dns1', 'ns4', 'www3', 'dns', 'search', 'staging', 'server', 'mx1', 'chat',
+            'wap', 'my', 'svn', 'mail1', 'sites', 'proxy', 'ads', 'host', 'crm', 'cms', 'backup',
+            'mx2', 'lyncdiscover', 'info', 'apps', 'download', 'remote', 'db', 'forums', 'store',
+            'relay', 'files', 'newsletter', 'app', 'live', 'owa', 'en', 'start', 'sms', 'office',
+            'exchange', 'ipv4', 'prod', 'production', 'uat', 'qa', 'quality', 'stage'
+        ]
+
+        discovered = []
+
+        def check_subdomain(sub):
+            subdomain = f"{sub}.{self.domain}"
+            if self._resolve_domain(subdomain):
+                return subdomain
+            return None
+
+        # Use threading for faster brute force
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+            futures = [executor.submit(check_subdomain, sub) for sub in common_subdomains]
+            for future in concurrent.futures.as_completed(futures):
+                result = future.result()
+                if result:
+                    discovered.append(result)
+
+        return discovered
+
+    def _resolve_domain(self, domain: str) -> List[str]:
+        """Resolve domain to IP addresses"""
+        try:
+            ips = socket.gethostbyname_ex(domain)[2]
+            return ips
+        except:
+            return []
+
+    def technology_stack_identification(self):
+        """Identify technology stack of web services"""
+        self.print_section("TECHNOLOGY STACK IDENTIFICATION")
+
+        tech_stack = {}
+
+        # Get resolved domains from DNS enumeration
+        resolved_domains = self.results.get('dns_enumeration', {}).get('resolved', {})
+
+        if not resolved_domains:
+            self.print_warning("No resolved domains available for tech stack identification")
+            return
+
+        # Check main domain and a few key subdomains
+        targets = [self.domain]
+        for subdomain in list(resolved_domains.keys())[:5]:  # Limit to first 5
+            targets.append(subdomain)
+
+        for target in targets:
+            self.print_info(f"Analyzing {target}...")
+            tech_info = self._identify_technologies(target)
+            if tech_info:
+                tech_stack[target] = tech_info
+
+                # Print findings
+                if tech_info.get('server'):
+                    self.print_success(f"Server: {tech_info['server']}")
+                if tech_info.get('headers'):
+                    for key, value in tech_info['headers'].items():
+                        self.print_info(f"  {key}: {value}")
+
+        self.results['technology_stack'] = tech_stack
+
+    def _identify_technologies(self, domain: str) -> Dict[str, Any]:
+        """Identify technologies for a specific domain"""
+        tech_info = {'headers': {}, 'server': None, 'powered_by': None}
+
+        for protocol in ['https', 'http']:
+            try:
+                url = f"{protocol}://{domain}"
+                response = requests.get(url, timeout=10, verify=False, allow_redirects=True)
+
+                # Extract interesting headers
+                interesting_headers = [
+                    'Server', 'X-Powered-By', 'X-AspNet-Version', 'X-AspNetMvc-Version',
+                    'X-Generator', 'X-Drupal-Cache', 'X-Content-Type-Options',
+                    'X-Frame-Options', 'Strict-Transport-Security'
+                ]
+
+                for header in interesting_headers:
+                    if header in response.headers:
+                        tech_info['headers'][header] = response.headers[header]
+                        if header == 'Server':
+                            tech_info['server'] = response.headers[header]
+                        elif header == 'X-Powered-By':
+                            tech_info['powered_by'] = response.headers[header]
+
+                # Look for technology indicators in HTML
+                html = response.text.lower()
+                indicators = {
+                    'wordpress': 'wp-content',
+                    'drupal': 'drupal',
+                    'joomla': 'joomla',
+                    'sharepoint': 'sharepoint',
+                    'asp.net': '__viewstate',
+                    'php': '.php',
+                    'apache': 'apache',
+                    'nginx': 'nginx'
+                }
+
+                detected = []
+                for tech, indicator in indicators.items():
+                    if indicator in html:
+                        detected.append(tech)
+
+                if detected:
+                    tech_info['detected_technologies'] = detected
+
+                break  # If HTTPS works, no need to try HTTP
+
+            except requests.exceptions.SSLError:
+                continue
+            except Exception as e:
+                continue
+
+        return tech_info if tech_info['headers'] or tech_info.get('detected_technologies') else None
+
+    def email_harvesting(self):
+        """Harvest email addresses from public sources"""
+        self.print_section("EMAIL ADDRESS HARVESTING")
+
+        emails = set()
+
+        # Method 1: theHarvester (if installed)
+        self.print_info("Running theHarvester...")
+        harvester_emails = self._run_theharvester()
+        emails.update(harvester_emails)
+
+        # Method 2: Web scraping
+        self.print_info("Scraping web pages for emails...")
+        web_emails = self._scrape_emails_from_web()
+        emails.update(web_emails)
+
+        # Store results
+        self.results['email_addresses'] = sorted(list(emails))
+
+        self.print_success(f"Total unique email addresses found: {len(emails)}")
+        for email in sorted(emails):
+            self.print_info(f"  {email}")
+
+    def _run_theharvester(self) -> List[str]:
+        """Run theHarvester tool"""
+        emails = []
+
+        if not self.theharvester_path:
+            self.print_warning("theHarvester not found. Install it or add to PATH.")
+            return emails
+
+        try:
+            # Build command based on whether it's a Python script or executable
+            if self.theharvester_path.endswith('.py'):
+                command = ['python3', self.theharvester_path, '-d', self.domain, '-b', 'all', '-l', '500']
+            else:
+                command = [self.theharvester_path, '-d', self.domain, '-b', 'all', '-l', '500']
+
+            output = self.run_command(command, timeout=120)
+
+            if output:
+                # Extract emails from output
+                email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+                emails = re.findall(email_pattern, output)
+                self.print_success(f"theHarvester found {len(set(emails))} email(s)")
+        except Exception as e:
+            self.print_warning(f"theHarvester execution failed: {e}")
+
+        return emails
+
+    def _locate_theharvester(self) -> Optional[str]:
+        """Locate theHarvester installation using system tools"""
+        # Try standard PATH lookup first
+        for cmd in ['theHarvester.py', 'theHarvester', 'theharvester']:
+            path = shutil.which(cmd)
+            if path:
+                return path
+
+        # Try locate command
+        try:
+            output = self.run_command(['locate', 'theHarvester.py'], timeout=10)
+            if output:
+                # Get first result that's executable or readable
+                for line in output.strip().split('\n'):
+                    if line and Path(line).exists():
+                        return line
+        except:
+            pass
+
+        # Try find command in common base directories
+        try:
+            for base_dir in ['/usr', '/opt', str(Path.home())]:
+                output = self.run_command([
+                    'find', base_dir,
+                    '-name', 'theHarvester.py',
+                    '-type', 'f',
+                    '-readable',
+                    '2>/dev/null'
+                ], timeout=30)
+                if output:
+                    # Return first valid result
+                    for line in output.strip().split('\n'):
+                        if line and Path(line).exists():
+                            return line
+        except:
+            pass
+
+        return None
+
+    def _scrape_emails_from_web(self) -> List[str]:
+        """Scrape emails from company website"""
+        emails = []
+        email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+
+        try:
+            # Try to get the main page
+            for protocol in ['https', 'http']:
+                try:
+                    url = f"{protocol}://{self.domain}"
+                    response = requests.get(url, timeout=10, verify=False)
+                    emails.extend(re.findall(email_pattern, response.text))
+
+                    # Try common pages
+                    common_pages = ['/contact', '/about', '/team', '/staff']
+                    for page in common_pages:
+                        try:
+                            page_url = f"{url}{page}"
+                            response = requests.get(page_url, timeout=5, verify=False)
+                            emails.extend(re.findall(email_pattern, response.text))
+                        except:
+                            pass
+
+                    break
+                except:
+                    continue
+        except Exception as e:
+            self.print_warning(f"Web scraping failed: {e}")
+
+        return list(set(emails))
+
+    def s3_bucket_enumeration(self):
+        """Perform S3 bucket enumeration"""
+        self.print_section("S3 BUCKET ENUMERATION")
+
+        # Generate bucket name variations from domain
+        bucket_candidates = set()
+
+        # Basic domain variations
+        bucket_candidates.add(self.domain)
+        bucket_candidates.add(self.domain.replace('.', '-'))
+        bucket_candidates.add(self.domain.replace('.', ''))
+
+        # Add company name variations
+        company_name = self.domain.split('.')[0]
+        bucket_candidates.add(company_name)
+
+        # Add variations from discovered subdomains
+        resolved = self.results.get('dns_enumeration', {}).get('resolved', {})
+        for subdomain in list(resolved.keys())[:20]:  # Limit to top 20
+            # Extract subdomain part
+            if subdomain.endswith(self.domain):
+                sub_part = subdomain.replace(f".{self.domain}", "").replace(f"{self.domain}", "")
+                if sub_part and '.' not in sub_part:
+                    bucket_candidates.add(sub_part)
+                    bucket_candidates.add(f"{sub_part}-{company_name}")
+                    bucket_candidates.add(f"{company_name}-{sub_part}")
+
+        # Add common prefixes/suffixes
+        common_affixes = ['backup', 'backups', 'data', 'files', 'assets', 'static',
+                        'uploads', 'images', 'docs', 'logs', 'dev', 'prod', 'staging']
+
+        base_names = [company_name, self.domain.replace('.', '-')]
+        for base in base_names:
+            for affix in common_affixes:
+                bucket_candidates.add(f"{base}-{affix}")
+                bucket_candidates.add(f"{affix}-{base}")
+
+        # Clean and limit bucket list
+        bucket_candidates = [b.lower().strip() for b in bucket_candidates
+                            if b and len(b) < 64 and b.replace('-', '').replace('.', '').isalnum()]
+
+        self.print_info(f"Testing {len(bucket_candidates)} potential bucket names...")
+
+        found_buckets = []
+
+        # Check each bucket
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_bucket = {
+                executor.submit(self._check_s3_bucket, bucket): bucket
+                for bucket in bucket_candidates
+            }
+
+            for future in concurrent.futures.as_completed(future_to_bucket):
+                bucket_name = future_to_bucket[future]
+                try:
+                    result = future.result()
+                    if result:
+                        found_buckets.append(result)
+                        status = result['status']
+                        if status == 'Public Read':
+                            self.print_warning(f"PUBLICLY ACCESSIBLE: {bucket_name}")
+                        elif status == 'Private (Exists)':
+                            self.print_success(f"EXISTS (Private): {bucket_name}")
+                        elif status == 'Redirect':
+                            self.print_info(f"Redirects: {bucket_name}")
+                except Exception as e:
+                    pass
+
+        # Analyze accessible buckets
+        for bucket in found_buckets:
+            if bucket['status'] in ['Public Read', 'Redirect']:
+                self.print_info(f"Analyzing contents of {bucket['bucket']}...")
+                self._analyze_s3_bucket_contents(bucket)
+
+        self.results['s3_buckets'] = {
+            'tested': len(bucket_candidates),
+            'found': found_buckets,
+            'public_count': len([b for b in found_buckets if b['status'] == 'Public Read']),
+            'private_count': len([b for b in found_buckets if b['status'] == 'Private (Exists)'])
+        }
+
+        if found_buckets:
+            self.print_warning(f"Found {len(found_buckets)} S3 buckets:")
+            for bucket in found_buckets:
+                self.print_info(f"  {bucket['bucket']} - {bucket['status']}")
         else:
-            print("Invalid choice, please try again.")
+            self.print_success("No S3 buckets found")
 
-if __name__ == "__main__":
-    if os.geteuid() == 0:
-        print("This script should not be run as root..", file=sys.stderr)
+    def _check_s3_bucket(self, bucket_name: str) -> Optional[Dict[str, Any]]:
+        """Check if S3 bucket exists"""
+        urls_to_try = [
+            f"https://s3.amazonaws.com/{bucket_name}/",
+            f"https://{bucket_name}.s3.amazonaws.com/",
+            f"https://s3.us-east-1.amazonaws.com/{bucket_name}/",
+            f"https://s3.us-west-2.amazonaws.com/{bucket_name}/",
+        ]
+
+        for url in urls_to_try:
+            try:
+                response = self.session.get(url, timeout=5)
+
+                if response.status_code == 200:
+                    return {
+                        'bucket': bucket_name,
+                        'url': url,
+                        'status': 'Public Read',
+                        'response_length': len(response.content)
+                    }
+                elif response.status_code == 403:
+                    return {
+                        'bucket': bucket_name,
+                        'url': url,
+                        'status': 'Private (Exists)'
+                    }
+                elif response.status_code in [301, 302, 307, 308]:
+                    return {
+                        'bucket': bucket_name,
+                        'url': url,
+                        'status': 'Redirect',
+                        'redirect_location': response.headers.get('Location', 'Unknown')
+                    }
+            except:
+                continue
+
+        return None
+
+    def _analyze_s3_bucket_contents(self, bucket_info: Dict[str, Any]):
+        """Analyze S3 bucket contents"""
+        try:
+            response = self.session.get(bucket_info['url'], timeout=10)
+            if response.status_code != 200:
+                return
+
+            content = response.text
+            files = []
+
+            # Parse XML listing
+            import xml.etree.ElementTree as ET
+            try:
+                root = ET.fromstring(content)
+                for contents in root.findall('.//{http://s3.amazonaws.com/doc/2006-03-01/}Contents'):
+                    key = contents.find('{http://s3.amazonaws.com/doc/2006-03-01/}Key')
+                    size = contents.find('{http://s3.amazonaws.com/doc/2006-03-01/}Size')
+                    modified = contents.find('{http://s3.amazonaws.com/doc/2006-03-01/}LastModified')
+
+                    if key is not None:
+                        files.append({
+                            'key': key.text,
+                            'size': int(size.text) if size is not None else 0,
+                            'last_modified': modified.text if modified is not None else 'Unknown'
+                        })
+            except ET.ParseError:
+                # Fallback regex
+                keys = re.findall(r'<Key>([^<]+)</Key>', content)
+                files = [{'key': k, 'size': 0, 'last_modified': 'Unknown'} for k in keys]
+
+            bucket_info['files'] = files
+            bucket_info['file_count'] = len(files)
+
+            if files:
+                total_size = sum(f['size'] for f in files) / 1024  # KB
+                self.print_warning(f"  Found {len(files)} files ({total_size:.1f}KB total)")
+
+                # Show first 10 files
+                for i, f in enumerate(files[:10]):
+                    self.print_info(f"    {f['key']} ({f['size']/1024:.1f}KB)")
+                if len(files) > 10:
+                    self.print_info(f"    ... and {len(files)-10} more files")
+        except Exception as e:
+            self.print_error(f"Error analyzing bucket: {e}")
+
+    def azure_storage_enumeration(self):
+        """Enumerate Azure Blob Storage containers"""
+        self.print_section("AZURE STORAGE ENUMERATION")
+
+        # Generate Azure storage account name variations
+        storage_candidates = set()
+
+        # Basic domain variations
+        company_name = self.domain.split('.')[0]
+        storage_candidates.add(company_name)
+        storage_candidates.add(self.domain.replace('.', ''))
+        storage_candidates.add(self.domain.replace('.', '-'))
+
+        # Add variations from discovered subdomains
+        resolved = self.results.get('dns_enumeration', {}).get('resolved', {})
+        for subdomain in list(resolved.keys())[:20]:
+            if subdomain.endswith(self.domain):
+                sub_part = subdomain.replace(f".{self.domain}", "").replace(f"{self.domain}", "")
+                if sub_part and '.' not in sub_part:
+                    storage_candidates.add(sub_part.replace('-', '').replace('_', ''))
+                    storage_candidates.add(f"{company_name}{sub_part}".replace('-', '').replace('_', ''))
+
+        # Add common affixes
+        common_affixes = ['backup', 'backups', 'data', 'files', 'storage', 'assets',
+                        'static', 'uploads', 'images', 'docs', 'logs', 'dev', 'prod',
+                        'staging', 'test', 'blob', 'store']
+
+        for affix in common_affixes:
+            storage_candidates.add(f"{company_name}{affix}".replace('-', '').replace('_', ''))
+            storage_candidates.add(f"{affix}{company_name}".replace('-', '').replace('_', ''))
+
+        # Clean candidates - Azure storage names must be 3-24 chars, lowercase, alphanumeric
+        storage_candidates = [
+            name.lower().replace('-', '').replace('_', '')
+            for name in storage_candidates
+            if name and 3 <= len(name.replace('-', '').replace('_', '')) <= 24
+        ]
+        storage_candidates = list(set(storage_candidates))
+
+        self.print_info(f"Testing {len(storage_candidates)} potential Azure storage account names...")
+
+        found_storage = []
+
+        # Check each storage account
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_storage = {
+                executor.submit(self._check_azure_storage, account): account
+                for account in storage_candidates
+            }
+
+            for future in concurrent.futures.as_completed(future_to_storage):
+                account_name = future_to_storage[future]
+                try:
+                    result = future.result()
+                    if result:
+                        found_storage.append(result)
+                        status = result['status']
+                        if status == 'Public Read':
+                            self.print_warning(f"PUBLICLY ACCESSIBLE: {account_name}")
+                        elif status == 'Private (Exists)':
+                            self.print_success(f"EXISTS (Private): {account_name}")
+                except Exception as e:
+                    pass
+
+        # Analyze accessible storage accounts
+        for storage in found_storage:
+            if storage['status'] == 'Public Read':
+                self.print_info(f"Analyzing contents of {storage['account']}...")
+                self._analyze_azure_storage_contents(storage)
+
+        self.results['azure_storage'] = {
+            'tested': len(storage_candidates),
+            'found': found_storage,
+            'public_count': len([s for s in found_storage if s['status'] == 'Public Read']),
+            'private_count': len([s for s in found_storage if s['status'] == 'Private (Exists)'])
+        }
+
+        # Summary
+        if found_storage:
+            self.print_warning(f"Found {len(found_storage)} Azure storage accounts:")
+            for storage in found_storage:
+                self.print_info(f"  {storage['account']} - {storage['status']}")
+        else:
+            self.print_success("No Azure storage accounts found")
+
+    def _check_azure_storage(self, account_name: str) -> Optional[Dict[str, Any]]:
+        """Check if Azure storage account exists"""
+        # Try different container names
+        container_names = ['$web', 'public', 'files', 'assets', 'data', 'backup', 'images']
+
+        for container in container_names:
+            urls_to_try = [
+                f"https://{account_name}.blob.core.windows.net/{container}?restype=container&comp=list",
+                f"https://{account_name}.blob.core.windows.net/{container}/",
+            ]
+
+            for url in urls_to_try:
+                try:
+                    response = self.session.get(url, timeout=5)
+
+                    if response.status_code == 200:
+                        return {
+                            'account': account_name,
+                            'container': container,
+                            'url': url,
+                            'status': 'Public Read',
+                            'response_length': len(response.content)
+                        }
+                    elif response.status_code == 403:
+                        return {
+                            'account': account_name,
+                            'container': container,
+                            'url': url,
+                            'status': 'Private (Exists)'
+                        }
+                    elif response.status_code == 404:
+                        # Container doesn't exist, but account might
+                        continue
+
+                except Exception as e:
+                    continue
+
+        return None
+
+    def _analyze_azure_storage_contents(self, storage_info: Dict[str, Any]):
+        """Analyze Azure storage container contents"""
+        try:
+            response = self.session.get(storage_info['url'], timeout=10)
+            if response.status_code != 200:
+                return
+
+            content = response.text
+            files = []
+
+            # Parse Azure XML listing
+            import xml.etree.ElementTree as ET
+            try:
+                root = ET.fromstring(content)
+
+                # Azure uses different namespace
+                for blob in root.findall('.//{http://schemas.microsoft.com/ado/2007/08/dataservices}Name'):
+                    file_info = {
+                        'name': blob.text,
+                        'url': f"https://{storage_info['account']}.blob.core.windows.net/{storage_info['container']}/{blob.text}"
+                    }
+                    files.append(file_info)
+
+                # Also try without namespace
+                if not files:
+                    for blob in root.findall('.//Name'):
+                        file_info = {
+                            'name': blob.text,
+                            'url': f"https://{storage_info['account']}.blob.core.windows.net/{storage_info['container']}/{blob.text}"
+                        }
+                        files.append(file_info)
+
+            except ET.ParseError:
+                # Fallback regex parsing
+                names = re.findall(r'<Name>([^<]+)</Name>', content)
+                for name in names:
+                    files.append({
+                        'name': name,
+                        'url': f"https://{storage_info['account']}.blob.core.windows.net/{storage_info['container']}/{name}"
+                    })
+
+            storage_info['files'] = files
+            storage_info['file_count'] = len(files)
+
+            if files:
+                self.print_warning(f"  Found {len(files)} blob(s)")
+                for i, f in enumerate(files[:10]):
+                    self.print_info(f"    {f['name']}")
+                if len(files) > 10:
+                    self.print_info(f"    ... and {len(files)-10} more blobs")
+
+        except Exception as e:
+            self.print_error(f"Error analyzing Azure storage: {e}")
+
+    def gcp_storage_enumeration(self):
+        """Enumerate Google Cloud Platform (GCP) Storage buckets"""
+        self.print_section("GCP STORAGE ENUMERATION")
+
+        # Generate GCP bucket name variations
+        bucket_candidates = set()
+
+        # Basic domain variations
+        company_name = self.domain.split('.')[0]
+        bucket_candidates.add(self.domain)
+        bucket_candidates.add(self.domain.replace('.', '-'))
+        bucket_candidates.add(self.domain.replace('.', '_'))
+        bucket_candidates.add(self.domain.replace('.', ''))
+        bucket_candidates.add(company_name)
+
+        # Add variations from discovered subdomains
+        resolved = self.results.get('dns_enumeration', {}).get('resolved', {})
+        for subdomain in list(resolved.keys())[:20]:
+            if subdomain.endswith(self.domain):
+                sub_part = subdomain.replace(f".{self.domain}", "").replace(f"{self.domain}", "")
+                if sub_part and '.' not in sub_part:
+                    bucket_candidates.add(sub_part)
+                    bucket_candidates.add(f"{sub_part}-{company_name}")
+                    bucket_candidates.add(f"{company_name}-{sub_part}")
+                    bucket_candidates.add(sub_part.replace('-', '_'))
+
+        # Add common affixes
+        common_affixes = ['backup', 'backups', 'data', 'files', 'storage', 'assets',
+                        'static', 'uploads', 'images', 'docs', 'logs', 'dev', 'prod',
+                        'staging', 'test', 'bucket', 'gcs', 'gcp']
+
+        for affix in common_affixes:
+            bucket_candidates.add(f"{company_name}-{affix}")
+            bucket_candidates.add(f"{affix}-{company_name}")
+            bucket_candidates.add(f"{company_name}_{affix}")
+            bucket_candidates.add(f"{affix}_{company_name}")
+
+        # Clean candidates - GCP bucket names: 3-63 chars, lowercase letters, numbers, hyphens, underscores, dots
+        bucket_candidates = [
+            name.lower().strip()
+            for name in bucket_candidates
+            if name and 3 <= len(name) <= 63 and re.match(r'^[a-z0-9][a-z0-9._-]*[a-z0-9]$', name.lower())
+        ]
+        bucket_candidates = list(set(bucket_candidates))
+
+        self.print_info(f"Testing {len(bucket_candidates)} potential GCP bucket names...")
+
+        found_buckets = []
+
+        # Check each bucket
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_bucket = {
+                executor.submit(self._check_gcp_bucket, bucket): bucket
+                for bucket in bucket_candidates
+            }
+
+            for future in concurrent.futures.as_completed(future_to_bucket):
+                bucket_name = future_to_bucket[future]
+                try:
+                    result = future.result()
+                    if result:
+                        found_buckets.append(result)
+                        status = result['status']
+                        if status == 'Public Read':
+                            self.print_warning(f"PUBLICLY ACCESSIBLE: {bucket_name}")
+                        elif status == 'Private (Exists)':
+                            self.print_success(f"EXISTS (Private): {bucket_name}")
+                except Exception as e:
+                    pass
+
+        # Analyze accessible buckets
+        for bucket in found_buckets:
+            if bucket['status'] == 'Public Read':
+                self.print_info(f"Analyzing contents of {bucket['bucket']}...")
+                self._analyze_gcp_bucket_contents(bucket)
+
+        self.results['gcp_storage'] = {
+            'tested': len(bucket_candidates),
+            'found': found_buckets,
+            'public_count': len([b for b in found_buckets if b['status'] == 'Public Read']),
+            'private_count': len([b for b in found_buckets if b['status'] == 'Private (Exists)'])
+        }
+
+        # Summary
+        if found_buckets:
+            self.print_warning(f"Found {len(found_buckets)} GCP storage buckets:")
+            for bucket in found_buckets:
+                self.print_info(f"  {bucket['bucket']} - {bucket['status']}")
+        else:
+            self.print_success("No GCP storage buckets found")
+
+    def _check_gcp_bucket(self, bucket_name: str) -> Optional[Dict[str, Any]]:
+        """Check if GCP storage bucket exists"""
+        urls_to_try = [
+            f"https://storage.googleapis.com/{bucket_name}/",
+            f"https://{bucket_name}.storage.googleapis.com/",
+            f"https://storage.cloud.google.com/{bucket_name}/",
+        ]
+
+        for url in urls_to_try:
+            try:
+                response = self.session.get(url, timeout=5)
+
+                if response.status_code == 200:
+                    return {
+                        'bucket': bucket_name,
+                        'url': url,
+                        'status': 'Public Read',
+                        'response_length': len(response.content)
+                    }
+                elif response.status_code == 403:
+                    # Check if it's a "bucket exists but private" vs "access denied"
+                    if 'Access denied' in response.text or 'does not have permission' in response.text:
+                        return {
+                            'bucket': bucket_name,
+                            'url': url,
+                            'status': 'Private (Exists)'
+                        }
+                elif response.status_code == 404:
+                    # Bucket doesn't exist
+                    continue
+
+            except Exception as e:
+                continue
+
+        return None
+
+    def _analyze_gcp_bucket_contents(self, bucket_info: Dict[str, Any]):
+        """Analyze GCP storage bucket contents"""
+        try:
+            response = self.session.get(bucket_info['url'], timeout=10)
+            if response.status_code != 200:
+                return
+
+            content = response.text
+            files = []
+
+            # Parse GCP XML listing
+            import xml.etree.ElementTree as ET
+            try:
+                root = ET.fromstring(content)
+
+                # GCP uses similar structure to S3
+                for contents in root.findall('.//{http://doc.s3.amazonaws.com/2006-03-01}Contents'):
+                    key = contents.find('{http://doc.s3.amazonaws.com/2006-03-01}Key')
+                    size = contents.find('{http://doc.s3.amazonaws.com/2006-03-01}Size')
+                    modified = contents.find('{http://doc.s3.amazonaws.com/2006-03-01}LastModified')
+
+                    if key is not None:
+                        file_info = {
+                            'key': key.text,
+                            'size': int(size.text) if size is not None else 0,
+                            'last_modified': modified.text if modified is not None else 'Unknown',
+                            'url': f"{bucket_info['url'].rstrip('/')}/{key.text}"
+                        }
+                        files.append(file_info)
+
+                # Also try without namespace
+                if not files:
+                    for contents in root.findall('.//Contents'):
+                        key = contents.find('Key')
+                        size = contents.find('Size')
+                        modified = contents.find('LastModified')
+
+                        if key is not None:
+                            file_info = {
+                                'key': key.text,
+                                'size': int(size.text) if size is not None else 0,
+                                'last_modified': modified.text if modified is not None else 'Unknown',
+                                'url': f"{bucket_info['url'].rstrip('/')}/{key.text}"
+                            }
+                            files.append(file_info)
+
+            except ET.ParseError:
+                # Fallback regex parsing
+                keys = re.findall(r'<Key>([^<]+)</Key>', content)
+                sizes = re.findall(r'<Size>([^<]+)</Size>', content)
+
+                for i, key in enumerate(keys):
+                    size = int(sizes[i]) if i < len(sizes) and sizes[i].isdigit() else 0
+                    files.append({
+                        'key': key,
+                        'size': size,
+                        'last_modified': 'Unknown',
+                        'url': f"{bucket_info['url'].rstrip('/')}/{key}"
+                    })
+
+            bucket_info['files'] = files
+            bucket_info['file_count'] = len(files)
+
+            if files:
+                total_size = sum(f['size'] for f in files) / 1024  # KB
+                self.print_warning(f"  Found {len(files)} file(s) ({total_size:.1f}KB total)")
+                for i, f in enumerate(files[:10]):
+                    self.print_info(f"    {f['key']} ({f['size']/1024:.1f}KB)")
+                if len(files) > 10:
+                    self.print_info(f"    ... and {len(files)-10} more files")
+
+        except Exception as e:
+            self.print_error(f"Error analyzing GCP bucket: {e}")
+
+    def breach_database_check(self):
+        """Check for compromised credentials in breach databases"""
+        self.print_section("BREACH DATABASE CHECK")
+
+        if not self.results.get('email_addresses'):
+            self.print_warning("No email addresses to check. Run email harvesting first.")
+            return
+
+        breach_results = {}
+
+        self.print_info("Checking Have I Been Pwned (HIBP) API...")
+
+        for email in self.results['email_addresses'][:10]:  # Limit to first 10 to avoid rate limits
+            breaches = self._check_hibp(email)
+            if breaches:
+                breach_results[email] = breaches
+                self.print_warning(f"{email}: Found in {len(breaches)} breach(es)")
+            else:
+                self.print_success(f"{email}: No breaches found")
+
+        self.results['breach_data'] = breach_results
+
+        if breach_results:
+            self.print_warning(f"Total accounts with breaches: {len(breach_results)}")
+        else:
+            self.print_success("No compromised credentials found in breach databases")
+
+    def _check_hibp(self, email: str) -> List[str]:
+        """Check email against Have I Been Pwned API"""
+        breaches = []
+        try:
+            url = f"https://haveibeenpwned.com/api/v3/breachedaccount/{email}"
+            headers = {
+                'User-Agent': 'Penetration-Testing-Reconnaissance-Tool'
+            }
+            response = requests.get(url, headers=headers, timeout=10)
+
+            if response.status_code == 200:
+                data = response.json()
+                breaches = [breach['Name'] for breach in data]
+            elif response.status_code == 404:
+                # No breaches found
+                pass
+            else:
+                self.print_warning(f"HIBP API returned status {response.status_code}")
+        except Exception as e:
+            self.print_warning(f"HIBP check failed for {email}: {e}")
+
+        return breaches
+
+    def network_enumeration(self):
+        """Perform network scanning on in-scope IP ranges"""
+        self.print_section("NETWORK ENUMERATION")
+
+        self.print_info("Starting network scan (this may take a while)...")
+
+        scan_results = {}
+
+        for ip_range in self.ip_ranges:
+            self.print_info(f"Scanning {ip_range}...")
+
+            # Quick host discovery
+            live_hosts = self._host_discovery(ip_range)
+            self.print_success(f"Found {len(live_hosts)} live hosts in {ip_range}")
+
+            # Port scan live hosts
+            for host in live_hosts:
+                self.print_info(f"Port scanning {host}...")
+                ports = self._port_scan(host)
+                if ports:
+                    scan_results[host] = ports
+                    self.print_success(f"{host}: {len(ports)} open ports")
+
+        self.results['network_scan'] = scan_results
+
+        self.print_success(f"Network scan complete. {len(scan_results)} hosts with open ports")
+
+    def _host_discovery(self, ip_range: str) -> List[str]:
+        """Discover live hosts in IP range"""
+        live_hosts = []
+
+        try:
+            output = self.run_command([
+                'nmap',
+                '-sn',  # Ping scan only
+                '-T4',  # Aggressive timing
+                '--min-rate', '1000',
+                ip_range
+            ], timeout=300)
+
+            if output:
+                # Parse nmap output for live hosts
+                lines = output.split('\n')
+                for line in lines:
+                    if 'Nmap scan report for' in line:
+                        # Extract IP address
+                        match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', line)
+                        if match:
+                            live_hosts.append(match.group(1))
+        except Exception as e:
+            self.print_error(f"Host discovery failed: {e}")
+
+        return live_hosts
+
+    def _port_scan(self, host: str) -> Dict[int, Dict[str, str]]:
+        """Scan ports on a host"""
+        ports = {}
+
+        try:
+            output = self.run_command([
+                'nmap',
+                '-sV',  # Service version detection
+                '-T4',  # Aggressive timing
+                '--top-ports', '1000',  # Scan top 1000 ports
+                '--min-rate', '1000',
+                host
+            ], timeout=300)
+
+            if output:
+                # Parse nmap output
+                lines = output.split('\n')
+                for line in lines:
+                    if '/tcp' in line or '/udp' in line:
+                        parts = line.split()
+                        if len(parts) >= 3:
+                            port_proto = parts[0]
+                            port_num = int(port_proto.split('/')[0])
+                            state = parts[1]
+                            service = parts[2] if len(parts) > 2 else 'unknown'
+
+                            if state == 'open':
+                                ports[port_num] = {
+                                    'state': state,
+                                    'service': service,
+                                    'version': ' '.join(parts[3:]) if len(parts) > 3 else ''
+                                }
+        except Exception as e:
+            self.print_error(f"Port scan failed for {host}: {e}")
+
+        return ports
+
+    def generate_report(self):
+        """Generate comprehensive report"""
+        self.print_section("GENERATING REPORT")
+
+        # Save JSON results
+        json_file = self.output_dir / f"recon_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with open(json_file, 'w') as f:
+            json.dump(self.results, f, indent=2)
+        self.print_success(f"JSON results saved to: {json_file}")
+
+        # Generate markdown report
+        md_file = self.output_dir / f"recon_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+        self._generate_markdown_report(md_file)
+        self.print_success(f"Markdown report saved to: {md_file}")
+
+        # Generate report template content
+        template_file = self.output_dir / f"report_template_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        self._generate_report_template(template_file)
+        self.print_success(f"Report template saved to: {template_file}")
+
+    def _generate_markdown_report(self, filepath: Path):
+        """Generate markdown format report"""
+        with open(filepath, 'w') as f:
+            f.write(f"# Penetration Testing Reconnaissance Report\n\n")
+            f.write(f"**Client:** {self.client_name}\n\n")
+            f.write(f"**Domain:** {self.domain}\n\n")
+            f.write(f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            f.write(f"---\n\n")
+
+            # Scope Validation
+            f.write(f"## Scope Validation\n\n")
+            whois = self.results.get('scope_validation', {}).get('whois', {})
+            for ip_range, info in whois.items():
+                f.write(f"### {ip_range}\n")
+                f.write(f"- **Organization:** {info.get('org', 'N/A')}\n")
+                f.write(f"- **Net Range:** {info.get('netrange', 'N/A')}\n")
+                f.write(f"- **Country:** {info.get('country', 'N/A')}\n\n")
+
+            # DNS Enumeration
+            f.write(f"## DNS Enumeration\n\n")
+            dns = self.results.get('dns_enumeration', {})
+            f.write(f"**Total Subdomains Discovered:** {dns.get('total_discovered', 0)}\n\n")
+
+            resolved = dns.get('resolved', {})
+            if resolved:
+                f.write(f"### Resolved Subdomains ({len(resolved)})\n\n")
+                for subdomain, ips in sorted(resolved.items()):
+                    f.write(f"- `{subdomain}` → {', '.join(ips)}\n")
+                f.write(f"\n")
+
+            # Subdomain Takeover
+            f.write(f"## Subdomain Takeover Vulnerabilities\n\n")
+            takeovers = self.results.get('subdomain_takeovers', [])
+            if takeovers:
+                f.write(f"**Potentially Vulnerable Subdomains:** {len(takeovers)}\n\n")
+                for vuln in takeovers:
+                    f.write(f"### {vuln['subdomain']}\n")
+                    f.write(f"- **Service:** {vuln['service']}\n")
+                    if vuln.get('cname'):
+                        f.write(f"- **CNAME:** {', '.join(vuln['cname'])}\n")
+                    f.write(f"- **Risk:** Subdomain may be claimable by attacker\n\n")
+            else:
+                f.write(f"No subdomain takeover vulnerabilities detected.\n\n")
+
+            # Technology Stack
+            f.write(f"## Technology Stack\n\n")
+            tech = self.results.get('technology_stack', {})
+            for domain, info in tech.items():
+                f.write(f"### {domain}\n")
+                if info.get('server'):
+                    f.write(f"- **Server:** {info['server']}\n")
+                if info.get('powered_by'):
+                    f.write(f"- **Powered By:** {info['powered_by']}\n")
+                if info.get('detected_technologies'):
+                    f.write(f"- **Technologies:** {', '.join(info['detected_technologies'])}\n")
+                f.write(f"\n")
+
+            # LinkedIn Intelligence
+            f.write(f"## LinkedIn Intelligence\n\n")
+            linkedin = self.results.get('linkedin_intel', {})
+
+            google_results = linkedin.get('google_dork_results', [])
+            inferred = linkedin.get('inferred_employees', [])
+
+            f.write(f"**Profiles Found (Google):** {len(google_results)}\n")
+            f.write(f"**Employees Inferred:** {len(inferred)}\n\n")
+
+            if linkedin.get('email_patterns'):
+                pattern = linkedin['email_patterns'].get('likely_pattern', 'Unknown')
+                confidence = linkedin['email_patterns'].get('confidence', 0)
+                f.write(f"**Email Pattern:** {pattern} ({confidence:.0f}% confidence)\n\n")
+
+            if inferred:
+                f.write(f"### Inferred Employees (Sample)\n\n")
+                for emp in inferred[:10]:
+                    f.write(f"- {emp['name']} ({emp['email']})\n")
+                if len(inferred) > 10:
+                    f.write(f"- ... and {len(inferred) - 10} more\n")
+                f.write(f"\n")
+
+            # Email Addresses
+            f.write(f"## Email Addresses\n\n")
+            emails = self.results.get('email_addresses', [])
+            f.write(f"**Total Found:** {len(emails)}\n\n")
+            for email in emails:
+                f.write(f"- {email}\n")
+            f.write(f"\n")
+
+            # Breach Data
+            f.write(f"## Breach Database Results\n\n")
+            breaches = self.results.get('breach_data', {})
+            if breaches:
+                f.write(f"**Accounts with Breaches:** {len(breaches)}\n\n")
+                for email, breach_list in breaches.items():
+                    f.write(f"### {email}\n")
+                    for breach in breach_list:
+                        f.write(f"- {breach}\n")
+                    f.write(f"\n")
+            else:
+                f.write(f"No compromised credentials found.\n\n")
+
+            # GitHub Secret Scanning
+            f.write(f"## GitHub Secret Scanning\n\n")
+            github = self.results.get('github_secrets', {})
+
+            if github.get('total_secrets_found', 0) > 0:
+                f.write(f"**Total Secrets Detected:** {github['total_secrets_found']}\n\n")
+
+                repos = github.get('repositories', [])
+                if repos:
+                    f.write(f"### Repositories with Secrets ({len(repos)})\n\n")
+                    for repo in repos:
+                        f.write(f"#### {repo['repository']}\n")
+                        f.write(f"- **File:** {repo['file_path']}\n")
+                        f.write(f"- **URL:** {repo['html_url']}\n")
+                        f.write(f"- **Secrets Found:**\n")
+                        for secret in repo['secrets_found']:
+                            f.write(f"  - {secret['type']}: {secret['count']} match(es)\n")
+                        f.write(f"\n")
+
+                issues = github.get('issues', [])
+                if issues:
+                    f.write(f"### Issues with Secrets ({len(issues)})\n\n")
+                    for issue in issues:
+                        f.write(f"- **{issue['title']}**\n")
+                        f.write(f"  - URL: {issue['html_url']}\n")
+                        f.write(f"  - State: {issue['state']}\n\n")
+            else:
+                f.write(f"No secrets found in GitHub repositories.\n\n")
+
+            # ASN Data
+            f.write(f"## ASN Enumeration\n\n")
+            asn_data = self.results.get('asn_data', {})
+
+            asns = asn_data.get('asn_numbers', [])
+            if asns:
+                f.write(f"**ASNs Discovered:** {len(asns)}\n\n")
+                for asn in asns:
+                    f.write(f"### AS{asn['asn']}\n")
+                    f.write(f"- **Owner:** {asn['owner']}\n")
+                    if asn.get('country'):
+                        f.write(f"- **Country:** {asn['country']}\n")
+                    f.write(f"\n")
+
+            ip_ranges = asn_data.get('ip_ranges', [])
+            if ip_ranges:
+                f.write(f"### IP Ranges ({len(ip_ranges)})\n\n")
+                in_scope = [r for r in ip_ranges if r['in_scope']]
+                out_scope = [r for r in ip_ranges if not r['in_scope']]
+
+                if in_scope:
+                    f.write(f"#### In Authorized Scope ({len(in_scope)})\n\n")
+                    for r in in_scope:
+                        f.write(f"- {r['prefix']} (AS{r['asn']})\n")
+                    f.write(f"\n")
+
+                if out_scope:
+                    f.write(f"#### Out of Scope - DO NOT TEST ({len(out_scope)})\n\n")
+                    for r in out_scope:
+                        f.write(f"- {r['prefix']} (AS{r['asn']})\n")
+                    f.write(f"\n")
+
+            # S3 Buckets
+            f.write(f"## AWS S3 Buckets\n\n")
+            s3 = self.results.get('s3_buckets', {})
+            found_s3 = s3.get('found', [])
+
+            if found_s3:
+                public_s3 = [b for b in found_s3 if b['status'] == 'Public Read']
+                private_s3 = [b for b in found_s3 if b['status'] == 'Private (Exists)']
+
+                f.write(f"**Buckets Found:** {len(found_s3)}\n")
+                f.write(f"**Public:** {len(public_s3)} | **Private:** {len(private_s3)}\n\n")
+
+                if public_s3:
+                    f.write(f"### Public S3 Buckets\n\n")
+                    for bucket in public_s3:
+                        f.write(f"#### {bucket['bucket']}\n")
+                        f.write(f"- **URL:** {bucket['url']}\n")
+                        if bucket.get('file_count'):
+                            f.write(f"- **Files:** {bucket['file_count']}\n")
+                        f.write(f"\n")
+            else:
+                f.write(f"No S3 buckets found.\n\n")
+
+            # Azure Storage
+            f.write(f"## Azure Storage\n\n")
+            azure = self.results.get('azure_storage', {})
+            found_azure = azure.get('found', [])
+
+            if found_azure:
+                public_azure = [s for s in found_azure if s['status'] == 'Public Read']
+                private_azure = [s for s in found_azure if s['status'] == 'Private (Exists)']
+
+                f.write(f"**Storage Accounts Found:** {len(found_azure)}\n")
+                f.write(f"**Public:** {len(public_azure)} | **Private:** {len(private_azure)}\n\n")
+
+                if public_azure:
+                    f.write(f"### Public Azure Storage\n\n")
+                    for storage in public_azure:
+                        f.write(f"#### {storage['account']}\n")
+                        f.write(f"- **Container:** {storage['container']}\n")
+                        f.write(f"- **URL:** {storage['url']}\n")
+                        if storage.get('file_count'):
+                            f.write(f"- **Files:** {storage['file_count']}\n")
+                        f.write(f"\n")
+            else:
+                f.write(f"No Azure storage accounts found.\n\n")
+
+            # GCP Storage
+            f.write(f"## GCP Storage\n\n")
+            gcp = self.results.get('gcp_storage', {})
+            found_gcp = gcp.get('found', [])
+
+            if found_gcp:
+                public_gcp = [b for b in found_gcp if b['status'] == 'Public Read']
+                private_gcp = [b for b in found_gcp if b['status'] == 'Private (Exists)']
+
+                f.write(f"**Buckets Found:** {len(found_gcp)}\n")
+                f.write(f"**Public:** {len(public_gcp)} | **Private:** {len(private_gcp)}\n\n")
+
+                if public_gcp:
+                    f.write(f"### Public GCP Buckets\n\n")
+                    for bucket in public_gcp:
+                        f.write(f"#### {bucket['bucket']}\n")
+                        f.write(f"- **URL:** {bucket['url']}\n")
+                        if bucket.get('file_count'):
+                            f.write(f"- **Files:** {bucket['file_count']}\n")
+                        f.write(f"\n")
+            else:
+                f.write(f"No GCP buckets found.\n\n")
+
+            # Network Scan
+            f.write(f"## Network Enumeration\n\n")
+            scan = self.results.get('network_scan', {})
+            f.write(f"**Hosts with Open Ports:** {len(scan)}\n\n")
+
+            for host, ports in scan.items():
+                f.write(f"### {host}\n")
+                f.write(f"**Open Ports:** {len(ports)}\n\n")
+                f.write(f"| Port | Service | Version |\n")
+                f.write(f"|------|---------|--------|\n")
+                for port_num, port_info in sorted(ports.items()):
+                    service = port_info.get('service', 'unknown')
+                    version = port_info.get('version', '')
+                    f.write(f"| {port_num} | {service} | {version} |\n")
+                f.write(f"\n")
+
+    def _generate_report_template(self, filepath: Path):
+        """Generate report template with findings"""
+        with open(filepath, 'w') as f:
+            f.write(f"# Report Template Content - {self.client_name}\n\n")
+
+            # Ownership Verification
+            f.write("### Ownership Verification\n")
+            whois = self.results.get('scope_validation', {}).get('whois', {})
+            for ip_range, info in whois.items():
+                org = info.get('org', 'Unknown')
+                f.write(f"• {ip_range} - Confirmed owned by {org}\n")
+            f.write("\n")
+
+            # DNS Enumeration Section
+            f.write("## Reconnaissance and OSINT\n\n")
+            f.write("### Finding the External Footprint\n\n")
+
+            dns = self.results.get('dns_enumeration', {})
+            total = dns.get('total_discovered', 0)
+            resolved = dns.get('resolved', {})
+
+            f.write(f"DNS enumeration revealed {total} subdomains. This mapped out what was reachable from the internet.\n\n")
+
+            if resolved:
+                f.write("Key subdomains identified:\n")
+                for subdomain in sorted(resolved.keys())[:10]:  # Top 10
+                    ips = resolved[subdomain]
+                    f.write(f"• {subdomain} ({', '.join(ips)})\n")
+                f.write("\n")
+
+            # Subdomain Takeover
+            takeovers = self.results.get('subdomain_takeovers', [])
+            if takeovers:
+                f.write("### Subdomain Takeover Vulnerabilities\n\n")
+                f.write(f"Analysis identified {len(takeovers)} subdomain(s) potentially vulnerable to takeover attacks:\n\n")
+                for vuln in takeovers:
+                    f.write(f"• {vuln['subdomain']} - Points to unclaimed {vuln['service']} resource\n")
+                f.write("\n")
+                f.write("Subdomain takeover allows attackers to host malicious content on the organization's domain, ")
+                f.write("enabling phishing campaigns, malware distribution, or reputation damage. These subdomains should be ")
+                f.write("either claimed by the organization or removed from DNS records.\n\n")
+
+            # Technology Stack Section
+            f.write("### Understanding the Technology Stack\n\n")
+            tech = self.results.get('technology_stack', {})
+
+            if tech:
+                f.write("Public sources and SSL certificates revealed the organization uses:\n")
+                all_tech = set()
+                all_servers = set()
+
+                for domain, info in tech.items():
+                    if info.get('server'):
+                        all_servers.add(info['server'])
+                    if info.get('detected_technologies'):
+                        all_tech.update(info['detected_technologies'])
+
+                if all_servers:
+                    f.write(f"• Web Servers: {', '.join(all_servers)}\n")
+                if all_tech:
+                    f.write(f"• Technologies: {', '.join(all_tech)}\n")
+                f.write("\n")
+
+            # LinkedIn Intelligence
+            f.write("### Employee Enumeration via LinkedIn\n\n")
+            linkedin = self.results.get('linkedin_intel', {})
+
+            google_results = linkedin.get('google_dork_results', [])
+            inferred = linkedin.get('inferred_employees', [])
+
+            total_employees = len(google_results) + len(inferred)
+
+            if total_employees > 0:
+                f.write(f"LinkedIn reconnaissance identified {total_employees} employee accounts associated with the organization.\n\n")
+
+                if linkedin.get('email_patterns'):
+                    pattern = linkedin['email_patterns'].get('likely_pattern', 'Unknown')
+                    confidence = linkedin['email_patterns'].get('confidence', 0)
+                    f.write(f"Email pattern analysis suggests the organization uses: {pattern} ({confidence:.0f}% confidence)\n\n")
+
+                f.write("This intelligence enables targeted phishing campaigns and password spraying attacks against valid accounts. ")
+                f.write("The identified email pattern can be used to generate username lists for authentication testing.\n\n")
+            else:
+                f.write("Limited employee information was gathered through public LinkedIn sources.\n\n")
+
+            # Email Addresses Section
+            f.write("### Identifying Valid User Accounts\n\n")
+            emails = self.results.get('email_addresses', [])
+
+            if emails:
+                f.write(f"Public sources revealed {len(emails)} employee email addresses following the format ")
+
+                # Infer email format
+                if emails:
+                    example = emails[0]
+                    local_part = example.split('@')[0]
+                    if '.' in local_part:
+                        f.write("firstname.lastname@domain.com\n")
+                    else:
+                        f.write("firstnamelastname@domain.com\n")
+
+                f.write("\nSample email addresses identified:\n")
+                for email in emails[:5]:  # First 5
+                    f.write(f"• {email}\n")
+                f.write("\n")
+
+            # Breach Data Section
+            f.write("### Searching for Compromised Credentials\n\n")
+            breaches = self.results.get('breach_data', {})
+
+            if breaches:
+                f.write(f"Breach databases were checked for client email addresses. {len(breaches)} accounts were found with exposed passwords:\n\n")
+                for email, breach_list in list(breaches.items())[:5]:  # First 5
+                    f.write(f"• {email} - Found in: {', '.join(breach_list[:3])}\n")
+                f.write("\n")
+                f.write("These credentials became immediate testing priorities as users frequently reuse passwords across work and personal accounts.\n\n")
+            else:
+                f.write("No exposed credentials were found in available breach databases.\n\n")
+
+            # GitHub Secret Scanning
+            f.write("### GitHub Secret Exposure\n\n")
+            github = self.results.get('github_secrets', {})
+
+            if github.get('total_secrets_found', 0) > 0:
+                repos = github.get('repositories', [])
+                issues = github.get('issues', [])
+                commits = github.get('commits', [])
+
+                f.write(f"GitHub scanning identified {github['total_secrets_found']} potential secrets across {len(repos)} repositories, ")
+                f.write(f"{len(issues)} issues, and {len(commits)} commits.\n\n")
+
+                if repos:
+                    f.write("Repositories containing sensitive data:\n")
+                    for repo in repos[:5]:
+                        f.write(f"• {repo['repository']}/{repo['file_path']}\n")
+                    f.write("\n")
+
+                f.write("Exposed secrets in public repositories represent critical security vulnerabilities, potentially providing ")
+                f.write("direct access to infrastructure, databases, and third-party services.\n\n")
+            else:
+                f.write("No secrets were discovered in public GitHub repositories associated with the organization.\n\n")
+
+            # ASN Enumeration
+            f.write("### Network Infrastructure (ASN Enumeration)\n\n")
+            asn_data = self.results.get('asn_data', {})
+
+            asns = asn_data.get('asn_numbers', [])
+            ip_ranges = asn_data.get('ip_ranges', [])
+
+            if asns:
+                f.write(f"ASN enumeration identified {len(asns)} autonomous system(s) associated with the organization:\n\n")
+                for asn in asns:
+                    f.write(f"• AS{asn['asn']} - {asn['owner']}\n")
+                f.write("\n")
+
+            if ip_ranges:
+                in_scope = [r for r in ip_ranges if r['in_scope']]
+                out_scope = [r for r in ip_ranges if not r['in_scope']]
+
+                f.write(f"Total IP ranges discovered: {len(ip_ranges)}\n")
+                f.write(f"• Ranges within authorized scope: {len(in_scope)}\n")
+                f.write(f"• Ranges outside authorized scope: {len(out_scope)}\n\n")
+
+                if out_scope:
+                    f.write("Additional IP ranges were identified that belong to the organization but fall outside the authorized testing scope. ")
+                    f.write("These ranges were documented but not tested.\n\n")
+
+            # Cloud Storage Enumeration Section
+            f.write("### Cloud Storage Enumeration\n\n")
+
+            s3 = self.results.get('s3_buckets', {})
+            azure = self.results.get('azure_storage', {})
+            gcp = self.results.get('gcp_storage', {})
+
+            found_s3 = s3.get('found', [])
+            found_azure = azure.get('found', [])
+            found_gcp = gcp.get('found', [])
+
+            total_cloud = len(found_s3) + len(found_azure) + len(found_gcp)
+
+            if total_cloud > 0:
+                public_s3 = [b for b in found_s3 if b['status'] == 'Public Read']
+                public_azure = [s for s in found_azure if s['status'] == 'Public Read']
+                public_gcp = [b for b in found_gcp if b['status'] == 'Public Read']
+                total_public = len(public_s3) + len(public_azure) + len(public_gcp)
+
+                f.write(f"Cloud storage enumeration discovered {total_cloud} storage resource(s):\n")
+                f.write(f"• AWS S3: {len(found_s3)} ({len(public_s3)} public)\n")
+                f.write(f"• Azure Storage: {len(found_azure)} ({len(public_azure)} public)\n")
+                f.write(f"• GCP Storage: {len(found_gcp)} ({len(public_gcp)} public)\n\n")
+
+                if total_public > 0:
+                    f.write(f"**{total_public} publicly accessible cloud storage resource(s) identified:**\n\n")
+
+                    for bucket in public_s3:
+                        f.write(f"• AWS S3: {bucket['bucket']}\n")
+                        f.write(f"  URL: {bucket['url']}\n")
+                        if bucket.get('file_count'):
+                            f.write(f"  Contents: {bucket['file_count']} files\n")
+                        f.write("\n")
+
+                    for storage in public_azure:
+                        f.write(f"• Azure: {storage['account']}/{storage['container']}\n")
+                        f.write(f"  URL: {storage['url']}\n")
+                        if storage.get('file_count'):
+                            f.write(f"  Contents: {storage['file_count']} files\n")
+                        f.write("\n")
+
+                    for bucket in public_gcp:
+                        f.write(f"• GCP: {bucket['bucket']}\n")
+                        f.write(f"  URL: {bucket['url']}\n")
+                        if bucket.get('file_count'):
+                            f.write(f"  Contents: {bucket['file_count']} files\n")
+                        f.write("\n")
+
+                    f.write("Public cloud storage represents a critical data exposure risk. Unauthenticated access allows ")
+                    f.write("any internet user to view, and potentially download, sensitive organizational data.\n\n")
+                else:
+                    f.write("While cloud storage resources were discovered, all were properly configured with private access controls.\n\n")
+            else:
+                f.write("No cloud storage resources were discovered during enumeration.\n\n")
+
+            # Network Enumeration Section
+            f.write("## Enumeration and Mapping\n\n")
+            scan = self.results.get('network_scan', {})
+
+            if scan:
+                total_hosts = len(scan)
+                total_ports = sum(len(ports) for ports in scan.values())
+
+                f.write(f"Network scanning revealed {total_hosts} live hosts with {total_ports} open ports.\n\n")
+
+                # Categorize services
+                interesting_services = []
+                for host, ports in scan.items():
+                    for port_num, port_info in ports.items():
+                        service = port_info.get('service', 'unknown')
+                        if any(keyword in service.lower() for keyword in ['vpn', 'ssh', 'rdp', 'http', 'ftp', 'smtp']):
+                            interesting_services.append(f"{host}:{port_num} ({service})")
+
+                if interesting_services:
+                    f.write("Most promising targets for further investigation:\n")
+                    for service in interesting_services[:10]:  # Top 10
+                        f.write(f"• {service}\n")
+                    f.write("\n")
+
+    def run_all(self):
+        """Run all reconnaissance modules"""
+        self.print_banner()
+
+        # Prompt for API keys at startup
+        self.prompt_for_api_keys()
+
+        try:
+            # Phase 1: Basic reconnaissance
+            self.scope_validation()
+            self.dns_enumeration()
+            self.technology_stack_identification()
+
+            # Phase 2: OSINT and intelligence gathering
+            if not self.args.skip_linkedin:
+                self.linkedin_enumeration()
+
+            self.email_harvesting()
+
+            if not self.args.skip_breach_check:
+                self.breach_database_check()
+
+            # Phase 3: Advanced enumeration
+            if not self.args.skip_github:
+                self.github_secret_scanning()
+
+            if not self.args.skip_asn:
+                self.asn_enumeration()
+
+            if not self.args.skip_subdomain_takeover:
+                self.subdomain_takeover_detection()
+
+            # Phase 4: Cloud storage enumeration
+            if not self.args.skip_s3:
+                self.s3_bucket_enumeration()
+
+            if not self.args.skip_azure:
+                self.azure_storage_enumeration()
+
+            if not self.args.skip_gcp:
+                self.gcp_storage_enumeration()
+
+            # Phase 5: Network enumeration (last due to time)
+            if not self.args.skip_scan:
+                self.network_enumeration()
+
+            # Generate reports
+            self.generate_report()
+
+            self.print_section("RECONNAISSANCE COMPLETE")
+            self.print_success("All modules completed successfully!")
+            self.print_info(f"Results saved to: {self.output_dir}")
+
+        except KeyboardInterrupt:
+            self.print_warning("\nReconnaissance interrupted by user")
+            self.generate_report()
+        except Exception as e:
+            self.print_error(f"Error during reconnaissance: {e}")
+            import traceback
+            traceback.print_exc()
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Penetration Testing Reconnaissance Automation',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''
+Examples:
+  Basic scan:
+    python3 pentest_recon.py -d example.com -i 192.168.1.0/24 -c "Acme Corp"
+
+  Multiple IP ranges:
+    python3 pentest_recon.py -d example.com -i 10.0.0.0/24 172.16.0.0/16 -c "Acme Corp"
+
+  IP ranges from file:
+    python3 pentest_recon.py -d example.com -f targets.txt -c "Acme Corp"
+
+  Combine file and command line:
+    python3 pentest_recon.py -d example.com -f targets.txt -i 10.0.0.0/24 -c "Acme Corp"
+
+  Custom output directory:
+    python3 pentest_recon.py -d example.com -i 192.168.1.0/24 -o /tmp/recon -c "Acme Corp"
+
+  Skip specific modules:
+    python3 pentest_recon.py -d example.com -i 192.168.1.0/24 -c "Acme Corp" --skip-s3 --skip-scan
+
+  Skip all OSINT modules:
+    python3 pentest_recon.py -d example.com -i 192.168.1.0/24 -c "Acme Corp" --skip-osint
+        '''
+    )
+
+    parser.add_argument('-d', '--domain', required=True, help='Target domain (e.g., example.com)')
+    parser.add_argument('-i', '--ip-ranges', nargs='+', help='In-scope IP ranges (e.g., 192.168.1.0/24)')
+    parser.add_argument('-f', '--file', help='File containing IP ranges (one CIDR per line)')
+    parser.add_argument('-c', '--client', required=True, help='Client name for reporting')
+    parser.add_argument('-o', '--output', default='./recon_output', help='Output directory (default: ./recon_output)')
+
+    # Module control flags
+    parser.add_argument('--skip-breach-check', action='store_true', help='Skip breach database checking')
+    parser.add_argument('--skip-scan', action='store_true', help='Skip network scanning')
+    parser.add_argument('--skip-s3', action='store_true', help='Skip S3 bucket enumeration')
+    parser.add_argument('--skip-azure', action='store_true', help='Skip Azure storage enumeration')
+    parser.add_argument('--skip-gcp', action='store_true', help='Skip GCP storage enumeration')
+    parser.add_argument('--skip-github', action='store_true', help='Skip GitHub secret scanning')
+    parser.add_argument('--skip-linkedin', action='store_true', help='Skip LinkedIn enumeration')
+    parser.add_argument('--skip-asn', action='store_true', help='Skip ASN enumeration')
+    parser.add_argument('--skip-subdomain-takeover', action='store_true', help='Skip subdomain takeover detection')
+    parser.add_argument('--skip-osint', action='store_true', help='Skip all OSINT modules (GitHub, LinkedIn)')
+
+    args = parser.parse_args()
+
+    # Apply skip-osint flag
+    if args.skip_osint:
+        args.skip_github = True
+        args.skip_linkedin = True
+
+    # Parse IP ranges from command line and/or file
+    ip_ranges = []
+
+    # Add command line IP ranges
+    if args.ip_ranges:
+        ip_ranges.extend(args.ip_ranges)
+
+    # Add IP ranges from file
+    if args.file:
+        try:
+            with open(args.file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    # Skip empty lines and comments
+                    if line and not line.startswith('#'):
+                        ip_ranges.append(line)
+            print(f"{Colors.OKGREEN}[+] Loaded {len([r for r in ip_ranges if r not in (args.ip_ranges or [])])} IP ranges from {args.file}{Colors.ENDC}")
+        except FileNotFoundError:
+            print(f"{Colors.FAIL}[-] Error: File '{args.file}' not found{Colors.ENDC}")
+            sys.exit(1)
+        except Exception as e:
+            print(f"{Colors.FAIL}[-] Error reading file: {e}{Colors.ENDC}")
+            sys.exit(1)
+
+    # Validate that we have at least one IP range
+    if not ip_ranges:
+        print(f"{Colors.FAIL}[-] Error: No IP ranges specified. Use -i or -f to provide targets.{Colors.ENDC}")
+        parser.print_help()
         sys.exit(1)
 
-    display_logo()
-    main_menu()
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_ranges = []
+    for ip_range in ip_ranges:
+        if ip_range not in seen:
+            seen.add(ip_range)
+            unique_ranges.append(ip_range)
+
+    if len(ip_ranges) != len(unique_ranges):
+        print(f"{Colors.WARNING}[!] Removed {len(ip_ranges) - len(unique_ranges)} duplicate IP range(s){Colors.ENDC}")
+
+    # Create recon automation instance
+    recon = ReconAutomation(
+        domain=args.domain,
+        ip_ranges=unique_ranges,
+        output_dir=args.output,
+        client_name=args.client
+    )
+
+    # Store args reference for run_all method
+    recon.args = args
+
+    # Run all reconnaissance
+    recon.run_all()
+
+if __name__ == '__main__':
+    main()
