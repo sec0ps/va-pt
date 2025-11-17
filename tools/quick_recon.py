@@ -79,7 +79,13 @@ class ReconAutomation:
             'email_addresses': [],
             'breach_data': {},
             'network_scan': {},
-            's3_buckets': {}
+            's3_buckets': {},
+            'azure_storage': {},
+            'gcp_storage': {},
+            'github_secrets': {},
+            'linkedin_intel': {},
+            'asn_data': {},
+            'subdomain_takeovers': []
         }
 
         # Create output directory
@@ -178,6 +184,460 @@ class ReconAutomation:
                 else:
                     self.print_warning(f"✗ {ip} is NOT in provided scope ranges")
 
+    def load_config(self) -> Dict[str, str]:
+        """Load configuration from file"""
+        default_config = {
+            'github_token': '',
+            'shodan_api_key': '',
+            'censys_api_id': '',
+            'censys_api_secret': ''
+        }
+
+        if self.config_file.exists():
+            try:
+                with open(self.config_file, 'r') as f:
+                    loaded_config = json.load(f)
+                    # Merge with defaults in case new keys were added
+                    default_config.update(loaded_config)
+                    return default_config
+            except Exception as e:
+                self.print_warning(f"Error loading config: {e}")
+                return default_config
+
+        return default_config
+
+    def save_config(self):
+        """Save configuration to file"""
+        try:
+            with open(self.config_file, 'w') as f:
+                json.dump(self.config, f, indent=2)
+            self.print_success(f"Configuration saved to {self.config_file}")
+        except Exception as e:
+            self.print_error(f"Error saving config: {e}")
+
+    def prompt_for_api_keys(self):
+        """Prompt user for API keys if not already configured"""
+        print("\n" + "="*80)
+        print("API KEY CONFIGURATION")
+        print("="*80)
+        print("Some modules require API keys/tokens for enhanced functionality.")
+        print("Press Enter to skip any key you don't have or want to configure later.")
+        print("")
+
+        updated = False
+
+        # GitHub Token
+        if not self.config.get('github_token'):
+            print("[*] GitHub Token (for secret scanning in repos/gists/issues)")
+            print("    Generate at: https://github.com/settings/tokens")
+            print("    Required scopes: public_repo (read:org optional)")
+            token = input("    Enter GitHub token (or press Enter to skip): ").strip()
+            if token:
+                self.config['github_token'] = token
+                updated = True
+                self.print_success("GitHub token configured")
+            else:
+                self.print_info("Skipping GitHub token - secret scanning will be limited")
+        else:
+            self.print_success("GitHub token already configured")
+
+        print("")
+
+        # Optional: Shodan (for future use)
+        if not self.config.get('shodan_api_key'):
+            print("[*] Shodan API Key (optional - for enhanced service discovery)")
+            print("    Register at: https://account.shodan.io/register")
+            key = input("    Enter Shodan API key (or press Enter to skip): ").strip()
+            if key:
+                self.config['shodan_api_key'] = key
+                updated = True
+                self.print_success("Shodan API key configured")
+        else:
+            self.print_success("Shodan API key already configured")
+
+        if updated:
+            self.save_config()
+
+        print("="*80 + "\n")
+
+    def github_secret_scanning(self):
+        """Search GitHub for leaked credentials and secrets"""
+        self.print_section("GITHUB SECRET SCANNING")
+
+        if not self.config.get('github_token'):
+            self.print_warning("No GitHub token configured. Skipping GitHub scanning.")
+            self.print_info("Run with a configured token for enhanced secret detection")
+            return
+
+        github_findings = {
+            'repositories': [],
+            'gists': [],
+            'issues': [],
+            'commits': [],
+            'total_secrets_found': 0
+        }
+
+        headers = {
+            'Authorization': f"token {self.config['github_token']}",
+            'Accept': 'application/vnd.github.v3+json'
+        }
+
+        # Define search queries
+        search_queries = [
+            f'"{self.domain}"',
+            f'"{self.domain.replace(".", " ")}"',
+            f'"{self.domain.split(".")[0]}"',  # company name
+            f'{self.domain} password',
+            f'{self.domain} api_key',
+            f'{self.domain} secret',
+            f'{self.domain} credentials',
+            f'{self.domain} aws_access_key',
+            f'{self.domain} private_key'
+        ]
+
+        # Sensitive patterns to look for
+        sensitive_patterns = {
+            'aws_access_key': r'AKIA[0-9A-Z]{16}',
+            'aws_secret_key': r'aws_secret_access_key.*?["\']([^"\']{40})["\']',
+            'private_key': r'-----BEGIN (RSA|DSA|EC|OPENSSH) PRIVATE KEY-----',
+            'api_key': r'api[_-]?key.*?["\']([a-zA-Z0-9_\-]{20,})["\']',
+            'password': r'password.*?["\']([^"\']{8,})["\']',
+            'database_url': r'(postgresql|mysql|mongodb)://[^\s]+',
+            'jwt_token': r'eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*',
+            'slack_token': r'xox[baprs]-[0-9]{10,12}-[0-9]{10,12}-[a-zA-Z0-9]{24,32}',
+            'google_api': r'AIza[0-9A-Za-z\\-_]{35}',
+            's3_bucket': r'[a-z0-9.-]+\.s3\.amazonaws\.com',
+            'azure_storage': r'[a-z0-9]+\.blob\.core\.windows\.net',
+            'gcp_bucket': r'[a-z0-9._-]+\.storage\.googleapis\.com'
+        }
+
+        self.print_info(f"Searching GitHub with {len(search_queries)} queries...")
+
+        # Search Code
+        self.print_info("Searching code repositories...")
+        for query in search_queries:
+            try:
+                url = f"https://api.github.com/search/code?q={query}&per_page=10"
+                response = self.session.get(url, headers=headers, timeout=15)
+
+                if response.status_code == 200:
+                    data = response.json()
+
+                    for item in data.get('items', []):
+                        repo_finding = {
+                            'repository': item.get('repository', {}).get('full_name'),
+                            'file_path': item.get('path'),
+                            'html_url': item.get('html_url'),
+                            'secrets_found': []
+                        }
+
+                        # Get file content
+                        try:
+                            content_url = item.get('url')
+                            if content_url:
+                                content_resp = self.session.get(content_url, headers=headers, timeout=10)
+                                if content_resp.status_code == 200:
+                                    content_data = content_resp.json()
+                                    content = base64.b64decode(content_data.get('content', '')).decode('utf-8', errors='ignore')
+
+                                    # Check for sensitive patterns
+                                    for secret_type, pattern in sensitive_patterns.items():
+                                        matches = re.findall(pattern, content, re.IGNORECASE)
+                                        if matches:
+                                            repo_finding['secrets_found'].append({
+                                                'type': secret_type,
+                                                'count': len(matches)
+                                            })
+                                            github_findings['total_secrets_found'] += len(matches)
+
+                                    if repo_finding['secrets_found']:
+                                        github_findings['repositories'].append(repo_finding)
+                                        self.print_warning(f"Secrets found in: {repo_finding['repository']}/{repo_finding['file_path']}")
+                                        for secret in repo_finding['secrets_found']:
+                                            self.print_info(f"  - {secret['type']}: {secret['count']} match(es)")
+                        except Exception as e:
+                            self.print_error(f"Error fetching content: {e}")
+
+                elif response.status_code == 403:
+                    self.print_warning("GitHub API rate limit reached. Waiting 60 seconds...")
+                    time.sleep(60)
+                elif response.status_code == 401:
+                    self.print_error("GitHub token is invalid or expired")
+                    break
+
+                time.sleep(2)  # Rate limiting
+
+            except Exception as e:
+                self.print_error(f"Error searching code: {e}")
+
+        # Search Gists
+        self.print_info("Searching gists...")
+        for query in search_queries[:3]:  # Limit gist queries
+            try:
+                # GitHub doesn't have a direct gist search API, but we can search via web
+                # We'll use the code search which sometimes includes gists
+                url = f"https://api.github.com/search/code?q={query}+in:file+language:text&per_page=5"
+                response = self.session.get(url, headers=headers, timeout=15)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    for item in data.get('items', []):
+                        if 'gist' in item.get('html_url', ''):
+                            gist_finding = {
+                                'gist_id': item.get('html_url'),
+                                'file': item.get('path'),
+                                'secrets_found': []
+                            }
+                            github_findings['gists'].append(gist_finding)
+                            self.print_success(f"Found gist: {gist_finding['gist_id']}")
+
+                time.sleep(2)
+            except Exception as e:
+                self.print_error(f"Error searching gists: {e}")
+
+        # Search Issues
+        self.print_info("Searching issues...")
+        for query in search_queries[:3]:  # Limit issue queries
+            try:
+                url = f"https://api.github.com/search/issues?q={query}+in:body&per_page=10"
+                response = self.session.get(url, headers=headers, timeout=15)
+
+                if response.status_code == 200:
+                    data = response.json()
+
+                    for item in data.get('items', []):
+                        body = item.get('body', '')
+
+                        # Check for sensitive patterns in issue body
+                        secrets_found = []
+                        for secret_type, pattern in sensitive_patterns.items():
+                            matches = re.findall(pattern, body, re.IGNORECASE)
+                            if matches:
+                                secrets_found.append({
+                                    'type': secret_type,
+                                    'count': len(matches)
+                                })
+                                github_findings['total_secrets_found'] += len(matches)
+
+                        if secrets_found:
+                            issue_finding = {
+                                'title': item.get('title'),
+                                'html_url': item.get('html_url'),
+                                'state': item.get('state'),
+                                'secrets_found': secrets_found
+                            }
+                            github_findings['issues'].append(issue_finding)
+                            self.print_warning(f"Secrets in issue: {issue_finding['title']}")
+                            self.print_info(f"  URL: {issue_finding['html_url']}")
+
+                time.sleep(2)
+            except Exception as e:
+                self.print_error(f"Error searching issues: {e}")
+
+        # Search Commits (limited - this can be extensive)
+        self.print_info("Searching commits (limited sample)...")
+        try:
+            url = f"https://api.github.com/search/commits?q={self.domain}&per_page=5"
+            headers_commits = headers.copy()
+            headers_commits['Accept'] = 'application/vnd.github.cloak-preview+json'
+
+            response = self.session.get(url, headers=headers_commits, timeout=15)
+
+            if response.status_code == 200:
+                data = response.json()
+
+                for item in data.get('items', []):
+                    commit_msg = item.get('commit', {}).get('message', '')
+
+                    # Check commit message for secrets
+                    secrets_found = []
+                    for secret_type, pattern in sensitive_patterns.items():
+                        matches = re.findall(pattern, commit_msg, re.IGNORECASE)
+                        if matches:
+                            secrets_found.append({
+                                'type': secret_type,
+                                'count': len(matches)
+                            })
+
+                    if secrets_found:
+                        commit_finding = {
+                            'sha': item.get('sha'),
+                            'html_url': item.get('html_url'),
+                            'message': commit_msg[:100] + '...' if len(commit_msg) > 100 else commit_msg,
+                            'secrets_found': secrets_found
+                        }
+                        github_findings['commits'].append(commit_finding)
+                        self.print_warning(f"Secrets in commit: {commit_finding['sha'][:7]}")
+
+            time.sleep(2)
+        except Exception as e:
+            self.print_error(f"Error searching commits: {e}")
+
+        # Store results
+        self.results['github_secrets'] = github_findings
+
+        # Summary
+        self.print_info(f"\nGitHub Secret Scanning Summary:")
+        self.print_info(f"  Repositories with secrets: {len(github_findings['repositories'])}")
+        self.print_info(f"  Gists found: {len(github_findings['gists'])}")
+        self.print_info(f"  Issues with secrets: {len(github_findings['issues'])}")
+        self.print_info(f"  Commits with secrets: {len(github_findings['commits'])}")
+        self.print_info(f"  Total secrets detected: {github_findings['total_secrets_found']}")
+
+    def linkedin_enumeration(self):
+        """Multi-method LinkedIn intelligence gathering"""
+        self.print_section("LinkedIn Information Gathering")
+
+        linkedin_intel = {
+            'google_dork_results': [],
+            'theharvester_names': [],
+            'inferred_employees': [],
+            'search_urls': [],
+            'email_patterns': {}
+        }
+
+        company_name = self.domain.split('.')[0].title()
+
+        # Method 1: Google Dorking LinkedIn
+        self.print_info("Performing Google dorks on LinkedIn...")
+        google_dork_patterns = [
+            f'site:linkedin.com/in "{company_name}"',
+            f'site:linkedin.com/in "{company_name}" "security"',
+            f'site:linkedin.com/in "{company_name}" "engineer"',
+            f'site:linkedin.com/in "{company_name}" "developer"',
+            f'site:linkedin.com/in "{company_name}" "admin"',
+            f'site:linkedin.com/in "{company_name}" "manager"'
+        ]
+
+        for dork in google_dork_patterns:
+            try:
+                # Use Google search (with caution for rate limiting)
+                search_url = f"https://www.google.com/search?q={dork.replace(' ', '+')}&num=10"
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+
+                response = self.session.get(search_url, headers=headers, timeout=10)
+
+                if response.status_code == 200:
+                    # Extract LinkedIn profile URLs
+                    linkedin_urls = re.findall(r'https://[a-z]{2,3}\.linkedin\.com/in/([a-zA-Z0-9-]+)', response.text)
+
+                    for profile_slug in set(linkedin_urls):
+                        profile_info = {
+                            'profile_url': f"https://www.linkedin.com/in/{profile_slug}",
+                            'profile_slug': profile_slug,
+                            'source': 'google_dork'
+                        }
+
+                        # Try to extract name from slug
+                        name_parts = profile_slug.replace('-', ' ').title()
+                        if len(name_parts.split()) >= 2:
+                            profile_info['inferred_name'] = name_parts
+
+                        linkedin_intel['google_dork_results'].append(profile_info)
+                        self.print_success(f"Found profile: {profile_slug}")
+
+                    time.sleep(3)  # Rate limiting for Google
+                else:
+                    self.print_warning(f"Google search returned status {response.status_code}")
+
+            except Exception as e:
+                self.print_error(f"Error with Google dork: {e}")
+
+        # Method 2: Parse theHarvester results for names
+        self.print_info("Extracting employee information from theHarvester results...")
+        emails = self.results.get('email_addresses', [])
+
+        if emails:
+            for email in emails:
+                # Extract name from email
+                local_part = email.split('@')[0]
+
+                # Common patterns: firstname.lastname, firstnamelastname, first.last
+                if '.' in local_part:
+                    parts = local_part.split('.')
+                    if len(parts) == 2:
+                        first_name = parts[0].title()
+                        last_name = parts[1].title()
+                        full_name = f"{first_name} {last_name}"
+
+                        linkedin_intel['inferred_employees'].append({
+                            'name': full_name,
+                            'email': email,
+                            'first_name': first_name,
+                            'last_name': last_name,
+                            'source': 'email_parsing'
+                        })
+
+                        self.print_success(f"Inferred employee: {full_name}")
+
+        # Method 3: Generate manual search URLs
+        self.print_info("Generating LinkedIn search URLs for manual review...")
+
+        search_urls = [
+            f"https://www.linkedin.com/search/results/people/?keywords={company_name.replace(' ', '%20')}",
+            f"https://www.linkedin.com/search/results/people/?keywords={company_name.replace(' ', '%20')}%20security",
+            f"https://www.linkedin.com/search/results/people/?keywords={company_name.replace(' ', '%20')}%20engineer",
+            f"https://www.linkedin.com/search/results/people/?keywords={company_name.replace(' ', '%20')}%20IT",
+            f"https://www.linkedin.com/search/results/people/?keywords={company_name.replace(' ', '%20')}%20admin",
+            f"https://www.linkedin.com/search/results/people/?keywords={self.domain.replace('.', '%20')}",
+        ]
+
+        linkedin_intel['search_urls'] = search_urls
+
+        self.print_info("\nManual LinkedIn Search URLs:")
+        for url in search_urls:
+            self.print_info(f"  {url}")
+
+        # Method 4: Email pattern inference
+        self.print_info("\nInferring email patterns from discovered addresses...")
+
+        if len(emails) >= 2:
+            patterns = {
+                'firstname.lastname@domain': 0,
+                'firstnamelastname@domain': 0,
+                'first.last@domain': 0,
+                'flastname@domain': 0,
+                'firstnamel@domain': 0
+            }
+
+            for email in emails:
+                local = email.split('@')[0]
+
+                if '.' in local and len(local.split('.')) == 2:
+                    patterns['firstname.lastname@domain'] += 1
+                elif '.' not in local and len(local) > 3:
+                    patterns['firstnamelastname@domain'] += 1
+
+            # Determine most likely pattern
+            likely_pattern = max(patterns, key=patterns.get)
+            confidence = patterns[likely_pattern] / len(emails) * 100 if emails else 0
+
+            linkedin_intel['email_patterns'] = {
+                'likely_pattern': likely_pattern,
+                'confidence': confidence,
+                'sample_emails': emails[:5]
+            }
+
+            self.print_success(f"Inferred email pattern: {likely_pattern} ({confidence:.0f}% confidence)")
+            self.print_info("This pattern can be used to generate username lists for authentication testing")
+
+        # Store results
+        self.results['linkedin_intel'] = linkedin_intel
+
+        # Summary
+        total_profiles = len(linkedin_intel['google_dork_results'])
+        total_inferred = len(linkedin_intel['inferred_employees'])
+
+        self.print_info(f"\nLinkedIn Intelligence Summary:")
+        self.print_info(f"  Profiles found via Google: {total_profiles}")
+        self.print_info(f"  Employees inferred from emails: {total_inferred}")
+        self.print_info(f"  Manual search URLs generated: {len(linkedin_intel['search_urls'])}")
+
+        if linkedin_intel.get('email_patterns'):
+            self.print_info(f"  Email pattern identified: {linkedin_intel['email_patterns']['likely_pattern']}")
+
     def _parse_whois(self, whois_output: str) -> Dict[str, str]:
         """Parse WHOIS output"""
         result = {}
@@ -219,6 +679,209 @@ class ReconAutomation:
             pass
         return False
 
+    def asn_enumeration(self):
+        """Enumerate ASN and associated IP ranges for the organization"""
+        self.print_section("ASN ENUMERATION")
+
+        asn_data = {
+            'asn_numbers': [],
+            'ip_ranges': [],
+            'organization_names': set(),
+            'related_domains': []
+        }
+
+        # Method 1: Get ASN from existing IP addresses
+        self.print_info("Looking up ASN information from known IPs...")
+
+        # Get IPs from DNS resolution
+        dns_records = self.results.get('scope_validation', {}).get('dns_verification', {})
+        known_ips = dns_records.get('A', [])
+
+        # Also check resolved subdomains
+        resolved_subdomains = self.results.get('dns_enumeration', {}).get('resolved', {})
+        for subdomain, ips in resolved_subdomains.items():
+            known_ips.extend(ips)
+
+        known_ips = list(set(known_ips))  # Remove duplicates
+
+        self.print_info(f"Checking ASN for {len(known_ips)} discovered IP addresses...")
+
+        for ip in known_ips[:10]:  # Limit to first 10 to avoid excessive queries
+            try:
+                # Use Team Cymru's IP to ASN service (DNS-based)
+                asn_info = self._lookup_asn_cymru(ip)
+
+                if asn_info:
+                    if asn_info not in asn_data['asn_numbers']:
+                        asn_data['asn_numbers'].append(asn_info)
+                        self.print_success(f"Found ASN for {ip}: AS{asn_info['asn']} ({asn_info['owner']})")
+                        asn_data['organization_names'].add(asn_info['owner'])
+
+                time.sleep(0.5)  # Rate limiting
+
+            except Exception as e:
+                self.print_error(f"Error looking up ASN for {ip}: {e}")
+
+        # Method 2: Get ASN from organization name via RIPEstat/RIPE API
+        self.print_info("\nQuerying RIPE database for additional ASN information...")
+
+        company_name = self.domain.split('.')[0]
+
+        try:
+            # Search RIPE for organization
+            url = f"https://stat.ripe.net/data/searchcomplete/data.json?resource={company_name}"
+            response = self.session.get(url, timeout=10)
+
+            if response.status_code == 200:
+                data = response.json()
+
+                for category in data.get('data', {}).get('categories', []):
+                    if category.get('category') == 'asns':
+                        for suggestion in category.get('suggestions', []):
+                            asn_num = suggestion.get('value', '').replace('AS', '')
+                            asn_label = suggestion.get('label', '')
+
+                            if asn_num and asn_num.isdigit():
+                                asn_exists = any(a['asn'] == asn_num for a in asn_data['asn_numbers'])
+                                if not asn_exists:
+                                    asn_data['asn_numbers'].append({
+                                        'asn': asn_num,
+                                        'owner': asn_label,
+                                        'source': 'ripe_search'
+                                    })
+                                    self.print_success(f"Found ASN from RIPE: AS{asn_num} ({asn_label})")
+
+        except Exception as e:
+            self.print_error(f"Error querying RIPE: {e}")
+
+        # Method 3: For each ASN, get all associated IP prefixes
+        self.print_info("\nEnumerating IP ranges for discovered ASNs...")
+
+        for asn_info in asn_data['asn_numbers']:
+            asn_num = asn_info['asn']
+
+            try:
+                # Use RIPE API to get prefixes for ASN
+                url = f"https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS{asn_num}"
+                response = self.session.get(url, timeout=10)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    prefixes = data.get('data', {}).get('prefixes', [])
+
+                    self.print_info(f"AS{asn_num} announces {len(prefixes)} IP prefix(es)")
+
+                    for prefix in prefixes:
+                        prefix_str = prefix.get('prefix')
+                        if prefix_str:
+                            asn_data['ip_ranges'].append({
+                                'prefix': prefix_str,
+                                'asn': asn_num,
+                                'in_scope': self._check_if_in_scope(prefix_str)
+                            })
+
+                            # Check if this range is in our authorized scope
+                            in_scope = self._check_if_in_scope(prefix_str)
+                            scope_marker = "[IN SCOPE]" if in_scope else "[OUT OF SCOPE]"
+
+                            self.print_info(f"  {prefix_str} - {scope_marker}")
+
+                time.sleep(1)  # Rate limiting
+
+            except Exception as e:
+                self.print_error(f"Error getting prefixes for AS{asn_num}: {e}")
+
+        # Method 4: Reverse IP lookup to find related domains
+        self.print_info("\nSearching for related domains on discovered IPs...")
+
+        for ip in known_ips[:5]:  # Limit to first 5
+            try:
+                # Simple reverse DNS
+                try:
+                    hostname = socket.gethostbyaddr(ip)[0]
+                    if hostname and hostname != ip:
+                        asn_data['related_domains'].append({
+                            'domain': hostname,
+                            'ip': ip,
+                            'source': 'reverse_dns'
+                        })
+                        self.print_success(f"Related domain: {hostname} ({ip})")
+                except:
+                    pass
+
+            except Exception as e:
+                pass
+
+        # Store results
+        self.results['asn_data'] = {
+            'asn_numbers': asn_data['asn_numbers'],
+            'ip_ranges': asn_data['ip_ranges'],
+            'organization_names': list(asn_data['organization_names']),
+            'related_domains': asn_data['related_domains']
+        }
+
+        # Summary
+        self.print_info(f"\nASN Enumeration Summary:")
+        self.print_info(f"  ASNs discovered: {len(asn_data['asn_numbers'])}")
+        self.print_info(f"  Total IP ranges found: {len(asn_data['ip_ranges'])}")
+
+        in_scope_ranges = [r for r in asn_data['ip_ranges'] if r['in_scope']]
+        out_scope_ranges = [r for r in asn_data['ip_ranges'] if not r['in_scope']]
+
+        self.print_info(f"  Ranges in authorized scope: {len(in_scope_ranges)}")
+        self.print_warning(f"  Ranges OUT OF SCOPE (do not test): {len(out_scope_ranges)}")
+        self.print_info(f"  Related domains found: {len(asn_data['related_domains'])}")
+
+        if out_scope_ranges:
+            self.print_warning("\n[!] WARNING: Additional IP ranges found that are NOT in authorized scope!")
+            self.print_warning("These ranges belong to the organization but are not authorized for testing.")
+            self.print_warning("Do NOT scan or test these ranges without explicit authorization.")
+
+    def _lookup_asn_cymru(self, ip: str) -> Optional[Dict[str, str]]:
+        """Lookup ASN using Team Cymru's IP to ASN service"""
+        try:
+            # Reverse IP for DNS query
+            reversed_ip = '.'.join(ip.split('.')[::-1])
+            query = f"{reversed_ip}.origin.asn.cymru.com"
+
+            # Perform DNS TXT record lookup
+            answers = dns.resolver.resolve(query, 'TXT')
+
+            for rdata in answers:
+                txt_data = str(rdata).strip('"')
+                parts = [p.strip() for p in txt_data.split('|')]
+
+                if len(parts) >= 5:
+                    return {
+                        'asn': parts[0],
+                        'prefix': parts[1],
+                        'country': parts[2],
+                        'registry': parts[3],
+                        'owner': parts[4] if len(parts) > 4 else 'Unknown'
+                    }
+        except Exception as e:
+            return None
+
+        return None
+
+    def _check_if_in_scope(self, ip_range: str) -> bool:
+        """Check if an IP range overlaps with authorized scope"""
+        try:
+            check_network = ipaddress.ip_network(ip_range, strict=False)
+
+            for authorized_range in self.ip_ranges:
+                authorized_network = ipaddress.ip_network(authorized_range, strict=False)
+
+                # Check if networks overlap
+                if (check_network.overlaps(authorized_network) or
+                    check_network.subnet_of(authorized_network) or
+                    authorized_network.subnet_of(check_network)):
+                    return True
+
+            return False
+        except:
+            return False
+
     def dns_enumeration(self):
         """Perform DNS enumeration to discover subdomains"""
         self.print_section("DNS ENUMERATION")
@@ -254,6 +917,177 @@ class ReconAutomation:
 
         self.print_info(f"Total unique subdomains discovered: {len(subdomains)}")
         self.print_info(f"Successfully resolved: {len(resolved)}")
+
+    def subdomain_takeover_detection(self):
+        """Check for subdomain takeover vulnerabilities"""
+        self.print_section("SUBDOMAIN TAKEOVER DETECTION")
+
+        # Fingerprints for various services that can be taken over
+        takeover_fingerprints = {
+            'github': {
+                'cname': ['github.io', 'github.map.fastly.net'],
+                'response': ['There isn\'t a GitHub Pages site here', 'For root URLs (like http://example.com/) you must provide an index.html file'],
+                'service': 'GitHub Pages'
+            },
+            'aws_s3': {
+                'cname': ['s3.amazonaws.com', 's3-website', 's3.dualstack'],
+                'response': ['NoSuchBucket', 'The specified bucket does not exist'],
+                'service': 'AWS S3'
+            },
+            'azure': {
+                'cname': ['azurewebsites.net', 'cloudapp.net', 'cloudapp.azure.com', 'trafficmanager.net', 'blob.core.windows.net'],
+                'response': ['404 Web Site not found', 'Error 404', 'The resource you are looking for has been removed'],
+                'service': 'Microsoft Azure'
+            },
+            'bitbucket': {
+                'cname': ['bitbucket.io'],
+                'response': ['Repository not found'],
+                'service': 'Bitbucket'
+            },
+            'google': {
+                'cname': ['appspot.com', 'withgoogle.com', 'withyoutube.com'],
+                'response': ['The requested URL was not found on this server', 'Error 404'],
+                'service': 'Google Cloud'
+            },
+            'wordpress': {
+                'cname': ['wordpress.com'],
+                'response': ['Do you want to register'],
+                'service': 'WordPress.com'
+            },
+            'cloudfront': {
+                'cname': ['cloudfront.net'],
+                'response': ['Bad request', 'ERROR: The request could not be satisfied'],
+                'service': 'AWS CloudFront'
+            },
+        }
+
+        vulnerable_subdomains = []
+
+        # Get all resolved subdomains
+        resolved_subdomains = self.results.get('dns_enumeration', {}).get('resolved', {})
+
+        if not resolved_subdomains:
+            self.print_warning("No subdomains to check. Run DNS enumeration first.")
+            return
+
+        self.print_info(f"Checking {len(resolved_subdomains)} subdomains for takeover vulnerabilities...")
+
+        for subdomain, ips in resolved_subdomains.items():
+            try:
+                # Get CNAME records
+                cname_records = []
+                try:
+                    answers = dns.resolver.resolve(subdomain, 'CNAME')
+                    for rdata in answers:
+                        cname_records.append(str(rdata.target).rstrip('.'))
+                except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+                    # No CNAME, check A record behavior
+                    pass
+                except Exception as e:
+                    self.print_error(f"DNS error for {subdomain}: {e}")
+                    continue
+
+                # Check if CNAME points to a vulnerable service
+                vulnerable = False
+                service_name = None
+                fingerprint_matched = None
+
+                for cname in cname_records:
+                    for service, fingerprint in takeover_fingerprints.items():
+                        # Check if CNAME matches known patterns
+                        if any(pattern in cname.lower() for pattern in fingerprint['cname']):
+                            # CNAME points to a potentially vulnerable service
+                            # Now check HTTP response
+                            http_vulnerable = self._check_http_takeover(subdomain, fingerprint['response'])
+
+                            if http_vulnerable:
+                                vulnerable = True
+                                service_name = fingerprint['service']
+                                fingerprint_matched = service
+                                break
+
+                    if vulnerable:
+                        break
+
+                # Even without CNAME, check HTTP responses for known patterns
+                if not vulnerable and not cname_records:
+                    for service, fingerprint in takeover_fingerprints.items():
+                        http_vulnerable = self._check_http_takeover(subdomain, fingerprint['response'])
+                        if http_vulnerable:
+                            vulnerable = True
+                            service_name = fingerprint['service']
+                            fingerprint_matched = service
+                            break
+
+                if vulnerable:
+                    vuln_info = {
+                        'subdomain': subdomain,
+                        'cname': cname_records,
+                        'service': service_name,
+                        'fingerprint': fingerprint_matched,
+                        'ips': ips
+                    }
+                    vulnerable_subdomains.append(vuln_info)
+
+                    self.print_warning(f"POTENTIAL TAKEOVER: {subdomain}")
+                    self.print_info(f"  Service: {service_name}")
+                    if cname_records:
+                        self.print_info(f"  CNAME: {', '.join(cname_records)}")
+                    self.print_info(f"  Recommendation: Verify if service account exists and claim if vulnerable")
+
+                time.sleep(0.5)  # Rate limiting
+
+            except Exception as e:
+                self.print_error(f"Error checking {subdomain}: {e}")
+
+        # Store results
+        self.results['subdomain_takeovers'] = vulnerable_subdomains
+
+        # Summary
+        self.print_info(f"\nSubdomain Takeover Detection Summary:")
+        self.print_info(f"  Subdomains checked: {len(resolved_subdomains)}")
+        self.print_info(f"  Potentially vulnerable: {len(vulnerable_subdomains)}")
+
+        if vulnerable_subdomains:
+            self.print_warning(f"\n[!] Found {len(vulnerable_subdomains)} potential subdomain takeover(s)!")
+            self.print_warning("Manual verification required - check if you can claim these services:")
+            for vuln in vulnerable_subdomains:
+                self.print_warning(f"  - {vuln['subdomain']} ({vuln['service']})")
+
+    def _check_http_takeover(self, subdomain: str, response_patterns: List[str]) -> bool:
+        """Check HTTP response for takeover indicators"""
+        try:
+            # Try HTTPS first, then HTTP
+            for protocol in ['https', 'http']:
+                try:
+                    url = f"{protocol}://{subdomain}"
+                    response = self.session.get(url, timeout=10, allow_redirects=True, verify=False)
+
+                    # Check if any pattern matches the response
+                    response_text = response.text.lower()
+
+                    for pattern in response_patterns:
+                        if pattern.lower() in response_text:
+                            return True
+
+                    # Also check status code
+                    if response.status_code == 404:
+                        # 404 with specific patterns often indicates takeover potential
+                        return any(pattern.lower() in response_text for pattern in response_patterns)
+
+                except requests.exceptions.SSLError:
+                    # SSL error might indicate service exists but cert is wrong
+                    continue
+                except requests.exceptions.ConnectionError:
+                    # Connection refused might mean service is unclaimed
+                    return True
+                except Exception as e:
+                    continue
+
+        except Exception as e:
+            pass
+
+        return False
 
     def _check_certificate_transparency(self) -> List[str]:
         """Check certificate transparency logs for subdomains"""
@@ -695,6 +1529,385 @@ class ReconAutomation:
         except Exception as e:
             self.print_error(f"Error analyzing bucket: {e}")
 
+    def azure_storage_enumeration(self):
+        """Enumerate Azure Blob Storage containers"""
+        self.print_section("AZURE STORAGE ENUMERATION")
+
+        # Generate Azure storage account name variations
+        storage_candidates = set()
+
+        # Basic domain variations
+        company_name = self.domain.split('.')[0]
+        storage_candidates.add(company_name)
+        storage_candidates.add(self.domain.replace('.', ''))
+        storage_candidates.add(self.domain.replace('.', '-'))
+
+        # Add variations from discovered subdomains
+        resolved = self.results.get('dns_enumeration', {}).get('resolved', {})
+        for subdomain in list(resolved.keys())[:20]:
+            if subdomain.endswith(self.domain):
+                sub_part = subdomain.replace(f".{self.domain}", "").replace(f"{self.domain}", "")
+                if sub_part and '.' not in sub_part:
+                    storage_candidates.add(sub_part.replace('-', '').replace('_', ''))
+                    storage_candidates.add(f"{company_name}{sub_part}".replace('-', '').replace('_', ''))
+
+        # Add common affixes
+        common_affixes = ['backup', 'backups', 'data', 'files', 'storage', 'assets',
+                        'static', 'uploads', 'images', 'docs', 'logs', 'dev', 'prod',
+                        'staging', 'test', 'blob', 'store']
+
+        for affix in common_affixes:
+            storage_candidates.add(f"{company_name}{affix}".replace('-', '').replace('_', ''))
+            storage_candidates.add(f"{affix}{company_name}".replace('-', '').replace('_', ''))
+
+        # Clean candidates - Azure storage names must be 3-24 chars, lowercase, alphanumeric
+        storage_candidates = [
+            name.lower().replace('-', '').replace('_', '')
+            for name in storage_candidates
+            if name and 3 <= len(name.replace('-', '').replace('_', '')) <= 24
+        ]
+        storage_candidates = list(set(storage_candidates))
+
+        self.print_info(f"Testing {len(storage_candidates)} potential Azure storage account names...")
+
+        found_storage = []
+
+        # Check each storage account
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_storage = {
+                executor.submit(self._check_azure_storage, account): account
+                for account in storage_candidates
+            }
+
+            for future in concurrent.futures.as_completed(future_to_storage):
+                account_name = future_to_storage[future]
+                try:
+                    result = future.result()
+                    if result:
+                        found_storage.append(result)
+                        status = result['status']
+                        if status == 'Public Read':
+                            self.print_warning(f"PUBLICLY ACCESSIBLE: {account_name}")
+                        elif status == 'Private (Exists)':
+                            self.print_success(f"EXISTS (Private): {account_name}")
+                except Exception as e:
+                    pass
+
+        # Analyze accessible storage accounts
+        for storage in found_storage:
+            if storage['status'] == 'Public Read':
+                self.print_info(f"Analyzing contents of {storage['account']}...")
+                self._analyze_azure_storage_contents(storage)
+
+        self.results['azure_storage'] = {
+            'tested': len(storage_candidates),
+            'found': found_storage,
+            'public_count': len([s for s in found_storage if s['status'] == 'Public Read']),
+            'private_count': len([s for s in found_storage if s['status'] == 'Private (Exists)'])
+        }
+
+        # Summary
+        if found_storage:
+            self.print_warning(f"Found {len(found_storage)} Azure storage accounts:")
+            for storage in found_storage:
+                self.print_info(f"  {storage['account']} - {storage['status']}")
+        else:
+            self.print_success("No Azure storage accounts found")
+
+    def _check_azure_storage(self, account_name: str) -> Optional[Dict[str, Any]]:
+        """Check if Azure storage account exists"""
+        # Try different container names
+        container_names = ['$web', 'public', 'files', 'assets', 'data', 'backup', 'images']
+
+        for container in container_names:
+            urls_to_try = [
+                f"https://{account_name}.blob.core.windows.net/{container}?restype=container&comp=list",
+                f"https://{account_name}.blob.core.windows.net/{container}/",
+            ]
+
+            for url in urls_to_try:
+                try:
+                    response = self.session.get(url, timeout=5)
+
+                    if response.status_code == 200:
+                        return {
+                            'account': account_name,
+                            'container': container,
+                            'url': url,
+                            'status': 'Public Read',
+                            'response_length': len(response.content)
+                        }
+                    elif response.status_code == 403:
+                        return {
+                            'account': account_name,
+                            'container': container,
+                            'url': url,
+                            'status': 'Private (Exists)'
+                        }
+                    elif response.status_code == 404:
+                        # Container doesn't exist, but account might
+                        continue
+
+                except Exception as e:
+                    continue
+
+        return None
+
+    def _analyze_azure_storage_contents(self, storage_info: Dict[str, Any]):
+        """Analyze Azure storage container contents"""
+        try:
+            response = self.session.get(storage_info['url'], timeout=10)
+            if response.status_code != 200:
+                return
+
+            content = response.text
+            files = []
+
+            # Parse Azure XML listing
+            import xml.etree.ElementTree as ET
+            try:
+                root = ET.fromstring(content)
+
+                # Azure uses different namespace
+                for blob in root.findall('.//{http://schemas.microsoft.com/ado/2007/08/dataservices}Name'):
+                    file_info = {
+                        'name': blob.text,
+                        'url': f"https://{storage_info['account']}.blob.core.windows.net/{storage_info['container']}/{blob.text}"
+                    }
+                    files.append(file_info)
+
+                # Also try without namespace
+                if not files:
+                    for blob in root.findall('.//Name'):
+                        file_info = {
+                            'name': blob.text,
+                            'url': f"https://{storage_info['account']}.blob.core.windows.net/{storage_info['container']}/{blob.text}"
+                        }
+                        files.append(file_info)
+
+            except ET.ParseError:
+                # Fallback regex parsing
+                names = re.findall(r'<Name>([^<]+)</Name>', content)
+                for name in names:
+                    files.append({
+                        'name': name,
+                        'url': f"https://{storage_info['account']}.blob.core.windows.net/{storage_info['container']}/{name}"
+                    })
+
+            storage_info['files'] = files
+            storage_info['file_count'] = len(files)
+
+            if files:
+                self.print_warning(f"  Found {len(files)} blob(s)")
+                for i, f in enumerate(files[:10]):
+                    self.print_info(f"    {f['name']}")
+                if len(files) > 10:
+                    self.print_info(f"    ... and {len(files)-10} more blobs")
+
+        except Exception as e:
+            self.print_error(f"Error analyzing Azure storage: {e}")
+
+    def gcp_storage_enumeration(self):
+        """Enumerate Google Cloud Platform (GCP) Storage buckets"""
+        self.print_section("GCP STORAGE ENUMERATION")
+
+        # Generate GCP bucket name variations
+        bucket_candidates = set()
+
+        # Basic domain variations
+        company_name = self.domain.split('.')[0]
+        bucket_candidates.add(self.domain)
+        bucket_candidates.add(self.domain.replace('.', '-'))
+        bucket_candidates.add(self.domain.replace('.', '_'))
+        bucket_candidates.add(self.domain.replace('.', ''))
+        bucket_candidates.add(company_name)
+
+        # Add variations from discovered subdomains
+        resolved = self.results.get('dns_enumeration', {}).get('resolved', {})
+        for subdomain in list(resolved.keys())[:20]:
+            if subdomain.endswith(self.domain):
+                sub_part = subdomain.replace(f".{self.domain}", "").replace(f"{self.domain}", "")
+                if sub_part and '.' not in sub_part:
+                    bucket_candidates.add(sub_part)
+                    bucket_candidates.add(f"{sub_part}-{company_name}")
+                    bucket_candidates.add(f"{company_name}-{sub_part}")
+                    bucket_candidates.add(sub_part.replace('-', '_'))
+
+        # Add common affixes
+        common_affixes = ['backup', 'backups', 'data', 'files', 'storage', 'assets',
+                        'static', 'uploads', 'images', 'docs', 'logs', 'dev', 'prod',
+                        'staging', 'test', 'bucket', 'gcs', 'gcp']
+
+        for affix in common_affixes:
+            bucket_candidates.add(f"{company_name}-{affix}")
+            bucket_candidates.add(f"{affix}-{company_name}")
+            bucket_candidates.add(f"{company_name}_{affix}")
+            bucket_candidates.add(f"{affix}_{company_name}")
+
+        # Clean candidates - GCP bucket names: 3-63 chars, lowercase letters, numbers, hyphens, underscores, dots
+        bucket_candidates = [
+            name.lower().strip()
+            for name in bucket_candidates
+            if name and 3 <= len(name) <= 63 and re.match(r'^[a-z0-9][a-z0-9._-]*[a-z0-9]$', name.lower())
+        ]
+        bucket_candidates = list(set(bucket_candidates))
+
+        self.print_info(f"Testing {len(bucket_candidates)} potential GCP bucket names...")
+
+        found_buckets = []
+
+        # Check each bucket
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_bucket = {
+                executor.submit(self._check_gcp_bucket, bucket): bucket
+                for bucket in bucket_candidates
+            }
+
+            for future in concurrent.futures.as_completed(future_to_bucket):
+                bucket_name = future_to_bucket[future]
+                try:
+                    result = future.result()
+                    if result:
+                        found_buckets.append(result)
+                        status = result['status']
+                        if status == 'Public Read':
+                            self.print_warning(f"PUBLICLY ACCESSIBLE: {bucket_name}")
+                        elif status == 'Private (Exists)':
+                            self.print_success(f"EXISTS (Private): {bucket_name}")
+                except Exception as e:
+                    pass
+
+        # Analyze accessible buckets
+        for bucket in found_buckets:
+            if bucket['status'] == 'Public Read':
+                self.print_info(f"Analyzing contents of {bucket['bucket']}...")
+                self._analyze_gcp_bucket_contents(bucket)
+
+        self.results['gcp_storage'] = {
+            'tested': len(bucket_candidates),
+            'found': found_buckets,
+            'public_count': len([b for b in found_buckets if b['status'] == 'Public Read']),
+            'private_count': len([b for b in found_buckets if b['status'] == 'Private (Exists)'])
+        }
+
+        # Summary
+        if found_buckets:
+            self.print_warning(f"Found {len(found_buckets)} GCP storage buckets:")
+            for bucket in found_buckets:
+                self.print_info(f"  {bucket['bucket']} - {bucket['status']}")
+        else:
+            self.print_success("No GCP storage buckets found")
+
+    def _check_gcp_bucket(self, bucket_name: str) -> Optional[Dict[str, Any]]:
+        """Check if GCP storage bucket exists"""
+        urls_to_try = [
+            f"https://storage.googleapis.com/{bucket_name}/",
+            f"https://{bucket_name}.storage.googleapis.com/",
+            f"https://storage.cloud.google.com/{bucket_name}/",
+        ]
+
+        for url in urls_to_try:
+            try:
+                response = self.session.get(url, timeout=5)
+
+                if response.status_code == 200:
+                    return {
+                        'bucket': bucket_name,
+                        'url': url,
+                        'status': 'Public Read',
+                        'response_length': len(response.content)
+                    }
+                elif response.status_code == 403:
+                    # Check if it's a "bucket exists but private" vs "access denied"
+                    if 'Access denied' in response.text or 'does not have permission' in response.text:
+                        return {
+                            'bucket': bucket_name,
+                            'url': url,
+                            'status': 'Private (Exists)'
+                        }
+                elif response.status_code == 404:
+                    # Bucket doesn't exist
+                    continue
+
+            except Exception as e:
+                continue
+
+        return None
+
+    def _analyze_gcp_bucket_contents(self, bucket_info: Dict[str, Any]):
+        """Analyze GCP storage bucket contents"""
+        try:
+            response = self.session.get(bucket_info['url'], timeout=10)
+            if response.status_code != 200:
+                return
+
+            content = response.text
+            files = []
+
+            # Parse GCP XML listing
+            import xml.etree.ElementTree as ET
+            try:
+                root = ET.fromstring(content)
+
+                # GCP uses similar structure to S3
+                for contents in root.findall('.//{http://doc.s3.amazonaws.com/2006-03-01}Contents'):
+                    key = contents.find('{http://doc.s3.amazonaws.com/2006-03-01}Key')
+                    size = contents.find('{http://doc.s3.amazonaws.com/2006-03-01}Size')
+                    modified = contents.find('{http://doc.s3.amazonaws.com/2006-03-01}LastModified')
+
+                    if key is not None:
+                        file_info = {
+                            'key': key.text,
+                            'size': int(size.text) if size is not None else 0,
+                            'last_modified': modified.text if modified is not None else 'Unknown',
+                            'url': f"{bucket_info['url'].rstrip('/')}/{key.text}"
+                        }
+                        files.append(file_info)
+
+                # Also try without namespace
+                if not files:
+                    for contents in root.findall('.//Contents'):
+                        key = contents.find('Key')
+                        size = contents.find('Size')
+                        modified = contents.find('LastModified')
+
+                        if key is not None:
+                            file_info = {
+                                'key': key.text,
+                                'size': int(size.text) if size is not None else 0,
+                                'last_modified': modified.text if modified is not None else 'Unknown',
+                                'url': f"{bucket_info['url'].rstrip('/')}/{key.text}"
+                            }
+                            files.append(file_info)
+
+            except ET.ParseError:
+                # Fallback regex parsing
+                keys = re.findall(r'<Key>([^<]+)</Key>', content)
+                sizes = re.findall(r'<Size>([^<]+)</Size>', content)
+
+                for i, key in enumerate(keys):
+                    size = int(sizes[i]) if i < len(sizes) and sizes[i].isdigit() else 0
+                    files.append({
+                        'key': key,
+                        'size': size,
+                        'last_modified': 'Unknown',
+                        'url': f"{bucket_info['url'].rstrip('/')}/{key}"
+                    })
+
+            bucket_info['files'] = files
+            bucket_info['file_count'] = len(files)
+
+            if files:
+                total_size = sum(f['size'] for f in files) / 1024  # KB
+                self.print_warning(f"  Found {len(files)} file(s) ({total_size:.1f}KB total)")
+                for i, f in enumerate(files[:10]):
+                    self.print_info(f"    {f['key']} ({f['size']/1024:.1f}KB)")
+                if len(files) > 10:
+                    self.print_info(f"    ... and {len(files)-10} more files")
+
+        except Exception as e:
+            self.print_error(f"Error analyzing GCP bucket: {e}")
+
     def breach_database_check(self):
         """Check for compromised credentials in breach databases"""
         self.print_section("BREACH DATABASE CHECK")
@@ -886,6 +2099,20 @@ class ReconAutomation:
                     f.write(f"- `{subdomain}` → {', '.join(ips)}\n")
                 f.write(f"\n")
 
+            # Subdomain Takeover
+            f.write(f"## Subdomain Takeover Vulnerabilities\n\n")
+            takeovers = self.results.get('subdomain_takeovers', [])
+            if takeovers:
+                f.write(f"**Potentially Vulnerable Subdomains:** {len(takeovers)}\n\n")
+                for vuln in takeovers:
+                    f.write(f"### {vuln['subdomain']}\n")
+                    f.write(f"- **Service:** {vuln['service']}\n")
+                    if vuln.get('cname'):
+                        f.write(f"- **CNAME:** {', '.join(vuln['cname'])}\n")
+                    f.write(f"- **Risk:** Subdomain may be claimable by attacker\n\n")
+            else:
+                f.write(f"No subdomain takeover vulnerabilities detected.\n\n")
+
             # Technology Stack
             f.write(f"## Technology Stack\n\n")
             tech = self.results.get('technology_stack', {})
@@ -897,6 +2124,29 @@ class ReconAutomation:
                     f.write(f"- **Powered By:** {info['powered_by']}\n")
                 if info.get('detected_technologies'):
                     f.write(f"- **Technologies:** {', '.join(info['detected_technologies'])}\n")
+                f.write(f"\n")
+
+            # LinkedIn Intelligence
+            f.write(f"## LinkedIn Intelligence\n\n")
+            linkedin = self.results.get('linkedin_intel', {})
+
+            google_results = linkedin.get('google_dork_results', [])
+            inferred = linkedin.get('inferred_employees', [])
+
+            f.write(f"**Profiles Found (Google):** {len(google_results)}\n")
+            f.write(f"**Employees Inferred:** {len(inferred)}\n\n")
+
+            if linkedin.get('email_patterns'):
+                pattern = linkedin['email_patterns'].get('likely_pattern', 'Unknown')
+                confidence = linkedin['email_patterns'].get('confidence', 0)
+                f.write(f"**Email Pattern:** {pattern} ({confidence:.0f}% confidence)\n\n")
+
+            if inferred:
+                f.write(f"### Inferred Employees (Sample)\n\n")
+                for emp in inferred[:10]:
+                    f.write(f"- {emp['name']} ({emp['email']})\n")
+                if len(inferred) > 10:
+                    f.write(f"- ... and {len(inferred) - 10} more\n")
                 f.write(f"\n")
 
             # Email Addresses
@@ -920,6 +2170,137 @@ class ReconAutomation:
             else:
                 f.write(f"No compromised credentials found.\n\n")
 
+            # GitHub Secret Scanning
+            f.write(f"## GitHub Secret Scanning\n\n")
+            github = self.results.get('github_secrets', {})
+
+            if github.get('total_secrets_found', 0) > 0:
+                f.write(f"**Total Secrets Detected:** {github['total_secrets_found']}\n\n")
+
+                repos = github.get('repositories', [])
+                if repos:
+                    f.write(f"### Repositories with Secrets ({len(repos)})\n\n")
+                    for repo in repos:
+                        f.write(f"#### {repo['repository']}\n")
+                        f.write(f"- **File:** {repo['file_path']}\n")
+                        f.write(f"- **URL:** {repo['html_url']}\n")
+                        f.write(f"- **Secrets Found:**\n")
+                        for secret in repo['secrets_found']:
+                            f.write(f"  - {secret['type']}: {secret['count']} match(es)\n")
+                        f.write(f"\n")
+
+                issues = github.get('issues', [])
+                if issues:
+                    f.write(f"### Issues with Secrets ({len(issues)})\n\n")
+                    for issue in issues:
+                        f.write(f"- **{issue['title']}**\n")
+                        f.write(f"  - URL: {issue['html_url']}\n")
+                        f.write(f"  - State: {issue['state']}\n\n")
+            else:
+                f.write(f"No secrets found in GitHub repositories.\n\n")
+
+            # ASN Data
+            f.write(f"## ASN Enumeration\n\n")
+            asn_data = self.results.get('asn_data', {})
+
+            asns = asn_data.get('asn_numbers', [])
+            if asns:
+                f.write(f"**ASNs Discovered:** {len(asns)}\n\n")
+                for asn in asns:
+                    f.write(f"### AS{asn['asn']}\n")
+                    f.write(f"- **Owner:** {asn['owner']}\n")
+                    if asn.get('country'):
+                        f.write(f"- **Country:** {asn['country']}\n")
+                    f.write(f"\n")
+
+            ip_ranges = asn_data.get('ip_ranges', [])
+            if ip_ranges:
+                f.write(f"### IP Ranges ({len(ip_ranges)})\n\n")
+                in_scope = [r for r in ip_ranges if r['in_scope']]
+                out_scope = [r for r in ip_ranges if not r['in_scope']]
+
+                if in_scope:
+                    f.write(f"#### In Authorized Scope ({len(in_scope)})\n\n")
+                    for r in in_scope:
+                        f.write(f"- {r['prefix']} (AS{r['asn']})\n")
+                    f.write(f"\n")
+
+                if out_scope:
+                    f.write(f"#### Out of Scope - DO NOT TEST ({len(out_scope)})\n\n")
+                    for r in out_scope:
+                        f.write(f"- {r['prefix']} (AS{r['asn']})\n")
+                    f.write(f"\n")
+
+            # S3 Buckets
+            f.write(f"## AWS S3 Buckets\n\n")
+            s3 = self.results.get('s3_buckets', {})
+            found_s3 = s3.get('found', [])
+
+            if found_s3:
+                public_s3 = [b for b in found_s3 if b['status'] == 'Public Read']
+                private_s3 = [b for b in found_s3 if b['status'] == 'Private (Exists)']
+
+                f.write(f"**Buckets Found:** {len(found_s3)}\n")
+                f.write(f"**Public:** {len(public_s3)} | **Private:** {len(private_s3)}\n\n")
+
+                if public_s3:
+                    f.write(f"### Public S3 Buckets\n\n")
+                    for bucket in public_s3:
+                        f.write(f"#### {bucket['bucket']}\n")
+                        f.write(f"- **URL:** {bucket['url']}\n")
+                        if bucket.get('file_count'):
+                            f.write(f"- **Files:** {bucket['file_count']}\n")
+                        f.write(f"\n")
+            else:
+                f.write(f"No S3 buckets found.\n\n")
+
+            # Azure Storage
+            f.write(f"## Azure Storage\n\n")
+            azure = self.results.get('azure_storage', {})
+            found_azure = azure.get('found', [])
+
+            if found_azure:
+                public_azure = [s for s in found_azure if s['status'] == 'Public Read']
+                private_azure = [s for s in found_azure if s['status'] == 'Private (Exists)']
+
+                f.write(f"**Storage Accounts Found:** {len(found_azure)}\n")
+                f.write(f"**Public:** {len(public_azure)} | **Private:** {len(private_azure)}\n\n")
+
+                if public_azure:
+                    f.write(f"### Public Azure Storage\n\n")
+                    for storage in public_azure:
+                        f.write(f"#### {storage['account']}\n")
+                        f.write(f"- **Container:** {storage['container']}\n")
+                        f.write(f"- **URL:** {storage['url']}\n")
+                        if storage.get('file_count'):
+                            f.write(f"- **Files:** {storage['file_count']}\n")
+                        f.write(f"\n")
+            else:
+                f.write(f"No Azure storage accounts found.\n\n")
+
+            # GCP Storage
+            f.write(f"## GCP Storage\n\n")
+            gcp = self.results.get('gcp_storage', {})
+            found_gcp = gcp.get('found', [])
+
+            if found_gcp:
+                public_gcp = [b for b in found_gcp if b['status'] == 'Public Read']
+                private_gcp = [b for b in found_gcp if b['status'] == 'Private (Exists)']
+
+                f.write(f"**Buckets Found:** {len(found_gcp)}\n")
+                f.write(f"**Public:** {len(public_gcp)} | **Private:** {len(private_gcp)}\n\n")
+
+                if public_gcp:
+                    f.write(f"### Public GCP Buckets\n\n")
+                    for bucket in public_gcp:
+                        f.write(f"#### {bucket['bucket']}\n")
+                        f.write(f"- **URL:** {bucket['url']}\n")
+                        if bucket.get('file_count'):
+                            f.write(f"- **Files:** {bucket['file_count']}\n")
+                        f.write(f"\n")
+            else:
+                f.write(f"No GCP buckets found.\n\n")
+
             # Network Scan
             f.write(f"## Network Enumeration\n\n")
             scan = self.results.get('network_scan', {})
@@ -941,6 +2322,7 @@ class ReconAutomation:
         with open(filepath, 'w') as f:
             f.write(f"# Report Template Content - {self.client_name}\n\n")
 
+            # Ownership Verification
             f.write("### Ownership Verification\n")
             whois = self.results.get('scope_validation', {}).get('whois', {})
             for ip_range, info in whois.items():
@@ -965,6 +2347,18 @@ class ReconAutomation:
                     f.write(f"• {subdomain} ({', '.join(ips)})\n")
                 f.write("\n")
 
+            # Subdomain Takeover
+            takeovers = self.results.get('subdomain_takeovers', [])
+            if takeovers:
+                f.write("### Subdomain Takeover Vulnerabilities\n\n")
+                f.write(f"Analysis identified {len(takeovers)} subdomain(s) potentially vulnerable to takeover attacks:\n\n")
+                for vuln in takeovers:
+                    f.write(f"• {vuln['subdomain']} - Points to unclaimed {vuln['service']} resource\n")
+                f.write("\n")
+                f.write("Subdomain takeover allows attackers to host malicious content on the organization's domain, ")
+                f.write("enabling phishing campaigns, malware distribution, or reputation damage. These subdomains should be ")
+                f.write("either claimed by the organization or removed from DNS records.\n\n")
+
             # Technology Stack Section
             f.write("### Understanding the Technology Stack\n\n")
             tech = self.results.get('technology_stack', {})
@@ -985,6 +2379,28 @@ class ReconAutomation:
                 if all_tech:
                     f.write(f"• Technologies: {', '.join(all_tech)}\n")
                 f.write("\n")
+
+            # LinkedIn Intelligence
+            f.write("### Employee Enumeration via LinkedIn\n\n")
+            linkedin = self.results.get('linkedin_intel', {})
+
+            google_results = linkedin.get('google_dork_results', [])
+            inferred = linkedin.get('inferred_employees', [])
+
+            total_employees = len(google_results) + len(inferred)
+
+            if total_employees > 0:
+                f.write(f"LinkedIn reconnaissance identified {total_employees} employee accounts associated with the organization.\n\n")
+
+                if linkedin.get('email_patterns'):
+                    pattern = linkedin['email_patterns'].get('likely_pattern', 'Unknown')
+                    confidence = linkedin['email_patterns'].get('confidence', 0)
+                    f.write(f"Email pattern analysis suggests the organization uses: {pattern} ({confidence:.0f}% confidence)\n\n")
+
+                f.write("This intelligence enables targeted phishing campaigns and password spraying attacks against valid accounts. ")
+                f.write("The identified email pattern can be used to generate username lists for authentication testing.\n\n")
+            else:
+                f.write("Limited employee information was gathered through public LinkedIn sources.\n\n")
 
             # Email Addresses Section
             f.write("### Identifying Valid User Accounts\n\n")
@@ -1016,51 +2432,112 @@ class ReconAutomation:
                 for email, breach_list in list(breaches.items())[:5]:  # First 5
                     f.write(f"• {email} - Found in: {', '.join(breach_list[:3])}\n")
                 f.write("\n")
-                f.write("These credentials became immediate testing priorities.\n\n")
+                f.write("These credentials became immediate testing priorities as users frequently reuse passwords across work and personal accounts.\n\n")
             else:
                 f.write("No exposed credentials were found in available breach databases.\n\n")
 
-            # S3 Bucket Enumeration Section
-            f.write("### Cloud Storage Enumeration (S3 Buckets)\n\n")
-            s3_results = self.results.get('s3_buckets', {})
+            # GitHub Secret Scanning
+            f.write("### GitHub Secret Exposure\n\n")
+            github = self.results.get('github_secrets', {})
 
-            if s3_results.get('found'):
-                buckets = s3_results['found']
-                public_buckets = [b for b in buckets if b['status'] == 'Public Read']
-                private_buckets = [b for b in buckets if b['status'] == 'Private (Exists)']
+            if github.get('total_secrets_found', 0) > 0:
+                repos = github.get('repositories', [])
+                issues = github.get('issues', [])
+                commits = github.get('commits', [])
 
-                if public_buckets:
-                    f.write(f"S3 bucket enumeration revealed {len(public_buckets)} publicly accessible bucket(s):\n\n")
-                    for bucket in public_buckets:
-                        f.write(f"• {bucket['bucket']}\n")
+                f.write(f"GitHub scanning identified {github['total_secrets_found']} potential secrets across {len(repos)} repositories, ")
+                f.write(f"{len(issues)} issues, and {len(commits)} commits.\n\n")
+
+                if repos:
+                    f.write("Repositories containing sensitive data:\n")
+                    for repo in repos[:5]:
+                        f.write(f"• {repo['repository']}/{repo['file_path']}\n")
+                    f.write("\n")
+
+                f.write("Exposed secrets in public repositories represent critical security vulnerabilities, potentially providing ")
+                f.write("direct access to infrastructure, databases, and third-party services.\n\n")
+            else:
+                f.write("No secrets were discovered in public GitHub repositories associated with the organization.\n\n")
+
+            # ASN Enumeration
+            f.write("### Network Infrastructure (ASN Enumeration)\n\n")
+            asn_data = self.results.get('asn_data', {})
+
+            asns = asn_data.get('asn_numbers', [])
+            ip_ranges = asn_data.get('ip_ranges', [])
+
+            if asns:
+                f.write(f"ASN enumeration identified {len(asns)} autonomous system(s) associated with the organization:\n\n")
+                for asn in asns:
+                    f.write(f"• AS{asn['asn']} - {asn['owner']}\n")
+                f.write("\n")
+
+            if ip_ranges:
+                in_scope = [r for r in ip_ranges if r['in_scope']]
+                out_scope = [r for r in ip_ranges if not r['in_scope']]
+
+                f.write(f"Total IP ranges discovered: {len(ip_ranges)}\n")
+                f.write(f"• Ranges within authorized scope: {len(in_scope)}\n")
+                f.write(f"• Ranges outside authorized scope: {len(out_scope)}\n\n")
+
+                if out_scope:
+                    f.write("Additional IP ranges were identified that belong to the organization but fall outside the authorized testing scope. ")
+                    f.write("These ranges were documented but not tested.\n\n")
+
+            # Cloud Storage Enumeration Section
+            f.write("### Cloud Storage Enumeration\n\n")
+
+            s3 = self.results.get('s3_buckets', {})
+            azure = self.results.get('azure_storage', {})
+            gcp = self.results.get('gcp_storage', {})
+
+            found_s3 = s3.get('found', [])
+            found_azure = azure.get('found', [])
+            found_gcp = gcp.get('found', [])
+
+            total_cloud = len(found_s3) + len(found_azure) + len(found_gcp)
+
+            if total_cloud > 0:
+                public_s3 = [b for b in found_s3 if b['status'] == 'Public Read']
+                public_azure = [s for s in found_azure if s['status'] == 'Public Read']
+                public_gcp = [b for b in found_gcp if b['status'] == 'Public Read']
+                total_public = len(public_s3) + len(public_azure) + len(public_gcp)
+
+                f.write(f"Cloud storage enumeration discovered {total_cloud} storage resource(s):\n")
+                f.write(f"• AWS S3: {len(found_s3)} ({len(public_s3)} public)\n")
+                f.write(f"• Azure Storage: {len(found_azure)} ({len(public_azure)} public)\n")
+                f.write(f"• GCP Storage: {len(found_gcp)} ({len(public_gcp)} public)\n\n")
+
+                if total_public > 0:
+                    f.write(f"**{total_public} publicly accessible cloud storage resource(s) identified:**\n\n")
+
+                    for bucket in public_s3:
+                        f.write(f"• AWS S3: {bucket['bucket']}\n")
                         f.write(f"  URL: {bucket['url']}\n")
                         if bucket.get('file_count'):
-                            total_size = sum(file['size'] for file in bucket.get('files', [])) / 1024  # KB
-                            f.write(f"  Contents: {bucket['file_count']} files ({total_size:.1f}KB total)\n")
-
-                            # List some sensitive files if found
-                            sensitive_patterns = ['.env', 'config', 'credentials', 'password', 'secret', 'key', 'backup', '.sql', '.zip']
-                            sensitive_files = [file['key'] for file in bucket.get('files', [])
-                                            if any(pattern in file['key'].lower() for pattern in sensitive_patterns)]
-                            if sensitive_files:
-                                f.write(f"  Sensitive files detected: {', '.join(sensitive_files[:5])}\n")
+                            f.write(f"  Contents: {bucket['file_count']} files\n")
                         f.write("\n")
 
-                    f.write("These buckets allow unauthenticated public access and may contain sensitive data. ")
-                    f.write("Public S3 buckets pose a significant data exposure risk as any internet user can access their contents.\n\n")
+                    for storage in public_azure:
+                        f.write(f"• Azure: {storage['account']}/{storage['container']}\n")
+                        f.write(f"  URL: {storage['url']}\n")
+                        if storage.get('file_count'):
+                            f.write(f"  Contents: {storage['file_count']} files\n")
+                        f.write("\n")
 
-                if private_buckets:
-                    f.write(f"Additionally, {len(private_buckets)} private S3 bucket(s) were discovered:\n\n")
-                    for bucket in private_buckets:
-                        f.write(f"• {bucket['bucket']} (Private)\n")
-                    f.write("\n")
-                    f.write("While these buckets are not publicly accessible, their existence confirms AWS infrastructure usage.\n\n")
+                    for bucket in public_gcp:
+                        f.write(f"• GCP: {bucket['bucket']}\n")
+                        f.write(f"  URL: {bucket['url']}\n")
+                        if bucket.get('file_count'):
+                            f.write(f"  Contents: {bucket['file_count']} files\n")
+                        f.write("\n")
 
-                if not public_buckets and private_buckets:
-                    f.write(f"S3 bucket enumeration found {len(buckets)} bucket(s), but all were properly configured as private.\n\n")
+                    f.write("Public cloud storage represents a critical data exposure risk. Unauthenticated access allows ")
+                    f.write("any internet user to view, and potentially download, sensitive organizational data.\n\n")
+                else:
+                    f.write("While cloud storage resources were discovered, all were properly configured with private access controls.\n\n")
             else:
-                f.write("No S3 buckets were discovered during enumeration. Either no S3 infrastructure is in use, ")
-                f.write("or bucket names do not follow predictable naming patterns.\n\n")
+                f.write("No cloud storage resources were discovered during enumeration.\n\n")
 
             # Network Enumeration Section
             f.write("## Enumeration and Mapping\n\n")
@@ -1090,22 +2567,49 @@ class ReconAutomation:
         """Run all reconnaissance modules"""
         self.print_banner()
 
+        # Prompt for API keys at startup
+        self.prompt_for_api_keys()
+
         try:
+            # Phase 1: Basic reconnaissance
             self.scope_validation()
             self.dns_enumeration()
             self.technology_stack_identification()
+
+            # Phase 2: OSINT and intelligence gathering
+            if not self.args.skip_linkedin:
+                self.linkedin_enumeration()
+
             self.email_harvesting()
 
             if not self.args.skip_breach_check:
                 self.breach_database_check()
 
-            # Add S3 enumeration here
+            # Phase 3: Advanced enumeration
+            if not self.args.skip_github:
+                self.github_secret_scanning()
+
+            if not self.args.skip_asn:
+                self.asn_enumeration()
+
+            if not self.args.skip_subdomain_takeover:
+                self.subdomain_takeover_detection()
+
+            # Phase 4: Cloud storage enumeration
             if not self.args.skip_s3:
                 self.s3_bucket_enumeration()
 
+            if not self.args.skip_azure:
+                self.azure_storage_enumeration()
+
+            if not self.args.skip_gcp:
+                self.gcp_storage_enumeration()
+
+            # Phase 5: Network enumeration (last due to time)
             if not self.args.skip_scan:
                 self.network_enumeration()
 
+            # Generate reports
             self.generate_report()
 
             self.print_section("RECONNAISSANCE COMPLETE")
@@ -1141,8 +2645,11 @@ Examples:
   Custom output directory:
     python3 pentest_recon.py -d example.com -i 192.168.1.0/24 -o /tmp/recon -c "Acme Corp"
 
-  Skip modules:
+  Skip specific modules:
     python3 pentest_recon.py -d example.com -i 192.168.1.0/24 -c "Acme Corp" --skip-s3 --skip-scan
+
+  Skip all OSINT modules:
+    python3 pentest_recon.py -d example.com -i 192.168.1.0/24 -c "Acme Corp" --skip-osint
         '''
     )
 
@@ -1151,11 +2658,25 @@ Examples:
     parser.add_argument('-f', '--file', help='File containing IP ranges (one CIDR per line)')
     parser.add_argument('-c', '--client', required=True, help='Client name for reporting')
     parser.add_argument('-o', '--output', default='./recon_output', help='Output directory (default: ./recon_output)')
+
+    # Module control flags
     parser.add_argument('--skip-breach-check', action='store_true', help='Skip breach database checking')
     parser.add_argument('--skip-scan', action='store_true', help='Skip network scanning')
     parser.add_argument('--skip-s3', action='store_true', help='Skip S3 bucket enumeration')
+    parser.add_argument('--skip-azure', action='store_true', help='Skip Azure storage enumeration')
+    parser.add_argument('--skip-gcp', action='store_true', help='Skip GCP storage enumeration')
+    parser.add_argument('--skip-github', action='store_true', help='Skip GitHub secret scanning')
+    parser.add_argument('--skip-linkedin', action='store_true', help='Skip LinkedIn enumeration')
+    parser.add_argument('--skip-asn', action='store_true', help='Skip ASN enumeration')
+    parser.add_argument('--skip-subdomain-takeover', action='store_true', help='Skip subdomain takeover detection')
+    parser.add_argument('--skip-osint', action='store_true', help='Skip all OSINT modules (GitHub, LinkedIn)')
 
     args = parser.parse_args()
+
+    # Apply skip-osint flag
+    if args.skip_osint:
+        args.skip_github = True
+        args.skip_linkedin = True
 
     # Parse IP ranges from command line and/or file
     ip_ranges = []
