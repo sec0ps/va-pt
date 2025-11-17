@@ -78,7 +78,8 @@ class ReconAutomation:
             'technology_stack': {},
             'email_addresses': [],
             'breach_data': {},
-            'network_scan': {}
+            'network_scan': {},
+            's3_buckets': {}
         }
 
         # Create output directory
@@ -522,6 +523,177 @@ class ReconAutomation:
             self.print_warning(f"Web scraping failed: {e}")
 
         return list(set(emails))
+
+    def s3_bucket_enumeration(self):
+        """Perform S3 bucket enumeration"""
+        self.print_section("S3 BUCKET ENUMERATION")
+
+        # Generate bucket name variations from domain
+        bucket_candidates = set()
+
+        # Basic domain variations
+        bucket_candidates.add(self.domain)
+        bucket_candidates.add(self.domain.replace('.', '-'))
+        bucket_candidates.add(self.domain.replace('.', ''))
+
+        # Add company name variations
+        company_name = self.domain.split('.')[0]
+        bucket_candidates.add(company_name)
+
+        # Add variations from discovered subdomains
+        resolved = self.results.get('dns_enumeration', {}).get('resolved', {})
+        for subdomain in list(resolved.keys())[:20]:  # Limit to top 20
+            # Extract subdomain part
+            if subdomain.endswith(self.domain):
+                sub_part = subdomain.replace(f".{self.domain}", "").replace(f"{self.domain}", "")
+                if sub_part and '.' not in sub_part:
+                    bucket_candidates.add(sub_part)
+                    bucket_candidates.add(f"{sub_part}-{company_name}")
+                    bucket_candidates.add(f"{company_name}-{sub_part}")
+
+        # Add common prefixes/suffixes
+        common_affixes = ['backup', 'backups', 'data', 'files', 'assets', 'static',
+                        'uploads', 'images', 'docs', 'logs', 'dev', 'prod', 'staging']
+
+        base_names = [company_name, self.domain.replace('.', '-')]
+        for base in base_names:
+            for affix in common_affixes:
+                bucket_candidates.add(f"{base}-{affix}")
+                bucket_candidates.add(f"{affix}-{base}")
+
+        # Clean and limit bucket list
+        bucket_candidates = [b.lower().strip() for b in bucket_candidates
+                            if b and len(b) < 64 and b.replace('-', '').replace('.', '').isalnum()]
+
+        self.print_info(f"Testing {len(bucket_candidates)} potential bucket names...")
+
+        found_buckets = []
+
+        # Check each bucket
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_bucket = {
+                executor.submit(self._check_s3_bucket, bucket): bucket
+                for bucket in bucket_candidates
+            }
+
+            for future in concurrent.futures.as_completed(future_to_bucket):
+                bucket_name = future_to_bucket[future]
+                try:
+                    result = future.result()
+                    if result:
+                        found_buckets.append(result)
+                        status = result['status']
+                        if status == 'Public Read':
+                            self.print_warning(f"PUBLICLY ACCESSIBLE: {bucket_name}")
+                        elif status == 'Private (Exists)':
+                            self.print_success(f"EXISTS (Private): {bucket_name}")
+                        elif status == 'Redirect':
+                            self.print_info(f"Redirects: {bucket_name}")
+                except Exception as e:
+                    pass
+
+        # Analyze accessible buckets
+        for bucket in found_buckets:
+            if bucket['status'] in ['Public Read', 'Redirect']:
+                self.print_info(f"Analyzing contents of {bucket['bucket']}...")
+                self._analyze_s3_bucket_contents(bucket)
+
+        self.results['s3_buckets'] = {
+            'tested': len(bucket_candidates),
+            'found': found_buckets,
+            'public_count': len([b for b in found_buckets if b['status'] == 'Public Read']),
+            'private_count': len([b for b in found_buckets if b['status'] == 'Private (Exists)'])
+        }
+
+        if found_buckets:
+            self.print_warning(f"Found {len(found_buckets)} S3 buckets:")
+            for bucket in found_buckets:
+                self.print_info(f"  {bucket['bucket']} - {bucket['status']}")
+        else:
+            self.print_success("No S3 buckets found")
+
+    def _check_s3_bucket(self, bucket_name: str) -> Optional[Dict[str, Any]]:
+        """Check if S3 bucket exists"""
+        urls_to_try = [
+            f"https://s3.amazonaws.com/{bucket_name}/",
+            f"https://{bucket_name}.s3.amazonaws.com/",
+            f"https://s3.us-east-1.amazonaws.com/{bucket_name}/",
+            f"https://s3.us-west-2.amazonaws.com/{bucket_name}/",
+        ]
+
+        for url in urls_to_try:
+            try:
+                response = self.session.get(url, timeout=5)
+
+                if response.status_code == 200:
+                    return {
+                        'bucket': bucket_name,
+                        'url': url,
+                        'status': 'Public Read',
+                        'response_length': len(response.content)
+                    }
+                elif response.status_code == 403:
+                    return {
+                        'bucket': bucket_name,
+                        'url': url,
+                        'status': 'Private (Exists)'
+                    }
+                elif response.status_code in [301, 302, 307, 308]:
+                    return {
+                        'bucket': bucket_name,
+                        'url': url,
+                        'status': 'Redirect',
+                        'redirect_location': response.headers.get('Location', 'Unknown')
+                    }
+            except:
+                continue
+
+        return None
+
+    def _analyze_s3_bucket_contents(self, bucket_info: Dict[str, Any]):
+        """Analyze S3 bucket contents"""
+        try:
+            response = self.session.get(bucket_info['url'], timeout=10)
+            if response.status_code != 200:
+                return
+
+            content = response.text
+            files = []
+
+            # Parse XML listing
+            import xml.etree.ElementTree as ET
+            try:
+                root = ET.fromstring(content)
+                for contents in root.findall('.//{http://s3.amazonaws.com/doc/2006-03-01/}Contents'):
+                    key = contents.find('{http://s3.amazonaws.com/doc/2006-03-01/}Key')
+                    size = contents.find('{http://s3.amazonaws.com/doc/2006-03-01/}Size')
+                    modified = contents.find('{http://s3.amazonaws.com/doc/2006-03-01/}LastModified')
+
+                    if key is not None:
+                        files.append({
+                            'key': key.text,
+                            'size': int(size.text) if size is not None else 0,
+                            'last_modified': modified.text if modified is not None else 'Unknown'
+                        })
+            except ET.ParseError:
+                # Fallback regex
+                keys = re.findall(r'<Key>([^<]+)</Key>', content)
+                files = [{'key': k, 'size': 0, 'last_modified': 'Unknown'} for k in keys]
+
+            bucket_info['files'] = files
+            bucket_info['file_count'] = len(files)
+
+            if files:
+                total_size = sum(f['size'] for f in files) / 1024  # KB
+                self.print_warning(f"  Found {len(files)} files ({total_size:.1f}KB total)")
+
+                # Show first 10 files
+                for i, f in enumerate(files[:10]):
+                    self.print_info(f"    {f['key']} ({f['size']/1024:.1f}KB)")
+                if len(files) > 10:
+                    self.print_info(f"    ... and {len(files)-10} more files")
+        except Exception as e:
+            self.print_error(f"Error analyzing bucket: {e}")
 
     def breach_database_check(self):
         """Check for compromised credentials in breach databases"""
