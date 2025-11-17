@@ -66,6 +66,7 @@ class ReconAutomation:
         self.ip_ranges = ip_ranges
         self.output_dir = Path(output_dir)
         self.client_name = client_name
+        self.theharvester_path = self._locate_theharvester()
         self.results = {
             'timestamp': datetime.now().isoformat(),
             'domain': domain,
@@ -427,20 +428,27 @@ class ReconAutomation:
     def _run_theharvester(self) -> List[str]:
         """Run theHarvester tool"""
         emails = []
+
+        if not self.theharvester_path:
+            self.print_warning("theHarvester not found. Install it or add to PATH.")
+            return emails
+
         try:
-            output = self.run_command([
-                'theHarvester',
-                '-d', self.domain,
-                '-b', 'all',
-                '-l', '500'
-            ], timeout=120)
+            # Build command based on whether it's a Python script or executable
+            if self.theharvester_path.endswith('.py'):
+                command = ['python3', self.theharvester_path, '-d', self.domain, '-b', 'all', '-l', '500']
+            else:
+                command = [self.theharvester_path, '-d', self.domain, '-b', 'all', '-l', '500']
+
+            output = self.run_command(command, timeout=120)
 
             if output:
                 # Extract emails from output
                 email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
                 emails = re.findall(email_pattern, output)
+                self.print_success(f"theHarvester found {len(set(emails))} email(s)")
         except Exception as e:
-            self.print_warning(f"theHarvester not available or failed: {e}")
+            self.print_warning(f"theHarvester execution failed: {e}")
 
         return emails
 
