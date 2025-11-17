@@ -48,6 +48,9 @@ from typing import List, Dict, Any, Optional
 import concurrent.futures
 import ipaddress
 import shutil
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Color codes for terminal output
 class Colors:
@@ -67,6 +70,12 @@ class ReconAutomation:
         self.ip_ranges = ip_ranges
         self.output_dir = Path(output_dir)
         self.client_name = client_name
+
+        # Initialize requests session
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
 
         # Load or create config
         self.config_file = Path('quick_recon_config.json')
