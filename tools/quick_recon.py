@@ -67,7 +67,14 @@ class ReconAutomation:
         self.ip_ranges = ip_ranges
         self.output_dir = Path(output_dir)
         self.client_name = client_name
+
+        # Load or create config
+        self.config_file = Path('quick_recon_config.json')
+        self.config = self.load_config()
+
+        # Locate theHarvester
         self.theharvester_path = self._locate_theharvester()
+
         self.results = {
             'timestamp': datetime.now().isoformat(),
             'domain': domain,
