@@ -47,6 +47,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 import concurrent.futures
 import ipaddress
+import shutil
 
 # Color codes for terminal output
 class Colors:
