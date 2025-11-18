@@ -198,8 +198,37 @@ def print_banner():
     """
     print(banner)
 
-def read_targets(filename):
+def parse_exclusions(exclude_list):
+    """
+    Parse exclusion list and expand any subnets to individual IPs
+    Returns a set of IPs to exclude
+    """
+    excluded_ips = set()
+
+    for item in exclude_list:
+        item = item.strip()
+        if not item:
+            continue
+
+        try:
+            # Check if it's a subnet
+            if '/' in item:
+                network = ipaddress.ip_network(item, strict=False)
+                excluded_ips.update([str(ip) for ip in network.hosts()])
+            else:
+                # Single IP
+                ipaddress.ip_address(item)  # Validate
+                excluded_ips.add(item)
+        except ValueError:
+            print(f"{Colors.YELLOW}[!] Invalid exclusion IP/subnet: {item}{Colors.RESET}")
+
+    return excluded_ips
+
+def read_targets(filename, excluded_ips=None):
     """Read targets from file and expand subnets to individual IPs"""
+    if excluded_ips is None:
+        excluded_ips = set()
+
     targets = []
     try:
         with open(filename, 'r') as f:
@@ -212,11 +241,15 @@ def read_targets(filename):
                     # Check if it's a subnet
                     if '/' in line:
                         network = ipaddress.ip_network(line, strict=False)
-                        targets.extend([str(ip) for ip in network.hosts()])
+                        for ip in network.hosts():
+                            ip_str = str(ip)
+                            if ip_str not in excluded_ips:
+                                targets.append(ip_str)
                     else:
                         # Single IP
                         ipaddress.ip_address(line)  # Validate
-                        targets.append(line)
+                        if line not in excluded_ips:
+                            targets.append(line)
                 except ValueError:
                     print(f"{Colors.YELLOW}[!] Invalid IP/subnet: {line}{Colors.RESET}")
 
@@ -589,7 +622,14 @@ def cleanup_and_exit(output_dir=None, exit_code=0):
 def main():
     parser = argparse.ArgumentParser(
         description='Active Directory Enumeration Tool for Authorized Penetration Testing',
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s -t targets.txt
+  %(prog)s -t targets.txt --exclude 192.168.1.1 192.168.1.5
+  %(prog)s -t targets.txt --exclude 192.168.1.0/28
+  %(prog)s -t targets.txt -u admin -p pass -d CORP.LOCAL
+        """
     )
     parser.add_argument('-t', '--targets', required=True, help='File containing IPs/subnets (one per line)')
     parser.add_argument('-o', '--output', default='ad_enum_results', help='Output directory (default: ad_enum_results)')
@@ -598,6 +638,7 @@ def main():
     parser.add_argument('-p', '--password', default='', help='Password for authenticated enumeration')
     parser.add_argument('--threads', type=int, default=50, help='Number of threads for DC discovery (default: 50)')
     parser.add_argument('--skip-asrep', action='store_true', help='Skip AS-REP roasting checks')
+    parser.add_argument('--exclude', nargs='+', default=[], help='IP addresses or subnets to exclude from scanning')
 
     args = parser.parse_args()
 
@@ -609,9 +650,21 @@ def main():
             print(f"\n{Colors.RED}[!] Cannot continue without critical tools{Colors.RESET}")
             sys.exit(1)
 
+        # Parse exclusions
+        excluded_ips = set()
+        if args.exclude:
+            print(f"{Colors.BOLD}[*] Processing exclusions...{Colors.RESET}")
+            excluded_ips = parse_exclusions(args.exclude)
+            if excluded_ips:
+                print(f"{Colors.YELLOW}[*] Excluding {len(excluded_ips)} IP(s) from scan{Colors.RESET}")
+
         # Read and expand targets
-        targets = read_targets(args.targets)
+        targets = read_targets(args.targets, excluded_ips)
         print(f"{Colors.BOLD}[*] Loaded {len(targets)} target IPs{Colors.RESET}")
+
+        if not targets:
+            print(f"{Colors.RED}[!] No targets to scan after exclusions{Colors.RESET}")
+            sys.exit(1)
 
         # Scan for Domain Controllers
         dcs = scan_for_dcs(targets, max_threads=args.threads)
