@@ -89,7 +89,13 @@ TOOL_PATHS = {
     'rpcclient': None,
     'smbclient': None,
     'nmblookup': None,
-    'nmap': None
+    'nmap': None,
+    'lookupsid.py': None,
+    'samrdump.py': None,
+    'rpcdump.py': None,
+    'secretsdump.py': None,
+    'smbclient.py': None,
+    'reg.py': None
 }
 
 
@@ -526,50 +532,183 @@ def get_smb_info(ip: str, username: str = '', password: str = '') -> Dict:
 
     return smb_info
 
+def enum_users_lookupsid(ip: str, domain: str = '', output_dir: str = '') -> List[str]:
+    """Enumerate users using Impacket lookupsid.py (RID cycling)"""
+    print(f"{Colors.BOLD}[*] Enumerating users via RID cycling (lookupsid.py)...{Colors.RESET}")
 
-def enum_rpc_services(ip: str) -> Dict:
-    """Enumerate RPC services using Impacket"""
+    users = []
+
+    if not TOOL_PATHS['lookupsid.py']:
+        print(f"{Colors.YELLOW}[!] lookupsid.py not available{Colors.RESET}")
+        return users
+
+    try:
+        # Anonymous connection attempt
+        target = f'{domain}/' if domain else ''
+        target += f'guest@{ip}'
+
+        cmd = get_tool_command('lookupsid.py', [target, '-no-pass'])
+
+        if not cmd:
+            return users
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+
+        if result.returncode == 0:
+            for line in result.stdout.split('\n'):
+                # Parse lines like: 500: DOMAIN\Administrator (SidTypeUser)
+                if 'SidTypeUser' in line:
+                    try:
+                        user_part = line.split(':')[1].split('(')[0].strip()
+                        if '\\' in user_part:
+                            user = user_part.split('\\')[1]
+                        else:
+                            user = user_part
+                        users.append(user)
+                    except:
+                        pass
+
+            if users:
+                print(f"{Colors.GREEN}[+] Found {len(users)} users via RID cycling{Colors.RESET}")
+
+    except subprocess.TimeoutExpired:
+        print(f"{Colors.YELLOW}[!] lookupsid.py timed out{Colors.RESET}")
+    except Exception as e:
+        print(f"{Colors.YELLOW}[!] Error with lookupsid.py: {e}{Colors.RESET}")
+
+    return users
+
+
+def enum_samrdump(ip: str, username: str = '', password: str = '') -> Dict:
+    """Enumerate SAM database using Impacket samrdump.py"""
+    print(f"{Colors.BOLD}[*] Querying SAM database (samrdump.py)...{Colors.RESET}")
+
+    sam_info = {}
+
+    if not TOOL_PATHS['samrdump.py']:
+        print(f"{Colors.YELLOW}[!] samrdump.py not available{Colors.RESET}")
+        return sam_info
+
+    try:
+        # Build credentials
+        if username or password:
+            creds = f'{username}:{password}@' if username else f':{password}@'
+        else:
+            creds = ''
+
+        target = f'{creds}{ip}'
+
+        cmd = get_tool_command('samrdump.py', [target])
+
+        if not cmd:
+            return sam_info
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+        if result.returncode == 0:
+            output = result.stdout
+
+            # Parse users from output
+            users = []
+            for line in output.split('\n'):
+                if 'Found user:' in line or 'Name:' in line:
+                    try:
+                        user = line.split(':')[1].strip()
+                        users.append(user)
+                    except:
+                        pass
+
+            if users:
+                sam_info['users'] = users
+                print(f"{Colors.GREEN}[+] Found {len(users)} users in SAM database{Colors.RESET}")
+
+    except subprocess.TimeoutExpired:
+        print(f"{Colors.YELLOW}[!] samrdump.py timed out{Colors.RESET}")
+    except Exception as e:
+        print(f"{Colors.YELLOW}[!] Error with samrdump.py: {e}{Colors.RESET}")
+
+    return sam_info
+
+
+def enum_rpcdump(ip: str, output_dir: str) -> Dict:
+    """Enumerate RPC endpoints using Impacket rpcdump.py"""
+    print(f"{Colors.BOLD}[*] Enumerating RPC endpoints (rpcdump.py)...{Colors.RESET}")
+
     rpc_info = {}
 
-    if not IMPACKET_AVAILABLE:
+    if not TOOL_PATHS['rpcdump.py']:
+        print(f"{Colors.YELLOW}[!] rpcdump.py not available{Colors.RESET}")
         return rpc_info
 
     try:
-        # Connect to endpoint mapper
-        string_binding = f'ncacn_ip_tcp:{ip}[135]'
-        trans = transport.DCERPCTransportFactory(string_binding)
-        trans.set_connect_timeout(10)
+        output_file = os.path.join(output_dir, f'rpcdump_{ip}.txt')
 
-        dce = trans.get_dce_rpc()
-        dce.connect()
+        cmd = get_tool_command('rpcdump.py', [ip])
 
-        # Query endpoint mapper
-        dce.bind(epm.MSRPC_UUID_PORTMAP)
+        if not cmd:
+            return rpc_info
 
-        # Get endpoint map
-        resp = epm.hept_lookup(dce)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
-        endpoints = []
-        for entry in resp:
-            binding = entry['tower']['Floors']
-            if len(binding) >= 3:
-                uuid = str(binding[0])
-                proto = str(binding[2])
-                endpoints.append({
-                    'uuid': uuid,
-                    'protocol': proto
-                })
+        # Save output
+        with open(output_file, 'w') as f:
+            f.write(result.stdout)
 
-        rpc_info['endpoints'] = endpoints
-        rpc_info['endpoint_count'] = len(endpoints)
+        if result.returncode == 0:
+            # Count endpoints
+            endpoint_count = result.stdout.count('Protocol:')
+            rpc_info['endpoint_count'] = endpoint_count
+            rpc_info['output_file'] = output_file
+            print(f"{Colors.GREEN}[+] Found {endpoint_count} RPC endpoints - saved to {output_file}{Colors.RESET}")
 
-        dce.disconnect()
-
+    except subprocess.TimeoutExpired:
+        print(f"{Colors.YELLOW}[!] rpcdump.py timed out{Colors.RESET}")
     except Exception as e:
-        rpc_info['error'] = str(e)
+        print(f"{Colors.YELLOW}[!] Error with rpcdump.py: {e}{Colors.RESET}")
 
     return rpc_info
 
+def enum_shares_smbclient(ip: str, username: str = '', password: str = '', output_dir: str = '') -> List[Dict]:
+    """Enumerate shares using Impacket smbclient.py"""
+    print(f"{Colors.BOLD}[*] Enumerating shares (smbclient.py)...{Colors.RESET}")
+
+    shares = []
+
+    if not TOOL_PATHS['smbclient.py']:
+        return shares
+
+    try:
+        # Build credentials
+        if username or password:
+            creds = f'{username}:{password}@' if username else f':{password}@'
+        else:
+            creds = ''
+
+        target = f'{creds}{ip}'
+
+        cmd = get_tool_command('smbclient.py', [target, '-list'])
+
+        if not cmd:
+            return shares
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+        if result.returncode == 0:
+            for line in result.stdout.split('\n'):
+                if 'DISK' in line or 'IPC' in line:
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        shares.append({'name': parts[0], 'type': parts[1]})
+
+            if shares:
+                print(f"{Colors.GREEN}[+] Found {len(shares)} shares via smbclient.py{Colors.RESET}")
+
+    except subprocess.TimeoutExpired:
+        print(f"{Colors.YELLOW}[!] smbclient.py timed out{Colors.RESET}")
+    except Exception as e:
+        print(f"{Colors.YELLOW}[!] Error with smbclient.py: {e}{Colors.RESET}")
+
+    return shares
 
 def run_enum4linux(ip: str, output_dir: str) -> Dict:
     """Run enum4linux for comprehensive enumeration"""
@@ -665,7 +804,6 @@ def run_enum4linux(ip: str, output_dir: str) -> Dict:
 
     return enum_results
 
-
 def enumerate_windows_system(ip: str, ports: Dict, output_dir: str, username: str = '', password: str = '') -> Dict:
     """
     Comprehensive enumeration of a Windows system
@@ -705,14 +843,6 @@ def enumerate_windows_system(ip: str, ports: Dict, output_dir: str, username: st
             if 'shares' in smb_info and smb_info['shares']:
                 print(f"{Colors.GREEN}[+] Found {len(smb_info['shares'])} shares{Colors.RESET}")
 
-    # Enumerate RPC if available
-    if 135 in ports:
-        print(f"{Colors.BOLD}[*] Enumerating RPC services...{Colors.RESET}")
-        rpc_info = enum_rpc_services(ip)
-        if rpc_info and 'endpoint_count' in rpc_info:
-            system_info['rpc'] = rpc_info
-            print(f"{Colors.GREEN}[+] Found {rpc_info['endpoint_count']} RPC endpoints{Colors.RESET}")
-
     # Run enum4linux for comprehensive enumeration
     enum4linux_results = run_enum4linux(ip, output_dir)
     if enum4linux_results:
@@ -722,8 +852,29 @@ def enumerate_windows_system(ip: str, ports: Dict, output_dir: str, username: st
         if 'groups' in enum4linux_results:
             print(f"{Colors.GREEN}[+] Found {len(enum4linux_results['groups'])} groups{Colors.RESET}")
 
-    return system_info
+    # RID cycling enumeration (lookupsid.py)
+    domain = system_info.get('smb', {}).get('server_domain', '')
+    lookupsid_users = enum_users_lookupsid(ip, domain, output_dir)
+    if lookupsid_users:
+        system_info['lookupsid_users'] = lookupsid_users
 
+    # SAM database enumeration (samrdump.py)
+    sam_info = enum_samrdump(ip, username, password)
+    if sam_info:
+        system_info['sam'] = sam_info
+
+    # RPC endpoint dump (rpcdump.py)
+    if 135 in ports:
+        rpcdump_info = enum_rpcdump(ip, output_dir)
+        if rpcdump_info:
+            system_info['rpcdump'] = rpcdump_info
+
+    # Additional share enumeration with Impacket (smbclient.py)
+    impacket_shares = enum_shares_smbclient(ip, username, password, output_dir)
+    if impacket_shares:
+        system_info['impacket_shares'] = impacket_shares
+
+    return system_info
 
 def save_results(system_info: Dict, output_dir: str):
     """Save enumeration results to files"""
