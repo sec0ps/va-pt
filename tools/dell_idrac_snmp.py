@@ -35,7 +35,16 @@
 # =============================================================================
 #!/usr/bin/env python3
 
-from pysnmp.hlapi import *
+#!/usr/bin/env python3
+from pysnmp.hlapi import (
+    SnmpEngine,
+    CommunityData,
+    UdpTransportTarget,
+    ContextData,
+    ObjectType,
+    ObjectIdentity,
+    nextCmd
+)
 import sys
 import argparse
 
@@ -74,9 +83,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 Examples:
-  %(prog)s -t 192.168.1.1
-  %(prog)s -t 192.168.1.1 -c private
-  %(prog)s -t 192.168.1.1 -o output.txt
+  %(prog)s -t 192.168.50.153
+  %(prog)s -t 192.168.50.153 -c private
+  %(prog)s -t 192.168.50.153 -o output.txt
         '''
     )
 
