@@ -75,6 +75,7 @@
 import subprocess
 import argparse
 import sys
+import re
 
 def snmp_walk(target, community, oid_name, oid):
     """Perform SNMP walk using snmpwalk command"""
@@ -103,6 +104,46 @@ def snmp_walk(target, community, oid_name, oid):
         print("[-] Error: snmpwalk not found. Install with: apt-get install snmp")
         sys.exit(1)
 
+def full_walk_filter(target, community, filter_strings=True):
+    """Do a full walk and filter for interesting data"""
+    print(f"\n{'='*60}")
+    print(f"[+] Full Walk - Filtering for Interesting Strings")
+    print('='*60)
+
+    try:
+        result = subprocess.run(
+            ['snmpwalk', '-v1', '-c', community, target],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+
+        if result.returncode == 0 and result.stdout:
+            lines = result.stdout.strip().split('\n')
+            interesting = []
+
+            for line in lines:
+                # Filter for STRING types with actual content (not empty, not just numbers)
+                if 'STRING:' in line:
+                    # Extract the string value
+                    match = re.search(r'STRING:\s*"?([^"]+)"?', line)
+                    if match:
+                        value = match.group(1).strip()
+                        # Filter out empty, numeric-only, or very short strings
+                        if value and len(value) > 2 and not value.isdigit():
+                            # Skip common noise
+                            if value not in ['unknown', '0', '1', 'true', 'false']:
+                                interesting.append(line)
+                                print(line)
+
+            return interesting
+        else:
+            print(f"[-] No data or error")
+            return []
+    except subprocess.TimeoutExpired:
+        print(f"[-] Timeout")
+        return []
+
 def main():
     parser = argparse.ArgumentParser(
         description='Dell iDRAC SNMP Information Extractor',
@@ -121,19 +162,24 @@ Examples:
                         help='SNMP community string (default: public)')
     parser.add_argument('-o', '--output',
                         help='Output file to save results')
+    parser.add_argument('--full-walk', action='store_true',
+                    help='Do full SNMP walk and filter for interesting strings')
 
     args = parser.parse_args()
 
     # High-value OIDs for Dell iDRAC
     oids_to_check = {
-        'System Info': '1.3.6.1.4.1.674.10892.5.1.1',
-        'User Accounts': '1.3.6.1.4.1.674.10892.5.4.1200.10.1',
+        'System Description': '1.3.6.1.2.1.1.1.0',
+        'System Name': '1.3.6.1.2.1.1.5.0',
+        'System Contact': '1.3.6.1.2.1.1.4.0',
+        'System Location': '1.3.6.1.2.1.1.6.0',
+        'Dell System Info': '1.3.6.1.4.1.674.10892.5.1.1',
+        'Dell Firmware': '1.3.6.1.4.1.674.10892.5.4.300.50.1',
+        'Dell Hardware': '1.3.6.1.4.1.674.10892.5.4.300',
         'Network Config': '1.3.6.1.4.1.674.10892.5.4.1100',
-        'Firmware': '1.3.6.1.4.1.674.10892.5.4.300.50.1',
-        'Hardware': '1.3.6.1.4.1.674.10892.5.4.300',
         'IP Addresses': '1.3.6.1.2.1.4.20.1',
-        'Network Interfaces': '1.3.6.1.2.1.2.2.1.2',
-        'ARP Table': '1.3.6.1.2.1.4.22.1.2',
+        'Network Interfaces': '1.3.6.1.2.1.2.2.1',
+        'ARP Table': '1.3.6.1.2.1.4.22.1',
         'Routing Table': '1.3.6.1.2.1.4.21.1',
         'TCP Connections': '1.3.6.1.2.1.6.13.1'
     }
@@ -144,10 +190,17 @@ Examples:
 
     all_results = []
 
-    for name, oid in oids_to_check.items():
-        results = snmp_walk(args.target, args.community, name, oid)
+    if args.full_walk:
+        # Do comprehensive walk with filtering
+        results = full_walk_filter(args.target, args.community)
         if results:
-            all_results.extend([f"\n{'='*60}", f"[+] {name}", '='*60] + results)
+            all_results.extend(results)
+    else:
+        # Normal targeted OID checks
+        for name, oid in oids_to_check.items():
+            results = snmp_walk(args.target, args.community, name, oid)
+            if results:
+                all_results.extend([f"\n{'='*60}", f"[+] {name}", '='*60] + results)
 
     # Save to file if specified
     if args.output:
