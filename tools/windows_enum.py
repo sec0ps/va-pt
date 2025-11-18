@@ -823,32 +823,7 @@ def enumerate_windows_system(ip: str, ports: Dict, output_dir: str, username: st
         'timestamp': datetime.now().isoformat()
     }
 
-    # Get NetBIOS information
-    print(f"{Colors.BOLD}[*] Gathering NetBIOS information...{Colors.RESET}")
-    netbios_info = get_netbios_info(ip)
-    if netbios_info:
-        system_info['netbios'] = netbios_info
-        if 'computer_name' in netbios_info:
-            print(f"{Colors.GREEN}[+] Computer Name: {netbios_info['computer_name']}{Colors.RESET}")
-
-    # Get SMB information
-    if 445 in ports or 139 in ports:
-        print(f"{Colors.BOLD}[*] Gathering SMB information...{Colors.RESET}")
-        smb_info = get_smb_info(ip, username, password)
-        if smb_info:
-            system_info['smb'] = smb_info
-            if 'server_os' in smb_info:
-                print(f"{Colors.GREEN}[+] OS: {smb_info['server_os']}{Colors.RESET}")
-            if 'server_domain' in smb_info:
-                print(f"{Colors.GREEN}[+] Domain: {smb_info['server_domain']}{Colors.RESET}")
-            if 'anonymous_login' in smb_info:
-                status = "Allowed" if smb_info['anonymous_login'] else "Not Allowed"
-                color = Colors.GREEN if smb_info['anonymous_login'] else Colors.YELLOW
-                print(f"{color}[+] Anonymous Login: {status}{Colors.RESET}")
-            if 'shares' in smb_info and smb_info['shares']:
-                print(f"{Colors.GREEN}[+] Found {len(smb_info['shares'])} shares{Colors.RESET}")
-
-    # Run enum4linux for comprehensive enumeration
+    # Run enum4linux for comprehensive enumeration (includes NetBIOS, SMB, shares)
     enum4linux_results = run_enum4linux(ip, output_dir)
     if enum4linux_results:
         system_info['enum4linux'] = enum4linux_results
@@ -858,7 +833,7 @@ def enumerate_windows_system(ip: str, ports: Dict, output_dir: str, username: st
             print(f"{Colors.GREEN}[+] Found {len(enum4linux_results['groups'])} groups{Colors.RESET}")
 
     # RID cycling enumeration (lookupsid.py)
-    domain = system_info.get('smb', {}).get('server_domain', '')
+    domain = enum4linux_results.get('domain', '') if enum4linux_results else ''
     lookupsid_users = enum_users_lookupsid(ip, domain, output_dir)
     if lookupsid_users:
         system_info['lookupsid_users'] = lookupsid_users
@@ -874,7 +849,7 @@ def enumerate_windows_system(ip: str, ports: Dict, output_dir: str, username: st
         if rpcdump_info:
             system_info['rpcdump'] = rpcdump_info
 
-    # Additional share enumeration with Impacket (smbclient.py)
+    # Share enumeration with Impacket (smbclient.py)
     impacket_shares = enum_shares_smbclient(ip, username, password, output_dir)
     if impacket_shares:
         system_info['impacket_shares'] = impacket_shares
