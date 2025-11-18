@@ -273,13 +273,15 @@ def check_port(ip, port, timeout=2):
 def identify_dc(ip):
     """
     Identify if target is a Domain Controller by checking common DC ports
-    DC typically has: 88 (Kerberos), 389 (LDAP), 445 (SMB), 3268 (Global Catalog)
+    DC typically has: 88 (Kerberos), 389 (LDAP), 636 (LDAPS), 445 (SMB), 3268/3269 (Global Catalog)
     """
     dc_ports = {
         88: 'Kerberos',
         389: 'LDAP',
+        636: 'LDAPS',
         445: 'SMB',
         3268: 'Global Catalog',
+        3269: 'Global Catalog SSL',
         53: 'DNS'
     }
 
@@ -288,8 +290,12 @@ def identify_dc(ip):
         if check_port(ip, port, timeout=1):
             open_ports[port] = service
 
-    # Consider it a DC if it has Kerberos, LDAP, and SMB
-    is_dc = 88 in open_ports and 389 in open_ports and 445 in open_ports
+    # Consider it a DC if it has Kerberos, SMB, and either LDAP or LDAPS
+    has_kerberos = 88 in open_ports
+    has_smb = 445 in open_ports
+    has_ldap = 389 in open_ports or 636 in open_ports
+
+    is_dc = has_kerberos and has_smb and has_ldap
 
     return is_dc, open_ports
 
