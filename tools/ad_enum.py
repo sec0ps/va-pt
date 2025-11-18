@@ -265,19 +265,31 @@ def scan_for_dcs(targets, max_threads=50):
     print(f"\n{Colors.BOLD}[*] Scanning {len(targets)} targets for Domain Controllers...{Colors.RESET}")
     dcs = []
 
-    with ThreadPoolExecutor(max_workers=max_threads) as executor:
-        future_to_ip = {executor.submit(identify_dc, ip): ip for ip in targets}
+    try:
+        with ThreadPoolExecutor(max_workers=max_threads) as executor:
+            future_to_ip = {executor.submit(identify_dc, ip): ip for ip in targets}
 
-        for future in as_completed(future_to_ip):
-            ip = future_to_ip[future]
             try:
-                is_dc, open_ports = future.result()
-                if is_dc:
-                    dcs.append({'ip': ip, 'ports': open_ports})
-                    services = ', '.join([f"{p}({s})" for p, s in open_ports.items()])
-                    print(f"{Colors.GREEN}[+] Domain Controller found: {ip} [{services}]{Colors.RESET}")
-            except Exception as e:
-                pass
+                for future in as_completed(future_to_ip):
+                    ip = future_to_ip[future]
+                    try:
+                        is_dc, open_ports = future.result()
+                        if is_dc:
+                            dcs.append({'ip': ip, 'ports': open_ports})
+                            services = ', '.join([f"{p}({s})" for p, s in open_ports.items()])
+                            print(f"{Colors.GREEN}[+] Domain Controller found: {ip} [{services}]{Colors.RESET}")
+                    except Exception as e:
+                        pass
+            except KeyboardInterrupt:
+                print(f"\n{Colors.YELLOW}[!] Scan interrupted. Cancelling remaining tasks...{Colors.RESET}")
+                for future in future_to_ip:
+                    future.cancel()
+                executor.shutdown(wait=False, cancel_futures=True)
+                raise
+    except KeyboardInterrupt:
+        if dcs:
+            print(f"{Colors.YELLOW}[!] Returning {len(dcs)} Domain Controller(s) found so far{Colors.RESET}")
+        raise
 
     return dcs
 
@@ -506,40 +518,58 @@ def enum_asreproast(dc_ip, domain, output_dir):
 
 def save_results(dc_info, output_dir):
     """Save enumeration results to files"""
-    os.makedirs(output_dir, exist_ok=True)
+    try:
+        os.makedirs(output_dir, exist_ok=True)
 
-    dc_ip = dc_info['ip']
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        dc_ip = dc_info['ip']
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-    # Save users
-    if dc_info.get('users'):
-        user_file = os.path.join(output_dir, f'users_{dc_ip}.txt')
-        with open(user_file, 'w') as f:
-            for user in dc_info['users']:
-                f.write(f"{user}\n")
-        print(f"{Colors.GREEN}[+] Users saved to {user_file}{Colors.RESET}")
+        # Save users
+        if dc_info.get('users'):
+            user_file = os.path.join(output_dir, f'users_{dc_ip}.txt')
+            with open(user_file, 'w') as f:
+                for user in dc_info['users']:
+                    f.write(f"{user}\n")
+            print(f"{Colors.GREEN}[+] Users saved to {user_file}{Colors.RESET}")
 
-    # Save groups
-    if dc_info.get('groups'):
-        group_file = os.path.join(output_dir, f'groups_{dc_ip}.txt')
-        with open(group_file, 'w') as f:
-            for group in dc_info['groups']:
-                f.write(f"{group['name']} (RID: {group['rid']})\n")
-        print(f"{Colors.GREEN}[+] Groups saved to {group_file}{Colors.RESET}")
+        # Save groups
+        if dc_info.get('groups'):
+            group_file = os.path.join(output_dir, f'groups_{dc_ip}.txt')
+            with open(group_file, 'w') as f:
+                for group in dc_info['groups']:
+                    f.write(f"{group['name']} (RID: {group['rid']})\n")
+            print(f"{Colors.GREEN}[+] Groups saved to {group_file}{Colors.RESET}")
 
-    # Save shares
-    if dc_info.get('shares'):
-        share_file = os.path.join(output_dir, f'shares_{dc_ip}.txt')
-        with open(share_file, 'w') as f:
-            for share in dc_info['shares']:
-                f.write(f"{share['name']} - {share['type']}\n")
-        print(f"{Colors.GREEN}[+] Shares saved to {share_file}{Colors.RESET}")
+        # Save shares
+        if dc_info.get('shares'):
+            share_file = os.path.join(output_dir, f'shares_{dc_ip}.txt')
+            with open(share_file, 'w') as f:
+                for share in dc_info['shares']:
+                    f.write(f"{share['name']} - {share['type']}\n")
+            print(f"{Colors.GREEN}[+] Shares saved to {share_file}{Colors.RESET}")
 
-    # Save JSON summary
-    json_file = os.path.join(output_dir, f'ad_enum_{dc_ip}_{timestamp}.json')
-    with open(json_file, 'w') as f:
-        json.dump(dc_info, f, indent=2)
-    print(f"{Colors.GREEN}[+] Full results saved to {json_file}{Colors.RESET}")
+        # Save JSON summary
+        json_file = os.path.join(output_dir, f'ad_enum_{dc_ip}_{timestamp}.json')
+        with open(json_file, 'w') as f:
+            json.dump(dc_info, f, indent=2)
+        print(f"{Colors.GREEN}[+] Full results saved to {json_file}{Colors.RESET}")
+
+    except KeyboardInterrupt:
+        raise
+    except Exception as e:
+        print(f"{Colors.RED}[!] Error saving results: {e}{Colors.RESET}")
+
+def cleanup_and_exit(output_dir=None, exit_code=0):
+    """Perform cleanup and exit gracefully"""
+    if output_dir and os.path.exists(output_dir):
+        print(f"\n{Colors.GREEN}[+] Results saved to: {output_dir}/{Colors.RESET}")
+
+    if exit_code == 0:
+        print(f"\n{Colors.BOLD}{Colors.GREEN}[+] Enumeration complete!{Colors.RESET}")
+    elif exit_code == 130:
+        print(f"\n{Colors.YELLOW}[!] Script interrupted by user{Colors.RESET}")
+
+    sys.exit(exit_code)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -556,60 +586,67 @@ def main():
 
     args = parser.parse_args()
 
-    print_banner()
+    try:
+        print_banner()
 
-    # Initialize and locate all tools
-    if not initialize_tools():
-        print(f"\n{Colors.RED}[!] Cannot continue without critical tools{Colors.RESET}")
-        sys.exit(1)
+        # Initialize and locate all tools
+        if not initialize_tools():
+            print(f"\n{Colors.RED}[!] Cannot continue without critical tools{Colors.RESET}")
+            sys.exit(1)
 
-    # Read and expand targets
-    targets = read_targets(args.targets)
-    print(f"{Colors.BOLD}[*] Loaded {len(targets)} target IPs{Colors.RESET}")
+        # Read and expand targets
+        targets = read_targets(args.targets)
+        print(f"{Colors.BOLD}[*] Loaded {len(targets)} target IPs{Colors.RESET}")
 
-    # Scan for Domain Controllers
-    dcs = scan_for_dcs(targets, max_threads=args.threads)
+        # Scan for Domain Controllers
+        dcs = scan_for_dcs(targets, max_threads=args.threads)
 
-    if not dcs:
-        print(f"\n{Colors.RED}[!] No Domain Controllers found{Colors.RESET}")
-        sys.exit(1)
+        if not dcs:
+            print(f"\n{Colors.RED}[!] No Domain Controllers found{Colors.RESET}")
+            sys.exit(1)
 
-    print(f"\n{Colors.GREEN}[+] Found {len(dcs)} Domain Controller(s){Colors.RESET}")
+        print(f"\n{Colors.GREEN}[+] Found {len(dcs)} Domain Controller(s){Colors.RESET}")
 
-    # Enumerate each DC
-    for dc in dcs:
-        dc_ip = dc['ip']
-        print(f"\n{Colors.BOLD}{'='*60}")
-        print(f"[*] Enumerating DC: {dc_ip}")
-        print(f"{'='*60}{Colors.RESET}")
+        # Enumerate each DC
+        for dc in dcs:
+            dc_ip = dc['ip']
+            print(f"\n{Colors.BOLD}{'='*60}")
+            print(f"[*] Enumerating DC: {dc_ip}")
+            print(f"{'='*60}{Colors.RESET}")
 
-        # Get domain info
-        domain_info = get_domain_info(dc_ip, args.domain)
-        domain = domain_info.get('domain', args.domain)
+            # Get domain info
+            domain_info = get_domain_info(dc_ip, args.domain)
+            domain = domain_info.get('domain', args.domain)
 
-        # Store all enumerated data
-        dc['domain_info'] = domain_info
-        dc['users'] = enum_users_impacket(dc_ip, domain, args.username, args.password)
-        dc['groups'] = enum_groups_impacket(dc_ip, domain, args.username, args.password)
-        dc['shares'] = enum_shares(dc_ip, args.username, args.password)
+            # Store all enumerated data
+            dc['domain_info'] = domain_info
+            dc['users'] = enum_users_impacket(dc_ip, domain, args.username, args.password)
+            dc['groups'] = enum_groups_impacket(dc_ip, domain, args.username, args.password)
+            dc['shares'] = enum_shares(dc_ip, args.username, args.password)
 
-        # Save results
-        save_results(dc, args.output)
+            # Save results
+            save_results(dc, args.output)
 
-        # AS-REP roasting check
-        if not args.skip_asrep and domain and dc['users']:
-            enum_asreproast(dc_ip, domain, args.output)
+            # AS-REP roasting check
+            if not args.skip_asrep and domain and dc['users']:
+                enum_asreproast(dc_ip, domain, args.output)
 
-    print(f"\n{Colors.BOLD}{Colors.GREEN}[+] Enumeration complete! Results saved to {args.output}/{Colors.RESET}")
+        print(f"\n{Colors.BOLD}{Colors.GREEN}[+] Enumeration complete! Results saved to {args.output}/{Colors.RESET}")
 
-    # Summary
-    print(f"\n{Colors.BOLD}=== SUMMARY ==={Colors.RESET}")
-    for dc in dcs:
-        print(f"\nDC: {dc['ip']}")
-        print(f"  Domain: {dc.get('domain_info', {}).get('domain', 'N/A')}")
-        print(f"  Users: {len(dc.get('users', []))}")
-        print(f"  Groups: {len(dc.get('groups', []))}")
-        print(f"  Shares: {len(dc.get('shares', []))}")
+        # Summary
+        print(f"\n{Colors.BOLD}=== SUMMARY ==={Colors.RESET}")
+        for dc in dcs:
+            print(f"\nDC: {dc['ip']}")
+            print(f"  Domain: {dc.get('domain_info', {}).get('domain', 'N/A')}")
+            print(f"  Users: {len(dc.get('users', []))}")
+            print(f"  Groups: {len(dc.get('groups', []))}")
+            print(f"  Shares: {len(dc.get('shares', []))}")
+
+    except KeyboardInterrupt:
+        print(f"\n\n{Colors.YELLOW}[!] Interrupted by user. Exiting...{Colors.RESET}")
+        if 'args' in locals() and os.path.exists(args.output):
+            print(f"{Colors.GREEN}[+] Partial results saved to {args.output}/{Colors.RESET}")
+        sys.exit(130)
 
 if __name__ == '__main__':
     main()
