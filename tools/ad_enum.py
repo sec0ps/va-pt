@@ -193,7 +193,6 @@ def print_banner():
     banner = f"""
 {Colors.BLUE}{'='*60}
     Active Directory Enumeration Tool
-    For Authorized Penetration Testing Only
 {'='*60}{Colors.RESET}
     """
     print(banner)
