@@ -264,6 +264,8 @@ def scan_for_dcs(targets, max_threads=50):
     """Scan targets to identify Domain Controllers"""
     print(f"\n{Colors.BOLD}[*] Scanning {len(targets)} targets for Domain Controllers...{Colors.RESET}")
     dcs = []
+    completed = 0
+    total = len(targets)
 
     try:
         with ThreadPoolExecutor(max_workers=max_threads) as executor:
@@ -272,14 +274,25 @@ def scan_for_dcs(targets, max_threads=50):
             try:
                 for future in as_completed(future_to_ip):
                     ip = future_to_ip[future]
+                    completed += 1
+
                     try:
                         is_dc, open_ports = future.result()
                         if is_dc:
                             dcs.append({'ip': ip, 'ports': open_ports})
                             services = ', '.join([f"{p}({s})" for p, s in open_ports.items()])
-                            print(f"{Colors.GREEN}[+] Domain Controller found: {ip} [{services}]{Colors.RESET}")
+                            # Clear progress line and print DC found
+                            print(f"\r{' ' * 80}\r{Colors.GREEN}[+] Domain Controller found: {ip} [{services}]{Colors.RESET}")
                     except Exception as e:
                         pass
+
+                    # Update progress bar
+                    percent = (completed / total) * 100
+                    bar_length = 40
+                    filled = int(bar_length * completed / total)
+                    bar = '█' * filled + '░' * (bar_length - filled)
+                    print(f"\r{Colors.BLUE}[*] Progress: [{bar}] {completed}/{total} ({percent:.1f}%) - {len(dcs)} DC(s) found{Colors.RESET}", end='', flush=True)
+
             except KeyboardInterrupt:
                 print(f"\n{Colors.YELLOW}[!] Scan interrupted. Cancelling remaining tasks...{Colors.RESET}")
                 for future in future_to_ip:
@@ -288,9 +301,11 @@ def scan_for_dcs(targets, max_threads=50):
                 raise
     except KeyboardInterrupt:
         if dcs:
-            print(f"{Colors.YELLOW}[!] Returning {len(dcs)} Domain Controller(s) found so far{Colors.RESET}")
+            print(f"\n{Colors.YELLOW}[!] Returning {len(dcs)} Domain Controller(s) found so far{Colors.RESET}")
         raise
 
+    # Clear progress line after completion
+    print(f"\r{' ' * 80}\r", end='')
     return dcs
 
 def get_domain_info(dc_ip, domain=None):
