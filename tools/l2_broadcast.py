@@ -35,8 +35,10 @@
 #
 # =============================================================================
 
+#!/usr/bin/env python3
 from datetime import datetime
 import argparse
+import struct
 
 from scapy.all import (
     sniff,
@@ -47,16 +49,6 @@ from scapy.all import (
     IP,
 )
 
-# Optional layers (may not exist in all Scapy builds)
-try:
-    from scapy.layers.l2 import CDP, Dot3, LLC, STP
-except ImportError:
-    CDP = None
-    Dot3 = None
-    LLC = None
-    STP = None
-
-# Broadcast / common L2 multicast MACs
 BROADCAST_MAC = "ff:ff:ff:ff:ff:ff"
 MULTICAST_MAC_LABELS = {
     "01:00:0c:cc:cc:cc": "CDP",
@@ -69,7 +61,7 @@ MULTICAST_MAC_LABELS = {
 
 def parse_args():
     p = argparse.ArgumentParser(
-        description="Listen for DHCP, CDP, ARP, LLDP, STP and other L2 broadcast/multicast frames."
+        description="Listen for L2 broadcast / discovery traffic (DHCP, CDP, ARP, LLDP, STP, etc.)"
     )
     p.add_argument(
         "-i",
@@ -81,41 +73,34 @@ def parse_args():
 
 
 def is_interesting_l2(pkt):
-    """Filter to only L2 broadcast / common multicast frames."""
     if Ether not in pkt:
         return False
-
     dst = pkt[Ether].dst.lower()
     if dst == BROADCAST_MAC:
         return True
     if dst in MULTICAST_MAC_LABELS:
         return True
-
-    # You can extend this to include more MACs if needed.
     return False
 
 
 def get_proto_label(pkt):
-    """Rough classification for display."""
     try:
         if ARP in pkt:
             return "ARP"
         if DHCP in pkt or BOOTP in pkt:
             return "DHCP"
-        if CDP and CDP in pkt:
-            return "CDP"
-        # LLDP EtherType
-        if pkt[Ether].type == 0x88CC:
-            return "LLDP"
-        if STP and STP in pkt:
-            return "STP"
 
-        dst = pkt[Ether].dst.lower()
+        eth = pkt[Ether]
+        dst = eth.dst.lower()
+
+        if dst == "01:00:0c:cc:cc:cc":
+            return "CDP"
+        if eth.type == 0x88CC:
+            return "LLDP"
         if dst == BROADCAST_MAC:
             return "BCAST"
         if dst in MULTICAST_MAC_LABELS:
             return MULTICAST_MAC_LABELS[dst]
-
         return "OTHER"
     except Exception:
         return "UNK"
@@ -168,20 +153,208 @@ def arp_info(pkt):
     return f"ARP[{op} {a.psrc} -> {a.pdst}]"
 
 
-def cdp_info(pkt):
-    if not (CDP and CDP in pkt):
-        return ""
-    c = pkt[CDP]
-    # Not all fields are always present; use getattr defensively
-    dev_id = getattr(c, "deviceid", "") or ""
-    port_id = getattr(c, "portid", "") or ""
-    parts = []
-    if dev_id:
-        parts.append(f"dev={dev_id}")
-    if port_id:
-        parts.append(f"port={port_id}")
-    return "CDP[" + ", ".join(parts) + "]" if parts else "CDP"
+# ---------- CDP DECODER (custom, no Scapy dependency) ----------
 
+CDP_TLV_TYPES = {
+    0x0001: "device_id",
+    0x0002: "addresses",
+    0x0003: "port_id",
+    0x0004: "capabilities",
+    0x0005: "software_version",
+    0x0006: "platform",
+    0x0007: "ip_prefix",      # rarely used
+    0x0009: "vtp_domain",
+    0x000a: "native_vlan",
+    0x000b: "duplex",
+    0x0010: "trust_bitmap",
+    0x0011: "untrusted_port_cos",
+}
+
+
+CDP_CAP_BITS = {
+    0x00000001: "Router",
+    0x00000002: "Transparent-Bridge",
+    0x00000004: "Source-Route-Bridge",
+    0x00000008: "Switch",
+    0x00000010: "Host",
+    0x00000020: "IGMP",
+    0x00000040: "Repeater",
+}
+
+
+def _decode_cdp_caps(val_bytes):
+    if len(val_bytes) < 4:
+        return None, None
+    bm = struct.unpack("!I", val_bytes[:4])[0]
+    caps = [name for bit, name in CDP_CAP_BITS.items() if bm & bit]
+    return bm, caps
+
+
+def _decode_cdp_addresses(val_bytes):
+    """
+    Decode CDP Addresses TLV (type 0x0002).
+    Returns list of textual addresses (mostly IPv4).
+    """
+    addrs = []
+    if len(val_bytes) < 4:
+        return addrs
+    try:
+        num_addrs = struct.unpack("!I", val_bytes[:4])[0]
+        idx = 4
+        for _ in range(num_addrs):
+            if idx + 2 > len(val_bytes):
+                break
+            pt = val_bytes[idx]
+            pl = val_bytes[idx + 1]
+            idx += 2
+            if idx + pl > len(val_bytes):
+                break
+            proto = val_bytes[idx:idx + pl]
+            idx += pl
+            if idx + 2 > len(val_bytes):
+                break
+            addr_len = struct.unpack("!H", val_bytes[idx:idx + 2])[0]
+            idx += 2
+            if idx + addr_len > len(val_bytes):
+                break
+            addr_bytes = val_bytes[idx:idx + addr_len]
+            idx += addr_len
+
+            # Heuristic: IPv4 addresses are 4 bytes
+            if addr_len == 4:
+                addrs.append(".".join(str(b) for b in addr_bytes))
+            else:
+                addrs.append(addr_bytes.hex())
+        return addrs
+    except Exception:
+        return addrs
+
+
+def _find_cdp_payload_bytes(pkt):
+    """
+    Try to locate the start of the CDP header in the payload bytes.
+    Handles both Ethernet II (type 0x2000) and 802.3 LLC/SNAP.
+    Returns bytes or None.
+    """
+    if Ether not in pkt:
+        return None
+    eth = pkt[Ether]
+
+    # Ethernet II: type 0x2000 means CDP directly
+    if getattr(eth, "type", None) == 0x2000:
+        return bytes(eth.payload)
+
+    # 802.3 LLC/SNAP with OUI 0x00000c and PID 0x2000:
+    # AA AA 03 00 00 0C 20 00
+    raw = bytes(eth.payload)
+    sig = b"\xaa\xaa\x03\x00\x00\x0c\x20\x00"
+    idx = raw.find(sig)
+    if idx != -1 and idx + len(sig) < len(raw):
+        return raw[idx + len(sig):]
+
+    # Fallback: treat entire payload as CDP, may or may not work
+    return raw if raw else None
+
+
+def decode_cdp(pkt):
+    """
+    Decode CDP from raw bytes.
+    Returns a dict with as many fields as possible.
+    """
+    payload = _find_cdp_payload_bytes(pkt)
+    if not payload or len(payload) < 4:
+        return None
+
+    info = {
+        "version": payload[0],
+        "ttl": payload[1],
+        "checksum": struct.unpack("!H", payload[2:4])[0],
+        "device_id": None,
+        "port_id": None,
+        "platform": None,
+        "software_version": None,
+        "native_vlan": None,
+        "duplex": None,
+        "vtp_domain": None,
+        "capabilities_raw": None,
+        "capabilities_list": None,
+        "mgmt_ips": [],
+        "raw_tlvs": [],
+    }
+
+    offset = 4
+    while offset + 4 <= len(payload):
+        try:
+            tlv_type, tlv_len = struct.unpack("!HH", payload[offset:offset + 4])
+        except struct.error:
+            break
+        if tlv_len < 4 or offset + tlv_len > len(payload):
+            break
+        val = payload[offset + 4:offset + tlv_len]
+        offset += tlv_len
+
+        name = CDP_TLV_TYPES.get(tlv_type, f"0x{tlv_type:04x}")
+        info["raw_tlvs"].append(
+            {"type": tlv_type, "name": name, "length": tlv_len - 4, "value_raw": val}
+        )
+
+        if tlv_type == 0x0001:  # device ID
+            try:
+                info["device_id"] = val.decode(errors="ignore").strip()
+            except Exception:
+                pass
+
+        elif tlv_type == 0x0003:  # port ID
+            try:
+                info["port_id"] = val.decode(errors="ignore").strip()
+            except Exception:
+                pass
+
+        elif tlv_type == 0x0006:  # platform
+            try:
+                info["platform"] = val.decode(errors="ignore").strip()
+            except Exception:
+                pass
+
+        elif tlv_type == 0x0005:  # software version
+            try:
+                info["software_version"] = val.decode(errors="ignore").strip()
+            except Exception:
+                pass
+
+        elif tlv_type == 0x000a and len(val) >= 2:  # native VLAN
+            info["native_vlan"] = struct.unpack("!H", val[:2])[0]
+
+        elif tlv_type == 0x000b and len(val) >= 1:  # duplex
+            mode = val[0]
+            if mode == 0:
+                info["duplex"] = "half"
+            elif mode == 1:
+                info["duplex"] = "full"
+            else:
+                info["duplex"] = f"unknown({mode})"
+
+        elif tlv_type == 0x0009:  # VTP domain
+            try:
+                info["vtp_domain"] = val.decode(errors="ignore").strip()
+            except Exception:
+                pass
+
+        elif tlv_type == 0x0004:  # capabilities
+            bm, caps = _decode_cdp_caps(val)
+            info["capabilities_raw"] = bm
+            info["capabilities_list"] = caps
+
+        elif tlv_type == 0x0002:  # addresses
+            addrs = _decode_cdp_addresses(val)
+            info["mgmt_ips"].extend(addrs)
+
+        # Other TLVs are left in raw_tlvs with hex data
+
+    return info
+
+
+# ---------- OUTPUT HELPERS ----------
 
 def generic_info(pkt, proto_label):
     return proto_label + "[" + pkt.summary() + "]"
@@ -192,9 +365,65 @@ def build_info(pkt, proto_label):
         return dhcp_info(pkt)
     if proto_label == "ARP":
         return arp_info(pkt)
-    if proto_label == "CDP":
-        return cdp_info(pkt)
     return generic_info(pkt, proto_label)
+
+
+def print_cdp_block(ts, pkt, src_mac, src_ip, dst_mac):
+    cdp = decode_cdp(pkt)
+    if not cdp:
+        print(
+            f"{ts}  CDP      {src_mac:<17}  {src_ip:<15} -> {dst_mac:<17}  (unable to decode CDP)"
+        )
+        return
+
+    print("=" * 80)
+    print(f"{ts}  CDP FRAME  {src_mac} ({src_ip or 'no-ip'}) -> {dst_mac}")
+    print("-" * 80)
+    print(f"  Version        : {cdp['version']}")
+    print(f"  TTL            : {cdp['ttl']} s")
+    print(f"  Checksum       : 0x{cdp['checksum']:04x}")
+
+    if cdp["device_id"]:
+        print(f"  Device ID      : {cdp['device_id']}")
+    if cdp["port_id"]:
+        print(f"  Port ID        : {cdp['port_id']}")
+    if cdp["platform"]:
+        print(f"  Platform       : {cdp['platform']}")
+    if cdp["software_version"]:
+        print("  SW Version     :")
+        for line in cdp["software_version"].splitlines():
+            print(f"    {line}")
+
+    if cdp["native_vlan"] is not None:
+        print(f"  Native VLAN    : {cdp['native_vlan']}")
+
+    if cdp["duplex"]:
+        print(f"  Duplex         : {cdp['duplex']}")
+
+    if cdp["vtp_domain"]:
+        print(f"  VTP Domain     : {cdp['vtp_domain']}")
+
+    if cdp["capabilities_raw"] is not None:
+        print(f"  Capabilities   : 0x{cdp['capabilities_raw']:08x}")
+        if cdp["capabilities_list"]:
+            print(f"    Decoded      : {', '.join(cdp['capabilities_list'])}")
+
+    if cdp["mgmt_ips"]:
+        print(f"  Mgmt IP(s)     : {', '.join(cdp['mgmt_ips'])}")
+
+    if cdp["raw_tlvs"]:
+        print("  Raw TLVs       :")
+        for tlv in cdp["raw_tlvs"]:
+            tname = tlv["name"]
+            ttype = tlv["type"]
+            v = tlv["value_raw"]
+            # show a short hex preview per TLV
+            preview = v.hex()
+            if len(preview) > 32:
+                preview = preview[:32] + "..."
+            print(f"    type=0x{ttype:04x} ({tname}), len={tlv['length']}: {preview}")
+
+    print("=" * 80)
 
 
 def packet_handler(pkt):
@@ -214,17 +443,18 @@ def packet_handler(pkt):
             src_ip = pkt[ARP].psrc
 
         proto = get_proto_label(pkt)
-        info = build_info(pkt, proto)
 
-        # Simple aligned, readable one-line output
+        if proto == "CDP":
+            print_cdp_block(ts, pkt, src_mac, src_ip, dst_mac)
+            return
+
+        info = build_info(pkt, proto)
         print(
             f"{ts}  {proto:<7}  {src_mac:<17}  {src_ip:<15} -> {dst_mac:<17}  {info}"
         )
 
-    except Exception as e:
-        # Swallow per-packet errors to keep sniffer running
-        # Uncomment for debugging:
-        # print(f"Error parsing packet: {e}")
+    except Exception:
+        # Keep sniffer running even if a single packet blows up
         pass
 
 
@@ -235,9 +465,7 @@ def main():
         "Listening for L2 broadcast / discovery traffic "
         f"on interface: {args.iface or 'DEFAULT'}"
     )
-    print(
-        "Columns: TIME  PROTO  SRC_MAC  SRC_IP  ->  DST_MAC  INFO"
-    )
+    print("Non-CDP Columns: TIME  PROTO  SRC_MAC  SRC_IP  ->  DST_MAC  INFO")
     print("-" * 100)
 
     sniff(
