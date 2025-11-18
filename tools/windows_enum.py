@@ -298,20 +298,50 @@ def check_port_scapy(ip: str, port: int, timeout: int = 2) -> bool:
         # Fallback to socket method
         return check_port_socket(ip, port, timeout)
 
-
 def scan_windows_ports(ip: str, timeout: float = 1) -> Dict[int, str]:
     """
-    Scan common Windows ports on target
+    Scan common Windows ports on target using nmap (or socket fallback)
     Returns dict of open ports with their services
     """
     open_ports = {}
 
+    # Use nmap if available
+    if TOOL_PATHS['nmap']:
+        try:
+            ports_str = ','.join([str(p) for p in WINDOWS_PORTS.keys()])
+
+            cmd = get_tool_command('nmap', [
+                '-p', ports_str,
+                '--open',
+                '-T4',
+                '-Pn',
+                '--host-timeout', '30s',
+                '--max-retries', '1',
+                ip
+            ])
+
+            if cmd:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+
+                if result.returncode == 0:
+                    # Parse nmap output
+                    for line in result.stdout.split('\n'):
+                        for port, service in WINDOWS_PORTS.items():
+                            if f'{port}/tcp' in line and 'open' in line:
+                                open_ports[port] = service
+
+                    return open_ports
+        except subprocess.TimeoutExpired:
+            pass
+        except Exception:
+            pass
+
+    # Fallback to socket scanning if nmap fails or unavailable
     for port, service in WINDOWS_PORTS.items():
         if check_port_socket(ip, port, timeout):
             open_ports[port] = service
 
     return open_ports
-
 
 def identify_windows_system(ip: str) -> Tuple[bool, Dict[int, str]]:
     """
