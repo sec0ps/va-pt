@@ -35,47 +35,73 @@
 # =============================================================================
 #!/usr/bin/env python3
 
+# =============================================================================
+# VAPT Toolkit - Vulnerability Assessment and Penetration Testing Toolkit
+# =============================================================================
+#
+# Author: Keith Pachulski
+# Company: Red Cell Security, LLC
+# Email: keith@redcellsecurity.org
+# Website: www.redcellsecurity.org
+#
+# Copyright (c) 2025 Keith Pachulski. All rights reserved.
+#
+# License: This software is licensed under the MIT License.
+#          You are free to use, modify, and distribute this software
+#          in accordance with the terms of the license.
+#
+# Purpose: This script provides an automated installation and management system
+#          for a vulnerability assessment and penetration testing
+#          toolkit. It installs and configures security tools across multiple
+#          categories including exploitation, web testing, network scanning,
+#          mobile security, cloud security, and Active Directory testing.
+#
+# DISCLAIMER: This software is provided "as-is," without warranty of any kind,
+#             express or implied, including but not limited to the warranties
+#             of merchantability, fitness for a particular purpose, and non-infringement.
+#             In no event shall the authors or copyright holders be liable for any claim,
+#             damages, or other liability, whether in an action of contract, tort, or otherwise,
+#             arising from, out of, or in connection with the software or the use or other dealings
+#             in the software.
+#
+# NOTICE: This toolkit is intended for authorized security testing only.
+#         Users are responsible for ensuring compliance with all applicable laws
+#         and regulations. Unauthorized use of these tools may violate local,
+#         state, federal, and international laws.
+#
+# =============================================================================
 #!/usr/bin/env python3
-from pysnmp.hlapi import (
-    SnmpEngine,
-    CommunityData,
-    UdpTransportTarget,
-    ContextData,
-    ObjectType,
-    ObjectIdentity,
-    nextCmd
-)
-import sys
+
+import subprocess
 import argparse
+import sys
 
 def snmp_walk(target, community, oid_name, oid):
-    """Perform SNMP walk on a specific OID"""
+    """Perform SNMP walk using snmpwalk command"""
     print(f"\n{'='*60}")
     print(f"[+] {oid_name}")
     print('='*60)
 
-    results = []
-    for (errorIndication, errorStatus, errorIndex, varBinds) in nextCmd(
-        SnmpEngine(),
-        CommunityData(community),
-        UdpTransportTarget((target, 161), timeout=2, retries=1),
-        ContextData(),
-        ObjectType(ObjectIdentity(oid)),
-        lexicographicMode=False
-    ):
-        if errorIndication:
-            print(f"[-] Error: {errorIndication}")
-            break
-        elif errorStatus:
-            print(f"[-] Error: {errorStatus.prettyPrint()}")
-            break
-        else:
-            for varBind in varBinds:
-                result = f"{varBind[0].prettyPrint()} = {varBind[1].prettyPrint()}"
-                print(result)
-                results.append(result)
+    try:
+        result = subprocess.run(
+            ['snmpwalk', '-v1', '-c', community, target, oid],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
 
-    return results
+        if result.returncode == 0 and result.stdout:
+            print(result.stdout.strip())
+            return result.stdout.strip().split('\n')
+        else:
+            print(f"[-] No data or error")
+            return []
+    except subprocess.TimeoutExpired:
+        print(f"[-] Timeout")
+        return []
+    except FileNotFoundError:
+        print("[-] Error: snmpwalk not found. Install with: apt-get install snmp")
+        sys.exit(1)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -95,8 +121,6 @@ Examples:
                         help='SNMP community string (default: public)')
     parser.add_argument('-o', '--output',
                         help='Output file to save results')
-    parser.add_argument('-v', '--verbose', action='store_true',
-                        help='Verbose output')
 
     args = parser.parse_args()
 
