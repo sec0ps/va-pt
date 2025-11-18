@@ -183,7 +183,7 @@ def install_base_dependencies():
     run_command("sudo apt install -y libsqlite3-dev nbtscan dsniff apache2 secure-delete autoconf libpq-dev libmysqlclient-dev libsvn-dev libssh-dev libsmbclient-dev")
     run_command("sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff-ng httptunnel ptunnel-ng udptunnel pipx python3-venv ruby-dev")
     run_command("sudo apt install -y webhttrack minicom openjdk-21-jre gnome-tweaks macchanger recordmydesktop postgresql golang-1.23-go hydra-gtk hydra")
-    run_command("sudo apt install -y ncftp wine-development libcurl4-openssl-dev smbclient hackrf nfs-common samba gpsd")
+    run_command("sudo apt install -y ncftp wine-development libcurl4-openssl-dev smbclient hackrf nfs-common samba gpsd snmp libsnmp-dev libsnmp-perl snmp-mibs-downloader")
     run_command("sudo apt install -y docker.io docker-compose hcxtools httrack tshark git python-is-python3 tig")
     run_command("sudo apt install -y libffi-dev libyaml-dev libreadline-dev libncurses5-dev libgdbm-dev zlib1g-dev build-essential bison libedit-dev libxml2-utils")
     run_command("sudo usermod -aG docker $USER")
@@ -193,7 +193,7 @@ def install_base_dependencies():
 
     print("Installing Python Packages and Dependencies")
     run_command("pip3 install build dnspython kerberoast certipy-ad knowsmore sherlock-project wafw00f pypykatz zeep netaddr ujson aiomultiprocess aoihttp censys shodan")
-    run_command("pip install playwright uvloop")
+    run_command("pip install playwright uvloop easysnmp pysnmp tftpy")
     run_command("python -m pip install dnspython==1.16.0")
 
     # Install each pipx package separately
