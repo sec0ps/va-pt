@@ -42,17 +42,6 @@ except ImportError:
     SCAPY_AVAILABLE = False
     print("[!] Scapy not available - some functionality will be limited")
 
-try:
-    from impacket.smbconnection import SMBConnection
-    from impacket.dcerpc.v5 import transport, epm, srvs
-    from impacket.nmb import NetBIOSTimeout, NetBIOSError
-    from impacket import nmb
-    IMPACKET_AVAILABLE = True
-except ImportError:
-    IMPACKET_AVAILABLE = False
-    print("[!] Impacket not available - some functionality will be limited")
-
-
 class Colors:
     GREEN = '\033[92m'
     YELLOW = '\033[93m'
@@ -63,8 +52,6 @@ class Colors:
     RESET = '\033[0m'
     BOLD = '\033[1m'
 
-
-# Windows-specific ports to check
 WINDOWS_PORTS = {
     135: 'RPC',
     139: 'NetBIOS-SSN',
@@ -76,12 +63,9 @@ WINDOWS_PORTS = {
     389: 'LDAP',
     636: 'LDAPS',
     3268: 'Global Catalog',
+    3269: 'Global Catalog SSL',
     53: 'DNS',
-    80: 'HTTP',
-    443: 'HTTPS',
-    1433: 'MSSQL',
-    1521: 'Oracle',
-    3306: 'MySQL'
+    1433: 'MSSQL'
 }
 
 TOOL_PATHS = {
@@ -148,7 +132,6 @@ def find_tool_path(tool_name: str) -> Optional[str]:
 
     return None
 
-
 def initialize_tools() -> bool:
     """
     Initialize all required tools and verify they exist
@@ -166,7 +149,7 @@ def initialize_tools() -> bool:
 
         if path:
             print(f"{Colors.GREEN}[+] Found {tool}: {path}{Colors.RESET}")
-            if tool in ['enum4linux', 'enum4linux-ng', 'smbclient']:
+            if tool in ['enum4linux', 'smbclient']:
                 critical_found = True
         else:
             print(f"{Colors.YELLOW}[!] {tool} not found (optional){Colors.RESET}")
@@ -179,11 +162,6 @@ def initialize_tools() -> bool:
     else:
         print(f"{Colors.YELLOW}[!] Scapy not available - install with: pip install scapy{Colors.RESET}")
 
-    if IMPACKET_AVAILABLE:
-        print(f"{Colors.GREEN}[+] Impacket available{Colors.RESET}")
-    else:
-        print(f"{Colors.YELLOW}[!] Impacket not available - install with: pip install impacket{Colors.RESET}")
-
     if not critical_found and not IMPACKET_AVAILABLE:
         print(f"\n{Colors.RED}[!] No enumeration tools available. Install at least one of:{Colors.RESET}")
         print(f"    apt-get install samba-common-bin enum4linux")
@@ -192,7 +170,6 @@ def initialize_tools() -> bool:
 
     print()
     return True
-
 
 def get_tool_command(tool_name: str, args: List[str]) -> Optional[List[str]]:
     """
@@ -216,8 +193,6 @@ def print_banner():
     banner = f"""
 {Colors.CYAN}{'='*70}
     Windows System Enumeration Tool
-    Comprehensive Anonymous Enumeration for All Windows Systems
-    For Authorized Penetration Testing Only
 {'='*70}{Colors.RESET}
     """
     print(banner)
