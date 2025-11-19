@@ -607,7 +607,7 @@ def enum_rpc(ip: str, output_dir: str, domain: str = '', username: str = '', pas
             # Try anonymous/guest access
             target = f'{domain}/guest@{ip}' if domain else f'guest@{ip}'
 
-        cmd = get_tool_command('rpcdump.py', [target, '-no-pass'] if not password else [target])
+        cmd = get_tool_command('rpcdump.py', [target])
 
         if not cmd:
             return result_data
@@ -808,11 +808,6 @@ def save_results(system_info: Dict, output_dir: str):
     ip = system_info['ip']
 
     try:
-        # Save JSON format
-        json_file = os.path.join(output_dir, f'{ip}_enum.json')
-        with open(json_file, 'w') as f:
-            json.dump(system_info, f, indent=4)
-        print(f"[+] JSON report saved to {json_file}")
 
         # Save detailed text report
         report_file = os.path.join(output_dir, f'{ip}_enum_report.txt')
