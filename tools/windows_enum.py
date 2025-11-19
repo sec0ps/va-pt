@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # =============================================================================
-# VAPT Toolkit - Windows System Enumeration Tool (Impacket-Only)
+# VAPT Toolkit - Vulnerability Assessment and Penetration Testing Toolkit
 # =============================================================================
 #
 # Author: Keith Pachulski
@@ -11,15 +11,27 @@
 # Copyright (c) 2025 Keith Pachulski. All rights reserved.
 #
 # License: This software is licensed under the MIT License.
+#          You are free to use, modify, and distribute this software
+#          in accordance with the terms of the license.
 #
-# Purpose: Comprehensive Windows system enumeration tool for authorized
-#          penetration testing using Impacket suite exclusively.
+# Purpose: This script provides an automated installation and management system
+#          for a vulnerability assessment and penetration testing
+#          toolkit. It installs and configures security tools across multiple
+#          categories including exploitation, web testing, network scanning,
+#          mobile security, cloud security, and Active Directory testing.
 #
-# DISCLAIMER: This software is provided "as-is," without warranty of any kind.
-#             For authorized security testing only.
+# DISCLAIMER: This software is provided "as-is," without warranty of any kind,
+#             express or implied, including but not limited to the warranties
+#             of merchantability, fitness for a particular purpose, and non-infringement.
+#             In no event shall the authors or copyright holders be liable for any claim,
+#             damages, or other liability, whether in an action of contract, tort, or otherwise,
+#             arising from, out of, or in connection with the software or the use or other dealings
+#             in the software.
 #
 # NOTICE: This toolkit is intended for authorized security testing only.
-#         Users are responsible for ensuring compliance with all applicable laws.
+#         Users are responsible for ensuring compliance with all applicable laws
+#         and regulations. Unauthorized use of these tools may violate local,
+#         state, federal, and international laws.
 #
 # =============================================================================
 
@@ -226,7 +238,7 @@ def parse_exclusions(exclude_list: List[str]) -> Set[str]:
                 ipaddress.ip_address(item)  # Validate
                 excluded_ips.add(item)
         except ValueError:
-            print(f"{Colors.YELLOW}[!] Invalid exclusion IP/subnet: {item}{Colors.RESET}")
+            print(f"[!] Invalid exclusion IP/subnet: {item}")
 
     return excluded_ips
 
@@ -256,10 +268,10 @@ def read_targets(filename: str, excluded_ips: Optional[Set[str]] = None) -> List
                         if line not in excluded_ips:
                             targets.append(line)
                 except ValueError:
-                    print(f"{Colors.YELLOW}[!] Invalid IP/subnet: {line}{Colors.RESET}")
+                    print(f"[!] Invalid IP/subnet: {line}")
 
     except FileNotFoundError:
-        print(f"{Colors.RED}[!] File not found: {filename}{Colors.RESET}")
+        print(f"[!] File not found: {filename}")
         sys.exit(1)
 
     return targets
@@ -499,426 +511,392 @@ def enum_lookupsid(ip: str, domain: str = '', username: str = '', password: str 
     except subprocess.TimeoutExpired:
         print(f"[!] lookupsid.py timed out")
     except Exception as e:
-        print(f"[!] Error with lookupsid.py: {e}")
+        print(f"[!] Error running lookupsid.py: {e}")
 
     return result_data
 
-def enum_samrdump(ip: str, username: str = '', password: str = '', domain: str = '') -> Dict:
+def enum_samrdump(ip: str, domain: str = '', username: str = '', password: str = '') -> Dict:
     """
-    Enumerate SAM database using Impacket samrdump.py
-    Provides password policy and additional user info
+    Enumerate users and password policy using Impacket samrdump.py
     """
-    print(f"[*] Querying SAM database (samrdump.py)...")
+    print(f"[*] Enumerating SAM database (samrdump.py)...")
 
-    sam_info = {
+    result_data = {
         'users': [],
         'password_policy': {}
     }
 
     if not TOOL_PATHS['samrdump.py']:
         print(f"[!] samrdump.py not available")
-        return sam_info
+        return result_data
 
     try:
-        # Build target
-        if username or password:
-            creds = f'{username}:{password}@' if username else f':{password}@'
+        # Build target string
+        if username and password:
+            target = f'{domain}/{username}:{password}@{ip}' if domain else f'{username}:{password}@{ip}'
         else:
-            creds = ''
+            # Try anonymous/guest access
+            target = f'{domain}/guest@{ip}' if domain else f'guest@{ip}'
 
-        if domain:
-            target = f'{domain}/{creds}{ip}'
-        else:
-            target = f'{creds}{ip}'
-
-        cmd = get_tool_command('samrdump.py', [target])
+        cmd = get_tool_command('samrdump.py', [target, '-no-pass'] if not password else [target])
 
         if not cmd:
-            return sam_info
+            return result_data
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
 
-        if result.returncode == 0:
+        if result.returncode == 0 or result.stdout:
             output = result.stdout
 
             # Parse users
             for line in output.split('\n'):
-                if 'Found user:' in line or 'Name:' in line:
+                if 'Found user:' in line:
                     try:
-                        user = line.split(':')[1].strip()
-                        if user and not user.endswith('$'):
-                            sam_info['users'].append(user)
+                        user = line.split('Found user:')[1].split(',')[0].strip()
+                        result_data['users'].append(user)
                     except:
                         pass
 
             # Parse password policy
+            policy_keys = ['Minimum password length', 'Password history length',
+                          'Maximum password age', 'Password Complexity Flags',
+                          'Minimum password age', 'Reset Account Lockout Counter',
+                          'Locked Account Duration', 'Account Lockout Threshold']
+
             for line in output.split('\n'):
-                if 'Minimum password length:' in line:
-                    try:
-                        sam_info['password_policy']['min_length'] = line.split(':')[1].strip()
-                    except:
-                        pass
-                elif 'Password history length:' in line:
-                    try:
-                        sam_info['password_policy']['history_length'] = line.split(':')[1].strip()
-                    except:
-                        pass
-                elif 'Maximum password age:' in line:
-                    try:
-                        sam_info['password_policy']['max_age'] = line.split(':')[1].strip()
-                    except:
-                        pass
-                elif 'Password Complexity Flags:' in line:
-                    try:
-                        sam_info['password_policy']['complexity'] = line.split(':')[1].strip()
-                    except:
-                        pass
-                elif 'Lockout threshold:' in line:
-                    try:
-                        sam_info['password_policy']['lockout_threshold'] = line.split(':')[1].strip()
-                    except:
-                        pass
+                for key in policy_keys:
+                    if key in line:
+                        try:
+                            value = line.split(':')[1].strip()
+                            result_data['password_policy'][key] = value
+                        except:
+                            pass
 
-            if sam_info['users']:
-                print(f"[+] Found {len(sam_info['users'])} users in SAM database")
-
-            if sam_info['password_policy']:
+            if result_data['users']:
+                print(f"[+] Found {len(result_data['users'])} users via SAM")
+            if result_data['password_policy']:
                 print(f"[+] Retrieved password policy")
 
     except subprocess.TimeoutExpired:
         print(f"[!] samrdump.py timed out")
     except Exception as e:
-        print(f"[!] Error with samrdump.py: {e}")
+        print(f"[!] Error running samrdump.py: {e}")
 
-    return sam_info
+    return result_data
 
-def enum_rpcdump(ip: str, output_dir: str) -> Dict:
+def enum_rpc(ip: str, output_dir: str, domain: str = '', username: str = '', password: str = '') -> Dict:
     """
     Enumerate RPC endpoints using Impacket rpcdump.py
-    Maps available RPC services
     """
     print(f"[*] Enumerating RPC endpoints (rpcdump.py)...")
 
-    rpc_info = {}
+    result_data = {
+        'endpoints': [],
+        'endpoint_count': 0
+    }
 
     if not TOOL_PATHS['rpcdump.py']:
         print(f"[!] rpcdump.py not available")
-        return rpc_info
+        return result_data
 
     try:
-        output_file = os.path.join(output_dir, f'rpcdump_{ip}.txt')
+        # Build target string
+        if username and password:
+            target = f'{domain}/{username}:{password}@{ip}' if domain else f'{username}:{password}@{ip}'
+        else:
+            # Try anonymous/guest access
+            target = f'{domain}/guest@{ip}' if domain else f'guest@{ip}'
 
-        cmd = get_tool_command('rpcdump.py', [ip])
+        cmd = get_tool_command('rpcdump.py', [target, '-no-pass'] if not password else [target])
 
         if not cmd:
-            return rpc_info
+            return result_data
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        # Save output to file
+        output_file = os.path.join(output_dir, f'rpcdump_{ip}.txt')
 
-        # Save output
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+
+        # Save raw output
         with open(output_file, 'w') as f:
             f.write(result.stdout)
+            if result.stderr:
+                f.write("\n\n=== STDERR ===\n")
+                f.write(result.stderr)
 
-        if result.returncode == 0:
-            # Count endpoints
-            endpoint_count = result.stdout.count('Protocol:')
-            rpc_info['endpoint_count'] = endpoint_count
-            rpc_info['output_file'] = output_file
-            print(f"[+] Found {endpoint_count} RPC endpoints - saved to {output_file}")
+        if result.returncode == 0 or result.stdout:
+            output = result.stdout
+
+            # Parse endpoints
+            for line in output.split('\n'):
+                if 'UUID' in line or 'ncacn_' in line or 'Protocol:' in line:
+                    result_data['endpoints'].append(line.strip())
+
+            result_data['endpoint_count'] = len(result_data['endpoints'])
+            result_data['output_file'] = output_file
+
+            if result_data['endpoint_count'] > 0:
+                print(f"[+] Found {result_data['endpoint_count']} RPC endpoints")
 
     except subprocess.TimeoutExpired:
         print(f"[!] rpcdump.py timed out")
     except Exception as e:
-        print(f"[!] Error with rpcdump.py: {e}")
+        print(f"[!] Error running rpcdump.py: {e}")
 
-    return rpc_info
+    return result_data
 
-def enum_shares_smbclient(ip: str, username: str = '', password: str = '', domain: str = '', output_dir: str = '') -> Dict:
+def enum_shares(ip: str, domain: str = '', username: str = '', password: str = '') -> Dict:
     """
-    Enumerate shares using rpcclient netshareenumall
-    Returns dict with shares list only - no file creation
+    Enumerate shares using Impacket smbclient.py
     """
-    print(f"[*] Enumerating shares (rpcclient)...")
+    print(f"[*] Enumerating shares (smbclient.py)...")
 
-    share_info = {
-        'shares': []
+    result_data = {
+        'shares': [],
+        'raw_output': ''
     }
 
-    try:
-        # Try anonymous first
-        cmd = ['rpcclient', '-U', '%', '-c', 'netshareenumall', ip]
-
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-
-        if result.returncode == 0 and result.stdout:
-            output = result.stdout
-
-            # Parse shares from rpcclient output
-            current_share = None
-            for line in output.split('\n'):
-                line = line.strip()
-
-                if line.startswith('netname:'):
-                    share_name = line.split(':', 1)[1].strip()
-                    current_share = {'name': share_name, 'type': 'Disk', 'comment': ''}
-                elif line.startswith('remark:') and current_share:
-                    comment = line.split(':', 1)[1].strip()
-                    current_share['comment'] = comment
-                elif line.startswith('path:') and current_share:
-                    share_info['shares'].append(current_share)
-                    current_share = None
-
-            if current_share:
-                share_info['shares'].append(current_share)
-
-            if share_info['shares']:
-                print(f"[+] Found {len(share_info['shares'])} shares")
-            else:
-                print(f"[!] No shares enumerated (may require authentication)")
-
-            # Store raw output in memory only
-            share_info['raw_output'] = output
-        else:
-            # Try with credentials if provided
-            if username and password:
-                creds = f'{domain}\\{username}%{password}' if domain else f'{username}%{password}'
-                cmd = ['rpcclient', '-U', creds, '-c', 'netshareenumall', ip]
-
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-
-                if result.returncode == 0 and result.stdout:
-                    output = result.stdout
-                    current_share = None
-                    for line in output.split('\n'):
-                        line = line.strip()
-
-                        if line.startswith('netname:'):
-                            share_name = line.split(':', 1)[1].strip()
-                            current_share = {'name': share_name, 'type': 'Disk', 'comment': ''}
-                        elif line.startswith('remark:') and current_share:
-                            comment = line.split(':', 1)[1].strip()
-                            current_share['comment'] = comment
-                        elif line.startswith('path:') and current_share:
-                            share_info['shares'].append(current_share)
-                            current_share = None
-
-                    if current_share:
-                        share_info['shares'].append(current_share)
-
-                    if share_info['shares']:
-                        print(f"[+] Found {len(share_info['shares'])} shares (authenticated)")
-
-                    share_info['raw_output'] = output
-
-    except subprocess.TimeoutExpired:
-        print(f"[!] rpcclient timed out")
-    except Exception as e:
-        print(f"[!] Error enumerating shares: {e}")
-
-    return share_info
-
-def enum_sessions(ip: str, username: str = '', password: str = '', domain: str = '') -> Dict:
-    """
-    Enumerate active sessions using Impacket (if netview available)
-    Shows logged on users and active sessions
-    """
-    print(f"[*] Enumerating sessions (netview.py)...")
-
-    session_info = {
-        'sessions': [],
-        'logged_on_users': []
-    }
-
-    if not TOOL_PATHS.get('netview.py'):
-        print(f"[!] netview.py not available (optional)")
-        return session_info
+    if not TOOL_PATHS['smbclient.py']:
+        print(f"[!] smbclient.py not available")
+        return result_data
 
     try:
-        # Build target
+        # Build target string
         if username and password:
             target = f'{domain}/{username}:{password}@{ip}' if domain else f'{username}:{password}@{ip}'
         else:
-            return session_info  # Sessions typically require auth
+            # Try anonymous/guest access
+            target = f'{domain}/guest@{ip}' if domain else f'guest@{ip}'
 
-        cmd = get_tool_command('netview.py', [target, '-target', ip])
+        cmd = get_tool_command('smbclient.py', [target, '-no-pass'] if not password else [target])
 
         if not cmd:
-            return session_info
+            return result_data
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60,
+                              input='shares\nexit\n')
 
-        if result.returncode == 0:
-            # Parse logged on users
-            for line in result.stdout.split('\n'):
-                if 'logged on' in line.lower() or 'session' in line.lower():
-                    session_info['sessions'].append(line.strip())
+        if result.returncode == 0 or result.stdout:
+            output = result.stdout
+            result_data['raw_output'] = output
 
-            if session_info['sessions']:
-                print(f"[+] Found {len(session_info['sessions'])} active sessions")
+            # Parse shares
+            for line in output.split('\n'):
+                if 'Disk' in line or 'IPC' in line or 'Printer' in line:
+                    try:
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            share_name = parts[0]
+                            share_type = parts[1] if len(parts) > 1 else 'Unknown'
+                            result_data['shares'].append({'name': share_name, 'type': share_type})
+                    except:
+                        pass
+
+            if result_data['shares']:
+                print(f"[+] Found {len(result_data['shares'])} shares")
+
+    except subprocess.TimeoutExpired:
+        print(f"[!] smbclient.py timed out")
+    except Exception as e:
+        print(f"[!] Error running smbclient.py: {e}")
+
+    return result_data
+
+def enum_sessions(ip: str, domain: str = '', username: str = '', password: str = '') -> Dict:
+    """
+    Enumerate active sessions using Impacket netview.py
+    """
+    print(f"[*] Enumerating active sessions (netview.py)...")
+
+    result_data = {
+        'sessions': []
+    }
+
+    if not TOOL_PATHS['netview.py']:
+        print(f"[!] netview.py not available")
+        return result_data
+
+    try:
+        # Build target string
+        if username and password:
+            target = f'{domain}/{username}:{password}@{ip}' if domain else f'{username}:{password}@{ip}'
+        else:
+            # Try anonymous/guest access
+            target = f'{domain}/guest@{ip}' if domain else f'guest@{ip}'
+
+        cmd = get_tool_command('netview.py', [target, '-no-pass'] if not password else [target])
+
+        if not cmd:
+            return result_data
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+
+        if result.returncode == 0 or result.stdout:
+            output = result.stdout
+
+            # Parse sessions
+            for line in output.split('\n'):
+                if line.strip() and not line.startswith('['):
+                    result_data['sessions'].append(line.strip())
+
+            if result_data['sessions']:
+                print(f"[+] Found {len(result_data['sessions'])} active sessions")
 
     except subprocess.TimeoutExpired:
         print(f"[!] netview.py timed out")
     except Exception as e:
-        print(f"[!] Error with netview.py: {e}")
+        print(f"[!] Error running netview.py: {e}")
 
-    return session_info
+    return result_data
 
-def enumerate_windows_system(ip: str, ports: Dict, output_dir: str, username: str = '', password: str = '', domain: str = '') -> Dict:
+def enumerate_windows_system(ip: str, open_ports: Dict[int, str], output_dir: str,
+                            username: str = '', password: str = '', domain: str = '') -> Dict:
     """
-    Comprehensive enumeration of a Windows system using only Impacket tools
+    Perform comprehensive enumeration of a Windows system
     """
-    print(f"\n{Colors.BOLD}{'='*70}")
-    print(f"[*] Enumerating Windows System: {ip}")
-    print(f"{'='*70}{Colors.RESET}")
+    print(f"\n{'='*70}")
+    print(f"ENUMERATING: {ip}")
+    print(f"{'='*70}")
 
     system_info = {
         'ip': ip,
-        'ports': ports,
+        'ports': open_ports,
         'timestamp': datetime.now().isoformat()
     }
 
-    # 1. RID Cycling - Users, Groups, Domain SID (replaces enum4linux -U -G)
-    lookupsid_results = enum_lookupsid(ip, domain, username, password, output_dir)
-    if lookupsid_results:
-        system_info['lookupsid'] = lookupsid_results
+    # RID Cycling (lookupsid.py) - Primary user/group enumeration
+    try:
+        lookupsid_data = enum_lookupsid(ip, domain, username, password, output_dir)
+        system_info['lookupsid'] = lookupsid_data
+    except Exception as e:
+        print(f"[!] lookupsid enumeration error: {e}")
 
-        # Extract domain for subsequent queries
-        if not domain and lookupsid_results.get('domain_name'):
-            domain = lookupsid_results['domain_name']
+    # SAM enumeration (samrdump.py) - Additional users and password policy
+    try:
+        sam_data = enum_samrdump(ip, domain, username, password)
+        system_info['sam'] = sam_data
+    except Exception as e:
+        print(f"[!] SAM enumeration error: {e}")
 
-    # 2. SAM Database - Password Policy (replaces enum4linux -P)
-    sam_info = enum_samrdump(ip, username, password, domain)
-    if sam_info:
-        system_info['sam'] = sam_info
+    # RPC enumeration
+    try:
+        rpc_data = enum_rpc(ip, output_dir, domain, username, password)
+        system_info['rpc'] = rpc_data
+    except Exception as e:
+        print(f"[!] RPC enumeration error: {e}")
 
-    # 3. Share Enumeration + OS Info
-    share_info = enum_shares_smbclient(ip, username, password, domain, output_dir)
-    if share_info:
-        system_info['shares'] = share_info
+    # Share enumeration
+    try:
+        shares_data = enum_shares(ip, domain, username, password)
+        system_info['shares'] = shares_data
+    except Exception as e:
+        print(f"[!] Share enumeration error: {e}")
 
-    # 4. RPC Endpoint Enumeration (replaces enum4linux -r)
-    if 135 in ports:
-        rpc_info = enum_rpcdump(ip, output_dir)
-        if rpc_info:
-            system_info['rpc'] = rpc_info
-
-    # 5. Session Enumeration (replaces enum4linux -i)
-    if username and password:
-        session_info = enum_sessions(ip, username, password, domain)
-        if session_info and session_info['sessions']:
-            system_info['sessions'] = session_info
+    # Session enumeration
+    try:
+        sessions_data = enum_sessions(ip, domain, username, password)
+        system_info['sessions'] = sessions_data
+    except Exception as e:
+        print(f"[!] Session enumeration error: {e}")
 
     return system_info
 
 def save_results(system_info: Dict, output_dir: str):
-    """Save enumeration results to single comprehensive report per host"""
+    """
+    Save enumeration results to files
+    """
+    ip = system_info['ip']
+
     try:
-        os.makedirs(output_dir, exist_ok=True)
+        # Save JSON format
+        json_file = os.path.join(output_dir, f'{ip}_enum.json')
+        with open(json_file, 'w') as f:
+            json.dump(system_info, f, indent=4)
+        print(f"[+] JSON report saved to {json_file}")
 
-        ip = system_info['ip']
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-        report_file = os.path.join(output_dir, f'{ip}_complete_report.txt')
-
+        # Save detailed text report
+        report_file = os.path.join(output_dir, f'{ip}_enum_report.txt')
         with open(report_file, 'w') as f:
             f.write("="*70 + "\n")
-            f.write(f"WINDOWS ENUMERATION REPORT\n")
-            f.write(f"Target: {ip}\n")
-            f.write(f"Scan Time: {timestamp}\n")
+            f.write(f"WINDOWS SYSTEM ENUMERATION REPORT\n")
             f.write("="*70 + "\n\n")
 
+            f.write(f"Target IP: {ip}\n")
+            f.write(f"Scan Time: {system_info['timestamp']}\n")
+            f.write(f"Open Ports: {', '.join([f'{p}({s})' for p, s in system_info['ports'].items()])}\n")
+            f.write("\n")
+
             # SYSTEM INFORMATION
-            f.write("[SYSTEM INFORMATION]\n")
-            f.write("-"*70 + "\n")
+            f.write("="*70 + "\n")
+            f.write("SYSTEM INFORMATION\n")
+            f.write("="*70 + "\n\n")
 
             if 'lookupsid' in system_info:
-                ls = system_info['lookupsid']
-                if ls.get('computer_name'):
-                    f.write(f"Computer Name: {ls['computer_name']}\n")
-                if ls.get('domain_name'):
-                    f.write(f"Domain: {ls['domain_name']}\n")
-                if ls.get('domain_sid'):
-                    f.write(f"Domain SID: {ls['domain_sid']}\n")
-
-            if 'ports' in system_info:
-                ports_str = ', '.join([f"{p}({s})" for p, s in system_info['ports'].items()])
-                f.write(f"Open Ports: {ports_str}\n")
-
-            f.write("\n\n")
+                if system_info['lookupsid'].get('computer_name'):
+                    f.write(f"Computer Name: {system_info['lookupsid']['computer_name']}\n")
+                if system_info['lookupsid'].get('domain_name'):
+                    f.write(f"Domain: {system_info['lookupsid']['domain_name']}\n")
+                if system_info['lookupsid'].get('domain_sid'):
+                    f.write(f"Domain SID: {system_info['lookupsid']['domain_sid']}\n")
+            f.write("\n")
 
             # USERS
-            f.write("[USERS ENUMERATED]\n")
-            f.write("-"*70 + "\n")
+            f.write("="*70 + "\n")
+            f.write("USER ACCOUNTS\n")
+            f.write("="*70 + "\n\n")
 
-            all_users = set()
+            # Users from RID cycling
             if 'lookupsid' in system_info and 'users' in system_info['lookupsid']:
-                all_users.update(system_info['lookupsid']['users'])
+                users = system_info['lookupsid']['users']
+                if users:
+                    f.write("[Users via RID Cycling (lookupsid.py)]\n")
+                    f.write("-"*70 + "\n")
+                    for user in sorted(users):
+                        f.write(f"  {user}\n")
+                    f.write(f"\n[Total: {len(users)} users]\n\n")
+
+            # Users from SAM
             if 'sam' in system_info and 'users' in system_info['sam']:
-                all_users.update(system_info['sam']['users'])
-
-            if all_users:
-                for user in sorted(all_users):
-                    f.write(f"{user}\n")
-                f.write(f"\n[Total: {len(all_users)} users]\n")
-            else:
-                f.write("No users enumerated\n")
-
-            f.write("\n\n")
+                sam_users = system_info['sam']['users']
+                if sam_users:
+                    f.write("[Users via SAM Dump (samrdump.py)]\n")
+                    f.write("-"*70 + "\n")
+                    for user in sorted(sam_users):
+                        f.write(f"  {user}\n")
+                    f.write(f"\n[Total: {len(sam_users)} users]\n\n")
 
             # GROUPS
-            f.write("[GROUPS ENUMERATED]\n")
-            f.write("-"*70 + "\n")
-
             if 'lookupsid' in system_info and 'groups' in system_info['lookupsid']:
                 groups = system_info['lookupsid']['groups']
                 if groups:
+                    f.write("="*70 + "\n")
+                    f.write("GROUPS\n")
+                    f.write("="*70 + "\n\n")
                     for group in sorted(groups):
-                        f.write(f"{group}\n")
-                    f.write(f"\n[Total: {len(groups)} groups]\n")
-                else:
-                    f.write("No groups enumerated\n")
-            else:
-                f.write("No groups enumerated\n")
-
-            f.write("\n\n")
-
-            # SHARES
-            f.write("[SHARES ENUMERATED]\n")
-            f.write("-"*70 + "\n")
-
-            if 'shares' in system_info and 'shares' in system_info['shares']:
-                shares_list = system_info['shares']['shares']
-                if shares_list:
-                    f.write(f"{'Share Name':<30} {'Comment'}\n")
-                    f.write("-"*70 + "\n")
-                    for share in shares_list:
-                        name = share['name'][:29]
-                        comment = share.get('comment', '')[:38]
-                        f.write(f"{name:<30} {comment}\n")
-                    f.write(f"\n[Total: {len(shares_list)} shares]\n")
-                else:
-                    f.write("No shares enumerated\n")
-            else:
-                f.write("No shares enumerated\n")
-
-            f.write("\n\n")
+                        f.write(f"  {group}\n")
+                    f.write(f"\n[Total: {len(groups)} groups]\n\n")
 
             # PASSWORD POLICY
-            f.write("[PASSWORD POLICY]\n")
-            f.write("-"*70 + "\n")
-
             if 'sam' in system_info and 'password_policy' in system_info['sam']:
                 policy = system_info['sam']['password_policy']
                 if policy:
+                    f.write("="*70 + "\n")
+                    f.write("PASSWORD POLICY\n")
+                    f.write("="*70 + "\n\n")
                     for key, value in policy.items():
-                        label = key.replace('_', ' ').title()
-                        f.write(f"{label:<30}: {value}\n")
-                else:
-                    f.write("No password policy retrieved\n")
-            else:
-                f.write("No password policy retrieved\n")
+                        f.write(f"{key}: {value}\n")
+                    f.write("\n")
 
-            f.write("\n\n")
+            # SHARES
+            if 'shares' in system_info and 'shares' in system_info['shares']:
+                shares = system_info['shares']['shares']
+                if shares:
+                    f.write("="*70 + "\n")
+                    f.write("SHARES\n")
+                    f.write("="*70 + "\n\n")
+                    for share in shares:
+                        f.write(f"  {share['name']:<30} {share['type']}\n")
+                    f.write(f"\n[Total: {len(shares)} shares]\n\n")
 
             # RPC ENDPOINTS
             if 'rpc' in system_info and 'output_file' in system_info['rpc']:
@@ -997,9 +975,9 @@ def save_results(system_info: Dict, output_dir: str):
 
 def print_summary(systems: List[Dict]):
     """Print enumeration summary"""
-    print(f"\n======================================================================")
+    print(f"\n{'='*70}")
     print("=== ENUMERATION SUMMARY ===")
-    print(f"======================================================================\n")
+    print(f"{'='*70}\n")
 
     for system in systems:
         print(f"System: {system['ip']}")
