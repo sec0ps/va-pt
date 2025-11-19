@@ -45,24 +45,69 @@ import multiprocessing
 
 def find_executable(name: str) -> Optional[str]:
     """
-    Try to locate an executable in PATH first,
-    then fall back to a more exhaustive filesystem search.
+    Locate an executable by name.
+
+    Order:
+      1. Try PATH via shutil.which()
+      2. Try `locate -e <name>`
+      3. Prompt user once for full path and validate it
+
+    Exits if nothing valid is found.
     """
-    # First, try PATH
+    # 1) PATH
     path = shutil.which(name)
     if path:
+        print(f"[+] Found {name} in PATH: {path}")
         return path
 
-    # Fallback: walk some common root dirs (avoid full / walk for speed)
-    search_roots = ["/usr/bin", "/usr/local/bin", "/opt"]
-    for root_dir in search_roots:
-        for root, _, files in os.walk(root_dir):
-            if name in files:
-                full_path = os.path.join(root, name)
-                if os.access(full_path, os.X_OK):
-                    return full_path
+    print(f"[!] {name} not found in PATH. Trying 'locate'...")
 
-    return None
+    # 2) locate
+    candidates: List[str] = []
+    try:
+        result = subprocess.run(
+            ["locate", "-e", name],  # -e: only existing files
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        if result.stdout:
+            candidates = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    except FileNotFoundError:
+        # locate command itself not found
+        candidates = []
+
+    if candidates:
+        if len(candidates) == 1:
+            print(f"[+] Found {name} via locate: {candidates[0]}")
+            return candidates[0]
+        else:
+            print(f"[+] Multiple {name} candidates found via locate:")
+            for idx, p in enumerate(candidates, 1):
+                print(f"  {idx}) {p}")
+            choice = input(f"Select one [1-{len(candidates)}] or press Enter to use 1: ").strip()
+            if choice.isdigit():
+                choice_int = int(choice)
+                if 1 <= choice_int <= len(candidates):
+                    selected = candidates[choice_int - 1]
+                    print(f"[+] Using: {selected}")
+                    return selected
+            # default
+            print(f"[+] Using first candidate: {candidates[0]}")
+            return candidates[0]
+
+    # 3) Prompt user once
+    print(f"[-] Could not locate '{name}' via PATH or locate.")
+    user_path = input(f"Enter full path to {name} binary: ").strip()
+    user_path = os.path.abspath(user_path)
+
+    if os.path.isfile(user_path) and os.access(user_path, os.X_OK):
+        print(f"[+] Using {name} at: {user_path}")
+        return user_path
+
+    print("[-] Invalid path or not executable. Exiting.")
+    sys.exit(1)
 
 def find_files_in_dirs(filename: str, base_dirs: List[str]) -> List[str]:
     """
