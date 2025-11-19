@@ -600,14 +600,13 @@ def enum_rpc(ip: str, output_dir: str, domain: str = '', username: str = '', pas
         return result_data
 
     try:
-        # Build target string
+
         if username and password:
             target = f'{domain}/{username}:{password}@{ip}' if domain else f'{username}:{password}@{ip}'
+            cmd = get_tool_command('rpcdump.py', [target])
         else:
-            # Try anonymous/guest access
-            target = f'{domain}/guest@{ip}' if domain else f'guest@{ip}'
-
-        cmd = get_tool_command('rpcdump.py', [target])
+            # Anonymous enumeration - just use IP with -target-ip flag
+            cmd = get_tool_command('rpcdump.py', ['-target-ip', ip, ip])
 
         if not cmd:
             return result_data
