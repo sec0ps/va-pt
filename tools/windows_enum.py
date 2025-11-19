@@ -363,7 +363,6 @@ def identify_windows_system(ip: str) -> Tuple[bool, Dict[int, str]]:
 
     return is_windows, open_ports
 
-
 def scan_for_windows_systems(targets: List[str], max_threads: int = 50) -> List[Dict]:
     """Scan targets to identify Windows systems"""
     print(f"\n{Colors.BOLD}[*] Scanning {len(targets)} targets for Windows systems...{Colors.RESET}")
@@ -371,6 +370,10 @@ def scan_for_windows_systems(targets: List[str], max_threads: int = 50) -> List[
     windows_systems = []
     completed = 0
     total = len(targets)
+
+    # Hide cursor for clean progress bar
+    sys.stdout.write('\033[?25l')
+    sys.stdout.flush()
 
     try:
         with ThreadPoolExecutor(max_workers=max_threads) as executor:
@@ -399,6 +402,9 @@ def scan_for_windows_systems(targets: List[str], max_threads: int = 50) -> List[
                     sys.stdout.flush()
 
             except KeyboardInterrupt:
+                # Show cursor on interrupt
+                sys.stdout.write('\033[?25h')
+                sys.stdout.flush()
                 print(f"\n{Colors.YELLOW}[!] Scan interrupted. Cancelling remaining tasks...{Colors.RESET}")
                 for future in future_to_ip:
                     future.cancel()
@@ -410,10 +416,12 @@ def scan_for_windows_systems(targets: List[str], max_threads: int = 50) -> List[
             print(f"\n{Colors.YELLOW}[!] Returning {len(windows_systems)} Windows system(s) found so far{Colors.RESET}")
         raise
 
-    print(f"\r{' ' * 100}\r", end='', flush=True)
+    # Clear progress bar and show cursor
+    print(f"\r{' ' * 100}\r", end='')
+    sys.stdout.write('\033[?25h')
     sys.stdout.flush()
-    return windows_systems
 
+    return windows_systems
 
 def enum_lookupsid(ip: str, domain: str = '', username: str = '', password: str = '', output_dir: str = '') -> Dict:
     """
