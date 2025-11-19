@@ -857,27 +857,26 @@ def enumerate_windows_system(ip: str, ports: Dict, output_dir: str, username: st
     return system_info
 
 def save_results(system_info: Dict, output_dir: str):
-    """Save enumeration results to consolidated files per host"""
+    """Save enumeration results to single comprehensive report per host"""
     try:
         os.makedirs(output_dir, exist_ok=True)
 
-        # Create raw outputs subdirectory
-        raw_dir = os.path.join(output_dir, 'raw')
-        os.makedirs(raw_dir, exist_ok=True)
-
         ip = system_info['ip']
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
         # Create single comprehensive report file per host
-        report_file = os.path.join(output_dir, f'{ip}_report.txt')
+        report_file = os.path.join(output_dir, f'{ip}_complete_report.txt')
 
         with open(report_file, 'w') as f:
             f.write("="*70 + "\n")
-            f.write(f"Windows Enumeration Report - {ip}\n")
-            f.write(f"Scan Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"WINDOWS ENUMERATION REPORT\n")
+            f.write(f"Target: {ip}\n")
+            f.write(f"Scan Time: {timestamp}\n")
             f.write("="*70 + "\n\n")
 
-            # System Information
+            # ============================================================
+            # SYSTEM INFORMATION
+            # ============================================================
             f.write("[SYSTEM INFORMATION]\n")
             f.write("-"*70 + "\n")
 
@@ -892,16 +891,18 @@ def save_results(system_info: Dict, output_dir: str):
 
             if 'shares' in system_info and 'os_info' in system_info['shares']:
                 if system_info['shares']['os_info'].get('banner'):
-                    f.write(f"OS Info: {system_info['shares']['os_info']['banner']}\n")
+                    f.write(f"OS: {system_info['shares']['os_info']['banner']}\n")
 
             if 'ports' in system_info:
                 ports_str = ', '.join([f"{p}({s})" for p, s in system_info['ports'].items()])
                 f.write(f"Open Ports: {ports_str}\n")
 
-            f.write("\n")
+            f.write("\n\n")
 
-            # Users
-            f.write("[USERS]\n")
+            # ============================================================
+            # USERS
+            # ============================================================
+            f.write("[USERS ENUMERATED]\n")
             f.write("-"*70 + "\n")
 
             all_users = set()
@@ -912,51 +913,59 @@ def save_results(system_info: Dict, output_dir: str):
 
             if all_users:
                 for user in sorted(all_users):
-                    f.write(f"  - {user}\n")
-                f.write(f"\nTotal Users: {len(all_users)}\n")
+                    f.write(f"{user}\n")
+                f.write(f"\n[Total: {len(all_users)} users]\n")
             else:
-                f.write("  No users enumerated\n")
+                f.write("No users enumerated\n")
 
-            f.write("\n")
+            f.write("\n\n")
 
-            # Groups
-            f.write("[GROUPS]\n")
+            # ============================================================
+            # GROUPS
+            # ============================================================
+            f.write("[GROUPS ENUMERATED]\n")
             f.write("-"*70 + "\n")
 
             if 'lookupsid' in system_info and 'groups' in system_info['lookupsid']:
                 groups = system_info['lookupsid']['groups']
                 if groups:
                     for group in sorted(groups):
-                        f.write(f"  - {group}\n")
-                    f.write(f"\nTotal Groups: {len(groups)}\n")
+                        f.write(f"{group}\n")
+                    f.write(f"\n[Total: {len(groups)} groups]\n")
                 else:
-                    f.write("  No groups enumerated\n")
+                    f.write("No groups enumerated\n")
             else:
-                f.write("  No groups enumerated\n")
+                f.write("No groups enumerated\n")
 
-            f.write("\n")
+            f.write("\n\n")
 
-            # Shares
-            f.write("[SHARES]\n")
+            # ============================================================
+            # SHARES
+            # ============================================================
+            f.write("[SHARES ENUMERATED]\n")
             f.write("-"*70 + "\n")
 
             if 'shares' in system_info and 'shares' in system_info['shares']:
                 shares_list = system_info['shares']['shares']
                 if shares_list:
+                    f.write(f"{'Share Name':<20} {'Type':<15} {'Comment'}\n")
+                    f.write("-"*70 + "\n")
                     for share in shares_list:
-                        f.write(f"  - {share['name']} ({share['type']})")
-                        if share.get('comment'):
-                            f.write(f" - {share['comment']}")
-                        f.write("\n")
-                    f.write(f"\nTotal Shares: {len(shares_list)}\n")
+                        name = share['name'][:19]
+                        stype = share['type'][:14]
+                        comment = share.get('comment', '')[:30]
+                        f.write(f"{name:<20} {stype:<15} {comment}\n")
+                    f.write(f"\n[Total: {len(shares_list)} shares]\n")
                 else:
-                    f.write("  No shares enumerated\n")
+                    f.write("No shares enumerated\n")
             else:
-                f.write("  No shares enumerated\n")
+                f.write("No shares enumerated\n")
 
-            f.write("\n")
+            f.write("\n\n")
 
-            # Password Policy
+            # ============================================================
+            # PASSWORD POLICY
+            # ============================================================
             f.write("[PASSWORD POLICY]\n")
             f.write("-"*70 + "\n")
 
@@ -964,79 +973,107 @@ def save_results(system_info: Dict, output_dir: str):
                 policy = system_info['sam']['password_policy']
                 if policy:
                     for key, value in policy.items():
-                        f.write(f"  {key.replace('_', ' ').title()}: {value}\n")
+                        label = key.replace('_', ' ').title()
+                        f.write(f"{label:<30}: {value}\n")
                 else:
-                    f.write("  No password policy retrieved\n")
+                    f.write("No password policy retrieved\n")
             else:
-                f.write("  No password policy retrieved\n")
+                f.write("No password policy retrieved\n")
 
-            f.write("\n")
+            f.write("\n\n")
 
-            # RPC Endpoints
-            if 'rpc' in system_info and 'endpoint_count' in system_info['rpc']:
+            # ============================================================
+            # RPC ENDPOINTS
+            # ============================================================
+            if 'rpc' in system_info and 'output_file' in system_info['rpc']:
                 f.write("[RPC ENDPOINTS]\n")
                 f.write("-"*70 + "\n")
-                f.write(f"  Total Endpoints: {system_info['rpc']['endpoint_count']}\n")
-                f.write(f"  Details: See {system_info['rpc']['output_file']}\n")
-                f.write("\n")
+                f.write(f"Total Endpoints: {system_info['rpc'].get('endpoint_count', 0)}\n\n")
 
-            # Sessions
+                # Include first 50 lines of RPC dump
+                try:
+                    with open(system_info['rpc']['output_file'], 'r') as rpc_file:
+                        lines = rpc_file.readlines()[:50]
+                        f.write("First 50 lines of RPC enumeration:\n")
+                        f.write("-"*70 + "\n")
+                        for line in lines:
+                            f.write(line)
+                        if len(lines) >= 50:
+                            f.write("\n... (output truncated, see full details below)\n")
+                except:
+                    pass
+
+                f.write("\n\n")
+
+            # ============================================================
+            # SESSIONS
+            # ============================================================
             if 'sessions' in system_info and 'sessions' in system_info['sessions']:
                 f.write("[ACTIVE SESSIONS]\n")
                 f.write("-"*70 + "\n")
                 sessions = system_info['sessions']['sessions']
                 if sessions:
                     for session in sessions:
-                        f.write(f"  - {session}\n")
-                    f.write(f"\nTotal Sessions: {len(sessions)}\n")
+                        f.write(f"{session}\n")
+                    f.write(f"\n[Total: {len(sessions)} sessions]\n")
                 else:
-                    f.write("  No active sessions\n")
-                f.write("\n")
+                    f.write("No active sessions\n")
+                f.write("\n\n")
 
-            # Raw Output References
-            f.write("[RAW TOOL OUTPUTS]\n")
-            f.write("-"*70 + "\n")
-            if 'lookupsid' in system_info and 'output_file' in system_info['lookupsid']:
-                f.write(f"  RID Cycling: {system_info['lookupsid']['output_file']}\n")
-            if 'shares' in system_info and 'output_file' in system_info['shares']:
-                f.write(f"  SMB Client: {system_info['shares']['output_file']}\n")
-            if 'rpc' in system_info and 'output_file' in system_info['rpc']:
-                f.write(f"  RPC Dump: {system_info['rpc']['output_file']}\n")
-
+            # ============================================================
+            # RAW TOOL OUTPUTS (Full content embedded)
+            # ============================================================
             f.write("\n")
             f.write("="*70 + "\n")
-            f.write("End of Report\n")
+            f.write("RAW TOOL OUTPUTS (Complete Details)\n")
+            f.write("="*70 + "\n\n")
+
+            # RID Cycling Output
+            if 'lookupsid' in system_info and 'output_file' in system_info['lookupsid']:
+                f.write("[LOOKUPSID.PY - RID CYCLING OUTPUT]\n")
+                f.write("-"*70 + "\n")
+                try:
+                    with open(system_info['lookupsid']['output_file'], 'r') as raw_file:
+                        f.write(raw_file.read())
+                except:
+                    f.write("Could not read lookupsid output\n")
+                f.write("\n\n")
+
+            # SMB Client Output
+            if 'shares' in system_info and 'output_file' in system_info['shares']:
+                f.write("[SMBCLIENT.PY - SHARE ENUMERATION OUTPUT]\n")
+                f.write("-"*70 + "\n")
+                try:
+                    with open(system_info['shares']['output_file'], 'r') as raw_file:
+                        f.write(raw_file.read())
+                except:
+                    f.write("Could not read smbclient output\n")
+                f.write("\n\n")
+
+            # RPC Dump Output (Full)
+            if 'rpc' in system_info and 'output_file' in system_info['rpc']:
+                f.write("[RPCDUMP.PY - COMPLETE RPC ENDPOINT LISTING]\n")
+                f.write("-"*70 + "\n")
+                try:
+                    with open(system_info['rpc']['output_file'], 'r') as raw_file:
+                        f.write(raw_file.read())
+                except:
+                    f.write("Could not read rpcdump output\n")
+                f.write("\n\n")
+
+            f.write("="*70 + "\n")
+            f.write("END OF REPORT\n")
             f.write("="*70 + "\n")
 
-        print(f"{Colors.GREEN}[+] Consolidated report saved to {report_file}{Colors.RESET}")
+        print(f"{Colors.GREEN}[+] Complete report saved to {report_file}{Colors.RESET}")
 
-        # Move raw tool outputs to raw subdirectory
-        if 'lookupsid' in system_info and 'output_file' in system_info['lookupsid']:
-            old_path = system_info['lookupsid']['output_file']
-            if os.path.exists(old_path):
-                new_path = os.path.join(raw_dir, os.path.basename(old_path))
-                os.rename(old_path, new_path)
-                system_info['lookupsid']['output_file'] = new_path
-
-        if 'shares' in system_info and 'output_file' in system_info['shares']:
-            old_path = system_info['shares']['output_file']
-            if os.path.exists(old_path):
-                new_path = os.path.join(raw_dir, os.path.basename(old_path))
-                os.rename(old_path, new_path)
-                system_info['shares']['output_file'] = new_path
-
-        if 'rpc' in system_info and 'output_file' in system_info['rpc']:
-            old_path = system_info['rpc']['output_file']
-            if os.path.exists(old_path):
-                new_path = os.path.join(raw_dir, os.path.basename(old_path))
-                os.rename(old_path, new_path)
-                system_info['rpc']['output_file'] = new_path
-
-        # Save JSON summary
-        json_file = os.path.join(output_dir, f'{ip}_data.json')
-        with open(json_file, 'w') as f:
-            json.dump(system_info, f, indent=2, default=str)
-        print(f"{Colors.GREEN}[+] JSON data saved to {json_file}{Colors.RESET}")
+        # Clean up individual raw files after consolidating
+        for tool_output in ['lookupsid', 'shares', 'rpc']:
+            if tool_output in system_info and 'output_file' in system_info.get(tool_output, {}):
+                try:
+                    os.remove(system_info[tool_output]['output_file'])
+                except:
+                    pass
 
     except Exception as e:
         print(f"{Colors.RED}[!] Error saving results: {e}{Colors.RESET}")
