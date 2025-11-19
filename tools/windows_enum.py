@@ -57,14 +57,13 @@ class Colors:
 def cleanup_terminal():
     """Restore terminal to normal state"""
     try:
-        # Clear any remaining progress indicators
-        print(f"\r{' ' * 100}\r", end='', flush=True)
-        # Reset all terminal attributes
-        print(f"{Colors.RESET}", end='', flush=True)
-        # Make cursor visible again
-        print("\033[?25h", end='', flush=True)
+        # Clear line
+        sys.stdout.write('\r' + ' ' * 100 + '\r')
+        # Show cursor
+        sys.stdout.write('\033[?25h')
+        # Reset colors
+        sys.stdout.write('\033[0m')
         sys.stdout.flush()
-        sys.stderr.flush()
     except:
         pass
 
@@ -222,8 +221,6 @@ def print_banner():
     banner = f"""
 {Colors.CYAN}{'='*70}
     Windows System Enumeration Tool (Impacket Suite)
-    Comprehensive Windows Enumeration Using Impacket Only
-    For Authorized Penetration Testing Only
 {'='*70}{Colors.RESET}
     """
     print(banner)
@@ -389,7 +386,9 @@ def scan_for_windows_systems(targets: List[str], max_threads: int = 50) -> List[
                         if is_windows:
                             windows_systems.append({'ip': ip, 'ports': open_ports})
                             services = ', '.join([f"{p}({s})" for p, s in open_ports.items()])
-                            print(f"\r{' ' * 100}\r{Colors.GREEN}[+] Windows system found: {ip} [{services}]{Colors.RESET}")
+                            # Clear line before printing
+                            sys.stdout.write('\r' + ' ' * 100 + '\r')
+                            print(f"{Colors.GREEN}[+] Windows system found: {ip} [{services}]{Colors.RESET}")
                     except Exception as e:
                         pass
 
@@ -398,14 +397,15 @@ def scan_for_windows_systems(targets: List[str], max_threads: int = 50) -> List[
                     bar_length = 40
                     filled = int(bar_length * completed / total)
                     bar = '█' * filled + '░' * (bar_length - filled)
-                    print(f"\r{Colors.BLUE}[*] Progress: [{bar}] {completed}/{total} ({percent:.1f}%) - {len(windows_systems)} system(s) found{Colors.RESET}", end='')
+                    sys.stdout.write(f"\r{Colors.BLUE}[*] Progress: [{bar}] {completed}/{total} ({percent:.1f}%) - {len(windows_systems)} system(s) found{Colors.RESET}")
                     sys.stdout.flush()
 
             except KeyboardInterrupt:
-                # Show cursor on interrupt
+                # Clear line and show cursor
+                sys.stdout.write('\r' + ' ' * 100 + '\r')
                 sys.stdout.write('\033[?25h')
                 sys.stdout.flush()
-                print(f"\n{Colors.YELLOW}[!] Scan interrupted. Cancelling remaining tasks...{Colors.RESET}")
+                print(f"{Colors.YELLOW}[!] Scan interrupted. Cancelling remaining tasks...{Colors.RESET}")
                 for future in future_to_ip:
                     future.cancel()
                 executor.shutdown(wait=False, cancel_futures=True)
@@ -413,13 +413,13 @@ def scan_for_windows_systems(targets: List[str], max_threads: int = 50) -> List[
 
     except KeyboardInterrupt:
         if windows_systems:
-            print(f"\n{Colors.YELLOW}[!] Returning {len(windows_systems)} Windows system(s) found so far{Colors.RESET}")
+            print(f"{Colors.YELLOW}[!] Returning {len(windows_systems)} Windows system(s) found so far{Colors.RESET}")
         raise
-
-    # Clear progress bar and show cursor
-    print(f"\r{' ' * 100}\r", end='')
-    sys.stdout.write('\033[?25h')
-    sys.stdout.flush()
+    finally:
+        # Always clear and show cursor
+        sys.stdout.write('\r' + ' ' * 100 + '\r')
+        sys.stdout.write('\033[?25h')
+        sys.stdout.flush()
 
     return windows_systems
 
@@ -671,7 +671,6 @@ def enum_rpcdump(ip: str, output_dir: str) -> Dict:
 
     return rpc_info
 
-
 def enum_shares_smbclient(ip: str, username: str = '', password: str = '', domain: str = '', output_dir: str = '') -> Dict:
     """
     Enumerate shares using Impacket smbclient.py
@@ -700,15 +699,16 @@ def enum_shares_smbclient(ip: str, username: str = '', password: str = '', domai
         else:
             target = f'{creds}{ip}'
 
-        # Use shares command to list shares
-        cmd = get_tool_command('smbclient.py', [target, '-list'] if not password else [target, '-list'])
+        # Use shares command - execute it and exit
+        cmd = get_tool_command('smbclient.py', [target])
 
         if not cmd:
             return share_info
 
         output_file = os.path.join(output_dir, f'smbclient_{ip}.txt')
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        # Run with 'shares' command via stdin
+        result = subprocess.run(cmd, capture_output=True, text=True, input='shares\nexit\n', timeout=30)
 
         # Save output
         with open(output_file, 'w') as f:
@@ -717,7 +717,7 @@ def enum_shares_smbclient(ip: str, username: str = '', password: str = '', domai
                 f.write("\n\n=== STDERR ===\n")
                 f.write(result.stderr)
 
-        if result.returncode == 0 or result.stdout:
+        if result.stdout:
             output = result.stdout
 
             # Extract OS information from connection banner
@@ -729,15 +729,22 @@ def enum_shares_smbclient(ip: str, username: str = '', password: str = '', domai
                 if 'SMB' in line and 'dialect' in line.lower():
                     share_info['smb_info']['dialect'] = line.strip()
 
-            # Parse shares
-            in_shares_section = False
+            # Parse shares - look for lines with # (shares command output format)
             for line in output.split('\n'):
-                # Look for share listings
-                if 'DISK' in line or 'IPC' in line or 'PRINTER' in line:
+                line = line.strip()
+                if not line or line.startswith('Type') or line.startswith('----'):
+                    continue
+
+                # Share format: "sharename    Disk    comment"
+                if '\t' in line or '  ' in line:
                     parts = line.split()
                     if len(parts) >= 2:
                         share_name = parts[0]
-                        share_type = 'DISK' if 'DISK' in line else ('IPC' if 'IPC' in line else 'PRINTER')
+                        share_type = parts[1] if len(parts) > 1 else 'Unknown'
+
+                        # Skip header lines
+                        if share_name.lower() in ['sharename', 'type', '----']:
+                            continue
 
                         # Extract comment if present
                         comment = ''
@@ -768,7 +775,6 @@ def enum_shares_smbclient(ip: str, username: str = '', password: str = '', domai
         print(f"{Colors.YELLOW}[!] Error with smbclient.py: {e}{Colors.RESET}")
 
     return share_info
-
 
 def enum_sessions(ip: str, username: str = '', password: str = '', domain: str = '') -> Dict:
     """
@@ -882,9 +888,7 @@ def save_results(system_info: Dict, output_dir: str):
             f.write(f"Scan Time: {timestamp}\n")
             f.write("="*70 + "\n\n")
 
-            # ============================================================
             # SYSTEM INFORMATION
-            # ============================================================
             f.write("[SYSTEM INFORMATION]\n")
             f.write("-"*70 + "\n")
 
@@ -907,9 +911,7 @@ def save_results(system_info: Dict, output_dir: str):
 
             f.write("\n\n")
 
-            # ============================================================
             # USERS
-            # ============================================================
             f.write("[USERS ENUMERATED]\n")
             f.write("-"*70 + "\n")
 
@@ -928,9 +930,7 @@ def save_results(system_info: Dict, output_dir: str):
 
             f.write("\n\n")
 
-            # ============================================================
             # GROUPS
-            # ============================================================
             f.write("[GROUPS ENUMERATED]\n")
             f.write("-"*70 + "\n")
 
@@ -947,9 +947,7 @@ def save_results(system_info: Dict, output_dir: str):
 
             f.write("\n\n")
 
-            # ============================================================
             # SHARES
-            # ============================================================
             f.write("[SHARES ENUMERATED]\n")
             f.write("-"*70 + "\n")
 
@@ -971,9 +969,7 @@ def save_results(system_info: Dict, output_dir: str):
 
             f.write("\n\n")
 
-            # ============================================================
             # PASSWORD POLICY
-            # ============================================================
             f.write("[PASSWORD POLICY]\n")
             f.write("-"*70 + "\n")
 
@@ -990,32 +986,21 @@ def save_results(system_info: Dict, output_dir: str):
 
             f.write("\n\n")
 
-            # ============================================================
-            # RPC ENDPOINTS
-            # ============================================================
+            # RPC ENDPOINTS - FULL OUTPUT ONLY (NO DUPLICATION)
             if 'rpc' in system_info and 'output_file' in system_info['rpc']:
-                f.write("[RPC ENDPOINTS]\n")
+                f.write("[RPC ENDPOINTS - COMPLETE LISTING]\n")
                 f.write("-"*70 + "\n")
                 f.write(f"Total Endpoints: {system_info['rpc'].get('endpoint_count', 0)}\n\n")
 
-                # Include first 50 lines of RPC dump
                 try:
                     with open(system_info['rpc']['output_file'], 'r') as rpc_file:
-                        lines = rpc_file.readlines()[:50]
-                        f.write("First 50 lines of RPC enumeration:\n")
-                        f.write("-"*70 + "\n")
-                        for line in lines:
-                            f.write(line)
-                        if len(lines) >= 50:
-                            f.write("\n... (output truncated, see full details below)\n")
+                        f.write(rpc_file.read())
                 except:
-                    pass
+                    f.write("Could not read rpcdump output\n")
 
                 f.write("\n\n")
 
-            # ============================================================
             # SESSIONS
-            # ============================================================
             if 'sessions' in system_info and 'sessions' in system_info['sessions']:
                 f.write("[ACTIVE SESSIONS]\n")
                 f.write("-"*70 + "\n")
@@ -1028,12 +1013,10 @@ def save_results(system_info: Dict, output_dir: str):
                     f.write("No active sessions\n")
                 f.write("\n\n")
 
-            # ============================================================
-            # RAW TOOL OUTPUTS (Full content embedded)
-            # ============================================================
+            # RAW TOOL OUTPUTS
             f.write("\n")
             f.write("="*70 + "\n")
-            f.write("RAW TOOL OUTPUTS (Complete Details)\n")
+            f.write("RAW TOOL OUTPUTS\n")
             f.write("="*70 + "\n\n")
 
             # RID Cycling Output
@@ -1056,17 +1039,6 @@ def save_results(system_info: Dict, output_dir: str):
                         f.write(raw_file.read())
                 except:
                     f.write("Could not read smbclient output\n")
-                f.write("\n\n")
-
-            # RPC Dump Output (Full)
-            if 'rpc' in system_info and 'output_file' in system_info['rpc']:
-                f.write("[RPCDUMP.PY - COMPLETE RPC ENDPOINT LISTING]\n")
-                f.write("-"*70 + "\n")
-                try:
-                    with open(system_info['rpc']['output_file'], 'r') as raw_file:
-                        f.write(raw_file.read())
-                except:
-                    f.write("Could not read rpcdump output\n")
                 f.write("\n\n")
 
             f.write("="*70 + "\n")
