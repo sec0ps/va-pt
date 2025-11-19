@@ -673,10 +673,10 @@ def enum_rpcdump(ip: str, output_dir: str) -> Dict:
 
 def enum_shares_smbclient(ip: str, username: str = '', password: str = '', domain: str = '', output_dir: str = '') -> Dict:
     """
-    Enumerate shares using Impacket smbclient.py
-    Also extracts OS information from SMB connection
+    Enumerate shares using rpcclient netshareenumall
+    smbclient.py doesn't support non-interactive share listing
     """
-    print(f"{Colors.BOLD}[*] Enumerating shares and OS info (smbclient.py)...{Colors.RESET}")
+    print(f"{Colors.BOLD}[*] Enumerating shares (rpcclient)...{Colors.RESET}")
 
     share_info = {
         'shares': [],
@@ -684,31 +684,16 @@ def enum_shares_smbclient(ip: str, username: str = '', password: str = '', domai
         'smb_info': {}
     }
 
-    if not TOOL_PATHS['smbclient.py']:
-        return share_info
+    # Use rpcclient for share enumeration instead of smbclient.py
+    # smbclient.py is interactive only and doesn't support -list flag
 
     try:
-        # Build target
-        if username or password:
-            creds = f'{username}:{password}@' if username else f':{password}@'
-        else:
-            creds = ''
+        output_file = os.path.join(output_dir, f'shares_{ip}.txt')
 
-        if domain:
-            target = f'{domain}/{creds}{ip}'
-        else:
-            target = f'{creds}{ip}'
+        # Try anonymous first
+        cmd = ['rpcclient', '-U', '%', '-c', 'netshareenumall', ip]
 
-        # Use shares command - execute it and exit
-        cmd = get_tool_command('smbclient.py', [target])
-
-        if not cmd:
-            return share_info
-
-        output_file = os.path.join(output_dir, f'smbclient_{ip}.txt')
-
-        # Run with 'shares' command via stdin
-        result = subprocess.run(cmd, capture_output=True, text=True, input='shares\nexit\n', timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
         # Save output
         with open(output_file, 'w') as f:
@@ -717,62 +702,77 @@ def enum_shares_smbclient(ip: str, username: str = '', password: str = '', domai
                 f.write("\n\n=== STDERR ===\n")
                 f.write(result.stderr)
 
-        if result.stdout:
+        if result.returncode == 0 and result.stdout:
             output = result.stdout
 
-            # Extract OS information from connection banner
-            for line in output.split('\n'):
-                if 'Windows' in line or 'OS:' in line:
-                    share_info['os_info']['banner'] = line.strip()
-
-                # Parse SMB version
-                if 'SMB' in line and 'dialect' in line.lower():
-                    share_info['smb_info']['dialect'] = line.strip()
-
-            # Parse shares - look for lines with # (shares command output format)
+            # Parse shares from rpcclient output
+            # Format: netname: SHARENAME
+            #         remark: Comment here
+            #         path: C:\path
+            current_share = None
             for line in output.split('\n'):
                 line = line.strip()
-                if not line or line.startswith('Type') or line.startswith('----'):
-                    continue
 
-                # Share format: "sharename    Disk    comment"
-                if '\t' in line or '  ' in line:
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        share_name = parts[0]
-                        share_type = parts[1] if len(parts) > 1 else 'Unknown'
+                if line.startswith('netname:'):
+                    share_name = line.split(':', 1)[1].strip()
+                    current_share = {'name': share_name, 'type': 'Disk', 'comment': ''}
+                elif line.startswith('remark:') and current_share:
+                    comment = line.split(':', 1)[1].strip()
+                    current_share['comment'] = comment
+                elif line.startswith('path:') and current_share:
+                    # End of share definition
+                    share_info['shares'].append(current_share)
+                    current_share = None
 
-                        # Skip header lines
-                        if share_name.lower() in ['sharename', 'type', '----']:
-                            continue
-
-                        # Extract comment if present
-                        comment = ''
-                        if len(parts) > 2:
-                            comment = ' '.join(parts[2:])
-
-                        share_info['shares'].append({
-                            'name': share_name,
-                            'type': share_type,
-                            'comment': comment
-                        })
+            # Add last share if exists
+            if current_share:
+                share_info['shares'].append(current_share)
 
             if share_info['shares']:
                 print(f"{Colors.GREEN}[+] Found {len(share_info['shares'])} shares{Colors.RESET}")
-                for share in share_info['shares'][:5]:  # Show first 5
-                    print(f"    - {share['name']} ({share['type']})")
+                for share in share_info['shares'][:5]:
+                    print(f"    - {share['name']}")
                 if len(share_info['shares']) > 5:
                     print(f"    ... and {len(share_info['shares']) - 5} more")
-
-            if share_info['os_info'].get('banner'):
-                print(f"{Colors.GREEN}[+] OS Info: {share_info['os_info']['banner']}{Colors.RESET}")
+            else:
+                print(f"{Colors.YELLOW}[!] No shares enumerated (may require authentication){Colors.RESET}")
 
             share_info['output_file'] = output_file
+        else:
+            # Try with credentials if provided
+            if username and password:
+                creds = f'{domain}\\{username}%{password}' if domain else f'{username}%{password}'
+                cmd = ['rpcclient', '-U', creds, '-c', 'netshareenumall', ip]
+
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+                if result.returncode == 0 and result.stdout:
+                    # Parse output same as above
+                    output = result.stdout
+                    current_share = None
+                    for line in output.split('\n'):
+                        line = line.strip()
+
+                        if line.startswith('netname:'):
+                            share_name = line.split(':', 1)[1].strip()
+                            current_share = {'name': share_name, 'type': 'Disk', 'comment': ''}
+                        elif line.startswith('remark:') and current_share:
+                            comment = line.split(':', 1)[1].strip()
+                            current_share['comment'] = comment
+                        elif line.startswith('path:') and current_share:
+                            share_info['shares'].append(current_share)
+                            current_share = None
+
+                    if current_share:
+                        share_info['shares'].append(current_share)
+
+                    if share_info['shares']:
+                        print(f"{Colors.GREEN}[+] Found {len(share_info['shares'])} shares (authenticated){Colors.RESET}")
 
     except subprocess.TimeoutExpired:
-        print(f"{Colors.YELLOW}[!] smbclient.py timed out{Colors.RESET}")
+        print(f"{Colors.YELLOW}[!] rpcclient timed out{Colors.RESET}")
     except Exception as e:
-        print(f"{Colors.YELLOW}[!] Error with smbclient.py: {e}{Colors.RESET}")
+        print(f"{Colors.YELLOW}[!] Error enumerating shares: {e}{Colors.RESET}")
 
     return share_info
 
@@ -878,7 +878,6 @@ def save_results(system_info: Dict, output_dir: str):
         ip = system_info['ip']
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-        # Create single comprehensive report file per host
         report_file = os.path.join(output_dir, f'{ip}_complete_report.txt')
 
         with open(report_file, 'w') as f:
@@ -954,13 +953,12 @@ def save_results(system_info: Dict, output_dir: str):
             if 'shares' in system_info and 'shares' in system_info['shares']:
                 shares_list = system_info['shares']['shares']
                 if shares_list:
-                    f.write(f"{'Share Name':<20} {'Type':<15} {'Comment'}\n")
+                    f.write(f"{'Share Name':<30} {'Comment'}\n")
                     f.write("-"*70 + "\n")
                     for share in shares_list:
-                        name = share['name'][:19]
-                        stype = share['type'][:14]
-                        comment = share.get('comment', '')[:30]
-                        f.write(f"{name:<20} {stype:<15} {comment}\n")
+                        name = share['name'][:29]
+                        comment = share.get('comment', '')[:38]
+                        f.write(f"{name:<30} {comment}\n")
                     f.write(f"\n[Total: {len(shares_list)} shares]\n")
                 else:
                     f.write("No shares enumerated\n")
@@ -986,7 +984,7 @@ def save_results(system_info: Dict, output_dir: str):
 
             f.write("\n\n")
 
-            # RPC ENDPOINTS - FULL OUTPUT ONLY (NO DUPLICATION)
+            # RPC ENDPOINTS - COMPLETE
             if 'rpc' in system_info and 'output_file' in system_info['rpc']:
                 f.write("[RPC ENDPOINTS - COMPLETE LISTING]\n")
                 f.write("-"*70 + "\n")
@@ -1019,9 +1017,9 @@ def save_results(system_info: Dict, output_dir: str):
             f.write("RAW TOOL OUTPUTS\n")
             f.write("="*70 + "\n\n")
 
-            # RID Cycling Output
+            # RID Cycling
             if 'lookupsid' in system_info and 'output_file' in system_info['lookupsid']:
-                f.write("[LOOKUPSID.PY - RID CYCLING OUTPUT]\n")
+                f.write("[LOOKUPSID.PY - RID CYCLING]\n")
                 f.write("-"*70 + "\n")
                 try:
                     with open(system_info['lookupsid']['output_file'], 'r') as raw_file:
@@ -1030,15 +1028,15 @@ def save_results(system_info: Dict, output_dir: str):
                     f.write("Could not read lookupsid output\n")
                 f.write("\n\n")
 
-            # SMB Client Output
+            # Share Enumeration
             if 'shares' in system_info and 'output_file' in system_info['shares']:
-                f.write("[SMBCLIENT.PY - SHARE ENUMERATION OUTPUT]\n")
+                f.write("[SHARE ENUMERATION - RPCCLIENT]\n")
                 f.write("-"*70 + "\n")
                 try:
                     with open(system_info['shares']['output_file'], 'r') as raw_file:
                         f.write(raw_file.read())
                 except:
-                    f.write("Could not read smbclient output\n")
+                    f.write("Could not read shares output\n")
                 f.write("\n\n")
 
             f.write("="*70 + "\n")
@@ -1047,7 +1045,7 @@ def save_results(system_info: Dict, output_dir: str):
 
         print(f"{Colors.GREEN}[+] Complete report saved to {report_file}{Colors.RESET}")
 
-        # Clean up individual raw files after consolidating
+        # Clean up individual raw files
         for tool_output in ['lookupsid', 'shares', 'rpc']:
             if tool_output in system_info and 'output_file' in system_info.get(tool_output, {}):
                 try:
