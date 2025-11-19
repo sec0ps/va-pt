@@ -842,10 +842,6 @@ def save_results(system_info: Dict, output_dir: str):
                 if ls.get('domain_sid'):
                     f.write(f"Domain SID: {ls['domain_sid']}\n")
 
-            if 'shares' in system_info and 'os_info' in system_info['shares']:
-                if system_info['shares']['os_info'].get('banner'):
-                    f.write(f"OS: {system_info['shares']['os_info']['banner']}\n")
-
             if 'ports' in system_info:
                 ports_str = ', '.join([f"{p}({s})" for p, s in system_info['ports'].items()])
                 f.write(f"Open Ports: {ports_str}\n")
@@ -926,7 +922,7 @@ def save_results(system_info: Dict, output_dir: str):
 
             f.write("\n\n")
 
-            # RPC ENDPOINTS - COMPLETE
+            # RPC ENDPOINTS
             if 'rpc' in system_info and 'output_file' in system_info['rpc']:
                 f.write("[RPC ENDPOINTS - COMPLETE LISTING]\n")
                 f.write("-"*70 + "\n")
@@ -935,8 +931,8 @@ def save_results(system_info: Dict, output_dir: str):
                 try:
                     with open(system_info['rpc']['output_file'], 'r') as rpc_file:
                         f.write(rpc_file.read())
-                except:
-                    f.write("Could not read rpcdump output\n")
+                except Exception as e:
+                    f.write(f"Could not read rpcdump output: {e}\n")
 
                 f.write("\n\n")
 
@@ -966,37 +962,40 @@ def save_results(system_info: Dict, output_dir: str):
                 try:
                     with open(system_info['lookupsid']['output_file'], 'r') as raw_file:
                         f.write(raw_file.read())
-                except:
-                    f.write("Could not read lookupsid output\n")
+                except Exception as e:
+                    f.write(f"Could not read lookupsid output: {e}\n")
                 f.write("\n\n")
 
             # Share Enumeration
-            if 'shares' in system_info and 'output_file' in system_info['shares']:
+            if 'shares' in system_info and 'raw_output' in system_info['shares']:
                 f.write("[SHARE ENUMERATION - RPCCLIENT]\n")
                 f.write("-"*70 + "\n")
-                try:
-                    with open(system_info['shares']['output_file'], 'r') as raw_file:
-                        f.write(raw_file.read())
-                except:
-                    f.write("Could not read shares output\n")
+                f.write(system_info['shares']['raw_output'])
                 f.write("\n\n")
 
             f.write("="*70 + "\n")
             f.write("END OF REPORT\n")
             f.write("="*70 + "\n")
 
-        print(f"{Colors.GREEN}[+] Complete report saved to {report_file}{Colors.RESET}")
+        print(f"[+] Complete report saved to {report_file}")
 
         # Clean up individual raw files
-        for tool_output in ['lookupsid', 'shares', 'rpc']:
-            if tool_output in system_info and 'output_file' in system_info.get(tool_output, {}):
-                try:
-                    os.remove(system_info[tool_output]['output_file'])
-                except:
-                    pass
+        if 'lookupsid' in system_info and 'output_file' in system_info['lookupsid']:
+            try:
+                os.remove(system_info['lookupsid']['output_file'])
+            except:
+                pass
+
+        if 'rpc' in system_info and 'output_file' in system_info['rpc']:
+            try:
+                os.remove(system_info['rpc']['output_file'])
+            except:
+                pass
 
     except Exception as e:
-        print(f"{Colors.RED}[!] Error saving results: {e}{Colors.RESET}")
+        print(f"[!] Error saving results: {e}")
+        import traceback
+        traceback.print_exc()
 
 def print_summary(systems: List[Dict]):
     """Print enumeration summary"""
