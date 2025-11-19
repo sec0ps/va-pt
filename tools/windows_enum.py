@@ -362,18 +362,19 @@ def scan_for_windows_systems(targets: List[str], max_threads: int = 50) -> List[
                         if is_windows:
                             windows_systems.append({'ip': ip, 'ports': open_ports})
                             services = ', '.join([f"{p}({s})" for p, s in open_ports.items()])
-                            # Print on new line instead of overwriting
-                            print(f"[+] Windows system found: {ip} [{services}]")
+                            print(f"\r{' ' * 100}\r[+] Windows system found: {ip} [{services}]")
                     except Exception as e:
                         pass
 
-                    # Simple progress update every 10 hosts
-                    if completed % 10 == 0 or completed == total:
-                        percent = (completed / total) * 100
-                        print(f"[*] Progress: {completed}/{total} ({percent:.1f}%) - {len(windows_systems)} system(s) found")
+                    # Update progress bar
+                    percent = (completed / total) * 100
+                    bar_length = 40
+                    filled = int(bar_length * completed / total)
+                    bar = '█' * filled + '░' * (bar_length - filled)
+                    print(f"\r[*] Progress: [{bar}] {completed}/{total} ({percent:.1f}%) - {len(windows_systems)} system(s) found", end='', flush=True)
 
             except KeyboardInterrupt:
-                print("\n[!] Scan interrupted. Cancelling remaining tasks...")
+                print(f"\n[!] Scan interrupted. Cancelling remaining tasks...")
                 for future in future_to_ip:
                     future.cancel()
                 executor.shutdown(wait=False, cancel_futures=True)
@@ -381,9 +382,10 @@ def scan_for_windows_systems(targets: List[str], max_threads: int = 50) -> List[
 
     except KeyboardInterrupt:
         if windows_systems:
-            print(f"[!] Returning {len(windows_systems)} Windows system(s) found so far")
+            print(f"\n[!] Returning {len(windows_systems)} Windows system(s) found so far")
         raise
 
+    print(f"\r{' ' * 100}\r", end='', flush=True)
     return windows_systems
 
 def enum_lookupsid(ip: str, domain: str = '', username: str = '', password: str = '', output_dir: str = '') -> Dict:
@@ -671,10 +673,6 @@ def enum_shares_smbclient(ip: str, username: str = '', password: str = '', domai
 
             if share_info['shares']:
                 print(f"[+] Found {len(share_info['shares'])} shares")
-                for share in share_info['shares'][:5]:
-                    print(f"    - {share['name']}")
-                if len(share_info['shares']) > 5:
-                    print(f"    ... and {len(share_info['shares']) - 5} more")
             else:
                 print(f"[!] No shares enumerated (may require authentication)")
 
