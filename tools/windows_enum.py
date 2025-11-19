@@ -57,12 +57,8 @@ class Colors:
 def cleanup_terminal():
     """Restore terminal to normal state"""
     try:
-        # Clear line
         sys.stdout.write('\r' + ' ' * 100 + '\r')
-        # Show cursor
         sys.stdout.write('\033[?25h')
-        # Reset colors
-        sys.stdout.write('\033[0m')
         sys.stdout.flush()
     except:
         pass
@@ -362,13 +358,12 @@ def identify_windows_system(ip: str) -> Tuple[bool, Dict[int, str]]:
 
 def scan_for_windows_systems(targets: List[str], max_threads: int = 50) -> List[Dict]:
     """Scan targets to identify Windows systems"""
-    print(f"\n{Colors.BOLD}[*] Scanning {len(targets)} targets for Windows systems...{Colors.RESET}")
+    print(f"\n[*] Scanning {len(targets)} targets for Windows systems...")
 
     windows_systems = []
     completed = 0
     total = len(targets)
 
-    # Hide cursor for clean progress bar
     sys.stdout.write('\033[?25l')
     sys.stdout.flush()
 
@@ -386,26 +381,23 @@ def scan_for_windows_systems(targets: List[str], max_threads: int = 50) -> List[
                         if is_windows:
                             windows_systems.append({'ip': ip, 'ports': open_ports})
                             services = ', '.join([f"{p}({s})" for p, s in open_ports.items()])
-                            # Clear line before printing
                             sys.stdout.write('\r' + ' ' * 100 + '\r')
-                            print(f"{Colors.GREEN}[+] Windows system found: {ip} [{services}]{Colors.RESET}")
+                            print(f"[+] Windows system found: {ip} [{services}]")
                     except Exception as e:
                         pass
 
-                    # Update progress bar
                     percent = (completed / total) * 100
                     bar_length = 40
                     filled = int(bar_length * completed / total)
                     bar = '█' * filled + '░' * (bar_length - filled)
-                    sys.stdout.write(f"\r{Colors.BLUE}[*] Progress: [{bar}] {completed}/{total} ({percent:.1f}%) - {len(windows_systems)} system(s) found{Colors.RESET}")
+                    sys.stdout.write(f"\r[*] Progress: [{bar}] {completed}/{total} ({percent:.1f}%) - {len(windows_systems)} system(s) found")
                     sys.stdout.flush()
 
             except KeyboardInterrupt:
-                # Clear line and show cursor
                 sys.stdout.write('\r' + ' ' * 100 + '\r')
                 sys.stdout.write('\033[?25h')
                 sys.stdout.flush()
-                print(f"{Colors.YELLOW}[!] Scan interrupted. Cancelling remaining tasks...{Colors.RESET}")
+                print("[!] Scan interrupted. Cancelling remaining tasks...")
                 for future in future_to_ip:
                     future.cancel()
                 executor.shutdown(wait=False, cancel_futures=True)
@@ -413,10 +405,9 @@ def scan_for_windows_systems(targets: List[str], max_threads: int = 50) -> List[
 
     except KeyboardInterrupt:
         if windows_systems:
-            print(f"{Colors.YELLOW}[!] Returning {len(windows_systems)} Windows system(s) found so far{Colors.RESET}")
+            print(f"[!] Returning {len(windows_systems)} Windows system(s) found so far")
         raise
     finally:
-        # Always clear and show cursor
         sys.stdout.write('\r' + ' ' * 100 + '\r')
         sys.stdout.write('\033[?25h')
         sys.stdout.flush()
@@ -674,41 +665,24 @@ def enum_rpcdump(ip: str, output_dir: str) -> Dict:
 def enum_shares_smbclient(ip: str, username: str = '', password: str = '', domain: str = '', output_dir: str = '') -> Dict:
     """
     Enumerate shares using rpcclient netshareenumall
-    smbclient.py doesn't support non-interactive share listing
+    Returns dict with shares list only - no file creation
     """
-    print(f"{Colors.BOLD}[*] Enumerating shares (rpcclient)...{Colors.RESET}")
+    print(f"[*] Enumerating shares (rpcclient)...")
 
     share_info = {
-        'shares': [],
-        'os_info': {},
-        'smb_info': {}
+        'shares': []
     }
 
-    # Use rpcclient for share enumeration instead of smbclient.py
-    # smbclient.py is interactive only and doesn't support -list flag
-
     try:
-        output_file = os.path.join(output_dir, f'shares_{ip}.txt')
-
         # Try anonymous first
         cmd = ['rpcclient', '-U', '%', '-c', 'netshareenumall', ip]
 
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
-        # Save output
-        with open(output_file, 'w') as f:
-            f.write(result.stdout)
-            if result.stderr:
-                f.write("\n\n=== STDERR ===\n")
-                f.write(result.stderr)
-
         if result.returncode == 0 and result.stdout:
             output = result.stdout
 
             # Parse shares from rpcclient output
-            # Format: netname: SHARENAME
-            #         remark: Comment here
-            #         path: C:\path
             current_share = None
             for line in output.split('\n'):
                 line = line.strip()
@@ -720,24 +694,23 @@ def enum_shares_smbclient(ip: str, username: str = '', password: str = '', domai
                     comment = line.split(':', 1)[1].strip()
                     current_share['comment'] = comment
                 elif line.startswith('path:') and current_share:
-                    # End of share definition
                     share_info['shares'].append(current_share)
                     current_share = None
 
-            # Add last share if exists
             if current_share:
                 share_info['shares'].append(current_share)
 
             if share_info['shares']:
-                print(f"{Colors.GREEN}[+] Found {len(share_info['shares'])} shares{Colors.RESET}")
+                print(f"[+] Found {len(share_info['shares'])} shares")
                 for share in share_info['shares'][:5]:
                     print(f"    - {share['name']}")
                 if len(share_info['shares']) > 5:
                     print(f"    ... and {len(share_info['shares']) - 5} more")
             else:
-                print(f"{Colors.YELLOW}[!] No shares enumerated (may require authentication){Colors.RESET}")
+                print(f"[!] No shares enumerated (may require authentication)")
 
-            share_info['output_file'] = output_file
+            # Store raw output in memory only
+            share_info['raw_output'] = output
         else:
             # Try with credentials if provided
             if username and password:
@@ -747,7 +720,6 @@ def enum_shares_smbclient(ip: str, username: str = '', password: str = '', domai
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
                 if result.returncode == 0 and result.stdout:
-                    # Parse output same as above
                     output = result.stdout
                     current_share = None
                     for line in output.split('\n'):
@@ -767,12 +739,14 @@ def enum_shares_smbclient(ip: str, username: str = '', password: str = '', domai
                         share_info['shares'].append(current_share)
 
                     if share_info['shares']:
-                        print(f"{Colors.GREEN}[+] Found {len(share_info['shares'])} shares (authenticated){Colors.RESET}")
+                        print(f"[+] Found {len(share_info['shares'])} shares (authenticated)")
+
+                    share_info['raw_output'] = output
 
     except subprocess.TimeoutExpired:
-        print(f"{Colors.YELLOW}[!] rpcclient timed out{Colors.RESET}")
+        print(f"[!] rpcclient timed out")
     except Exception as e:
-        print(f"{Colors.YELLOW}[!] Error enumerating shares: {e}{Colors.RESET}")
+        print(f"[!] Error enumerating shares: {e}")
 
     return share_info
 
@@ -851,7 +825,7 @@ def enumerate_windows_system(ip: str, ports: Dict, output_dir: str, username: st
     if sam_info:
         system_info['sam'] = sam_info
 
-    # 3. Share Enumeration + OS Info (replaces enum4linux -S)
+    # 3. Share Enumeration + OS Info
     share_info = enum_shares_smbclient(ip, username, password, domain, output_dir)
     if share_info:
         system_info['shares'] = share_info
