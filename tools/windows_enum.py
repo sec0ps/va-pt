@@ -43,17 +43,6 @@ try:
 except ImportError:
     SCAPY_AVAILABLE = False
 
-
-class Colors:
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    RED = '\033[91m'
-    BLUE = '\033[94m'
-    CYAN = '\033[96m'
-    MAGENTA = '\033[95m'
-    RESET = '\033[0m'
-    BOLD = '\033[1m'
-
 def cleanup_terminal():
     """Restore terminal to normal state"""
     try:
@@ -154,13 +143,12 @@ def find_tool_path(tool_name: str) -> Optional[str]:
 
     return None
 
-
 def initialize_tools() -> bool:
     """
     Initialize all required tools and verify they exist
     Returns True if critical tools are found
     """
-    print(f"\n{Colors.BOLD}[*] Locating Impacket tools...{Colors.RESET}")
+    print(f"\n[*] Locating Impacket tools...")
 
     # Critical tools
     critical_tools = ['lookupsid.py', 'smbclient.py']
@@ -172,28 +160,27 @@ def initialize_tools() -> bool:
         TOOL_PATHS[tool] = path
 
         if path:
-            print(f"{Colors.GREEN}[+] Found {tool}: {path}{Colors.RESET}")
+            print(f"[+] Found {tool}: {path}")
             if tool in critical_tools:
                 critical_found = True
         else:
-            print(f"{Colors.YELLOW}[!] {tool} not found (optional){Colors.RESET}")
+            print(f"[!] {tool} not found (optional)")
 
     # Check Python libraries
-    print(f"\n{Colors.BOLD}[*] Checking Python libraries...{Colors.RESET}")
+    print(f"\n[*] Checking Python libraries...")
 
     if SCAPY_AVAILABLE:
-        print(f"{Colors.GREEN}[+] Scapy available{Colors.RESET}")
+        print(f"[+] Scapy available")
     else:
-        print(f"{Colors.YELLOW}[!] Scapy not available - install with: pip install scapy{Colors.RESET}")
+        print(f"[!] Scapy not available - install with: pip install scapy")
 
     if not critical_found:
-        print(f"\n{Colors.RED}[!] Critical Impacket tools missing. Install with:{Colors.RESET}")
+        print(f"\n[!] Critical Impacket tools missing. Install with:")
         print(f"    pip install impacket")
         return False
 
     print()
     return True
-
 
 def get_tool_command(tool_name: str, args: List[str]) -> Optional[List[str]]:
     """
@@ -215,9 +202,7 @@ def get_tool_command(tool_name: str, args: List[str]) -> Optional[List[str]]:
 def print_banner():
     """Display tool banner"""
     banner = f"""
-{Colors.CYAN}{'='*70}
-    Windows System Enumeration Tool (Impacket Suite)
-{'='*70}{Colors.RESET}
+    Windows System Enumeration Tool
     """
     print(banner)
 
@@ -414,12 +399,13 @@ def scan_for_windows_systems(targets: List[str], max_threads: int = 50) -> List[
 
     return windows_systems
 
+
 def enum_lookupsid(ip: str, domain: str = '', username: str = '', password: str = '', output_dir: str = '') -> Dict:
     """
     Enumerate users, groups, and domain SID using Impacket lookupsid.py (RID cycling)
     This replaces enum4linux user/group enumeration
     """
-    print(f"{Colors.BOLD}[*] Enumerating via RID cycling (lookupsid.py)...{Colors.RESET}")
+    print(f"[*] Enumerating via RID cycling (lookupsid.py)...")
 
     result_data = {
         'users': [],
@@ -430,7 +416,7 @@ def enum_lookupsid(ip: str, domain: str = '', username: str = '', password: str 
     }
 
     if not TOOL_PATHS['lookupsid.py']:
-        print(f"{Colors.YELLOW}[!] lookupsid.py not available{Colors.RESET}")
+        print(f"[!] lookupsid.py not available")
         return result_data
 
     try:
@@ -482,7 +468,6 @@ def enum_lookupsid(ip: str, domain: str = '', username: str = '', password: str 
             for line in output.split('\n'):
                 if 'SidTypeUser' in line:
                     try:
-                        # Line format: "500: DOMAIN\Administrator (SidTypeUser)"
                         user_part = line.split(':')[1].split('(')[0].strip()
                         if '\\' in user_part:
                             user = user_part.split('\\')[1]
@@ -513,30 +498,29 @@ def enum_lookupsid(ip: str, domain: str = '', username: str = '', password: str 
             result_data['groups'] = list(set(result_data['groups']))
 
             if result_data['users']:
-                print(f"{Colors.GREEN}[+] Found {len(result_data['users'])} users via RID cycling{Colors.RESET}")
+                print(f"[+] Found {len(result_data['users'])} users via RID cycling")
             if result_data['groups']:
-                print(f"{Colors.GREEN}[+] Found {len(result_data['groups'])} groups via RID cycling{Colors.RESET}")
+                print(f"[+] Found {len(result_data['groups'])} groups via RID cycling")
             if result_data['domain_sid']:
-                print(f"{Colors.GREEN}[+] Domain SID: {result_data['domain_sid']}{Colors.RESET}")
+                print(f"[+] Domain SID: {result_data['domain_sid']}")
             if result_data['domain_name']:
-                print(f"{Colors.GREEN}[+] Domain: {result_data['domain_name']}{Colors.RESET}")
+                print(f"[+] Domain: {result_data['domain_name']}")
 
             result_data['output_file'] = output_file
 
     except subprocess.TimeoutExpired:
-        print(f"{Colors.YELLOW}[!] lookupsid.py timed out{Colors.RESET}")
+        print(f"[!] lookupsid.py timed out")
     except Exception as e:
-        print(f"{Colors.YELLOW}[!] Error with lookupsid.py: {e}{Colors.RESET}")
+        print(f"[!] Error with lookupsid.py: {e}")
 
     return result_data
-
 
 def enum_samrdump(ip: str, username: str = '', password: str = '', domain: str = '') -> Dict:
     """
     Enumerate SAM database using Impacket samrdump.py
     Provides password policy and additional user info
     """
-    print(f"{Colors.BOLD}[*] Querying SAM database (samrdump.py)...{Colors.RESET}")
+    print(f"[*] Querying SAM database (samrdump.py)...")
 
     sam_info = {
         'users': [],
@@ -544,7 +528,7 @@ def enum_samrdump(ip: str, username: str = '', password: str = '', domain: str =
     }
 
     if not TOOL_PATHS['samrdump.py']:
-        print(f"{Colors.YELLOW}[!] samrdump.py not available{Colors.RESET}")
+        print(f"[!] samrdump.py not available")
         return sam_info
 
     try:
@@ -608,30 +592,29 @@ def enum_samrdump(ip: str, username: str = '', password: str = '', domain: str =
                         pass
 
             if sam_info['users']:
-                print(f"{Colors.GREEN}[+] Found {len(sam_info['users'])} users in SAM database{Colors.RESET}")
+                print(f"[+] Found {len(sam_info['users'])} users in SAM database")
 
             if sam_info['password_policy']:
-                print(f"{Colors.GREEN}[+] Retrieved password policy{Colors.RESET}")
+                print(f"[+] Retrieved password policy")
 
     except subprocess.TimeoutExpired:
-        print(f"{Colors.YELLOW}[!] samrdump.py timed out{Colors.RESET}")
+        print(f"[!] samrdump.py timed out")
     except Exception as e:
-        print(f"{Colors.YELLOW}[!] Error with samrdump.py: {e}{Colors.RESET}")
+        print(f"[!] Error with samrdump.py: {e}")
 
     return sam_info
-
 
 def enum_rpcdump(ip: str, output_dir: str) -> Dict:
     """
     Enumerate RPC endpoints using Impacket rpcdump.py
     Maps available RPC services
     """
-    print(f"{Colors.BOLD}[*] Enumerating RPC endpoints (rpcdump.py)...{Colors.RESET}")
+    print(f"[*] Enumerating RPC endpoints (rpcdump.py)...")
 
     rpc_info = {}
 
     if not TOOL_PATHS['rpcdump.py']:
-        print(f"{Colors.YELLOW}[!] rpcdump.py not available{Colors.RESET}")
+        print(f"[!] rpcdump.py not available")
         return rpc_info
 
     try:
@@ -653,12 +636,12 @@ def enum_rpcdump(ip: str, output_dir: str) -> Dict:
             endpoint_count = result.stdout.count('Protocol:')
             rpc_info['endpoint_count'] = endpoint_count
             rpc_info['output_file'] = output_file
-            print(f"{Colors.GREEN}[+] Found {endpoint_count} RPC endpoints - saved to {output_file}{Colors.RESET}")
+            print(f"[+] Found {endpoint_count} RPC endpoints - saved to {output_file}")
 
     except subprocess.TimeoutExpired:
-        print(f"{Colors.YELLOW}[!] rpcdump.py timed out{Colors.RESET}")
+        print(f"[!] rpcdump.py timed out")
     except Exception as e:
-        print(f"{Colors.YELLOW}[!] Error with rpcdump.py: {e}{Colors.RESET}")
+        print(f"[!] Error with rpcdump.py: {e}")
 
     return rpc_info
 
@@ -755,7 +738,7 @@ def enum_sessions(ip: str, username: str = '', password: str = '', domain: str =
     Enumerate active sessions using Impacket (if netview available)
     Shows logged on users and active sessions
     """
-    print(f"{Colors.BOLD}[*] Enumerating sessions (netview.py)...{Colors.RESET}")
+    print(f"[*] Enumerating sessions (netview.py)...")
 
     session_info = {
         'sessions': [],
@@ -763,7 +746,7 @@ def enum_sessions(ip: str, username: str = '', password: str = '', domain: str =
     }
 
     if not TOOL_PATHS.get('netview.py'):
-        print(f"{Colors.YELLOW}[!] netview.py not available (optional){Colors.RESET}")
+        print(f"[!] netview.py not available (optional)")
         return session_info
 
     try:
@@ -787,15 +770,14 @@ def enum_sessions(ip: str, username: str = '', password: str = '', domain: str =
                     session_info['sessions'].append(line.strip())
 
             if session_info['sessions']:
-                print(f"{Colors.GREEN}[+] Found {len(session_info['sessions'])} active sessions{Colors.RESET}")
+                print(f"[+] Found {len(session_info['sessions'])} active sessions")
 
     except subprocess.TimeoutExpired:
-        print(f"{Colors.YELLOW}[!] netview.py timed out{Colors.RESET}")
+        print(f"[!] netview.py timed out")
     except Exception as e:
-        print(f"{Colors.YELLOW}[!] Error with netview.py: {e}{Colors.RESET}")
+        print(f"[!] Error with netview.py: {e}")
 
     return session_info
-
 
 def enumerate_windows_system(ip: str, ports: Dict, output_dir: str, username: str = '', password: str = '', domain: str = '') -> Dict:
     """
@@ -1032,12 +1014,12 @@ def save_results(system_info: Dict, output_dir: str):
 
 def print_summary(systems: List[Dict]):
     """Print enumeration summary"""
-    print(f"\n{Colors.BOLD}{Colors.CYAN}{'='*70}")
+    print(f"\n======================================================================")
     print("=== ENUMERATION SUMMARY ===")
-    print(f"{'='*70}{Colors.RESET}\n")
+    print(f"======================================================================\n")
 
     for system in systems:
-        print(f"{Colors.BOLD}System: {system['ip']}{Colors.RESET}")
+        print(f"System: {system['ip']}")
 
         # Domain/Computer info
         if 'lookupsid' in system:
@@ -1047,11 +1029,6 @@ def print_summary(systems: List[Dict]):
                 print(f"  Domain: {system['lookupsid']['domain_name']}")
             if 'domain_sid' in system['lookupsid'] and system['lookupsid']['domain_sid']:
                 print(f"  Domain SID: {system['lookupsid']['domain_sid']}")
-
-        # OS Info
-        if 'shares' in system and 'os_info' in system['shares']:
-            if 'banner' in system['shares']['os_info']:
-                print(f"  OS: {system['shares']['os_info']['banner']}")
 
         # User counts
         if 'lookupsid' in system and 'users' in system['lookupsid']:
@@ -1087,7 +1064,6 @@ def print_summary(systems: List[Dict]):
             print(f"  Open Ports: {ports_str}")
 
         print()
-
 
 def main():
     parser = argparse.ArgumentParser(
@@ -1127,33 +1103,33 @@ Examples:
 
         # Initialize and locate all tools
         if not initialize_tools():
-            print(f"\n{Colors.RED}[!] Critical tools missing. Cannot continue.{Colors.RESET}")
+            print(f"\n[!] Critical tools missing. Cannot continue.")
             sys.exit(1)
 
         # Parse exclusions
         excluded_ips = set()
         if args.exclude:
-            print(f"{Colors.BOLD}[*] Processing exclusions...{Colors.RESET}")
+            print(f"[*] Processing exclusions...")
             excluded_ips = parse_exclusions(args.exclude)
             if excluded_ips:
-                print(f"{Colors.YELLOW}[*] Excluding {len(excluded_ips)} IP(s) from scan{Colors.RESET}")
+                print(f"[*] Excluding {len(excluded_ips)} IP(s) from scan")
 
         # Read and expand targets
         targets = read_targets(args.targets, excluded_ips)
-        print(f"{Colors.BOLD}[*] Loaded {len(targets)} target IPs{Colors.RESET}")
+        print(f"[*] Loaded {len(targets)} target IPs")
 
         if not targets:
-            print(f"{Colors.RED}[!] No targets to scan after exclusions{Colors.RESET}")
+            print(f"[!] No targets to scan after exclusions")
             sys.exit(1)
 
         # Scan for Windows systems
         windows_systems = scan_for_windows_systems(targets, max_threads=args.threads)
 
         if not windows_systems:
-            print(f"\n{Colors.RED}[!] No Windows systems found{Colors.RESET}")
+            print(f"\n[!] No Windows systems found")
             sys.exit(0)
 
-        print(f"\n{Colors.GREEN}[+] Found {len(windows_systems)} Windows system(s){Colors.RESET}")
+        print(f"\n[+] Found {len(windows_systems)} Windows system(s)")
 
         # Create output directory
         os.makedirs(args.output, exist_ok=True)
@@ -1176,28 +1152,27 @@ Examples:
                 save_results(system_info, args.output)
 
             except KeyboardInterrupt:
-                print(f"\n{Colors.YELLOW}[!] Enumeration interrupted{Colors.RESET}")
+                print(f"\n[!] Enumeration interrupted")
                 raise
             except Exception as e:
-                print(f"{Colors.RED}[!] Error enumerating {system['ip']}: {e}{Colors.RESET}")
+                print(f"[!] Error enumerating {system['ip']}: {e}")
                 continue
 
         # Print summary
         print_summary(enumerated_systems)
 
-        print(f"\n{Colors.BOLD}{Colors.GREEN}[+] Enumeration complete! Results saved to {args.output}/{Colors.RESET}")
+        print(f"\n[+] Enumeration complete! Results saved to {args.output}/")
 
     except KeyboardInterrupt:
-        print(f"\n\n{Colors.YELLOW}[!] Interrupted by user. Exiting...{Colors.RESET}")
+        print(f"\n\n[!] Interrupted by user. Exiting...")
         if 'args' in locals() and os.path.exists(args.output):
-            print(f"{Colors.GREEN}[+] Partial results saved to {args.output}/{Colors.RESET}")
+            print(f"[+] Partial results saved to {args.output}/")
         sys.exit(130)
     except Exception as e:
-        print(f"\n{Colors.RED}[!] Fatal error: {e}{Colors.RESET}")
+        print(f"\n[!] Fatal error: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
-
 
 if __name__ == '__main__':
     main()
