@@ -47,7 +47,6 @@ def cleanup_terminal():
     """Restore terminal to normal state"""
     try:
         sys.stdout.write('\r' + ' ' * 100 + '\r')
-        sys.stdout.write('\033[?25h')
         sys.stdout.flush()
     except:
         pass
@@ -349,9 +348,6 @@ def scan_for_windows_systems(targets: List[str], max_threads: int = 50) -> List[
     completed = 0
     total = len(targets)
 
-    sys.stdout.write('\033[?25l')
-    sys.stdout.flush()
-
     try:
         with ThreadPoolExecutor(max_workers=max_threads) as executor:
             future_to_ip = {executor.submit(identify_windows_system, ip): ip for ip in targets}
@@ -366,23 +362,18 @@ def scan_for_windows_systems(targets: List[str], max_threads: int = 50) -> List[
                         if is_windows:
                             windows_systems.append({'ip': ip, 'ports': open_ports})
                             services = ', '.join([f"{p}({s})" for p, s in open_ports.items()])
-                            sys.stdout.write('\r' + ' ' * 100 + '\r')
+                            # Print on new line instead of overwriting
                             print(f"[+] Windows system found: {ip} [{services}]")
                     except Exception as e:
                         pass
 
-                    percent = (completed / total) * 100
-                    bar_length = 40
-                    filled = int(bar_length * completed / total)
-                    bar = '█' * filled + '░' * (bar_length - filled)
-                    sys.stdout.write(f"\r[*] Progress: [{bar}] {completed}/{total} ({percent:.1f}%) - {len(windows_systems)} system(s) found")
-                    sys.stdout.flush()
+                    # Simple progress update every 10 hosts
+                    if completed % 10 == 0 or completed == total:
+                        percent = (completed / total) * 100
+                        print(f"[*] Progress: {completed}/{total} ({percent:.1f}%) - {len(windows_systems)} system(s) found")
 
             except KeyboardInterrupt:
-                sys.stdout.write('\r' + ' ' * 100 + '\r')
-                sys.stdout.write('\033[?25h')
-                sys.stdout.flush()
-                print("[!] Scan interrupted. Cancelling remaining tasks...")
+                print("\n[!] Scan interrupted. Cancelling remaining tasks...")
                 for future in future_to_ip:
                     future.cancel()
                 executor.shutdown(wait=False, cancel_futures=True)
@@ -392,13 +383,8 @@ def scan_for_windows_systems(targets: List[str], max_threads: int = 50) -> List[
         if windows_systems:
             print(f"[!] Returning {len(windows_systems)} Windows system(s) found so far")
         raise
-    finally:
-        sys.stdout.write('\r' + ' ' * 100 + '\r')
-        sys.stdout.write('\033[?25h')
-        sys.stdout.flush()
 
     return windows_systems
-
 
 def enum_lookupsid(ip: str, domain: str = '', username: str = '', password: str = '', output_dir: str = '') -> Dict:
     """
