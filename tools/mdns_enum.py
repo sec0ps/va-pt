@@ -242,10 +242,9 @@ class mDNSEnumerator:
         # Phase 1: Discover services via PTR queries
         ptr_queries = [
             ('_services._dns-sd._udp.local', 12),  # Service enumeration
-            ('*.local', 12),  # All local services
         ]
 
-        discovered_services = set()
+        discovered_instances = set()
 
         for qname, qtype in ptr_queries:
             try:
@@ -267,11 +266,12 @@ class mDNSEnumerator:
                                 all_results['services'].extend(results['services'])
                                 all_results['addresses'].extend(results['addresses'])
 
-                                # Track discovered service types
+                                # Track discovered service instances
                                 for svc in results['services']:
-                                    svc_name = svc.get('name', '')
-                                    if '_tcp.local' in svc_name or '_udp.local' in svc_name:
-                                        discovered_services.add(svc_name)
+                                    if svc.get('type') == 'PTR':
+                                        name = svc.get('name')
+                                        if name:
+                                            discovered_instances.add(name)
 
                         except socket.timeout:
                             break
@@ -281,17 +281,16 @@ class mDNSEnumerator:
             except Exception as e:
                 self.log(f"PTR query error: {e}", "DEBUG")
 
-        # Phase 2: Send SRV queries for each discovered service
-        self.log(f"Discovered {len(discovered_services)} service types, querying for details...", "DEBUG")
+        # Phase 2: Send SRV queries for each discovered service instance
+        self.log(f"Discovered {len(discovered_instances)} services, querying for SRV details...", "DEBUG")
 
-        for service_type in discovered_services:
+        for instance_name in discovered_instances:
             try:
-                # Query for SRV records
-                query = self.create_mdns_query(service_type, 33)  # SRV query
+                query = self.create_mdns_query(instance_name, 33)  # SRV query
                 sock.sendto(query, (target_ip, self.mdns_port))
 
                 start_time = time.time()
-                while time.time() - start_time < 1.0:  # Shorter timeout per service
+                while time.time() - start_time < 1.0:
                     ready = select.select([sock], [], [], 0.3)
                     if ready[0]:
                         try:
@@ -299,18 +298,15 @@ class mDNSEnumerator:
                             results = self.parse_mdns_response(data)
 
                             if results:
-                                # Update existing services with port info
+                                # Update services with port info
                                 for new_svc in results['services']:
                                     if new_svc.get('port'):
-                                        # Find matching service and update
                                         for existing_svc in all_results['services']:
-                                            if service_type in existing_svc.get('name', ''):
-                                                existing_svc['port'] = new_svc['port']
-                                                if 'target' in new_svc:
-                                                    existing_svc['target'] = new_svc['target']
-                                                if 'full_name' in new_svc:
-                                                    existing_svc['full_name'] = new_svc['full_name']
+                                            if existing_svc.get('name') == instance_name:
+                                                existing_svc.update(new_svc)
                                                 break
+                                        else:
+                                            all_results['services'].append(new_svc)
 
                         except socket.timeout:
                             break
@@ -318,7 +314,7 @@ class mDNSEnumerator:
                         break
 
             except Exception as e:
-                self.log(f"SRV query error for {service_type}: {e}", "DEBUG")
+                self.log(f"SRV query error for {instance_name}: {e}", "DEBUG")
 
         sock.close()
 
