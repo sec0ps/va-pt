@@ -237,32 +237,9 @@ class mDNSEnumerator:
         }
 
         discovered_types = set()
-        discovered_instances = set()
+        discovered_instances = {}  # Map service_type -> [instances]
 
-        # === Phase 1: Unicast query for service types ===
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.settimeout(self.timeout)
-            query = self.create_mdns_query('_services._dns-sd._udp.local', 12)  # PTR
-            sock.sendto(query, (target_ip, self.mdns_port))
-
-            start_time = time.time()
-            while time.time() - start_time < self.timeout / 2:
-                ready = select.select([sock], [], [], 0.5)
-                if ready[0]:
-                    data, addr = sock.recvfrom(4096)
-                    if addr[0] == target_ip:
-                        results = self.parse_mdns_response(data)
-                        if results:
-                            all_results['services'].extend(results['services'])
-                            for svc in results['services']:
-                                if svc.get('type') == 'PTR':
-                                    discovered_types.add(svc.get('name'))
-            sock.close()
-        except Exception as e:
-            self.log(f"Type discovery error: {e}", "DEBUG")
-
-        # === Phase 2: Multicast query for service instances ===
+        # === Phase 1: Multicast query for service enumeration ===
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -271,59 +248,174 @@ class mDNSEnumerator:
             sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
             sock.settimeout(self.timeout)
 
-            for svc_type in discovered_types:
-                try:
-                    query = self.create_mdns_query(svc_type, 12)
-                    sock.sendto(query, (self.mdns_group, self.mdns_port))
+            # Send multicast query for service discovery
+            query = self.create_mdns_query('_services._dns-sd._udp.local', 12)
+            sock.sendto(query, (self.mdns_group, self.mdns_port))
 
-                    start = time.time()
-                    while time.time() - start < self.timeout / 2:
-                        ready = select.select([sock], [], [], 0.5)
-                        if ready[0]:
+            start_time = time.time()
+            while time.time() - start_time < self.timeout:
+                ready = select.select([sock], [], [], 0.5)
+                if ready[0]:
+                    try:
+                        data, addr = sock.recvfrom(4096)
+                        if addr[0] == target_ip:
+                            results = self.parse_mdns_response(data)
+                            if results:
+                                # Store hostname and addresses
+                                if results['hostname']:
+                                    all_results['hostname'] = results['hostname']
+                                all_results['addresses'].extend(results['addresses'])
+
+                                # Collect all service info
+                                for svc in results['services']:
+                                    svc_name = svc.get('name', '')
+
+                                    # If it's a service type (like _webdav._tcp.local)
+                                    if svc_name.startswith('_') and '.local' in svc_name:
+                                        discovered_types.add(svc_name)
+                                        self.log(f"Discovered service type: {svc_name}", "DEBUG")
+
+                                    # If we already have port info (SRV in additional records)
+                                    if svc.get('port'):
+                                        all_results['services'].append(svc)
+                                        self.log(f"Found service with port: {svc_name} -> {svc.get('port')}", "DEBUG")
+                    except Exception as e:
+                        self.log(f"Parse error in Phase 1: {e}", "DEBUG")
+                else:
+                    break
+            sock.close()
+        except Exception as e:
+            self.log(f"Phase 1 error: {e}", "DEBUG")
+
+        self.log(f"Phase 1 complete. Discovered {len(discovered_types)} service types", "INFO")
+
+        # === Phase 2: Query each service type for instances ===
+        for svc_type in discovered_types:
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock.bind(('', self.mdns_port))
+                mreq = struct.pack("4sl", socket.inet_aton(self.mdns_group), socket.INADDR_ANY)
+                sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+                sock.settimeout(2.0)
+
+                # Send multicast PTR query for this service type
+                query = self.create_mdns_query(svc_type, 12)
+                sock.sendto(query, (self.mdns_group, self.mdns_port))
+
+                self.log(f"Querying for instances of {svc_type}", "DEBUG")
+
+                start = time.time()
+                while time.time() - start < 2.0:
+                    ready = select.select([sock], [], [], 0.5)
+                    if ready[0]:
+                        try:
                             data, addr = sock.recvfrom(4096)
                             if addr[0] == target_ip:
                                 results = self.parse_mdns_response(data)
                                 if results:
-                                    all_results['services'].extend(results['services'])
                                     for svc in results['services']:
-                                        if svc.get('type') == 'PTR':
-                                            discovered_instances.add(svc.get('name'))
-                except Exception as e:
-                    self.log(f"Instance discovery error for {svc_type}: {e}", "DEBUG")
-            sock.close()
-        except Exception as e:
-            self.log(f"Multicast socket error: {e}", "DEBUG")
+                                        svc_name = svc.get('name', '')
+                                        full_name = svc.get('full_name', svc_name)
 
-        # === Phase 3: Unicast SRV query to resolve port numbers ===
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.settimeout(self.timeout)
+                                        # If this is an instance (contains the service type)
+                                        if svc_type in full_name and not svc_name.startswith('_'):
+                                            if svc_type not in discovered_instances:
+                                                discovered_instances[svc_type] = []
+                                            discovered_instances[svc_type].append(full_name)
+                                            self.log(f"Found instance: {full_name}", "DEBUG")
 
-            for instance in discovered_instances:
-                try:
-                    query = self.create_mdns_query(instance, 33)
-                    sock.sendto(query, (target_ip, self.mdns_port))
+                                        # If we got SRV data in the response (additional records)
+                                        if svc.get('port'):
+                                            # Update existing service or add new one
+                                            found = False
+                                            for existing in all_results['services']:
+                                                if existing.get('name') == svc_type:
+                                                    existing['port'] = svc['port']
+                                                    existing['full_name'] = full_name
+                                                    if 'target' in svc:
+                                                        existing['target'] = svc['target']
+                                                    found = True
+                                                    break
 
-                    start = time.time()
-                    while time.time() - start < 1.0:
-                        ready = select.select([sock], [], [], 0.3)
-                        if ready[0]:
+                                            if not found:
+                                                all_results['services'].append({
+                                                    'name': svc_type,
+                                                    'full_name': full_name,
+                                                    'port': svc['port'],
+                                                    'target': svc.get('target'),
+                                                    'type': 'SRV'
+                                                })
+                                            self.log(f"Got port for {svc_type}: {svc['port']}", "DEBUG")
+                        except Exception as e:
+                            self.log(f"Parse error for {svc_type}: {e}", "DEBUG")
+                    else:
+                        break
+                sock.close()
+            except Exception as e:
+                self.log(f"Phase 2 error for {svc_type}: {e}", "DEBUG")
+
+        self.log(f"Phase 2 complete. Found instances for {len(discovered_instances)} types", "INFO")
+
+        # === Phase 3: Send direct SRV queries for instances without port info ===
+        services_without_ports = [svc for svc in all_results['services'] if not svc.get('port')]
+
+        if services_without_ports:
+            self.log(f"Phase 3: Querying {len(services_without_ports)} services for port info", "INFO")
+
+        for svc_type, instances in discovered_instances.items():
+            # Check if we already have port for this service type
+            has_port = any(svc.get('name') == svc_type and svc.get('port') for svc in all_results['services'])
+
+            if not has_port and instances:
+                for instance in instances:
+                    try:
+                        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                        sock.settimeout(1.0)
+
+                        # Send direct SRV query to target
+                        query = self.create_mdns_query(instance, 33)
+                        sock.sendto(query, (target_ip, self.mdns_port))
+
+                        self.log(f"Sending SRV query for {instance}", "DEBUG")
+
+                        try:
                             data, addr = sock.recvfrom(4096)
                             if addr[0] == target_ip:
                                 results = self.parse_mdns_response(data)
                                 if results:
-                                    all_results['services'].extend(results['services'])
-                except Exception as e:
-                    self.log(f"SRV query error for {instance}: {e}", "DEBUG")
-            sock.close()
-        except Exception as e:
-            self.log(f"SRV phase error: {e}", "DEBUG")
+                                    for svc in results['services']:
+                                        if svc.get('port'):
+                                            # Update the service with port info
+                                            for existing in all_results['services']:
+                                                if existing.get('name') == svc_type:
+                                                    existing['port'] = svc['port']
+                                                    existing['full_name'] = instance
+                                                    if 'target' in svc:
+                                                        existing['target'] = svc['target']
+                                                    break
+                                            self.log(f"SRV response: {svc_type} port {svc['port']}", "DEBUG")
+                        except socket.timeout:
+                            pass
+                        finally:
+                            sock.close()
+                    except Exception as e:
+                        self.log(f"SRV query error for {instance}: {e}", "DEBUG")
+
+        # === Ensure all discovered types are in results even without ports ===
+        for svc_type in discovered_types:
+            if not any(svc.get('name') == svc_type for svc in all_results['services']):
+                all_results['services'].append({
+                    'name': svc_type,
+                    'type': 'PTR'
+                })
 
         # === Deduplication ===
         seen = set()
         unique_services = []
         for svc in all_results['services']:
-            key = (svc.get('name'), svc.get('port'))
+            # Use service type as primary key for deduplication
+            key = svc.get('name', '')
             if key not in seen:
                 seen.add(key)
                 unique_services.append(svc)
