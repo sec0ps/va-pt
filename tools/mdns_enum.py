@@ -239,82 +239,72 @@ class mDNSEnumerator:
             'addresses': []
         }
 
-        # Phase 1: Discover services via PTR queries
-        ptr_queries = [
-            ('_services._dns-sd._udp.local', 12),  # Service enumeration
-        ]
-
+        discovered_types = set()
         discovered_instances = set()
 
-        for qname, qtype in ptr_queries:
+        # Phase 1: Discover service types
+        try:
+            query = self.create_mdns_query('_services._dns-sd._udp.local', 12)  # PTR
+            sock.sendto(query, (target_ip, self.mdns_port))
+
+            start_time = time.time()
+            while time.time() - start_time < self.timeout / 2:
+                ready = select.select([sock], [], [], 0.5)
+                if ready[0]:
+                    data, addr = sock.recvfrom(4096)
+                    results = self.parse_mdns_response(data)
+                    if results:
+                        all_results['services'].extend(results['services'])
+                        for svc in results['services']:
+                            if svc.get('type') == 'PTR':
+                                discovered_types.add(svc.get('name'))
+                else:
+                    break
+        except Exception as e:
+            self.log(f"Error discovering types: {e}", "DEBUG")
+
+        # Phase 2: Query each service type for its instances
+        for svc_type in discovered_types:
             try:
-                query = self.create_mdns_query(qname, qtype)
+                query = self.create_mdns_query(svc_type, 12)  # PTR
                 sock.sendto(query, (target_ip, self.mdns_port))
 
-                # Collect PTR responses
                 start_time = time.time()
                 while time.time() - start_time < self.timeout / 2:
                     ready = select.select([sock], [], [], 0.5)
                     if ready[0]:
-                        try:
-                            data, addr = sock.recvfrom(4096)
-                            results = self.parse_mdns_response(data)
-
-                            if results:
-                                if results['hostname']:
-                                    all_results['hostname'] = results['hostname']
-                                all_results['services'].extend(results['services'])
-                                all_results['addresses'].extend(results['addresses'])
-
-                                # Track discovered service instances
-                                for svc in results['services']:
-                                    if svc.get('type') == 'PTR':
-                                        name = svc.get('name')
-                                        if name:
-                                            discovered_instances.add(name)
-
-                        except socket.timeout:
-                            break
+                        data, addr = sock.recvfrom(4096)
+                        results = self.parse_mdns_response(data)
+                        if results:
+                            all_results['services'].extend(results['services'])
+                            for svc in results['services']:
+                                if svc.get('type') == 'PTR':
+                                    discovered_instances.add(svc.get('name'))
                     else:
                         break
-
             except Exception as e:
-                self.log(f"PTR query error: {e}", "DEBUG")
+                self.log(f"Error querying instances for {svc_type}: {e}", "DEBUG")
 
-        # Phase 2: Send SRV queries for each discovered service instance
-        self.log(f"Discovered {len(discovered_instances)} services, querying for SRV details...", "DEBUG")
-
-        for instance_name in discovered_instances:
+        # Phase 3: Query SRV records for each service instance
+        for instance in discovered_instances:
             try:
-                query = self.create_mdns_query(instance_name, 33)  # SRV query
+                query = self.create_mdns_query(instance, 33)  # SRV
                 sock.sendto(query, (target_ip, self.mdns_port))
 
                 start_time = time.time()
                 while time.time() - start_time < 1.0:
                     ready = select.select([sock], [], [], 0.3)
                     if ready[0]:
-                        try:
-                            data, addr = sock.recvfrom(4096)
-                            results = self.parse_mdns_response(data)
-
-                            if results:
-                                # Update services with port info
-                                for new_svc in results['services']:
-                                    if new_svc.get('port'):
-                                        for existing_svc in all_results['services']:
-                                            if existing_svc.get('name') == instance_name:
-                                                existing_svc.update(new_svc)
-                                                break
-                                        else:
-                                            all_results['services'].append(new_svc)
-
-                        except socket.timeout:
-                            break
+                        data, addr = sock.recvfrom(4096)
+                        results = self.parse_mdns_response(data)
+                        if results:
+                            for new_svc in results['services']:
+                                if new_svc.get('port'):
+                                    all_results['services'].append(new_svc)
                     else:
                         break
-
             except Exception as e:
-                self.log(f"SRV query error for {instance_name}: {e}", "DEBUG")
+                self.log(f"Error querying SRV for {instance}: {e}", "DEBUG")
 
         sock.close()
 
@@ -322,9 +312,9 @@ class mDNSEnumerator:
         seen = set()
         unique_services = []
         for svc in all_results['services']:
-            svc_key = (svc.get('name'), svc.get('port'))
-            if svc_key not in seen:
-                seen.add(svc_key)
+            key = (svc.get('name'), svc.get('port'))
+            if key not in seen:
+                seen.add(key)
                 unique_services.append(svc)
         all_results['services'] = unique_services
 
@@ -397,7 +387,7 @@ class mDNSEnumerator:
             output.append("  No mDNS information extracted (service may be filtered or inactive)")
             return '\n'.join(output)
 
-        output.append("Nessus was able to extract the following information :")
+        output.append("Enumeration was able to extract the following information :")
 
         if results['hostname']:
             output.append(f"  - mDNS hostname : {results['hostname']}")
