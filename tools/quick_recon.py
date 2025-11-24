@@ -51,6 +51,7 @@ import shutil
 import urllib3
 import dns.resolver
 import time
+import base64
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
