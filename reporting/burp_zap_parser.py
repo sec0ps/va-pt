@@ -664,6 +664,48 @@ def find_reports_in_directory(directory):
 
     return zap_reports, burp_reports
 
+def display_test_finding(findings):
+    """Display the first parsed finding for testing."""
+    if not findings:
+        print("\n[!] No findings found to display")
+        return
+
+    print("\n" + "="*80)
+    print("TEST MODE - Displaying First Parsed Finding")
+    print("="*80 + "\n")
+
+    finding = findings[0]
+
+    print(f"Severity: {finding.severity}")
+    print(f"Finding: {finding.title}")
+    print(f"Tool Source: {finding.tool_source}")
+
+    print(f"\nAffected System(s):")
+    for system in finding.affected_systems:
+        print(f"  - {system}")
+
+    print(f"\nDescription:")
+    desc_preview = finding.description[:500] + "..." if len(finding.description) > 500 else finding.description
+    print(desc_preview)
+
+    print(f"\nRemediation:")
+    rem_preview = finding.remediation[:500] + "..." if len(finding.remediation) > 500 else finding.remediation
+    print(rem_preview)
+
+    if finding.references:
+        print(f"\nReferences:")
+        for ref in finding.references[:10]:  # Limit to first 10
+            print(f"  {ref}")
+        if len(finding.references) > 10:
+            print(f"  ... and {len(finding.references) - 10} more")
+
+    if finding.notes:
+        print(f"\nEvidence/Notes:")
+        notes_preview = finding.notes[:500] + "..." if len(finding.notes) > 500 else finding.notes
+        print(notes_preview)
+
+    print("\n" + "="*80)
+
 def main():
     parser = argparse.ArgumentParser(
         description='Parse OWASP ZAP and Burp Suite HTML reports and generate Word document',
@@ -671,12 +713,15 @@ def main():
         epilog="""
 Examples:
   # Process all reports in a directory (auto-detects ZAP and Burp)
-  python parse_security_reports.py -d ./scan_reports -o findings
+  python burp_zap_parser.py -d ./scan_reports -o findings
+
+  # Test mode - preview first finding without generating report
+  python burp_zap_parser.py -d ./scan_reports --test
 
   # Process specific files manually
-  python parse_security_reports.py -z report1.html report2.html -o findings
-  python parse_security_reports.py -b burp1.html burp2.html -o findings
-  python parse_security_reports.py -z zap1.html -b burp1.html -o findings
+  python burp_zap_parser.py -z report1.html report2.html -o findings
+  python burp_zap_parser.py -b burp1.html burp2.html -o findings
+  python burp_zap_parser.py -z zap1.html -b burp1.html -o findings
 
 Note: Informational findings are automatically excluded from the output.
       Duplicate findings across multiple files are merged with all affected systems listed.
@@ -689,12 +734,14 @@ Note: Informational findings are automatically excluded from the output.
                        help='Path(s) to ZAP HTML report(s) - can specify multiple files')
     parser.add_argument('-b', '--burp', type=str, nargs='+',
                        help='Path(s) to Burp Suite HTML report(s) - can specify multiple files')
-    parser.add_argument('-o', '--output', type=str, required=True,
+    parser.add_argument('-o', '--output', type=str,
                        help='Output Word document path')
+    parser.add_argument('-t', '--test', action='store_true',
+                       help='Test mode: display first parsed finding without generating report')
 
     args = parser.parse_args()
 
-    # Validate inputs - either directory OR files must be specified
+    # Validate inputs
     if not args.directory and not args.zap and not args.burp:
         print("[!] Error: Must specify either -d (directory) OR -z/-b (specific files)")
         parser.print_help()
@@ -705,8 +752,14 @@ Note: Informational findings are automatically excluded from the output.
         print("[!] Error: Cannot use -d (directory) with -z/-b (specific files). Choose one approach.")
         sys.exit(1)
 
-    # Ensure output file has .docx extension
-    if not args.output.lower().endswith('.docx'):
+    # Output required unless in test mode
+    if not args.test and not args.output:
+        print("[!] Error: -o (output) is required unless using --test mode")
+        parser.print_help()
+        sys.exit(1)
+
+    # Ensure output file has .docx extension (if not in test mode)
+    if args.output and not args.output.lower().endswith('.docx'):
         args.output = f"{args.output}.docx"
         print(f"[*] Output filename adjusted to: {args.output}")
 
@@ -758,9 +811,29 @@ Note: Informational findings are automatically excluded from the output.
         print("\n[!] Warning: No findings were extracted from the reports")
         sys.exit(0)
 
+    print(f"\n[*] Total findings collected: {len(all_findings)}")
+
+    # Filter informational and sort
+    filtered_findings = [f for f in all_findings if f.severity.lower() != 'informational']
+    informational_count = len(all_findings) - len(filtered_findings)
+
+    if informational_count > 0:
+        print(f"[*] Informational findings excluded: {informational_count}")
+
+    # Sort by severity
+    severity_order = {'Critical': 0, 'High': 1, 'Medium': 2, 'Low': 3}
+    sorted_findings = sorted(filtered_findings, key=lambda x: (
+        severity_order.get(x.severity, 999),
+        x.title.lower()
+    ))
+
+    # Test mode
+    if args.test:
+        display_test_finding(sorted_findings)
+        sys.exit(0)
+
     # Generate report
     print(f"\n[*] Generating Word document...")
-    print(f"[*] Total findings collected: {len(all_findings)}")
     generator = ReportGenerator(all_findings)
     generator.generate(args.output)
 
