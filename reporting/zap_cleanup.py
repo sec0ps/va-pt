@@ -44,7 +44,13 @@ SCRIPT_DIR = Path(__file__).parent.absolute()
 HSQLDB_JAR = SCRIPT_DIR / "hsqldb.jar"
 
 def backup_session(session_name):
-    """Create timestamped backup"""
+    """Create timestamped backup if user confirms"""
+    response = input("\nCreate backup before making changes? (yes/no): ").strip().lower()
+
+    if response != 'yes':
+        print("[!] Proceeding without backup")
+        return None
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_dir = SCRIPT_DIR / f"{session_name}_backup_{timestamp}"
     backup_dir.mkdir(exist_ok=True)
@@ -66,19 +72,6 @@ def backup_session(session_name):
     print(f"[+] Backup: {backup_dir}")
     return backup_dir
 
-def connect_db(session_name):
-    """Connect to HSQLDB"""
-    session_path = SCRIPT_DIR / session_name
-    jdbc_url = f"jdbc:hsqldb:file:{session_path};shutdown=true"
-
-    conn = jaydebeapi.connect(
-        "org.hsqldb.jdbc.JDBCDriver",
-        jdbc_url,
-        ["SA", ""],
-        str(HSQLDB_JAR)
-    )
-    return conn
-
 def get_table_columns(conn):
     """Find out what columns exist in ALERT table"""
     cursor = conn.cursor()
@@ -91,20 +84,25 @@ def get_table_columns(conn):
     return columns
 
 def get_all_alerts(conn, columns):
-    """Fetch all alerts with available columns"""
+    """Fetch unique alerts with count"""
     cursor = conn.cursor()
 
-    # Build query with only available columns
-    available = []
-    for col in ['ALERTID', 'PLUGINID', 'ALERT', 'RISK', 'CONFIDENCE', 'URL', 'ATTACK', 'PARAM', 'EVIDENCE']:
-        if col in columns:
-            available.append(col)
+    # Build query with only available columns, group by plugin and alert name
+    base_cols = ['PLUGINID', 'ALERT', 'RISK']
+    available = [col for col in base_cols if col in columns]
 
-    query = f"SELECT {', '.join(available)} FROM ALERT ORDER BY RISK DESC, PLUGINID"
+    query = f"""
+        SELECT {', '.join(available)}, COUNT(*) as COUNT, MIN(ALERTID) as FIRST_ID
+        FROM ALERT
+        GROUP BY {', '.join(available)}
+        ORDER BY RISK DESC, PLUGINID
+    """
+
     cursor.execute(query)
-
     results = cursor.fetchall()
-    return results, available
+
+    # Add COUNT to column names for display
+    return results, available + ['COUNT', 'FIRST_ID']
 
 def get_risk_summary(conn):
     """Get count of alerts by risk level"""
@@ -149,37 +147,28 @@ def delete_by_risk(conn, risk_level):
 def display_alerts(alerts, column_names):
     """Display alerts with selection numbers"""
     risk_names = {0: 'Info', 1: 'Low', 2: 'Medium', 3: 'High'}
-    conf_names = {0: 'FP', 1: 'Low', 2: 'Med', 3: 'High', 4: 'Conf'}
 
     # Find column indices
-    try:
-        id_idx = column_names.index('ALERTID')
-        plugin_idx = column_names.index('PLUGINID') if 'PLUGINID' in column_names else None
-        alert_idx = column_names.index('ALERT') if 'ALERT' in column_names else None
-        risk_idx = column_names.index('RISK') if 'RISK' in column_names else None
-        conf_idx = column_names.index('CONFIDENCE') if 'CONFIDENCE' in column_names else None
-        url_idx = column_names.index('URL') if 'URL' in column_names else None
-    except ValueError as e:
-        print(f"[!] Missing required column: {e}")
-        return
+    plugin_idx = column_names.index('PLUGINID') if 'PLUGINID' in column_names else None
+    alert_idx = column_names.index('ALERT') if 'ALERT' in column_names else None
+    risk_idx = column_names.index('RISK') if 'RISK' in column_names else None
+    count_idx = column_names.index('COUNT') if 'COUNT' in column_names else None
 
-    print(f"\n{'='*120}")
-    header = f"{'#':<5} {'ID':<8}"
+    print(f"\n{'='*100}")
+    header = f"{'#':<5}"
     if plugin_idx is not None:
         header += f" {'Plugin':<7}"
     if risk_idx is not None:
         header += f" {'Risk':<7}"
-    if conf_idx is not None:
-        header += f" {'Conf':<5}"
+    if count_idx is not None:
+        header += f" {'Count':<6}"
     if alert_idx is not None:
-        header += f" {'Alert':<40}"
-    if url_idx is not None:
-        header += f" {'URL':<50}"
+        header += f" {'Alert':<60}"
     print(header)
-    print(f"{'='*120}")
+    print(f"{'='*100}")
 
     for idx, alert in enumerate(alerts, 1):
-        line = f"{idx:<5} {alert[id_idx]:<8}"
+        line = f"{idx:<5}"
 
         if plugin_idx is not None:
             line += f" {alert[plugin_idx]:<7}"
@@ -188,24 +177,18 @@ def display_alerts(alerts, column_names):
             risk_str = risk_names.get(alert[risk_idx], str(alert[risk_idx]))
             line += f" {risk_str:<7}"
 
-        if conf_idx is not None:
-            conf_str = conf_names.get(alert[conf_idx], str(alert[conf_idx]))
-            line += f" {conf_str:<5}"
+        if count_idx is not None:
+            line += f" {alert[count_idx]:<6}"
 
         if alert_idx is not None:
             alert_name = alert[alert_idx] if alert[alert_idx] else ''
-            alert_display = alert_name[:38] + '..' if len(alert_name) > 40 else alert_name
-            line += f" {alert_display:<40}"
-
-        if url_idx is not None:
-            url = alert[url_idx] if alert[url_idx] else ''
-            url_display = url[:48] + '..' if len(url) > 50 else url
-            line += f" {url_display:<50}"
+            alert_display = alert_name[:58] + '..' if len(alert_name) > 60 else alert_name
+            line += f" {alert_display:<60}"
 
         print(line)
 
-    print(f"{'='*120}")
-    print(f"Total alerts: {len(alerts)}\n")
+    print(f"{'='*100}")
+    print(f"Total unique alerts: {len(alerts)}\n")
 
 def parse_selection(selection_str, max_num):
     """
@@ -241,24 +224,24 @@ def delete_by_plugin(conn, plugin_id):
     except ValueError:
         print("[!] Plugin ID must be a number")
         return
-    
+
     cursor = conn.cursor()
-    
+
     # Count first
     cursor.execute("SELECT COUNT(*) FROM ALERT WHERE PLUGINID = ?", [plugin_id])
     count = cursor.fetchone()[0]
-    
+
     if count == 0:
         print(f"[*] No alerts with plugin ID {plugin_id}")
         return
-    
+
     # Show what plugin this is
     cursor.execute("SELECT ALERT FROM ALERT WHERE PLUGINID = ? LIMIT 1", [plugin_id])
     plugin_name = cursor.fetchone()[0]
-    
+
     print(f"[*] Found {count} alerts from plugin {plugin_id}: {plugin_name}")
     confirm = input(f"Delete ALL {count} alerts? (yes/no): ").strip().lower()
-    
+
     if confirm == 'yes':
         cursor.execute("DELETE FROM ALERT WHERE PLUGINID = ?", [plugin_id])
         conn.commit()
@@ -280,62 +263,62 @@ def main():
 ║        ZAP Alert Selective Deletion                          ║
 ╚══════════════════════════════════════════════════════════════╝
     """)
-    
+
     # Check dependencies
     if not HSQLDB_JAR.exists():
         print(f"[!] hsqldb.jar not found in {SCRIPT_DIR}")
         return
-    
+
     # Find session files
-    sessions = [f.name for f in SCRIPT_DIR.iterdir() 
+    sessions = [f.name for f in SCRIPT_DIR.iterdir()
                 if f.is_file() and (SCRIPT_DIR / f"{f.name}.properties").exists()]
-    
+
     if not sessions:
         print("[!] No ZAP session files found")
         return
-    
+
     # Select session
     print("[*] Available sessions:")
     for i, s in enumerate(sessions, 1):
         print(f"  {i}. {s}")
-    
+
     session_name = sessions[int(input(f"\nSelect (1-{len(sessions)}): ")) - 1]
-    
+
     # Backup and connect
     backup_session(session_name)
     conn = connect_db(session_name)
-    
+
     # Check table structure
     columns = get_table_columns(conn)
     print(f"[*] Available columns: {', '.join(columns)}")
-    
+
     while True:
         # Show risk summary
         risk_summary = get_risk_summary(conn)
         risk_names = {0: 'Informational', 1: 'Low', 2: 'Medium', 3: 'High'}
-        
+
         print(f"\n[*] Alerts by Risk Level:")
         for risk, count in risk_summary:
             print(f"    {risk_names.get(risk, f'Unknown({risk})')}: {count}")
-        
+
         # Get and display alerts
         alerts, column_names = get_all_alerts(conn, columns)
-        
+
         if not alerts:
             print("[*] No alerts in database")
             break
-        
+
         display_alerts(alerts, column_names)
-        
+
         print("Commands:")
         print("  - Enter numbers to delete (e.g., '1,2,3' or '1-10' or '1-5,8,10-15')")
         print("  - 'risk <level>' to delete all of a risk level (e.g., 'risk info' or 'risk low')")
         print("  - 'plugin <id>' to delete all from a plugin (e.g., 'plugin 10054')")
         print("  - 'r' to refresh list")
         print("  - 'q' to quit")
-        
+
         selection = input("\nYour selection: ").strip().lower()
-        
+
         if selection == 'q':
             break
         elif selection == 'r':
@@ -348,20 +331,20 @@ def main():
             plugin_id = selection.split(' ', 1)[1]
             delete_by_plugin(conn, plugin_id)
             continue
-        
+
         # Parse selection
         indices = parse_selection(selection, len(alerts))
-        
+
         if not indices:
             print("[!] No valid selections")
             continue
-        
+
         # Show what will be deleted
         id_idx = column_names.index('ALERTID')
         alert_idx = column_names.index('ALERT') if 'ALERT' in column_names else None
         url_idx = column_names.index('URL') if 'URL' in column_names else None
         plugin_idx = column_names.index('PLUGINID') if 'PLUGINID' in column_names else None
-        
+
         print(f"\n[*] Selected {len(indices)} alerts for deletion:")
         for idx in indices[:10]:
             alert = alerts[idx - 1]
@@ -373,17 +356,17 @@ def main():
             if url_idx is not None:
                 info += f" - {alert[url_idx][:60]}"
             print(info)
-        
+
         if len(indices) > 10:
             print(f"  ... and {len(indices) - 10} more")
-        
+
         confirm = input("\nDelete these? (yes/no): ").strip().lower()
         if confirm == 'yes':
             alert_ids = [alerts[idx - 1][id_idx] for idx in indices]
             delete_selected_alerts(conn, alert_ids)
         else:
             print("[*] Cancelled")
-    
+
     conn.close()
     print("\n[+] Done")
 
