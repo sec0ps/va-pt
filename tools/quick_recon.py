@@ -49,6 +49,8 @@ import concurrent.futures
 import ipaddress
 import shutil
 import urllib3
+import dns.resolver
+import time
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
