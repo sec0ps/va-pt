@@ -1,8 +1,39 @@
 #!/usr/bin/env python3
-"""
-OWASP ZAP and Burp Suite Report Parser
-Parses ZAP XML/HTML and Burp Suite XML reports into DOCX format
-"""
+# =============================================================================
+# VAPT Toolkit - Vulnerability Assessment and Penetration Testing Toolkit
+# =============================================================================
+#
+# Author: Keith Pachulski
+# Company: Red Cell Security, LLC
+# Email: keith@redcellsecurity.org
+# Website: www.redcellsecurity.org
+#
+# Copyright (c) 2025 Keith Pachulski. All rights reserved.
+#
+# License: This software is licensed under the MIT License.
+#          You are free to use, modify, and distribute this software
+#          in accordance with the terms of the license.
+#
+# Purpose: This script provides an automated installation and management system
+#          for a vulnerability assessment and penetration testing
+#          toolkit. It installs and configures security tools across multiple
+#          categories including exploitation, web testing, network scanning,
+#          mobile security, cloud security, and Active Directory testing.
+#
+# DISCLAIMER: This software is provided "as-is," without warranty of any kind,
+#             express or implied, including but not limited to the warranties
+#             of merchantability, fitness for a particular purpose, and non-infringement.
+#             In no event shall the authors or copyright holders be liable for any claim,
+#             damages, or other liability, whether in an action of contract, tort, or otherwise,
+#             arising from, out of, or in connection with the software or the use or other dealings
+#             in the software.
+#
+# NOTICE: This toolkit is intended for authorized security testing only.
+#         Users are responsible for ensuring compliance with all applicable laws
+#         and regulations. Unauthorized use of these tools may violate local,
+#         state, federal, and international laws.
+#
+# =============================================================================
 
 import xml.etree.ElementTree as ET
 import argparse
@@ -171,14 +202,16 @@ def parse_xml_report(file_path):
             }
 
             for instance in alert.findall('.//instance'):
-                uri = instance.findtext('uri', '')
-                method = instance.findtext('method', '')
-                param = instance.findtext('param', '')
-
                 instance_data = {
-                    'uri': uri,
-                    'method': method,
-                    'param': param
+                    'uri': instance.findtext('uri', ''),
+                    'method': instance.findtext('method', ''),
+                    'param': instance.findtext('param', ''),
+                    'attack': instance.findtext('attack', ''),
+                    'evidence': instance.findtext('evidence', ''),
+                    'request_header': instance.findtext('requestheader', ''),
+                    'request_body': instance.findtext('requestbody', ''),
+                    'response_header': instance.findtext('responseheader', ''),
+                    'response_body': instance.findtext('responsebody', '')
                 }
                 alert_data['instances'].append(instance_data)
 
@@ -271,11 +304,21 @@ def parse_burp_report(file_path):
 
         host = issue.findtext('host', '')
         path = issue.findtext('path', '')
+
+        # Extract request/response data
+        request_data = issue.find('.//requestresponse/request')
+        response_data = issue.find('.//requestresponse/response')
+
         if host and path:
             instance = {
                 'uri': f"{host}{path}",
                 'method': issue.findtext('method', ''),
-                'param': ''
+                'param': '',
+                'request_header': request_data.text if request_data is not None else '',
+                'request_body': '',
+                'response_header': response_data.text if response_data is not None else '',
+                'response_body': '',
+                'evidence': ''
             }
             alert_data['instances'].append(instance)
 
@@ -284,6 +327,23 @@ def parse_burp_report(file_path):
         all_alerts.append(alert_data)
 
     return metadata, alerts_by_severity, all_alerts
+
+def extract_base_url(uri):
+    """Extract base URL with non-standard ports"""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(uri)
+
+    # Build base URL
+    base = f"{parsed.scheme}://{parsed.hostname}" if parsed.hostname else uri
+
+    # Add port if non-standard
+    if parsed.port:
+        if (parsed.scheme == 'https' and parsed.port != 443) or \
+           (parsed.scheme == 'http' and parsed.port != 80):
+            base += f":{parsed.port}"
+
+    return base
 
 def add_heading(doc, text, level=1):
     """Add a heading with consistent formatting"""
@@ -312,48 +372,16 @@ def generate_docx_report(metadata, alerts_by_severity, all_alerts, target_name="
 
     doc = Document()
 
-    # Title
-    title = doc.add_heading(f'{metadata["program"]} Security Assessment Report', level=1)
-    subtitle = doc.add_heading(target_name, level=2)
-    doc.add_paragraph()
-
-    # Executive Summary
-    add_heading(doc, 'Executive Summary', level=1)
-
-    total_findings = len(all_alerts)
-    unique_findings = len(set(alert['name'] for alert in all_alerts))
-
-    summary_text = (f"This report presents the findings from an automated security assessment using {metadata['program']}. "
-                   f"The scan identified {total_findings} total security findings across {unique_findings} unique vulnerability types.")
-    add_paragraph(doc, summary_text)
-    doc.add_paragraph()
-
-    # Scan Information
-    add_heading(doc, 'Scan Information', level=1)
-    add_bullet(doc, f"Scanner: {metadata['program']} {metadata['version']}")
-    add_bullet(doc, f"Scan Date: {metadata['generated']}")
-    add_bullet(doc, f"Total Findings: {total_findings}")
-    add_bullet(doc, f"Unique Vulnerabilities: {unique_findings}")
-    doc.add_paragraph()
-
-    # Findings Summary
-    add_heading(doc, 'Findings Summary', level=1)
-
+    # Detailed Findings by Severity (no top-level headers)
     severity_order = ['High', 'Medium', 'Low', 'Informational']
-    for severity in severity_order:
-        count = len(alerts_by_severity.get(severity, []))
-        if count > 0:
-            para = add_paragraph(doc, f"{severity}: ", bold=True)
-            para.add_run(f"{count} finding{'s' if count != 1 else ''}")
-    doc.add_paragraph()
 
-    # Detailed Findings by Severity
     for severity in severity_order:
         alerts = alerts_by_severity.get(severity, [])
         if not alerts:
             continue
 
-        add_heading(doc, f'{severity} Severity Findings', level=1)
+        # Level 2: Severity heading
+        add_heading(doc, f'{severity} Severity Findings', level=2)
 
         # Group by alert name to avoid duplicates
         alerts_by_name = defaultdict(list)
@@ -361,7 +389,8 @@ def generate_docx_report(metadata, alerts_by_severity, all_alerts, target_name="
             alerts_by_name[alert['name']].append(alert)
 
         for alert_name, alert_group in alerts_by_name.items():
-            add_heading(doc, alert_name, level=2)
+            # Level 3: Finding name
+            add_heading(doc, alert_name, level=3)
 
             alert = alert_group[0]
 
@@ -390,6 +419,50 @@ def generate_docx_report(metadata, alerts_by_severity, all_alerts, target_name="
                 add_paragraph(doc, alert['solution'].strip())
                 doc.add_paragraph()
 
+            # Supporting Evidence (first instance only)
+            all_instances = []
+            for a in alert_group:
+                all_instances.extend(a.get('instances', []))
+
+            if all_instances:
+                first_instance = all_instances[0]
+
+                para = add_paragraph(doc, 'Supporting Evidence:', bold=True)
+
+                # Request Header
+                if first_instance.get('request_header'):
+                    add_paragraph(doc, 'Request Header:', bold=True)
+                    para = doc.add_paragraph(first_instance['request_header'], style='Normal')
+                    para.style.font.name = 'Courier New'
+                    para.style.font.size = Pt(9)
+                    doc.add_paragraph()
+
+                # Request Body
+                if first_instance.get('request_body'):
+                    add_paragraph(doc, 'Request Body:', bold=True)
+                    para = doc.add_paragraph(first_instance['request_body'], style='Normal')
+                    para.style.font.name = 'Courier New'
+                    para.style.font.size = Pt(9)
+                    doc.add_paragraph()
+
+                # Response Header
+                if first_instance.get('response_header'):
+                    add_paragraph(doc, 'Response Header:', bold=True)
+                    para = doc.add_paragraph(first_instance['response_header'], style='Normal')
+                    para.style.font.name = 'Courier New'
+                    para.style.font.size = Pt(9)
+                    doc.add_paragraph()
+
+                # Response Body
+                if first_instance.get('response_body'):
+                    add_paragraph(doc, 'Response Body:', bold=True)
+                    para = doc.add_paragraph(first_instance['response_body'][:500], style='Normal')  # Truncate if too long
+                    para.style.font.name = 'Courier New'
+                    para.style.font.size = Pt(9)
+                    if len(first_instance['response_body']) > 500:
+                        add_paragraph(doc, '... (truncated)')
+                    doc.add_paragraph()
+
             # Reference
             if alert.get('reference'):
                 para = add_paragraph(doc, 'References:', bold=True)
@@ -399,34 +472,20 @@ def generate_docx_report(metadata, alerts_by_severity, all_alerts, target_name="
                         add_bullet(doc, ref)
                 doc.add_paragraph()
 
-            # Affected URLs/Instances
-            all_instances = []
-            for a in alert_group:
-                all_instances.extend(a.get('instances', []))
-
+            # Affected Systems (deduplicated)
             if all_instances:
-                para = add_paragraph(doc, f"Affected Locations ({len(all_instances)} instance{'s' if len(all_instances) != 1 else ''}):", bold=True)
+                # Extract unique base URLs
+                systems = set()
+                for instance in all_instances:
+                    if isinstance(instance, dict) and instance.get('uri'):
+                        base_url = extract_base_url(instance['uri'])
+                        systems.add(base_url)
 
-                for instance in all_instances[:10]:
-                    if isinstance(instance, dict):
-                        uri = instance.get('uri', '')
-                        method = instance.get('method', '')
-                        param = instance.get('param', '')
-
-                        if uri:
-                            loc = uri
-                            if method:
-                                loc += f" ({method})"
-                            if param:
-                                loc += f" [Parameter: {param}]"
-                            add_bullet(doc, loc)
-                    else:
-                        add_bullet(doc, str(instance))
-
-                if len(all_instances) > 10:
-                    add_bullet(doc, f"... and {len(all_instances) - 10} more locations")
-
-                doc.add_paragraph()
+                if systems:
+                    para = add_paragraph(doc, f"Affected Systems ({len(systems)} system{'s' if len(systems) != 1 else ''}):", bold=True)
+                    for system in sorted(systems):
+                        add_bullet(doc, system)
+                    doc.add_paragraph()
 
             doc.add_paragraph('_' * 80)
             doc.add_paragraph()
