@@ -184,7 +184,7 @@ def install_base_dependencies():
     run_command("sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff-ng httptunnel ptunnel-ng udptunnel pipx python3-venv ruby-dev")
     run_command("sudo apt install -y webhttrack minicom openjdk-21-jre gnome-tweaks macchanger recordmydesktop postgresql golang-1.23-go hydra-gtk hydra")
     run_command("sudo apt install -y ncftp wine-development libcurl4-openssl-dev smbclient hackrf nfs-common samba gpsd snmp libsnmp-dev libsnmp-perl snmp-mibs-downloader")
-    run_command("sudo apt install -y docker.io docker-compose hcxtools httrack tshark git python-is-python3 tig tftpd-hpa libimage-exiftool-perl wkhtmltoimage")
+    run_command("sudo apt install -y docker.io docker-compose hcxtools httrack tshark git python-is-python3 tig tftpd-hpa libimage-exiftool-perl wkhtmltopdf")
     run_command("sudo apt install -y libffi-dev libyaml-dev libreadline-dev libncurses5-dev libgdbm-dev zlib1g-dev build-essential bison libedit-dev libxml2-utils")
     run_command("sudo usermod -aG docker $USER")
     run_command("sudo snap install powershell --classic")
