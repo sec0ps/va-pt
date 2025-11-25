@@ -400,6 +400,15 @@ def check_and_download_hsqldb():
         print(f"[!] Manually download from: https://hsqldb.org/download/hsqldb_274/hsqldb.jar")
         return False
 
+def checkpoint_database(conn):
+    """Checkpoint database to ensure changes are written to disk"""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("CHECKPOINT")
+        print("[*] Database checkpointed - changes saved to disk")
+    except Exception as e:
+        print(f"[!] Warning: Could not checkpoint database: {e}")
+
 def main():
     print("""
 ╔══════════════════════════════════════════════════════════════╗
@@ -499,6 +508,7 @@ def main():
         else:
             print("[*] Cancelled")
 
+    checkpoint_database(conn)
     conn.close()
     print("\n[+] Done")
 
