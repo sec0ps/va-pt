@@ -348,12 +348,20 @@ def extract_base_url(uri):
 def add_heading(doc, text, level=1):
     """Add a heading with consistent formatting"""
     heading = doc.add_heading(text, level=level)
+    for run in heading.runs:
+        run.font.name = 'Calibri (Headings)'
+        if level == 2:
+            run.font.size = Pt(13)
+        elif level == 3:
+            run.font.size = Pt(11)
     return heading
 
 def add_paragraph(doc, text, bold=False, italic=False):
     """Add a paragraph with optional formatting"""
     para = doc.add_paragraph()
     run = para.add_run(text)
+    run.font.name = 'Arial'
+    run.font.size = Pt(11)
     if bold:
         run.bold = True
     if italic:
@@ -365,6 +373,9 @@ def add_bullet(doc, text, level=0):
     para = doc.add_paragraph(text, style='List Bullet')
     if level > 0:
         para.paragraph_format.left_indent = Inches(0.5 * level)
+    for run in para.runs:
+        run.font.name = 'Arial'
+        run.font.size = Pt(11)
     return para
 
 def generate_docx_report(metadata, alerts_by_severity, all_alerts, target_name="Target"):
@@ -372,7 +383,6 @@ def generate_docx_report(metadata, alerts_by_severity, all_alerts, target_name="
 
     doc = Document()
 
-    # Detailed Findings by Severity (no top-level headers)
     severity_order = ['High', 'Medium', 'Low', 'Informational']
 
     for severity in severity_order:
@@ -380,7 +390,7 @@ def generate_docx_report(metadata, alerts_by_severity, all_alerts, target_name="
         if not alerts:
             continue
 
-        # Level 2: Severity heading
+        # Level 2: Severity heading - Calibri (Headings) 13
         add_heading(doc, f'{severity} Severity Findings', level=2)
 
         # Group by alert name to avoid duplicates
@@ -389,90 +399,22 @@ def generate_docx_report(metadata, alerts_by_severity, all_alerts, target_name="
             alerts_by_name[alert['name']].append(alert)
 
         for alert_name, alert_group in alerts_by_name.items():
-            # Level 3: Finding name
+            # Level 3: Finding name - Calibri (Headings) 11
             add_heading(doc, alert_name, level=3)
 
             alert = alert_group[0]
 
-            add_bullet(doc, f"Severity: {severity}")
-
-            if 'confidence' in alert and alert['confidence']:
-                add_bullet(doc, f"Confidence: {alert['confidence']}")
-
-            if 'cweid' in alert and alert['cweid']:
-                add_bullet(doc, f"CWE ID: {alert['cweid']}")
-
-            if 'wascid' in alert and alert['wascid']:
-                add_bullet(doc, f"WASC ID: {alert['wascid']}")
-
-            doc.add_paragraph()
-
-            # Description
-            if alert.get('description'):
-                para = add_paragraph(doc, 'Description:', bold=True)
-                add_paragraph(doc, alert['description'].strip())
-                doc.add_paragraph()
-
-            # Solution
-            if alert.get('solution'):
-                para = add_paragraph(doc, 'Solution:', bold=True)
-                add_paragraph(doc, alert['solution'].strip())
-                doc.add_paragraph()
-
-            # Supporting Evidence (first instance only)
+            # Affected Systems (first, matching nessus_parser order)
             all_instances = []
             for a in alert_group:
                 all_instances.extend(a.get('instances', []))
 
-            if all_instances:
-                first_instance = all_instances[0]
+            label = doc.add_paragraph()
+            run = label.add_run('Affected System(s):')
+            run.bold = True
+            run.font.name = 'Arial'
+            run.font.size = Pt(11)
 
-                para = add_paragraph(doc, 'Supporting Evidence:', bold=True)
-
-                # Request Header
-                if first_instance.get('request_header'):
-                    add_paragraph(doc, 'Request Header:', bold=True)
-                    para = doc.add_paragraph(first_instance['request_header'], style='Normal')
-                    para.style.font.name = 'Courier New'
-                    para.style.font.size = Pt(9)
-                    doc.add_paragraph()
-
-                # Request Body
-                if first_instance.get('request_body'):
-                    add_paragraph(doc, 'Request Body:', bold=True)
-                    para = doc.add_paragraph(first_instance['request_body'], style='Normal')
-                    para.style.font.name = 'Courier New'
-                    para.style.font.size = Pt(9)
-                    doc.add_paragraph()
-
-                # Response Header
-                if first_instance.get('response_header'):
-                    add_paragraph(doc, 'Response Header:', bold=True)
-                    para = doc.add_paragraph(first_instance['response_header'], style='Normal')
-                    para.style.font.name = 'Courier New'
-                    para.style.font.size = Pt(9)
-                    doc.add_paragraph()
-
-                # Response Body
-                if first_instance.get('response_body'):
-                    add_paragraph(doc, 'Response Body:', bold=True)
-                    para = doc.add_paragraph(first_instance['response_body'][:500], style='Normal')  # Truncate if too long
-                    para.style.font.name = 'Courier New'
-                    para.style.font.size = Pt(9)
-                    if len(first_instance['response_body']) > 500:
-                        add_paragraph(doc, '... (truncated)')
-                    doc.add_paragraph()
-
-            # Reference
-            if alert.get('reference'):
-                para = add_paragraph(doc, 'References:', bold=True)
-                for ref in alert['reference'].split('\n'):
-                    ref = ref.strip()
-                    if ref:
-                        add_bullet(doc, ref)
-                doc.add_paragraph()
-
-            # Affected Systems (deduplicated)
             if all_instances:
                 # Extract unique base URLs
                 systems = set()
@@ -482,12 +424,150 @@ def generate_docx_report(metadata, alerts_by_severity, all_alerts, target_name="
                         systems.add(base_url)
 
                 if systems:
-                    para = add_paragraph(doc, f"Affected Systems ({len(systems)} system{'s' if len(systems) != 1 else ''}):", bold=True)
                     for system in sorted(systems):
                         add_bullet(doc, system)
-                    doc.add_paragraph()
+                else:
+                    add_bullet(doc, 'Unknown')
+            else:
+                add_bullet(doc, 'Unknown')
 
-            doc.add_paragraph('_' * 80)
+            # Description
+            label = doc.add_paragraph()
+            run = label.add_run('Description:')
+            run.bold = True
+            run.font.name = 'Arial'
+            run.font.size = Pt(11)
+
+            if alert.get('description'):
+                add_paragraph(doc, alert['description'].strip())
+            else:
+                p = add_paragraph(doc, 'N/A')
+                p.runs[0].italic = True
+                p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
+
+            # Solution (called Remediation in nessus_parser)
+            label = doc.add_paragraph()
+            run = label.add_run('Remediation:')
+            run.bold = True
+            run.font.name = 'Arial'
+            run.font.size = Pt(11)
+
+            if alert.get('solution'):
+                add_paragraph(doc, alert['solution'].strip())
+            else:
+                p = add_paragraph(doc, 'N/A')
+                p.runs[0].italic = True
+                p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
+
+            # References
+            label = doc.add_paragraph()
+            run = label.add_run('References:')
+            run.bold = True
+            run.font.name = 'Arial'
+            run.font.size = Pt(11)
+
+            if alert.get('reference'):
+                has_refs = False
+                for ref in alert['reference'].split('\n'):
+                    ref = ref.strip()
+                    if ref:
+                        para = doc.add_paragraph(ref)
+                        for run in para.runs:
+                            run.font.name = 'Arial'
+                            run.font.size = Pt(11)
+                        has_refs = True
+
+                if not has_refs:
+                    p = add_paragraph(doc, 'None')
+                    p.runs[0].italic = True
+                    p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
+            else:
+                p = add_paragraph(doc, 'None')
+                p.runs[0].italic = True
+                p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
+
+            # Evidence (first instance only)
+            label = doc.add_paragraph()
+            run = label.add_run('Evidence:')
+            run.bold = True
+            run.font.name = 'Arial'
+            run.font.size = Pt(11)
+
+            if all_instances:
+                first_instance = all_instances[0]
+                has_evidence = False
+
+                # Request Header
+                if first_instance.get('request_header'):
+                    sub_label = doc.add_paragraph()
+                    run = sub_label.add_run('Request Header:')
+                    run.bold = True
+                    run.font.name = 'Arial'
+                    run.font.size = Pt(11)
+
+                    para = doc.add_paragraph(first_instance['request_header'])
+                    for run in para.runs:
+                        run.font.name = 'Courier New'
+                        run.font.size = Pt(9)
+                    has_evidence = True
+
+                # Request Body
+                if first_instance.get('request_body'):
+                    sub_label = doc.add_paragraph()
+                    run = sub_label.add_run('Request Body:')
+                    run.bold = True
+                    run.font.name = 'Arial'
+                    run.font.size = Pt(11)
+
+                    para = doc.add_paragraph(first_instance['request_body'])
+                    for run in para.runs:
+                        run.font.name = 'Courier New'
+                        run.font.size = Pt(9)
+                    has_evidence = True
+
+                # Response Header
+                if first_instance.get('response_header'):
+                    sub_label = doc.add_paragraph()
+                    run = sub_label.add_run('Response Header:')
+                    run.bold = True
+                    run.font.name = 'Arial'
+                    run.font.size = Pt(11)
+
+                    para = doc.add_paragraph(first_instance['response_header'])
+                    for run in para.runs:
+                        run.font.name = 'Courier New'
+                        run.font.size = Pt(9)
+                    has_evidence = True
+
+                # Response Body
+                if first_instance.get('response_body'):
+                    sub_label = doc.add_paragraph()
+                    run = sub_label.add_run('Response Body:')
+                    run.bold = True
+                    run.font.name = 'Arial'
+                    run.font.size = Pt(11)
+
+                    response_body = first_instance['response_body']
+                    if len(response_body) > 500:
+                        response_body = response_body[:500] + '\n... (truncated)'
+
+                    para = doc.add_paragraph(response_body)
+                    for run in para.runs:
+                        run.font.name = 'Courier New'
+                        run.font.size = Pt(9)
+                    has_evidence = True
+
+                # If no evidence found, show N/A
+                if not has_evidence:
+                    p = add_paragraph(doc, 'N/A')
+                    p.runs[0].italic = True
+                    p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
+            else:
+                p = add_paragraph(doc, 'N/A')
+                p.runs[0].italic = True
+                p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
+
+            # Spacing between findings
             doc.add_paragraph()
 
     return doc
