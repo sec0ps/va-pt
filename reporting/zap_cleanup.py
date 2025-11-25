@@ -78,7 +78,7 @@ def get_session_file():
         for i, s in enumerate(sessions, 1):
             print(f"  {i}. {s}")
 
-        choice = input(f"\nSelect (1-{len(sessions)}) or enter path to different session file: ").strip()
+        choice = input(f"\nSelect (1-{len(sessions)}) or enter path to session file/directory: ").strip()
 
         try:
             session_idx = int(choice) - 1
@@ -91,9 +91,35 @@ def get_session_file():
         session_path = Path(choice)
     else:
         print("[!] No ZAP session files found in current directory")
-        session_path = Path(input("Enter full path to ZAP session file: ").strip())
+        session_path = Path(input("Enter full path to ZAP session file or directory: ").strip())
 
-    # Validate the provided path
+    # Check if it's a directory
+    if session_path.is_dir():
+        # Find session files in that directory
+        dir_sessions = [f.name for f in session_path.iterdir()
+                       if f.is_file() and (session_path / f"{f.name}.properties").exists()]
+
+        if not dir_sessions:
+            print(f"[!] No ZAP session files found in {session_path}")
+            return None
+
+        print(f"[*] Found {len(dir_sessions)} session(s) in directory:")
+        for i, s in enumerate(dir_sessions, 1):
+            print(f"  {i}. {s}")
+
+        choice = input(f"\nSelect (1-{len(dir_sessions)}): ").strip()
+        try:
+            session_idx = int(choice) - 1
+            if 0 <= session_idx < len(dir_sessions):
+                session_path = session_path / dir_sessions[session_idx]
+            else:
+                print("[!] Invalid selection")
+                return None
+        except ValueError:
+            print("[!] Invalid selection")
+            return None
+
+    # Validate the file path
     if not session_path.exists():
         print(f"[!] Session file not found: {session_path}")
         return None
