@@ -68,15 +68,16 @@ def check_and_download_hsqldb():
         return False
 
 def get_session_file():
-    """Find or prompt for session file"""
+    """Find or prompt for session file - returns full path"""
     # Check current directory first
-    sessions = [f.name for f in SCRIPT_DIR.iterdir()
-                if f.is_file() and (SCRIPT_DIR / f"{f.name}.properties").exists()]
+    current_dir = Path.cwd()
+    sessions = [f for f in current_dir.iterdir()
+                if f.is_file() and (f.parent / f"{f.name}.properties").exists()]
 
     if sessions:
         print("[*] Available sessions in current directory:")
         for i, s in enumerate(sessions, 1):
-            print(f"  {i}. {s}")
+            print(f"  {i}. {s.name}")
 
         choice = input(f"\nSelect (1-{len(sessions)}) or enter path to session file/directory: ").strip()
 
@@ -95,8 +96,7 @@ def get_session_file():
 
     # Check if it's a directory
     if session_path.is_dir():
-        # Find session files in that directory
-        dir_sessions = [f.name for f in session_path.iterdir()
+        dir_sessions = [f for f in session_path.iterdir()
                        if f.is_file() and (session_path / f"{f.name}.properties").exists()]
 
         if not dir_sessions:
@@ -105,13 +105,13 @@ def get_session_file():
 
         print(f"[*] Found {len(dir_sessions)} session(s) in directory:")
         for i, s in enumerate(dir_sessions, 1):
-            print(f"  {i}. {s}")
+            print(f"  {i}. {s.name}")
 
         choice = input(f"\nSelect (1-{len(dir_sessions)}): ").strip()
         try:
             session_idx = int(choice) - 1
             if 0 <= session_idx < len(dir_sessions):
-                session_path = session_path / dir_sessions[session_idx]
+                session_path = dir_sessions[session_idx]
             else:
                 print("[!] Invalid selection")
                 return None
@@ -119,7 +119,6 @@ def get_session_file():
             print("[!] Invalid selection")
             return None
 
-    # Validate the file path
     if not session_path.exists():
         print(f"[!] Session file not found: {session_path}")
         return None
@@ -128,8 +127,20 @@ def get_session_file():
         print(f"[!] Not a valid ZAP session (missing .properties file)")
         return None
 
-    # Copy to working directory
-    print(f"[*] Copying session files to working directory...")
+    return session_path
+
+def backup_session(session_path):
+    """Create timestamped backup if user confirms - takes full Path object"""
+    response = input("\nCreate backup before making changes? (yes/no): ").strip().lower()
+
+    if response != 'yes':
+        print("[!] Proceeding without backup")
+        return None
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_dir = session_path.parent / f"{session_path.stem}_backup_{timestamp}"
+    backup_dir.mkdir(exist_ok=True)
+
     session_files = [
         session_path.name,
         f"{session_path.name}.properties",
@@ -141,44 +152,14 @@ def get_session_file():
 
     for fname in session_files:
         src = session_path.parent / fname
-        dst = SCRIPT_DIR / fname
-        if src.exists() and not dst.exists():
-            shutil.copy2(src, dst)
-
-    return session_path.name
-
-def backup_session(session_name):
-    """Create timestamped backup if user confirms"""
-    response = input("\nCreate backup before making changes? (yes/no): ").strip().lower()
-
-    if response != 'yes':
-        print("[!] Proceeding without backup")
-        return None
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_dir = SCRIPT_DIR / f"{session_name}_backup_{timestamp}"
-    backup_dir.mkdir(exist_ok=True)
-
-    session_files = [
-        session_name,
-        f"{session_name}.properties",
-        f"{session_name}.script",
-        f"{session_name}.data",
-        f"{session_name}.backup",
-        f"{session_name}.log"
-    ]
-
-    for fname in session_files:
-        src = SCRIPT_DIR / fname
         if src.exists():
             shutil.copy2(src, backup_dir / fname)
 
     print(f"[+] Backup: {backup_dir}")
     return backup_dir
 
-def connect_db(session_name):
-    """Connect to HSQLDB"""
-    session_path = SCRIPT_DIR / session_name
+def connect_db(session_path):
+    """Connect to HSQLDB - takes full Path object"""
     jdbc_url = f"jdbc:hsqldb:file:{session_path};shutdown=true"
 
     conn = jaydebeapi.connect(
@@ -187,7 +168,7 @@ def connect_db(session_name):
         ["SA", ""],
         str(HSQLDB_JAR)
     )
-    print(f"[+] Connected to database: {session_name}")
+    print(f"[+] Connected to database: {session_path.name}")
     return conn
 
 def get_table_columns(conn):
@@ -420,14 +401,14 @@ def main():
     if not check_and_download_hsqldb():
         return
 
-    # Get session file
-    session_name = get_session_file()
-    if not session_name:
+    # Get session file (returns full Path object)
+    session_path = get_session_file()
+    if not session_path:
         return
 
     # Backup and connect
-    backup_session(session_name)
-    conn = connect_db(session_name)
+    backup_session(session_path)
+    conn = connect_db(session_path)
 
     # Check table structure
     columns = get_table_columns(conn)
