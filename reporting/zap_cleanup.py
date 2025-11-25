@@ -35,542 +35,319 @@
 #
 # =============================================================================
 
-import xml.etree.ElementTree as ET
-import argparse
-import sys
+import jaydebeapi
+import shutil
 from pathlib import Path
 from datetime import datetime
-from html.parser import HTMLParser
-from collections import defaultdict
-from docx import Document
-from docx.shared import Pt, RGBColor, Inches
-from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-class ZAPHTMLParser(HTMLParser):
-    """Parse ZAP HTML report format"""
+SCRIPT_DIR = Path(__file__).parent.absolute()
+HSQLDB_JAR = SCRIPT_DIR / "hsqldb.jar"
 
-    def __init__(self):
-        super().__init__()
-        self.alerts = []
-        self.current_alert = {}
-        self.current_tag = None
-        self.current_data = []
-        self.in_alert = False
-        self.in_instance = False
-        self.current_instances = []
+def check_and_download_hsqldb():
+    """Check for HSQLDB JAR, download if missing"""
+    if HSQLDB_JAR.exists():
+        return True
 
-    def handle_starttag(self, tag, attrs):
-        attrs_dict = dict(attrs)
+    print(f"[!] hsqldb.jar not found in {SCRIPT_DIR}")
+    response = input("Download hsqldb.jar automatically? (yes/no): ").strip().lower()
 
-        if tag == 'div' and attrs_dict.get('class') in ['alert-item', 'site']:
-            self.in_alert = True
-            self.current_alert = {'instances': []}
-        elif tag == 'span' and 'risk-' in attrs_dict.get('class', ''):
-            self.current_tag = 'risk'
-        elif tag == 'h3' and self.in_alert:
-            self.current_tag = 'name'
-        elif tag == 'h4' and self.in_alert:
-            self.current_tag = 'section'
-        elif tag == 'p' and self.in_alert:
-            self.current_tag = 'content'
-        elif tag == 'li' and self.in_alert:
-            if self.current_tag == 'urls':
-                self.in_instance = True
-            self.current_tag = 'list_item'
-        elif tag == 'td' and self.in_alert:
-            self.current_tag = 'table_cell'
+    if response != 'yes':
+        print("[!] Cannot proceed without hsqldb.jar")
+        return False
 
-    def handle_data(self, data):
-        data = data.strip()
-        if not data or not self.in_alert:
-            return
+    try:
+        import urllib.request
+        url = "https://hsqldb.org/download/hsqldb_274/hsqldb.jar"
+        print(f"[*] Downloading from {url}...")
+        urllib.request.urlretrieve(url, HSQLDB_JAR)
+        print(f"[+] Downloaded to {HSQLDB_JAR}")
+        return True
+    except Exception as e:
+        print(f"[!] Download failed: {e}")
+        print(f"[!] Manually download from: https://hsqldb.org/download/hsqldb_274/hsqldb.jar")
+        return False
 
-        if self.current_tag == 'risk':
-            self.current_alert['risk'] = data
-        elif self.current_tag == 'name' and 'name' not in self.current_alert:
-            self.current_alert['name'] = data
-        elif self.current_tag == 'content':
-            self.current_data.append(data)
-        elif self.current_tag == 'list_item' and self.in_instance:
-            self.current_instances.append(data)
-        elif self.current_tag == 'table_cell':
-            self.current_data.append(data)
+def get_session_file():
+    """Find or prompt for session file"""
+    # Check current directory first
+    sessions = [f.name for f in SCRIPT_DIR.iterdir()
+                if f.is_file() and (SCRIPT_DIR / f"{f.name}.properties").exists()]
 
-    def handle_endtag(self, tag):
-        if tag == 'div' and self.in_alert:
-            if 'name' in self.current_alert and 'risk' in self.current_alert:
-                content = ' '.join(self.current_data)
+    if sessions:
+        print("[*] Available sessions in current directory:")
+        for i, s in enumerate(sessions, 1):
+            print(f"  {i}. {s}")
 
-                if 'Description' in content:
-                    parts = content.split('Description', 1)
-                    if len(parts) > 1:
-                        desc_part = parts[1].split('Solution', 1)[0] if 'Solution' in parts[1] else parts[1]
-                        self.current_alert['description'] = desc_part.strip()
+        choice = input(f"\nSelect (1-{len(sessions)}) or enter path to different session file: ").strip()
 
-                if 'Solution' in content:
-                    parts = content.split('Solution', 1)
-                    if len(parts) > 1:
-                        sol_part = parts[1].split('Reference', 1)[0] if 'Reference' in parts[1] else parts[1]
-                        self.current_alert['solution'] = sol_part.strip()
+        try:
+            session_idx = int(choice) - 1
+            if 0 <= session_idx < len(sessions):
+                return sessions[session_idx]
+        except ValueError:
+            pass
 
-                if 'Reference' in content:
-                    parts = content.split('Reference', 1)
-                    if len(parts) > 1:
-                        self.current_alert['reference'] = parts[1].strip()
+        # User entered a path
+        session_path = Path(choice)
+    else:
+        print("[!] No ZAP session files found in current directory")
+        session_path = Path(input("Enter full path to ZAP session file: ").strip())
 
-                if self.current_instances:
-                    self.current_alert['instances'] = self.current_instances.copy()
+    # Validate the provided path
+    if not session_path.exists():
+        print(f"[!] Session file not found: {session_path}")
+        return None
 
-                self.alerts.append(self.current_alert)
+    if not (session_path.parent / f"{session_path.name}.properties").exists():
+        print(f"[!] Not a valid ZAP session (missing .properties file)")
+        return None
 
-            self.in_alert = False
-            self.current_alert = {}
-            self.current_data = []
-            self.current_instances = []
-        elif tag in ['p', 'h3', 'h4', 'span', 'li', 'td']:
-            self.current_tag = None
+    # Copy to working directory
+    print(f"[*] Copying session files to working directory...")
+    session_files = [
+        session_path.name,
+        f"{session_path.name}.properties",
+        f"{session_path.name}.script",
+        f"{session_path.name}.data",
+        f"{session_path.name}.backup",
+        f"{session_path.name}.log"
+    ]
 
-        if tag == 'ul':
-            self.in_instance = False
+    for fname in session_files:
+        src = session_path.parent / fname
+        dst = SCRIPT_DIR / fname
+        if src.exists() and not dst.exists():
+            shutil.copy2(src, dst)
 
-def detect_format(file_path):
-    """Auto-detect report type: zap_xml, zap_html, burp_xml"""
-    with open(file_path, 'r', encoding='utf-8') as f:
-        content = f.read(2000)
+    return session_path.name
 
-        if '<?xml' in content:
-            if '<OWASPZAPReport' in content or 'programName="ZAP"' in content:
-                return 'zap_xml'
-            elif '<issues' in content and 'burpVersion' in content:
-                return 'burp_xml'
-            else:
-                return 'unknown'
-        elif '<html' in content.lower() or '<!doctype' in content.lower():
-            return 'zap_html'
+def backup_session(session_name):
+    """Create timestamped backup if user confirms"""
+    response = input("\nCreate backup before making changes? (yes/no): ").strip().lower()
 
-    return 'unknown'
+    if response != 'yes':
+        print("[!] Proceeding without backup")
+        return None
 
-def find_reports_in_directory():
-    """Find all supported report files in current directory"""
-    current_dir = Path('.')
-    supported_files = []
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_dir = SCRIPT_DIR / f"{session_name}_backup_{timestamp}"
+    backup_dir.mkdir(exist_ok=True)
 
-    for file in current_dir.iterdir():
-        if file.is_file() and file.suffix.lower() in ['.xml', '.html', '.htm']:
+    session_files = [
+        session_name,
+        f"{session_name}.properties",
+        f"{session_name}.script",
+        f"{session_name}.data",
+        f"{session_name}.backup",
+        f"{session_name}.log"
+    ]
+
+    for fname in session_files:
+        src = SCRIPT_DIR / fname
+        if src.exists():
+            shutil.copy2(src, backup_dir / fname)
+
+    print(f"[+] Backup: {backup_dir}")
+    return backup_dir
+
+def connect_db(session_name):
+    """Connect to HSQLDB"""
+    session_path = SCRIPT_DIR / session_name
+    jdbc_url = f"jdbc:hsqldb:file:{session_path};shutdown=true"
+
+    conn = jaydebeapi.connect(
+        "org.hsqldb.jdbc.JDBCDriver",
+        jdbc_url,
+        ["SA", ""],
+        str(HSQLDB_JAR)
+    )
+    print(f"[+] Connected to database: {session_name}")
+    return conn
+
+def get_table_columns(conn):
+    """Find out what columns exist in ALERT table"""
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT COLUMN_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_NAME = 'ALERT'
+    """)
+    columns = [row[0] for row in cursor.fetchall()]
+    return columns
+
+def get_all_alerts(conn, columns):
+    """Fetch unique alerts with count"""
+    cursor = conn.cursor()
+
+    # Build query with only available columns, group by plugin and alert name
+    base_cols = ['PLUGINID', 'ALERT', 'RISK']
+    available = [col for col in base_cols if col in columns]
+
+    query = f"""
+        SELECT {', '.join(available)}, COUNT(*) as COUNT, MIN(ALERTID) as FIRST_ID
+        FROM ALERT
+        GROUP BY {', '.join(available)}
+        ORDER BY RISK DESC, PLUGINID
+    """
+
+    cursor.execute(query)
+    results = cursor.fetchall()
+
+    # Add COUNT to column names for display
+    return results, available + ['COUNT', 'FIRST_ID']
+
+def get_risk_summary(conn):
+    """Get count of alerts by risk level"""
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT RISK, COUNT(*)
+        FROM ALERT
+        GROUP BY RISK
+        ORDER BY RISK DESC
+    """)
+    return cursor.fetchall()
+
+def delete_by_risk(conn, risk_level):
+    """Delete all alerts of a specific risk level"""
+    risk_map = {'info': 0, 'informational': 0, 'low': 1, 'medium': 2, 'med': 2, 'high': 3}
+    risk_value = risk_map.get(risk_level.lower(), None)
+
+    if risk_value is None:
+        print("[!] Invalid risk level")
+        return
+
+    cursor = conn.cursor()
+
+    # Count first
+    cursor.execute("SELECT COUNT(*) FROM ALERT WHERE RISK = ?", [risk_value])
+    count = cursor.fetchone()[0]
+
+    if count == 0:
+        print(f"[*] No alerts with risk level {risk_level}")
+        return
+
+    print(f"[*] Found {count} alerts with risk level {risk_level}")
+    confirm = input(f"Delete ALL {count} alerts? (yes/no): ").strip().lower()
+
+    if confirm == 'yes':
+        cursor.execute("DELETE FROM ALERT WHERE RISK = ?", [risk_value])
+        conn.commit()
+        print(f"[+] Deleted {count} alerts")
+    else:
+        print("[*] Cancelled")
+
+def display_alerts(alerts, column_names):
+    """Display alerts with selection numbers"""
+    risk_names = {0: 'Info', 1: 'Low', 2: 'Medium', 3: 'High'}
+
+    # Find column indices
+    plugin_idx = column_names.index('PLUGINID') if 'PLUGINID' in column_names else None
+    alert_idx = column_names.index('ALERT') if 'ALERT' in column_names else None
+    risk_idx = column_names.index('RISK') if 'RISK' in column_names else None
+    count_idx = column_names.index('COUNT') if 'COUNT' in column_names else None
+
+    print(f"\n{'='*100}")
+    header = f"{'#':<5}"
+    if plugin_idx is not None:
+        header += f" {'Plugin':<7}"
+    if risk_idx is not None:
+        header += f" {'Risk':<7}"
+    if count_idx is not None:
+        header += f" {'Count':<6}"
+    if alert_idx is not None:
+        header += f" {'Alert':<60}"
+    print(header)
+    print(f"{'='*100}")
+
+    for idx, alert in enumerate(alerts, 1):
+        line = f"{idx:<5}"
+
+        if plugin_idx is not None:
+            line += f" {alert[plugin_idx]:<7}"
+
+        if risk_idx is not None:
+            risk_str = risk_names.get(alert[risk_idx], str(alert[risk_idx]))
+            line += f" {risk_str:<7}"
+
+        if count_idx is not None:
+            line += f" {alert[count_idx]:<6}"
+
+        if alert_idx is not None:
+            alert_name = alert[alert_idx] if alert[alert_idx] else ''
+            alert_display = alert_name[:58] + '..' if len(alert_name) > 60 else alert_name
+            line += f" {alert_display:<60}"
+
+        print(line)
+
+    print(f"{'='*100}")
+    print(f"Total unique alerts: {len(alerts)}\n")
+
+def parse_selection(selection_str, max_num):
+    """
+    Parse selection string into list of indices
+    Examples: '1,2,3' or '1-5' or '1-5,10,15-20'
+    """
+    selected = set()
+
+    for part in selection_str.split(','):
+        part = part.strip()
+        if '-' in part:
             try:
-                report_type = detect_format(file)
-                if report_type in ['zap_xml', 'zap_html', 'burp_xml']:
-                    supported_files.append((file, report_type))
-            except:
-                continue
-
-    return supported_files
-
-def parse_xml_report(file_path):
-    """Parse ZAP XML report"""
-    tree = ET.parse(file_path)
-    root = tree.getroot()
-
-    metadata = {
-        'program': root.get('programName', 'OWASP ZAP'),
-        'version': root.get('version', 'Unknown'),
-        'generated': root.get('generated', 'Unknown')
-    }
-
-    alerts_by_severity = defaultdict(list)
-    all_alerts = []
-
-    for site in root.findall('.//site'):
-        site_name = site.get('name', 'Unknown')
-        site_host = site.get('host', '')
-        site_port = site.get('port', '')
-
-        for alert in site.findall('.//alertitem'):
-            alert_data = {
-                'name': alert.findtext('name', 'Unknown'),
-                'risk': alert.findtext('riskdesc', 'Unknown'),
-                'confidence': alert.findtext('confidence', 'Unknown'),
-                'description': alert.findtext('desc', ''),
-                'solution': alert.findtext('solution', ''),
-                'reference': alert.findtext('reference', ''),
-                'cweid': alert.findtext('cweid', ''),
-                'wascid': alert.findtext('wascid', ''),
-                'site': site_name,
-                'host': site_host,
-                'port': site_port,
-                'instances': []
-            }
-
-            for instance in alert.findall('.//instance'):
-                instance_data = {
-                    'uri': instance.findtext('uri', ''),
-                    'method': instance.findtext('method', ''),
-                    'param': instance.findtext('param', ''),
-                    'attack': instance.findtext('attack', ''),
-                    'evidence': instance.findtext('evidence', ''),
-                    'request_header': instance.findtext('requestheader', ''),
-                    'request_body': instance.findtext('requestbody', ''),
-                    'response_header': instance.findtext('responseheader', ''),
-                    'response_body': instance.findtext('responsebody', '')
-                }
-                alert_data['instances'].append(instance_data)
-
-            risk_level = alert_data['risk'].split()[0] if alert_data['risk'] else 'Informational'
-            alerts_by_severity[risk_level].append(alert_data)
-            all_alerts.append(alert_data)
-
-    return metadata, alerts_by_severity, all_alerts
-
-def parse_html_report(file_path):
-    """Parse ZAP HTML report"""
-    with open(file_path, 'r', encoding='utf-8') as f:
-        html_content = f.read()
-
-    parser = ZAPHTMLParser()
-    parser.feed(html_content)
-
-    metadata = {
-        'program': 'OWASP ZAP',
-        'version': 'Unknown',
-        'generated': 'Unknown'
-    }
-
-    if 'ZAP Version' in html_content:
-        import re
-        version_match = re.search(r'ZAP Version[:\s]+([0-9.]+)', html_content)
-        if version_match:
-            metadata['version'] = version_match.group(1)
-
-    if 'Report Generated' in html_content:
-        import re
-        date_match = re.search(r'Report Generated[:\s]+([^<]+)', html_content)
-        if date_match:
-            metadata['generated'] = date_match.group(1).strip()
-
-    alerts_by_severity = defaultdict(list)
-    all_alerts = []
-
-    for alert in parser.alerts:
-        risk = alert.get('risk', 'Informational')
-        if 'High' in risk:
-            risk_level = 'High'
-        elif 'Medium' in risk:
-            risk_level = 'Medium'
-        elif 'Low' in risk:
-            risk_level = 'Low'
+                start, end = part.split('-')
+                start, end = int(start), int(end)
+                if 1 <= start <= max_num and 1 <= end <= max_num and start <= end:
+                    selected.update(range(start, end + 1))
+            except ValueError:
+                pass
         else:
-            risk_level = 'Informational'
+            try:
+                num = int(part)
+                if 1 <= num <= max_num:
+                    selected.add(num)
+            except ValueError:
+                pass
 
-        alert['risk'] = risk_level
-        alerts_by_severity[risk_level].append(alert)
-        all_alerts.append(alert)
+    return sorted(selected)
 
-    return metadata, alerts_by_severity, all_alerts
+def delete_by_plugin(conn, plugin_id):
+    """Delete all alerts from a specific plugin"""
+    try:
+        plugin_id = int(plugin_id)
+    except ValueError:
+        print("[!] Plugin ID must be a number")
+        return
 
-def parse_burp_report(file_path):
-    """Parse Burp Suite XML report"""
-    tree = ET.parse(file_path)
-    root = tree.getroot()
+    cursor = conn.cursor()
 
-    metadata = {
-        'program': 'Burp Suite',
-        'version': root.get('burpVersion', 'Unknown'),
-        'generated': root.get('exportTime', 'Unknown')
-    }
+    # Count first
+    cursor.execute("SELECT COUNT(*) FROM ALERT WHERE PLUGINID = ?", [plugin_id])
+    count = cursor.fetchone()[0]
 
-    alerts_by_severity = defaultdict(list)
-    all_alerts = []
+    if count == 0:
+        print(f"[*] No alerts with plugin ID {plugin_id}")
+        return
 
-    severity_map = {
-        'High': 'High',
-        'Medium': 'Medium',
-        'Low': 'Low',
-        'Information': 'Informational',
-        'Informational': 'Informational'
-    }
+    # Show what plugin this is
+    cursor.execute("SELECT ALERT FROM ALERT WHERE PLUGINID = ? LIMIT 1", [plugin_id])
+    plugin_name = cursor.fetchone()[0]
 
-    for issue in root.findall('.//issue'):
-        alert_data = {
-            'name': issue.findtext('name', 'Unknown'),
-            'risk': severity_map.get(issue.findtext('severity', 'Informational'), 'Informational'),
-            'confidence': issue.findtext('confidence', 'Certain'),
-            'description': issue.findtext('issueBackground', '') or issue.findtext('issueDetail', ''),
-            'solution': issue.findtext('remediationBackground', '') or issue.findtext('remediationDetail', ''),
-            'reference': '\n'.join([ref.text for ref in issue.findall('.//reference') if ref.text]),
-            'cweid': '',
-            'wascid': '',
-            'instances': []
-        }
+    print(f"[*] Found {count} alerts from plugin {plugin_id}: {plugin_name}")
+    confirm = input(f"Delete ALL {count} alerts? (yes/no): ").strip().lower()
 
-        host = issue.findtext('host', '')
-        path = issue.findtext('path', '')
+    if confirm == 'yes':
+        cursor.execute("DELETE FROM ALERT WHERE PLUGINID = ?", [plugin_id])
+        conn.commit()
+        print(f"[+] Deleted {count} alerts")
+    else:
+        print("[*] Cancelled")
 
-        # Extract request/response data
-        request_data = issue.find('.//requestresponse/request')
-        response_data = issue.find('.//requestresponse/response')
-
-        if host and path:
-            instance = {
-                'uri': f"{host}{path}",
-                'method': issue.findtext('method', ''),
-                'param': '',
-                'request_header': request_data.text if request_data is not None else '',
-                'request_body': '',
-                'response_header': response_data.text if response_data is not None else '',
-                'response_body': '',
-                'evidence': ''
-            }
-            alert_data['instances'].append(instance)
-
-        risk_level = alert_data['risk']
-        alerts_by_severity[risk_level].append(alert_data)
-        all_alerts.append(alert_data)
-
-    return metadata, alerts_by_severity, all_alerts
-
-def extract_base_url(uri):
-    """Extract base URL with non-standard ports"""
-    from urllib.parse import urlparse
-
-    parsed = urlparse(uri)
-
-    # Build base URL
-    base = f"{parsed.scheme}://{parsed.hostname}" if parsed.hostname else uri
-
-    # Add port if non-standard
-    if parsed.port:
-        if (parsed.scheme == 'https' and parsed.port != 443) or \
-           (parsed.scheme == 'http' and parsed.port != 80):
-            base += f":{parsed.port}"
-
-    return base
-
-def add_heading(doc, text, level=1):
-    """Add a heading with consistent formatting"""
-    heading = doc.add_heading(text, level=level)
-    for run in heading.runs:
-        run.font.name = 'Calibri (Headings)'
-        if level == 2:
-            run.font.size = Pt(13)
-        elif level == 3:
-            run.font.size = Pt(11)
-    return heading
-
-def add_paragraph(doc, text, bold=False, italic=False):
-    """Add a paragraph with optional formatting"""
-    para = doc.add_paragraph()
-    run = para.add_run(text)
-    run.font.name = 'Arial'
-    run.font.size = Pt(11)
-    if bold:
-        run.bold = True
-    if italic:
-        run.italic = True
-    return para
-
-def add_bullet(doc, text, level=0):
-    """Add a bulleted item"""
-    para = doc.add_paragraph(text, style='List Bullet')
-    if level > 0:
-        para.paragraph_format.left_indent = Inches(0.5 * level)
-    for run in para.runs:
-        run.font.name = 'Arial'
-        run.font.size = Pt(11)
-    return para
-
-def generate_docx_report(metadata, alerts_by_severity, all_alerts, target_name="Target"):
-    """Generate DOCX report matching nessus_parser style"""
-
-    doc = Document()
-
-    severity_order = ['High', 'Medium', 'Low', 'Informational']
-
-    for severity in severity_order:
-        alerts = alerts_by_severity.get(severity, [])
-        if not alerts:
-            continue
-
-        # Level 2: Severity heading - Calibri (Headings) 13
-        add_heading(doc, f'{severity} Severity Findings', level=2)
-
-        # Group by alert name to avoid duplicates
-        alerts_by_name = defaultdict(list)
-        for alert in alerts:
-            alerts_by_name[alert['name']].append(alert)
-
-        for alert_name, alert_group in alerts_by_name.items():
-            # Level 3: Finding name - Calibri (Headings) 11
-            add_heading(doc, alert_name, level=3)
-
-            alert = alert_group[0]
-
-            # Affected Systems (first, matching nessus_parser order)
-            all_instances = []
-            for a in alert_group:
-                all_instances.extend(a.get('instances', []))
-
-            label = doc.add_paragraph()
-            run = label.add_run('Affected System(s):')
-            run.bold = True
-            run.font.name = 'Arial'
-            run.font.size = Pt(11)
-
-            if all_instances:
-                # Extract unique base URLs
-                systems = set()
-                for instance in all_instances:
-                    if isinstance(instance, dict) and instance.get('uri'):
-                        base_url = extract_base_url(instance['uri'])
-                        systems.add(base_url)
-
-                if systems:
-                    for system in sorted(systems):
-                        add_bullet(doc, system)
-                else:
-                    add_bullet(doc, 'Unknown')
-            else:
-                add_bullet(doc, 'Unknown')
-
-            # Description
-            label = doc.add_paragraph()
-            run = label.add_run('Description:')
-            run.bold = True
-            run.font.name = 'Arial'
-            run.font.size = Pt(11)
-
-            if alert.get('description'):
-                add_paragraph(doc, alert['description'].strip())
-            else:
-                p = add_paragraph(doc, 'N/A')
-                p.runs[0].italic = True
-                p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
-
-            # Solution (called Remediation in nessus_parser)
-            label = doc.add_paragraph()
-            run = label.add_run('Remediation:')
-            run.bold = True
-            run.font.name = 'Arial'
-            run.font.size = Pt(11)
-
-            if alert.get('solution'):
-                add_paragraph(doc, alert['solution'].strip())
-            else:
-                p = add_paragraph(doc, 'N/A')
-                p.runs[0].italic = True
-                p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
-
-            # References
-            label = doc.add_paragraph()
-            run = label.add_run('References:')
-            run.bold = True
-            run.font.name = 'Arial'
-            run.font.size = Pt(11)
-
-            if alert.get('reference'):
-                has_refs = False
-                for ref in alert['reference'].split('\n'):
-                    ref = ref.strip()
-                    if ref:
-                        para = doc.add_paragraph(ref)
-                        for run in para.runs:
-                            run.font.name = 'Arial'
-                            run.font.size = Pt(11)
-                        has_refs = True
-
-                if not has_refs:
-                    p = add_paragraph(doc, 'None')
-                    p.runs[0].italic = True
-                    p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
-            else:
-                p = add_paragraph(doc, 'None')
-                p.runs[0].italic = True
-                p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
-
-            # Evidence (first instance only)
-            label = doc.add_paragraph()
-            run = label.add_run('Evidence:')
-            run.bold = True
-            run.font.name = 'Arial'
-            run.font.size = Pt(11)
-
-            if all_instances:
-                first_instance = all_instances[0]
-                has_evidence = False
-
-                # Request Header
-                if first_instance.get('request_header'):
-                    sub_label = doc.add_paragraph()
-                    run = sub_label.add_run('Request Header:')
-                    run.bold = True
-                    run.font.name = 'Arial'
-                    run.font.size = Pt(11)
-
-                    para = doc.add_paragraph(first_instance['request_header'])
-                    for run in para.runs:
-                        run.font.name = 'Courier New'
-                        run.font.size = Pt(9)
-                    has_evidence = True
-
-                # Request Body
-                if first_instance.get('request_body'):
-                    sub_label = doc.add_paragraph()
-                    run = sub_label.add_run('Request Body:')
-                    run.bold = True
-                    run.font.name = 'Arial'
-                    run.font.size = Pt(11)
-
-                    para = doc.add_paragraph(first_instance['request_body'])
-                    for run in para.runs:
-                        run.font.name = 'Courier New'
-                        run.font.size = Pt(9)
-                    has_evidence = True
-
-                # Response Header
-                if first_instance.get('response_header'):
-                    sub_label = doc.add_paragraph()
-                    run = sub_label.add_run('Response Header:')
-                    run.bold = True
-                    run.font.name = 'Arial'
-                    run.font.size = Pt(11)
-
-                    para = doc.add_paragraph(first_instance['response_header'])
-                    for run in para.runs:
-                        run.font.name = 'Courier New'
-                        run.font.size = Pt(9)
-                    has_evidence = True
-
-                # Response Body
-                if first_instance.get('response_body'):
-                    sub_label = doc.add_paragraph()
-                    run = sub_label.add_run('Response Body:')
-                    run.bold = True
-                    run.font.name = 'Arial'
-                    run.font.size = Pt(11)
-
-                    response_body = first_instance['response_body']
-                    if len(response_body) > 500:
-                        response_body = response_body[:500] + '\n... (truncated)'
-
-                    para = doc.add_paragraph(response_body)
-                    for run in para.runs:
-                        run.font.name = 'Courier New'
-                        run.font.size = Pt(9)
-                    has_evidence = True
-
-                # If no evidence found, show N/A
-                if not has_evidence:
-                    p = add_paragraph(doc, 'N/A')
-                    p.runs[0].italic = True
-                    p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
-            else:
-                p = add_paragraph(doc, 'N/A')
-                p.runs[0].italic = True
-                p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
-
-            # Spacing between findings
-            doc.add_paragraph()
-
-    return doc
+def delete_selected_alerts(conn, alert_ids):
+    """Delete alerts by ID"""
+    cursor = conn.cursor()
+    placeholders = ','.join(['?' for _ in alert_ids])
+    cursor.execute(f"DELETE FROM ALERT WHERE ALERTID IN ({placeholders})", alert_ids)
+    conn.commit()
+    print(f"[+] Deleted {len(alert_ids)} alerts")
 
 def check_and_download_hsqldb():
     """Check for HSQLDB JAR, download if missing"""
@@ -596,116 +373,6 @@ def check_and_download_hsqldb():
         print(f"[!] Download failed: {e}")
         print(f"[!] Manually download from: https://hsqldb.org/download/hsqldb_274/hsqldb.jar")
         return False
-
-def print_test_output(metadata, alerts_by_severity, all_alerts, target_name):
-    """Print test output showing document structure"""
-    print("\n" + "="*60)
-    print("TEST MODE - Document Structure Preview")
-    print("="*60 + "\n")
-
-    print(f"TITLE: {metadata['program']} Security Assessment Report")
-    print(f"SUBTITLE: {target_name}\n")
-
-    print("SECTION: Executive Summary")
-    total_findings = len(all_alerts)
-    unique_findings = len(set(alert['name'] for alert in all_alerts))
-    print(f"  {total_findings} total findings, {unique_findings} unique\n")
-
-    print("SECTION: Scan Information")
-    print(f"  - Scanner: {metadata['program']} {metadata['version']}")
-    print(f"  - Scan Date: {metadata['generated']}")
-    print(f"  - Total: {total_findings}, Unique: {unique_findings}\n")
-
-    print("SECTION: Findings Summary")
-    severity_order = ['High', 'Medium', 'Low', 'Informational']
-    for severity in severity_order:
-        count = len(alerts_by_severity.get(severity, []))
-        if count > 0:
-            print(f"  {severity}: {count} finding(s)")
-    print()
-
-    line_count = 0
-    max_lines = 30
-
-    for severity in severity_order:
-        alerts = alerts_by_severity.get(severity, [])
-        if not alerts or line_count >= max_lines:
-            continue
-
-        print(f"SECTION: {severity} Severity Findings")
-        line_count += 1
-
-        alerts_by_name = defaultdict(list)
-        for alert in alerts:
-            alerts_by_name[alert['name']].append(alert)
-
-        shown = 0
-        for alert_name, alert_group in alerts_by_name.items():
-            if shown >= 2 or line_count >= max_lines:
-                remaining = len(alerts_by_name) - shown
-                if remaining > 0:
-                    print(f"  ... and {remaining} more {severity} findings")
-                break
-
-            print(f"  FINDING: {alert_name}")
-            alert = alert_group[0]
-
-            print(f"    - Severity: {severity}")
-            if 'confidence' in alert and alert['confidence']:
-                print(f"    - Confidence: {alert['confidence']}")
-
-            instance_count = sum(len(a.get('instances', [])) for a in alert_group)
-            if instance_count > 0:
-                print(f"    - Affected Locations: {instance_count}")
-
-            print()
-            shown += 1
-            line_count += 4
-
-    print("="*60)
-    print(f"Full report would contain all {unique_findings} unique findings")
-    print("="*60)
-
-def process_report(input_path, report_type, args):
-    """Process a single report file"""
-    try:
-        if report_type == 'zap_xml':
-            metadata, alerts_by_severity, all_alerts = parse_xml_report(input_path)
-        elif report_type == 'zap_html':
-            metadata, alerts_by_severity, all_alerts = parse_html_report(input_path)
-        elif report_type == 'burp_xml':
-            metadata, alerts_by_severity, all_alerts = parse_burp_report(input_path)
-
-        print(f"[+] Parsed {len(all_alerts)} total findings from {input_path.name}")
-
-    except Exception as e:
-        print(f"[!] Error parsing report: {e}")
-        import traceback
-        traceback.print_exc()
-        return
-
-    if args.test:
-        print_test_output(metadata, alerts_by_severity, all_alerts, args.target)
-        return
-
-    try:
-        doc = generate_docx_report(metadata, alerts_by_severity, all_alerts, args.target)
-    except Exception as e:
-        print(f"[!] Error generating DOCX: {e}")
-        import traceback
-        traceback.print_exc()
-        return
-
-    if args.output:
-        output_path = Path(args.output)
-    else:
-        output_path = input_path.with_name(f"{input_path.stem}_report.docx")
-
-    try:
-        doc.save(str(output_path))
-        print(f"[+] Report written to: {output_path}")
-    except Exception as e:
-        print(f"[!] Error writing report: {e}")
 
 def main():
     print("""
@@ -771,55 +438,38 @@ def main():
             delete_by_plugin(conn, plugin_id)
             continue
 
-        # Parse selection for numeric deletions
+        # Parse selection
         indices = parse_selection(selection, len(alerts))
 
         if not indices:
             print("[!] No valid selections")
             continue
 
-        # Get column indices
-        try:
-            first_id_idx = column_names.index('FIRST_ID')
-        except ValueError:
-            print("[!] Unable to find alert IDs")
-            continue
-
-        plugin_idx = column_names.index('PLUGINID') if 'PLUGINID' in column_names else None
+        # Show what will be deleted
+        id_idx = column_names.index('ALERTID')
         alert_idx = column_names.index('ALERT') if 'ALERT' in column_names else None
+        url_idx = column_names.index('URL') if 'URL' in column_names else None
+        plugin_idx = column_names.index('PLUGINID') if 'PLUGINID' in column_names else None
 
-        print(f"\n[*] Selected {len(indices)} alert type(s) for deletion:")
+        print(f"\n[*] Selected {len(indices)} alerts for deletion:")
         for idx in indices[:10]:
             alert = alerts[idx - 1]
-            info = f"  #{idx}:"
+            info = f"  #{idx}: ID={alert[id_idx]}"
             if plugin_idx is not None:
                 info += f" Plugin={alert[plugin_idx]}"
             if alert_idx is not None:
                 info += f" {alert[alert_idx]}"
+            if url_idx is not None:
+                info += f" - {alert[url_idx][:60]}"
             print(info)
 
         if len(indices) > 10:
             print(f"  ... and {len(indices) - 10} more")
 
-        confirm = input("\nDelete all instances of selected alert types? (yes/no): ").strip().lower()
+        confirm = input("\nDelete these? (yes/no): ").strip().lower()
         if confirm == 'yes':
-            # Delete by PLUGINID and ALERT name combination
-            cursor = conn.cursor()
-            deleted_total = 0
-
-            for idx in indices:
-                alert = alerts[idx - 1]
-                if plugin_idx is not None and alert_idx is not None:
-                    plugin_id = alert[plugin_idx]
-                    alert_name = alert[alert_idx]
-                    cursor.execute(
-                        "DELETE FROM ALERT WHERE PLUGINID = ? AND ALERT = ?",
-                        [plugin_id, alert_name]
-                    )
-                    deleted_total += cursor.rowcount
-
-            conn.commit()
-            print(f"[+] Deleted {deleted_total} alert instances")
+            alert_ids = [alerts[idx - 1][id_idx] for idx in indices]
+            delete_selected_alerts(conn, alert_ids)
         else:
             print("[*] Cancelled")
 
