@@ -1356,19 +1356,35 @@ class O365Sprayer:
 
         return results
 
-
 def load_file(filepath: str) -> List[str]:
-    """Load lines from a file, stripping whitespace"""
+    """Load lines from a file, stripping whitespace and handling various encodings"""
     try:
-        with open(filepath, 'r') as f:
+        # Try UTF-8 first
+        with open(filepath, 'r', encoding='utf-8') as f:
             return [line.strip() for line in f if line.strip()]
+    except UnicodeDecodeError:
+        # Fall back to latin-1 (which accepts all byte values)
+        try:
+            with open(filepath, 'r', encoding='latin-1') as f:
+                lines = [line.strip() for line in f if line.strip()]
+                print(f"[!] Warning: File {filepath} loaded with latin-1 encoding (non-UTF-8 characters found)")
+                return lines
+        except Exception as e:
+            # Last resort: try with errors='ignore' to skip problematic characters
+            try:
+                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                    lines = [line.strip() for line in f if line.strip()]
+                    print(f"[!] Warning: File {filepath} loaded with UTF-8 (ignoring invalid characters)")
+                    return lines
+            except Exception as e2:
+                print(f"[-] Error reading file {filepath}: {e2}")
+                sys.exit(1)
     except FileNotFoundError:
         print(f"[-] Error: File not found: {filepath}")
         sys.exit(1)
     except Exception as e:
         print(f"[-] Error reading file {filepath}: {e}")
         sys.exit(1)
-
 
 def parse_credentials(filepath: str) -> List[Tuple[str, str]]:
     """Parse username:password format from file"""
