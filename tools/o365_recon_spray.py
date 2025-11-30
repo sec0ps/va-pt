@@ -504,84 +504,286 @@ class O365DomainValidator:
         return valid_domains
 
     def enumerate_applications(self, tenant_id: str) -> Dict:
-        """Enumerate registered applications and service principals"""
+        """Enumerate registered applications dynamically via multiple discovery methods"""
         self._log("Enumerating registered applications...")
-
-        # Well-known Microsoft application client IDs
-        known_apps = {
-            '1b730954-1685-4b74-9bfd-dac224a7b894': 'Azure Active Directory PowerShell',
-            '1950a258-227b-4e31-a9cf-717495945fc2': 'Microsoft Azure PowerShell',
-            '04b07795-8ddb-461a-bbee-02f9e1bf7b46': 'Microsoft Azure CLI',
-            'd3590ed6-52b3-4102-aeff-aad2292ab01c': 'Microsoft Office',
-            '00000002-0000-0ff1-ce00-000000000000': 'Office 365 Exchange Online',
-            '00000003-0000-0000-c000-000000000000': 'Microsoft Graph',
-            '00000002-0000-0000-c000-000000000000': 'Azure Active Directory Graph',
-            '797f4846-ba00-4fd7-ba43-dac1f8f63013': 'Windows Azure Service Management API',
-            '00000007-0000-0000-c000-000000000000': 'Dynamics CRM Online',
-            '89bee1f7-5e6e-4d8a-9f3d-ecd601259da7': 'Office 365 Management APIs',
-            'fc780465-2017-40d4-a0c5-307022471b92': 'Microsoft Teams Services',
-            '5e3ce6c0-2b1f-4285-8d4b-75ee78787346': 'Microsoft Teams',
-            'cc15fd57-2c6c-4117-a88c-83b1d56b4bbe': 'Microsoft Teams Web Client',
-            '1fec8e78-bce4-4aaf-ab1b-5451cc387264': 'Microsoft Teams - Device Admin Agent',
-        }
 
         accessible_apps = []
 
-        for app_id, app_name in known_apps.items():
-            try:
-                # Try to initiate OAuth flow
-                url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize"
-                params = {
+        # Method 1: Seed with minimal common Microsoft apps (just to bootstrap)
+        self._log("Testing core Microsoft applications...")
+        seed_apps = {
+            '1b730954-1685-4b74-9bfd-dac224a7b894': 'Azure AD PowerShell',
+            '04b07795-8ddb-461a-bbee-02f9e1bf7b46': 'Azure CLI',
+            '00000003-0000-0000-c000-000000000000': 'Microsoft Graph'
+        }
+
+        for app_id, app_name in seed_apps.items():
+            if self._test_app_access(tenant_id, app_id):
+                accessible_apps.append({
                     'client_id': app_id,
-                    'response_type': 'code',
-                    'redirect_uri': 'https://localhost',
-                    'scope': 'openid',
-                    'state': 'test'
-                }
-
-                resp = self.session.get(url, params=params, allow_redirects=False, timeout=5)
-
-                # If we get a redirect to login, the app is accessible
-                if resp.status_code in [200, 302]:
-                    location = resp.headers.get('Location', '')
-                    if 'login.microsoftonline.com' in location or resp.status_code == 200:
-                        accessible_apps.append({
-                            'client_id': app_id,
-                            'name': app_name,
-                            'accessible': True
-                        })
-                        if self.verbose:
-                            self._log(f"  {app_name} ({app_id})", 'success')
-
-                time.sleep(0.3)  # Rate limiting
-
-            except Exception as e:
+                    'name': app_name,
+                    'accessible': True,
+                    'discovery_method': 'known_seed'
+                })
                 if self.verbose:
-                    self._log(f"  Error checking {app_name}: {e}", 'warning')
+                    self._log(f"  {app_name} ({app_id})", 'success')
+            time.sleep(0.3)
 
-        # Try to discover custom applications
+        # Method 2: Discover applications via OpenID metadata
+        self._log("Analyzing OpenID metadata...")
+        discovered = self._discover_apps_via_openid(tenant_id)
+        accessible_apps.extend(discovered)
+
+        # Method 3: Probe for service principals via well-known resource URIs
+        self._log("Probing well-known Azure/O365 resource URIs...")
+        resource_apps = self._discover_apps_via_resources(tenant_id)
+        accessible_apps.extend(resource_apps)
+
+        # Method 4: Discover via service principal enumeration
+        self._log("Enumerating service principals...")
+        service_principals = self._discover_service_principals(tenant_id)
+        accessible_apps.extend(service_principals)
+
+        # Method 5: Check for custom applications
         self._log("Checking for custom applications...")
         custom_apps = self._enumerate_custom_apps(tenant_id)
 
         results = {
-            'known_apps': accessible_apps,
+            'known_apps': [app for app in accessible_apps if app.get('discovery_method') != 'custom'],
             'custom_apps': custom_apps,
-            'total_accessible': len(accessible_apps) + len(custom_apps)
+            'total_accessible': len(accessible_apps) + len(custom_apps),
+            'discovery_methods_used': list(set([app.get('discovery_method', 'unknown') for app in accessible_apps]))
         }
 
         self._log(f"Found {results['total_accessible']} accessible applications", 'success')
 
         return results
 
+    def _test_app_access(self, tenant_id: str, client_id: str) -> bool:
+        """Test if an application is accessible in this tenant"""
+        try:
+            url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize"
+            params = {
+                'client_id': client_id,
+                'response_type': 'code',
+                'redirect_uri': 'https://localhost',
+                'scope': 'openid',
+                'state': 'test'
+            }
+
+            resp = self.session.get(url, params=params, allow_redirects=False, timeout=5)
+
+            # If we get a redirect to login, the app is accessible
+            if resp.status_code in [200, 302]:
+                location = resp.headers.get('Location', '')
+                if 'login.microsoftonline.com' in location or resp.status_code == 200:
+                    return True
+
+            return False
+
+        except Exception as e:
+            if self.verbose:
+                self._log(f"  Error testing app {client_id}: {e}", 'warning')
+            return False
+
+    def _discover_apps_via_openid(self, tenant_id: str) -> List[Dict]:
+        """Discover applications via OpenID Connect discovery"""
+        discovered = []
+
+        try:
+            # Get OpenID configuration
+            url = f"https://login.microsoftonline.com/{tenant_id}/v2.0/.well-known/openid-configuration"
+            resp = self.session.get(url, timeout=10)
+
+            if resp.status_code == 200:
+                config = resp.json()
+
+                # Extract valuable information
+                endpoints = {
+                    'authorization_endpoint': config.get('authorization_endpoint'),
+                    'token_endpoint': config.get('token_endpoint'),
+                    'userinfo_endpoint': config.get('userinfo_endpoint'),
+                    'end_session_endpoint': config.get('end_session_endpoint'),
+                    'jwks_uri': config.get('jwks_uri')
+                }
+
+                # Get supported features
+                features = {
+                    'grant_types_supported': config.get('grant_types_supported', []),
+                    'response_types_supported': config.get('response_types_supported', []),
+                    'scopes_supported': config.get('scopes_supported', []),
+                    'claims_supported': config.get('claims_supported', [])
+                }
+
+                if self.verbose:
+                    self._log(f"  Supported grant types: {', '.join(features['grant_types_supported'][:5])}")
+                    if len(features['scopes_supported']) > 0:
+                        self._log(f"  Supported scopes: {', '.join(features['scopes_supported'][:5])}")
+
+                discovered.append({
+                    'type': 'oauth_endpoints',
+                    'name': 'OAuth2/OIDC Configuration',
+                    'accessible': True,
+                    'discovery_method': 'openid_discovery',
+                    'endpoints': endpoints,
+                    'features': features
+                })
+
+        except Exception as e:
+            if self.verbose:
+                self._log(f"  Error in OpenID discovery: {e}", 'warning')
+
+        return discovered
+
+    def _discover_apps_via_resources(self, tenant_id: str) -> List[Dict]:
+        """Discover applications by probing well-known resource URIs"""
+        discovered = []
+
+        # Well-known resource URIs that indicate available services
+        resources = {
+            'https://graph.microsoft.com': 'Microsoft Graph API',
+            'https://graph.windows.net': 'Azure AD Graph API',
+            'https://management.azure.com': 'Azure Resource Manager',
+            'https://vault.azure.net': 'Azure Key Vault',
+            'https://storage.azure.com': 'Azure Storage',
+            'https://database.windows.net': 'Azure SQL Database',
+            'https://outlook.office365.com': 'Exchange Online',
+            'https://manage.office.com': 'Office 365 Management API',
+            'https://api.powerbi.com': 'Power BI Service',
+            'https://analysis.windows.net/powerbi/api': 'Power BI Embedded',
+            'https://api.spaces.skype.com': 'Microsoft Teams',
+            'https://outlook.office.com': 'Outlook REST API',
+            'https://substrate.office.com': 'Office Substrate',
+            'https://service.powerapps.com': 'Power Apps',
+            'https://service.flow.microsoft.com': 'Power Automate'
+        }
+
+        for resource_uri, resource_name in resources.items():
+            try:
+                # Try to get token endpoint response for this resource
+                url = f'https://login.microsoftonline.com/{tenant_id}/oauth2/token'
+
+                data = {
+                    'resource': resource_uri,
+                    'client_id': '1b730954-1685-4b74-9bfd-dac224a7b894',  # Azure AD PowerShell
+                    'grant_type': 'password',
+                    'username': f'test@{self.domain}',
+                    'password': 'InvalidPassword123!'
+                }
+
+                resp = self.session.post(url, data=data, timeout=5)
+
+                # Analyze response even with invalid credentials
+                if resp.status_code in [400, 401]:
+                    try:
+                        error = resp.json()
+                        error_code = error.get('error', '')
+                        error_desc = error.get('error_description', '')
+
+                        # Different errors indicate different states
+                        if 'AADSTS50001' in error_desc:
+                            # Application not found - resource not available
+                            continue
+                        elif 'AADSTS65001' in error_desc:
+                            # Consent required - service exists but needs admin consent
+                            discovered.append({
+                                'name': resource_name,
+                                'resource_uri': resource_uri,
+                                'accessible': True,
+                                'discovery_method': 'resource_probe',
+                                'status': 'requires_consent'
+                            })
+                            if self.verbose:
+                                self._log(f"  {resource_name} (consent required)", 'success')
+                        elif 'AADSTS50126' in error_desc or 'AADSTS70001' in error_desc:
+                            # Invalid credentials but resource exists
+                            discovered.append({
+                                'name': resource_name,
+                                'resource_uri': resource_uri,
+                                'accessible': True,
+                                'discovery_method': 'resource_probe',
+                                'status': 'available'
+                            })
+                            if self.verbose:
+                                self._log(f"  {resource_name}", 'success')
+                        else:
+                            # Other error but resource appears valid
+                            discovered.append({
+                                'name': resource_name,
+                                'resource_uri': resource_uri,
+                                'accessible': True,
+                                'discovery_method': 'resource_probe',
+                                'status': 'unknown',
+                                'error_code': error_code
+                            })
+                    except:
+                        pass
+
+                time.sleep(0.3)
+
+            except Exception as e:
+                if self.verbose:
+                    self._log(f"  Error probing {resource_name}: {e}", 'warning')
+
+        return discovered
+
+    def _discover_service_principals(self, tenant_id: str) -> List[Dict]:
+        """Attempt to discover service principals via various methods"""
+        discovered = []
+
+        # Method: Try common service principal patterns
+        # Microsoft service principals often follow patterns
+        service_patterns = [
+            ('00000002-0000-0ff1-ce00-000000000000', 'Office 365 Exchange Online'),
+            ('00000003-0000-0ff1-ce00-000000000000', 'Office 365 SharePoint Online'),
+            ('00000006-0000-0ff1-ce00-000000000000', 'Microsoft Office 365 Portal'),
+            ('00000007-0000-0000-c000-000000000000', 'Microsoft Dynamics CRM'),
+            ('00000009-0000-0000-c000-000000000000', 'Power BI Service'),
+            ('0000000c-0000-0000-c000-000000000000', 'Microsoft App Access Panel'),
+            ('c5393580-f805-4401-95e8-94b7a6ef2fc2', 'Office 365 Management APIs'),
+            ('fc780465-2017-40d4-a0c5-307022471b92', 'Microsoft Teams Services'),
+            ('5e3ce6c0-2b1f-4285-8d4b-75ee78787346', 'Microsoft Teams'),
+            ('cc15fd57-2c6c-4117-a88c-83b1d56b4bbe', 'Microsoft Teams Web Client'),
+            ('1fec8e78-bce4-4aaf-ab1b-5451cc387264', 'Teams Admin Agent'),
+            ('ab9b8c07-8f02-4f72-87fa-80105867a763', 'OneDrive Sync Engine'),
+            ('d3590ed6-52b3-4102-aeff-aad2292ab01c', 'Microsoft Office'),
+            ('c44b4083-3bb0-49c1-b47d-974e53cbdf3c', 'Azure Portal'),
+            ('872cd9fa-d31f-45e0-9eab-6e460a02d1f1', 'Visual Studio'),
+            ('1950a258-227b-4e31-a9cf-717495945fc2', 'Microsoft Azure PowerShell'),
+            ('27922004-5251-4030-b22d-91ecd9a37ea4', 'Outlook Mobile')
+        ]
+
+        for app_id, app_name in service_patterns:
+            try:
+                if self._test_app_access(tenant_id, app_id):
+                    discovered.append({
+                        'client_id': app_id,
+                        'name': app_name,
+                        'accessible': True,
+                        'discovery_method': 'service_principal_probe'
+                    })
+                    if self.verbose:
+                        self._log(f"  {app_name}", 'success')
+
+                time.sleep(0.2)
+
+            except Exception as e:
+                if self.verbose:
+                    self._log(f"  Error testing {app_name}: {e}", 'warning')
+
+        return discovered
+
     def _enumerate_custom_apps(self, tenant_id: str) -> List[Dict]:
         """Attempt to discover custom registered applications"""
         custom_apps = []
 
-        # Common application naming patterns
+        # Note: Without authentication, we can't directly enumerate custom apps
+        # But we can check for common patterns
+
         if self.domain:
             base_name = self.domain.split('.')[0]
 
-            # Generate potential app names
+            # Common application naming patterns
             app_name_patterns = [
                 base_name,
                 f"{base_name}-app",
@@ -589,36 +791,40 @@ class O365DomainValidator:
                 f"{base_name}-web",
                 f"{base_name}-mobile",
                 f"{base_name}-portal",
-                "app",
-                "api",
-                "web",
-                "portal",
-                "mobile"
+                f"{base_name}app",
+                f"{base_name}api"
             ]
 
-            # Note: Without authentication, we can't directly enumerate custom apps
-            # But we can check for common redirect URIs and endpoints
-
-            for app_pattern in app_name_patterns[:3]:  # Limit to avoid too many requests
-                # Check for common OAuth redirect patterns
+            # Common OAuth redirect URI patterns
+            for app_pattern in app_name_patterns[:5]:  # Limit to avoid too many requests
                 redirect_patterns = [
                     f"https://{app_pattern}.{self.domain}",
                     f"https://{app_pattern}.azurewebsites.net",
-                    f"https://{self.domain}/{app_pattern}"
+                    f"https://{self.domain}/{app_pattern}",
+                    f"https://app.{self.domain}",
+                    f"https://api.{self.domain}",
+                    f"https://portal.{self.domain}"
                 ]
 
                 for redirect_uri in redirect_patterns:
                     try:
                         # Quick HEAD request to see if endpoint exists
                         resp = self.session.head(redirect_uri, timeout=3, allow_redirects=True)
+
                         if resp.status_code in [200, 302, 401, 403]:
+                            # Endpoint exists - might be a custom app
                             custom_apps.append({
                                 'potential_redirect_uri': redirect_uri,
                                 'status': 'exists',
+                                'http_code': resp.status_code,
                                 'note': 'Potential OAuth redirect endpoint'
                             })
                             if self.verbose:
-                                self._log(f"  Potential app endpoint: {redirect_uri}", 'info')
+                                self._log(f"  Potential custom app: {redirect_uri}", 'info')
+
+                            # Don't spam - found one, move on
+                            break
+
                     except:
                         pass
 
