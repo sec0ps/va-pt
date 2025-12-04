@@ -1381,26 +1381,26 @@ class ReconAutomation:
 
             return None
 
-        def _find_theharvester_with_find(self) -> Optional[str]:
-            """Use find command to locate theHarvester (slow fallback method)"""
-            self.print_info("Searching for theHarvester with find command (may be slow)...")
-            try:
-                for base_dir in ['/usr', '/opt', str(Path.home())]:
-                    output = self.run_command([
-                        'find', base_dir,
-                        '-name', 'theHarvester.py',
-                        '-type', 'f',
-                        '-readable'
-                    ], timeout=30)
-                    if output:
-                        # Return first valid result
-                        for line in output.strip().split('\n'):
-                            if line and Path(line).exists():
-                                return line
-            except Exception as e:
-                self.print_warning(f"find command failed: {e}")
+    def _find_theharvester_with_find(self) -> Optional[str]:
+        """Use find command to locate theHarvester (slow fallback method)"""
+        self.print_info("Searching for theHarvester with find command (may be slow)...")
+        try:
+            for base_dir in ['/usr', '/opt', str(Path.home())]:
+                output = self.run_command([
+                    'find', base_dir,
+                    '-name', 'theHarvester.py',
+                    '-type', 'f',
+                    '-readable'
+                ], timeout=30)
+                if output:
+                    # Return first valid result
+                    for line in output.strip().split('\n'):
+                        if line and Path(line).exists():
+                            return line
+        except Exception as e:
+            self.print_warning(f"find command failed: {e}")
 
-            return None
+        return None
 
     def _scrape_emails_from_web(self) -> List[str]:
         """Scrape emails from company website"""
