@@ -942,87 +942,108 @@ class ReconAutomation:
         self.print_info(f"Successfully resolved: {len(resolved)}")
 
     def subdomain_takeover_detection(self):
-        """Check for subdomain takeover vulnerabilities"""
-        self.print_section("SUBDOMAIN TAKEOVER DETECTION")
+            """Check for subdomain takeover vulnerabilities"""
+            self.print_section("SUBDOMAIN TAKEOVER DETECTION")
 
-        # Fingerprints for various services that can be taken over
-        takeover_fingerprints = {
-            'github': {
-                'cname': ['github.io', 'github.map.fastly.net'],
-                'response': ['There isn\'t a GitHub Pages site here', 'For root URLs (like http://example.com/) you must provide an index.html file'],
-                'service': 'GitHub Pages'
-            },
-            'aws_s3': {
-                'cname': ['s3.amazonaws.com', 's3-website', 's3.dualstack'],
-                'response': ['NoSuchBucket', 'The specified bucket does not exist'],
-                'service': 'AWS S3'
-            },
-            'azure': {
-                'cname': ['azurewebsites.net', 'cloudapp.net', 'cloudapp.azure.com', 'trafficmanager.net', 'blob.core.windows.net'],
-                'response': ['404 Web Site not found', 'Error 404', 'The resource you are looking for has been removed'],
-                'service': 'Microsoft Azure'
-            },
-            'bitbucket': {
-                'cname': ['bitbucket.io'],
-                'response': ['Repository not found'],
-                'service': 'Bitbucket'
-            },
-            'google': {
-                'cname': ['appspot.com', 'withgoogle.com', 'withyoutube.com'],
-                'response': ['The requested URL was not found on this server', 'Error 404'],
-                'service': 'Google Cloud'
-            },
-            'wordpress': {
-                'cname': ['wordpress.com'],
-                'response': ['Do you want to register'],
-                'service': 'WordPress.com'
-            },
-            'cloudfront': {
-                'cname': ['cloudfront.net'],
-                'response': ['Bad request', 'ERROR: The request could not be satisfied'],
-                'service': 'AWS CloudFront'
-            },
-        }
+            # Fingerprints for various services that can be taken over
+            takeover_fingerprints = {
+                'github': {
+                    'cname': ['github.io', 'github.map.fastly.net'],
+                    'response': ['There isn\'t a GitHub Pages site here', 'For root URLs (like http://example.com/) you must provide an index.html file'],
+                    'service': 'GitHub Pages'
+                },
+                'aws_s3': {
+                    'cname': ['s3.amazonaws.com', 's3-website', 's3.dualstack'],
+                    'response': ['NoSuchBucket', 'The specified bucket does not exist'],
+                    'service': 'AWS S3'
+                },
+                'azure': {
+                    'cname': ['azurewebsites.net', 'cloudapp.net', 'cloudapp.azure.com', 'trafficmanager.net', 'blob.core.windows.net'],
+                    'response': ['404 Web Site not found', 'Error 404', 'The resource you are looking for has been removed'],
+                    'service': 'Microsoft Azure'
+                },
+                'bitbucket': {
+                    'cname': ['bitbucket.io'],
+                    'response': ['Repository not found'],
+                    'service': 'Bitbucket'
+                },
+                'google': {
+                    'cname': ['appspot.com', 'withgoogle.com', 'withyoutube.com'],
+                    'response': ['The requested URL was not found on this server', 'Error 404'],
+                    'service': 'Google Cloud'
+                },
+                'wordpress': {
+                    'cname': ['wordpress.com'],
+                    'response': ['Do you want to register'],
+                    'service': 'WordPress.com'
+                },
+                'cloudfront': {
+                    'cname': ['cloudfront.net'],
+                    'response': ['Bad request', 'ERROR: The request could not be satisfied'],
+                    'service': 'AWS CloudFront'
+                },
+            }
 
-        vulnerable_subdomains = []
+            vulnerable_subdomains = []
 
-        # Get all resolved subdomains
-        resolved_subdomains = self.results.get('dns_enumeration', {}).get('resolved', {})
+            # Get all resolved subdomains
+            resolved_subdomains = self.results.get('dns_enumeration', {}).get('resolved', {})
 
-        if not resolved_subdomains:
-            self.print_warning("No subdomains to check. Run DNS enumeration first.")
-            return
+            if not resolved_subdomains:
+                self.print_warning("No subdomains to check. Run DNS enumeration first.")
+                return
 
-        self.print_info(f"Checking {len(resolved_subdomains)} subdomains for takeover vulnerabilities...")
+            self.print_info(f"Checking {len(resolved_subdomains)} subdomains for takeover vulnerabilities...")
 
-        for subdomain, ips in resolved_subdomains.items():
-            try:
-                # Get CNAME records
-                cname_records = []
+            for subdomain, ips in resolved_subdomains.items():
                 try:
-                    answers = dns.resolver.resolve(subdomain, 'CNAME')
-                    for rdata in answers:
-                        cname_records.append(str(rdata.target).rstrip('.'))
-                except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
-                    # No CNAME, check A record behavior
-                    pass
-                except Exception as e:
-                    self.print_error(f"DNS error for {subdomain}: {e}")
-                    continue
+                    # Get CNAME records
+                    cname_records = []
+                    try:
+                        # Handle both old and new dnspython versions
+                        resolver = dns.resolver.Resolver()
+                        try:
+                            # Try new API (dnspython 2.0+)
+                            answers = resolver.resolve(subdomain, 'CNAME')
+                        except AttributeError:
+                            # Fall back to old API (dnspython 1.x)
+                            answers = resolver.query(subdomain, 'CNAME')
 
-                # Check if CNAME points to a vulnerable service
-                vulnerable = False
-                service_name = None
-                fingerprint_matched = None
+                        for rdata in answers:
+                            cname_records.append(str(rdata.target).rstrip('.'))
+                    except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+                        # No CNAME, check A record behavior
+                        pass
+                    except Exception as e:
+                        self.print_error(f"DNS error for {subdomain}: {e}")
+                        continue
 
-                for cname in cname_records:
-                    for service, fingerprint in takeover_fingerprints.items():
-                        # Check if CNAME matches known patterns
-                        if any(pattern in cname.lower() for pattern in fingerprint['cname']):
-                            # CNAME points to a potentially vulnerable service
-                            # Now check HTTP response
+                    # Check if CNAME points to a vulnerable service
+                    vulnerable = False
+                    service_name = None
+                    fingerprint_matched = None
+
+                    for cname in cname_records:
+                        for service, fingerprint in takeover_fingerprints.items():
+                            # Check if CNAME matches known patterns
+                            if any(pattern in cname.lower() for pattern in fingerprint['cname']):
+                                # CNAME points to a potentially vulnerable service
+                                # Now check HTTP response
+                                http_vulnerable = self._check_http_takeover(subdomain, fingerprint['response'])
+
+                                if http_vulnerable:
+                                    vulnerable = True
+                                    service_name = fingerprint['service']
+                                    fingerprint_matched = service
+                                    break
+
+                        if vulnerable:
+                            break
+
+                    # Even without CNAME, check HTTP responses for known patterns
+                    if not vulnerable and not cname_records:
+                        for service, fingerprint in takeover_fingerprints.items():
                             http_vulnerable = self._check_http_takeover(subdomain, fingerprint['response'])
-
                             if http_vulnerable:
                                 vulnerable = True
                                 service_name = fingerprint['service']
@@ -1030,52 +1051,39 @@ class ReconAutomation:
                                 break
 
                     if vulnerable:
-                        break
+                        vuln_info = {
+                            'subdomain': subdomain,
+                            'cname': cname_records,
+                            'service': service_name,
+                            'fingerprint': fingerprint_matched,
+                            'ips': ips
+                        }
+                        vulnerable_subdomains.append(vuln_info)
 
-                # Even without CNAME, check HTTP responses for known patterns
-                if not vulnerable and not cname_records:
-                    for service, fingerprint in takeover_fingerprints.items():
-                        http_vulnerable = self._check_http_takeover(subdomain, fingerprint['response'])
-                        if http_vulnerable:
-                            vulnerable = True
-                            service_name = fingerprint['service']
-                            fingerprint_matched = service
-                            break
+                        self.print_warning(f"POTENTIAL TAKEOVER: {subdomain}")
+                        self.print_info(f"  Service: {service_name}")
+                        if cname_records:
+                            self.print_info(f"  CNAME: {', '.join(cname_records)}")
+                        self.print_info(f"  Recommendation: Verify if service account exists and claim if vulnerable")
 
-                if vulnerable:
-                    vuln_info = {
-                        'subdomain': subdomain,
-                        'cname': cname_records,
-                        'service': service_name,
-                        'fingerprint': fingerprint_matched,
-                        'ips': ips
-                    }
-                    vulnerable_subdomains.append(vuln_info)
+                    time.sleep(0.5)  # Rate limiting
 
-                    self.print_warning(f"POTENTIAL TAKEOVER: {subdomain}")
-                    self.print_info(f"  Service: {service_name}")
-                    if cname_records:
-                        self.print_info(f"  CNAME: {', '.join(cname_records)}")
-                    self.print_info(f"  Recommendation: Verify if service account exists and claim if vulnerable")
+                except Exception as e:
+                    self.print_error(f"Error checking {subdomain}: {e}")
 
-                time.sleep(0.5)  # Rate limiting
+            # Store results
+            self.results['subdomain_takeovers'] = vulnerable_subdomains
 
-            except Exception as e:
-                self.print_error(f"Error checking {subdomain}: {e}")
+            # Summary
+            self.print_info(f"\nSubdomain Takeover Detection Summary:")
+            self.print_info(f"  Subdomains checked: {len(resolved_subdomains)}")
+            self.print_info(f"  Potentially vulnerable: {len(vulnerable_subdomains)}")
 
-        # Store results
-        self.results['subdomain_takeovers'] = vulnerable_subdomains
-
-        # Summary
-        self.print_info(f"\nSubdomain Takeover Detection Summary:")
-        self.print_info(f"  Subdomains checked: {len(resolved_subdomains)}")
-        self.print_info(f"  Potentially vulnerable: {len(vulnerable_subdomains)}")
-
-        if vulnerable_subdomains:
-            self.print_warning(f"\n[!] Found {len(vulnerable_subdomains)} potential subdomain takeover(s)!")
-            self.print_warning("Manual verification required - check if you can claim these services:")
-            for vuln in vulnerable_subdomains:
-                self.print_warning(f"  - {vuln['subdomain']} ({vuln['service']})")
+            if vulnerable_subdomains:
+                self.print_warning(f"\n[!] Found {len(vulnerable_subdomains)} potential subdomain takeover(s)!")
+                self.print_warning("Manual verification required - check if you can claim these services:")
+                for vuln in vulnerable_subdomains:
+                    self.print_warning(f"  - {vuln['subdomain']} ({vuln['service']})")
 
     def _check_http_takeover(self, subdomain: str, response_patterns: List[str]) -> bool:
         """Check HTTP response for takeover indicators"""
