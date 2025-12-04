@@ -164,17 +164,17 @@ class ReconAutomation:
     def _download_file(self, url: str, output_path: Path, max_size_mb: int = 10) -> bool:
             """Download file from URL with size limit"""
             try:
-                # HEAD request to check file size
-                head_response = self.session.head(url, timeout=5, allow_redirects=True)
+                # HEAD request to check file size first
+                head_response = self.session.head(url, timeout=5, allow_redirects=True, verify=False)
                 content_length = int(head_response.headers.get('Content-Length', 0))
 
                 # Check size limit (convert MB to bytes)
-                if content_length > (max_size_mb * 1024 * 1024):
+                if content_length > 0 and content_length > (max_size_mb * 1024 * 1024):
                     self.print_warning(f"Skipping file (too large: {content_length/(1024*1024):.1f}MB)")
                     return False
 
                 # Download file
-                response = self.session.get(url, timeout=30, stream=True)
+                response = self.session.get(url, timeout=30, stream=True, verify=False)
                 if response.status_code == 200:
                     with open(output_path, 'wb') as f:
                         for chunk in response.iter_content(chunk_size=8192):
@@ -310,228 +310,218 @@ class ReconAutomation:
         print("="*80 + "\n")
 
     def github_secret_scanning(self):
-        """Search GitHub for leaked credentials and secrets"""
-        self.print_section("GITHUB SECRET SCANNING")
+            """Search GitHub for leaked credentials and secrets"""
+            self.print_section("GITHUB SECRET SCANNING")
 
-        if not self.config.get('github_token'):
-            self.print_warning("No GitHub token configured. Skipping GitHub scanning.")
-            self.print_info("Run with a configured token for enhanced secret detection")
-            return
+            if not self.config.get('github_token'):
+                self.print_warning("No GitHub token configured. Skipping GitHub scanning.")
+                self.print_info("Run with a configured token for enhanced secret detection")
+                return
 
-        github_findings = {
-            'repositories': [],
-            'gists': [],
-            'issues': [],
-            'commits': [],
-            'total_secrets_found': 0
-        }
+            github_findings = {
+                'repositories': [],
+                'gists': [],
+                'issues': [],
+                'commits': [],
+                'total_secrets_found': 0
+            }
 
-        headers = {
-            'Authorization': f"token {self.config['github_token']}",
-            'Accept': 'application/vnd.github.v3+json'
-        }
+            headers = {
+                'Authorization': f"token {self.config['github_token']}",
+                'Accept': 'application/vnd.github.v3+json'
+            }
 
-        # Define search queries
-        search_queries = [
-            f'"{self.domain}"',
-            f'"{self.domain.replace(".", " ")}"',
-            f'"{self.domain.split(".")[0]}"',  # company name
-            f'{self.domain} password',
-            f'{self.domain} api_key',
-            f'{self.domain} secret',
-            f'{self.domain} credentials',
-            f'{self.domain} aws_access_key',
-            f'{self.domain} private_key'
-        ]
+            # Define search queries
+            search_queries = [
+                f'"{self.domain}"',
+                f'"{self.domain.replace(".", " ")}"',
+                f'"{self.domain.split(".")[0]}"',  # company name
+                f'{self.domain} password',
+                f'{self.domain} api_key',
+                f'{self.domain} secret',
+                f'{self.domain} credentials',
+                f'{self.domain} aws_access_key',
+                f'{self.domain} private_key'
+            ]
 
-        # Sensitive patterns to look for
-        sensitive_patterns = {
-            'aws_access_key': r'AKIA[0-9A-Z]{16}',
-            'aws_secret_key': r'aws_secret_access_key.*?["\']([^"\']{40})["\']',
-            'private_key': r'-----BEGIN (RSA|DSA|EC|OPENSSH) PRIVATE KEY-----',
-            'api_key': r'api[_-]?key.*?["\']([a-zA-Z0-9_\-]{20,})["\']',
-            'password': r'password.*?["\']([^"\']{8,})["\']',
-            'database_url': r'(postgresql|mysql|mongodb)://[^\s]+',
-            'jwt_token': r'eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*',
-            'slack_token': r'xox[baprs]-[0-9]{10,12}-[0-9]{10,12}-[a-zA-Z0-9]{24,32}',
-            'google_api': r'AIza[0-9A-Za-z\\-_]{35}',
-            's3_bucket': r'[a-z0-9.-]+\.s3\.amazonaws\.com',
-            'azure_storage': r'[a-z0-9]+\.blob\.core\.windows\.net',
-            'gcp_bucket': r'[a-z0-9._-]+\.storage\.googleapis\.com'
-        }
+            # Sensitive patterns to look for
+            sensitive_patterns = {
+                'aws_access_key': r'AKIA[0-9A-Z]{16}',
+                'aws_secret_key': r'aws_secret_access_key.*?["\']([^"\']{40})["\']',
+                'private_key': r'-----BEGIN (RSA|DSA|EC|OPENSSH) PRIVATE KEY-----',
+                'api_key': r'api[_-]?key.*?["\']([a-zA-Z0-9_\-]{20,})["\']',
+                'password': r'password.*?["\']([^"\']{8,})["\']',
+                'database_url': r'(postgresql|mysql|mongodb)://[^\s]+',
+                'jwt_token': r'eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*',
+                'slack_token': r'xox[baprs]-[0-9]{10,12}-[0-9]{10,12}-[a-zA-Z0-9]{24,32}',
+                'google_api': r'AIza[0-9A-Za-z\\-_]{35}',
+                's3_bucket': r'[a-z0-9.-]+\.s3\.amazonaws\.com',
+                'azure_storage': r'[a-z0-9]+\.blob\.core\.windows\.net',
+                'gcp_bucket': r'[a-z0-9._-]+\.storage\.googleapis\.com'
+            }
 
-        self.print_info(f"Searching GitHub with {len(search_queries)} queries...")
+            # Create GitHub downloads directory
+            github_download_dir = self.output_dir / 'github_secrets'
+            github_download_dir.mkdir(parents=True, exist_ok=True)
 
-        # Search Code
-        self.print_info("Searching code repositories...")
-        for query in search_queries:
-            try:
-                url = f"https://api.github.com/search/code?q={query}&per_page=10"
-                response = self.session.get(url, headers=headers, timeout=15)
+            self.print_info(f"Searching GitHub with {len(search_queries)} queries...")
 
-                if response.status_code == 200:
-                    data = response.json()
+            # Search Code
+            self.print_info("Searching code repositories...")
+            for query in search_queries:
+                try:
+                    url = f"https://api.github.com/search/code?q={query}&per_page=10"
+                    response = self.session.get(url, headers=headers, timeout=15)
 
-                    for item in data.get('items', []):
-                        repo_finding = {
-                            'repository': item.get('repository', {}).get('full_name'),
-                            'file_path': item.get('path'),
-                            'html_url': item.get('html_url'),
-                            'secrets_found': []
-                        }
+                    if response.status_code == 200:
+                        data = response.json()
 
-                        # Get file content
-                        try:
-                            content_url = item.get('url')
-                            if content_url:
-                                content_resp = self.session.get(content_url, headers=headers, timeout=10)
-                                if content_resp.status_code == 200:
-                                    content_data = content_resp.json()
-                                    content = base64.b64decode(content_data.get('content', '')).decode('utf-8', errors='ignore')
-
-                                    # Check for sensitive patterns
-                                    for secret_type, pattern in sensitive_patterns.items():
-                                        matches = re.findall(pattern, content, re.IGNORECASE)
-                                        if matches:
-                                            repo_finding['secrets_found'].append({
-                                                'type': secret_type,
-                                                'count': len(matches)
-                                            })
-                                            github_findings['total_secrets_found'] += len(matches)
-
-                                    if repo_finding['secrets_found']:
-                                        github_findings['repositories'].append(repo_finding)
-                                        self.print_warning(f"Secrets found in: {repo_finding['repository']}/{repo_finding['file_path']}")
-                                        for secret in repo_finding['secrets_found']:
-                                            self.print_info(f"  - {secret['type']}: {secret['count']} match(es)")
-                        except Exception as e:
-                            self.print_error(f"Error fetching content: {e}")
-
-                elif response.status_code == 403:
-                    self.print_warning("GitHub API rate limit reached. Waiting 60 seconds...")
-                    time.sleep(60)
-                elif response.status_code == 401:
-                    self.print_error("GitHub token is invalid or expired")
-                    break
-
-                time.sleep(2)  # Rate limiting
-
-            except Exception as e:
-                self.print_error(f"Error searching code: {e}")
-
-        # Search Gists
-        self.print_info("Searching gists...")
-        for query in search_queries[:3]:  # Limit gist queries
-            try:
-                # GitHub doesn't have a direct gist search API, but we can search via web
-                # We'll use the code search which sometimes includes gists
-                url = f"https://api.github.com/search/code?q={query}+in:file+language:text&per_page=5"
-                response = self.session.get(url, headers=headers, timeout=15)
-
-                if response.status_code == 200:
-                    data = response.json()
-                    for item in data.get('items', []):
-                        if 'gist' in item.get('html_url', ''):
-                            gist_finding = {
-                                'gist_id': item.get('html_url'),
-                                'file': item.get('path'),
+                        for item in data.get('items', []):
+                            repo_finding = {
+                                'repository': item.get('repository', {}).get('full_name'),
+                                'file_path': item.get('path'),
+                                'html_url': item.get('html_url'),
                                 'secrets_found': []
                             }
-                            github_findings['gists'].append(gist_finding)
-                            self.print_success(f"Found gist: {gist_finding['gist_id']}")
 
-                time.sleep(2)
-            except Exception as e:
-                self.print_error(f"Error searching gists: {e}")
+                            # Get file content
+                            try:
+                                content_url = item.get('url')
+                                if content_url:
+                                    content_resp = self.session.get(content_url, headers=headers, timeout=10)
+                                    if content_resp.status_code == 200:
+                                        content_data = content_resp.json()
+                                        content = base64.b64decode(content_data.get('content', '')).decode('utf-8', errors='ignore')
 
-        # Search Issues
-        self.print_info("Searching issues...")
-        for query in search_queries[:3]:  # Limit issue queries
-            try:
-                url = f"https://api.github.com/search/issues?q={query}+in:body&per_page=10"
-                response = self.session.get(url, headers=headers, timeout=15)
+                                        # Check for sensitive patterns
+                                        for secret_type, pattern in sensitive_patterns.items():
+                                            matches = re.findall(pattern, content, re.IGNORECASE)
+                                            if matches:
+                                                repo_finding['secrets_found'].append({
+                                                    'type': secret_type,
+                                                    'count': len(matches)
+                                                })
+                                                github_findings['total_secrets_found'] += len(matches)
 
-                if response.status_code == 200:
-                    data = response.json()
+                                        if repo_finding['secrets_found']:
+                                            github_findings['repositories'].append(repo_finding)
+                                            self.print_warning(f"Secrets found in: {repo_finding['repository']}/{repo_finding['file_path']}")
+                                            for secret in repo_finding['secrets_found']:
+                                                self.print_info(f"  - {secret['type']}: {secret['count']} match(es)")
 
-                    for item in data.get('items', []):
-                        body = item.get('body', '')
+                                            # Download the file with secrets
+                                            safe_repo_name = repo_finding['repository'].replace('/', '_')
+                                            safe_file_name = repo_finding['file_path'].replace('/', '_')
+                                            output_file = github_download_dir / f"{safe_repo_name}_{safe_file_name}"
 
-                        # Check for sensitive patterns in issue body
-                        secrets_found = []
-                        for secret_type, pattern in sensitive_patterns.items():
-                            matches = re.findall(pattern, body, re.IGNORECASE)
-                            if matches:
-                                secrets_found.append({
-                                    'type': secret_type,
-                                    'count': len(matches)
-                                })
-                                github_findings['total_secrets_found'] += len(matches)
+                                            try:
+                                                with open(output_file, 'w', encoding='utf-8') as f:
+                                                    f.write(content)
+                                                self.print_success(f"  Downloaded to: {output_file}")
+                                            except Exception as e:
+                                                self.print_error(f"  Failed to save file: {e}")
 
-                        if secrets_found:
-                            issue_finding = {
-                                'title': item.get('title'),
-                                'html_url': item.get('html_url'),
-                                'state': item.get('state'),
-                                'secrets_found': secrets_found
-                            }
-                            github_findings['issues'].append(issue_finding)
-                            self.print_warning(f"Secrets in issue: {issue_finding['title']}")
-                            self.print_info(f"  URL: {issue_finding['html_url']}")
+                            except Exception as e:
+                                self.print_error(f"Error fetching content: {e}")
 
-                time.sleep(2)
-            except Exception as e:
-                self.print_error(f"Error searching issues: {e}")
+                    elif response.status_code == 403:
+                        self.print_warning("GitHub API rate limit reached. Waiting 60 seconds...")
+                        time.sleep(60)
+                    elif response.status_code == 401:
+                        self.print_error("GitHub token is invalid or expired")
+                        break
 
-        # Search Commits (limited - this can be extensive)
-        self.print_info("Searching commits (limited sample)...")
-        try:
-            url = f"https://api.github.com/search/commits?q={self.domain}&per_page=5"
-            headers_commits = headers.copy()
-            headers_commits['Accept'] = 'application/vnd.github.cloak-preview+json'
+                    time.sleep(2)  # Rate limiting
 
-            response = self.session.get(url, headers=headers_commits, timeout=15)
+                except Exception as e:
+                    self.print_error(f"Error searching code: {e}")
 
-            if response.status_code == 200:
-                data = response.json()
+            # Search Gists
+            self.print_info("Searching gists...")
+            for query in search_queries[:3]:  # Limit gist queries
+                try:
+                    url = f"https://api.github.com/search/code?q={query}+in:file+language:text&per_page=5"
+                    response = self.session.get(url, headers=headers, timeout=15)
 
-                for item in data.get('items', []):
-                    commit_msg = item.get('commit', {}).get('message', '')
+                    if response.status_code == 200:
+                        data = response.json()
+                        for item in data.get('items', []):
+                            if 'gist' in item.get('html_url', ''):
+                                gist_finding = {
+                                    'gist_id': item.get('html_url'),
+                                    'file': item.get('path'),
+                                    'secrets_found': []
+                                }
+                                github_findings['gists'].append(gist_finding)
+                                self.print_success(f"Found gist: {gist_finding['gist_id']}")
 
-                    # Check commit message for secrets
-                    secrets_found = []
-                    for secret_type, pattern in sensitive_patterns.items():
-                        matches = re.findall(pattern, commit_msg, re.IGNORECASE)
-                        if matches:
-                            secrets_found.append({
-                                'type': secret_type,
-                                'count': len(matches)
-                            })
+                    time.sleep(2)
+                except Exception as e:
+                    self.print_error(f"Error searching gists: {e}")
 
-                    if secrets_found:
-                        commit_finding = {
-                            'sha': item.get('sha'),
-                            'html_url': item.get('html_url'),
-                            'message': commit_msg[:100] + '...' if len(commit_msg) > 100 else commit_msg,
-                            'secrets_found': secrets_found
-                        }
-                        github_findings['commits'].append(commit_finding)
-                        self.print_warning(f"Secrets in commit: {commit_finding['sha'][:7]}")
+            # Search Issues
+            self.print_info("Searching issues...")
+            for query in search_queries[:3]:  # Limit issue queries
+                try:
+                    url = f"https://api.github.com/search/issues?q={query}+in:body&per_page=10"
+                    response = self.session.get(url, headers=headers, timeout=15)
 
-            time.sleep(2)
-        except Exception as e:
-            self.print_error(f"Error searching commits: {e}")
+                    if response.status_code == 200:
+                        data = response.json()
 
-        # Store results
-        self.results['github_secrets'] = github_findings
+                        for item in data.get('items', []):
+                            body = item.get('body', '')
 
-        # Summary
-        self.print_info(f"\nGitHub Secret Scanning Summary:")
-        self.print_info(f"  Repositories with secrets: {len(github_findings['repositories'])}")
-        self.print_info(f"  Gists found: {len(github_findings['gists'])}")
-        self.print_info(f"  Issues with secrets: {len(github_findings['issues'])}")
-        self.print_info(f"  Commits with secrets: {len(github_findings['commits'])}")
-        self.print_info(f"  Total secrets detected: {github_findings['total_secrets_found']}")
+                            # Check for sensitive patterns in issue body
+                            secrets_found = []
+                            for secret_type, pattern in sensitive_patterns.items():
+                                matches = re.findall(pattern, body, re.IGNORECASE)
+                                if matches:
+                                    secrets_found.append({
+                                        'type': secret_type,
+                                        'count': len(matches)
+                                    })
+                                    github_findings['total_secrets_found'] += len(matches)
+
+                            if secrets_found:
+                                issue_finding = {
+                                    'title': item.get('title'),
+                                    'html_url': item.get('html_url'),
+                                    'state': item.get('state'),
+                                    'secrets_found': secrets_found
+                                }
+                                github_findings['issues'].append(issue_finding)
+                                self.print_warning(f"Secrets in issue: {issue_finding['title']}")
+                                self.print_info(f"  URL: {issue_finding['html_url']}")
+
+                                # Save issue body
+                                safe_title = re.sub(r'[^\w\s-]', '', issue_finding['title'])[:50]
+                                output_file = github_download_dir / f"issue_{safe_title}.txt"
+                                try:
+                                    with open(output_file, 'w', encoding='utf-8') as f:
+                                        f.write(f"Title: {issue_finding['title']}\n")
+                                        f.write(f"URL: {issue_finding['html_url']}\n")
+                                        f.write(f"State: {issue_finding['state']}\n\n")
+                                        f.write(body)
+                                    self.print_success(f"  Saved to: {output_file}")
+                                except Exception as e:
+                                    self.print_error(f"  Failed to save issue: {e}")
+
+                    time.sleep(2)
+                except Exception as e:
+                    self.print_error(f"Error searching issues: {e}")
+
+            # Store results
+            self.results['github_secrets'] = github_findings
+
+            # Summary
+            self.print_info("\nGitHub Secret Scanning Summary:")
+            self.print_info(f"  Repositories with secrets: {len(github_findings['repositories'])}")
+            self.print_info(f"  Issues with secrets: {len(github_findings['issues'])}")
+            self.print_info(f"  Total secrets found: {github_findings['total_secrets_found']}")
+
+            if github_findings['total_secrets_found'] > 0:
+                self.print_warning(f"\n[!] Downloaded files with secrets to: {github_download_dir}")
 
     def linkedin_enumeration(self):
         """Multi-method LinkedIn intelligence gathering"""
@@ -1542,7 +1532,7 @@ class ReconAutomation:
         return None
 
     def _analyze_s3_bucket_contents(self, bucket_info: Dict[str, Any]):
-            """Analyze S3 bucket contents"""
+            """Analyze S3 bucket contents and download files"""
             try:
                 response = self.session.get(bucket_info['url'], timeout=10)
                 if response.status_code != 200:
@@ -1605,7 +1595,8 @@ class ReconAutomation:
                     if len(files) > 50:
                         self.print_warning(f"    Only downloaded first 50 files (total: {len(files)})")
 
-                    self.print_success(f"  Downloaded {downloaded_count} files to {download_dir}")
+                    if downloaded_count > 0:
+                        self.print_success(f"  Downloaded {downloaded_count} files to {download_dir}")
 
             except Exception as e:
                 self.print_error(f"Error analyzing bucket: {e}")
