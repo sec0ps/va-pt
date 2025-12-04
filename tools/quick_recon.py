@@ -162,46 +162,50 @@ class ReconAutomation:
             return None
 
     def scope_validation(self):
-        """Perform scope validation including WHOIS and DNS verification"""
-        self.print_section("SCOPE VALIDATION")
+            """Perform scope validation including WHOIS and DNS verification"""
+            self.print_section("SCOPE VALIDATION")
 
-        # WHOIS lookup for IP ranges
-        self.print_info("Performing WHOIS lookups for IP ranges...")
-        whois_results = {}
+            # WHOIS lookup for IP ranges (skip if none provided)
+            whois_results = {}
 
-        for ip_range in self.ip_ranges:
-            try:
-                # Extract first IP from range for WHOIS lookup
-                if '/' in ip_range:
-                    ip = str(ipaddress.ip_network(ip_range, strict=False).network_address)
-                else:
-                    ip = ip_range
+            if self.ip_ranges:
+                self.print_info("Performing WHOIS lookups for IP ranges...")
+                for ip_range in self.ip_ranges:
+                    try:
+                        # Extract first IP from range for WHOIS lookup
+                        if '/' in ip_range:
+                            ip = str(ipaddress.ip_network(ip_range, strict=False).network_address)
+                        else:
+                            ip = ip_range
 
-                output = self.run_command(['whois', ip])
-                if output:
-                    whois_results[ip_range] = self._parse_whois(output)
-                    org = whois_results[ip_range].get('org', 'Unknown')
-                    self.print_success(f"{ip_range} - Organization: {org}")
-            except Exception as e:
-                self.print_error(f"WHOIS failed for {ip_range}: {e}")
+                        output = self.run_command(['whois', ip])
+                        if output:
+                            whois_results[ip_range] = self._parse_whois(output)
+                            org = whois_results[ip_range].get('org', 'Unknown')
+                            self.print_success(f"{ip_range} - Organization: {org}")
+                    except Exception as e:
+                        self.print_error(f"WHOIS failed for {ip_range}: {e}")
+            else:
+                self.print_info("Skipping WHOIS lookups (no IP ranges provided)")
 
-        self.results['scope_validation']['whois'] = whois_results
+            self.results['scope_validation']['whois'] = whois_results
 
-        # DNS verification for domain
-        self.print_info(f"Verifying DNS records for {self.domain}...")
-        dns_records = self._get_dns_records(self.domain)
-        self.results['scope_validation']['dns_verification'] = dns_records
+            # DNS verification for domain
+            self.print_info(f"Verifying DNS records for {self.domain}...")
+            dns_records = self._get_dns_records(self.domain)
+            self.results['scope_validation']['dns_verification'] = dns_records
 
-        if dns_records.get('A'):
-            self.print_success(f"Domain resolves to: {', '.join(dns_records['A'])}")
+            if dns_records.get('A'):
+                self.print_success(f"Domain resolves to: {', '.join(dns_records['A'])}")
 
-            # Check if resolved IPs are in scope
-            for ip in dns_records['A']:
-                in_scope = self._is_ip_in_scope(ip)
-                if in_scope:
-                    self.print_success(f"✓ {ip} is within authorized scope")
-                else:
-                    self.print_warning(f"✗ {ip} is NOT in provided scope ranges")
+                # Check if resolved IPs are in scope (only if IP ranges provided)
+                if self.ip_ranges:
+                    for ip in dns_records['A']:
+                        in_scope = self._is_ip_in_scope(ip)
+                        if in_scope:
+                            self.print_success(f"✓ {ip} is within authorized scope")
+                        else:
+                            self.print_warning(f"✗ {ip} is NOT in provided scope ranges")
 
     def load_config(self) -> Dict[str, str]:
         """Load configuration from file"""
@@ -1978,31 +1982,36 @@ class ReconAutomation:
         return breaches
 
     def network_enumeration(self):
-        """Perform network scanning on in-scope IP ranges"""
-        self.print_section("NETWORK ENUMERATION")
+            """Perform network scanning on in-scope IP ranges"""
+            self.print_section("NETWORK ENUMERATION")
 
-        self.print_info("Starting network scan (this may take a while)...")
+            # Skip if no IP ranges provided
+            if not self.ip_ranges:
+                self.print_warning("Skipping network enumeration (no IP ranges provided)")
+                return
 
-        scan_results = {}
+            self.print_info("Starting network scan (this may take a while)...")
 
-        for ip_range in self.ip_ranges:
-            self.print_info(f"Scanning {ip_range}...")
+            scan_results = {}
 
-            # Quick host discovery
-            live_hosts = self._host_discovery(ip_range)
-            self.print_success(f"Found {len(live_hosts)} live hosts in {ip_range}")
+            for ip_range in self.ip_ranges:
+                self.print_info(f"Scanning {ip_range}...")
 
-            # Port scan live hosts
-            for host in live_hosts:
-                self.print_info(f"Port scanning {host}...")
-                ports = self._port_scan(host)
-                if ports:
-                    scan_results[host] = ports
-                    self.print_success(f"{host}: {len(ports)} open ports")
+                # Quick host discovery
+                live_hosts = self._host_discovery(ip_range)
+                self.print_success(f"Found {len(live_hosts)} live hosts in {ip_range}")
 
-        self.results['network_scan'] = scan_results
+                # Port scan live hosts
+                for host in live_hosts:
+                    self.print_info(f"Port scanning {host}...")
+                    ports = self._port_scan(host)
+                    if ports:
+                        scan_results[host] = ports
+                        self.print_success(f"{host}: {len(ports)} open ports")
 
-        self.print_success(f"Network scan complete. {len(scan_results)} hosts with open ports")
+            self.results['network_scan'] = scan_results
+
+            self.print_success(f"Network scan complete. {len(scan_results)} hosts with open ports")
 
     def _host_discovery(self, ip_range: str) -> List[str]:
         """Discover live hosts in IP range"""
@@ -2721,11 +2730,10 @@ Examples:
             print(f"{Colors.FAIL}[-] Error reading file: {e}{Colors.ENDC}")
             sys.exit(1)
 
-    # Validate that we have at least one IP range
+    # Allow OSINT-only mode if no IP ranges provided
     if not ip_ranges:
-        print(f"{Colors.FAIL}[-] Error: No IP ranges specified. Use -i or -f to provide targets.{Colors.ENDC}")
-        parser.print_help()
-        sys.exit(1)
+        print(f"{Colors.WARNING}[!] No IP ranges specified - running in OSINT-only mode{Colors.ENDC}")
+        print(f"{Colors.WARNING}[!] Network scanning and IP-based validation will be skipped{Colors.ENDC}")
 
     # Remove duplicates while preserving order
     seen = set()
