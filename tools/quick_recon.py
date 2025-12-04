@@ -2020,40 +2020,73 @@ class ReconAutomation:
                         traceback.print_exc()
 
     def _check_gcp_bucket(self, bucket_name: str) -> Optional[Dict[str, Any]]:
-        """Check if GCP storage bucket exists"""
-        urls_to_try = [
-            f"https://storage.googleapis.com/{bucket_name}/",
-            f"https://{bucket_name}.storage.googleapis.com/",
-            f"https://storage.cloud.google.com/{bucket_name}/",
-        ]
+            """Check if GCP storage bucket exists"""
+            urls_to_try = [
+                f"https://storage.googleapis.com/{bucket_name}/",
+                f"https://{bucket_name}.storage.googleapis.com/",
+                f"https://storage.cloud.google.com/{bucket_name}/",
+            ]
 
-        for url in urls_to_try:
-            try:
-                response = self.session.get(url, timeout=5)
+            for url in urls_to_try:
+                try:
+                    response = self.session.get(url, timeout=5, allow_redirects=False)
 
-                if response.status_code == 200:
-                    return {
-                        'bucket': bucket_name,
-                        'url': url,
-                        'status': 'Public Read',
-                        'response_length': len(response.content)
-                    }
-                elif response.status_code == 403:
-                    # Check if it's a "bucket exists but private" vs "access denied"
-                    if 'Access denied' in response.text or 'does not have permission' in response.text:
-                        return {
-                            'bucket': bucket_name,
-                            'url': url,
-                            'status': 'Private (Exists)'
-                        }
-                elif response.status_code == 404:
-                    # Bucket doesn't exist
+                    if response.status_code == 200:
+                        # Check if response is actually XML (not HTML login page)
+                        content_type = response.headers.get('Content-Type', '')
+                        content = response.text[:1000]  # Check first 1000 chars
+
+                        # If it's HTML or contains login/signin, it's not actually public
+                        if 'text/html' in content_type or 'accounts.google.com' in content or '<html' in content.lower():
+                            # This is a redirect to login page, bucket exists but is private
+                            return {
+                                'bucket': bucket_name,
+                                'url': url,
+                                'status': 'Private (Exists)'
+                            }
+
+                        # Check if it's valid XML
+                        if 'xml' in content_type or '<?xml' in content or '<ListBucketResult' in content:
+                            return {
+                                'bucket': bucket_name,
+                                'url': url,
+                                'status': 'Public Read',
+                                'response_length': len(response.content)
+                            }
+                        else:
+                            # Unknown response type, mark as exists but unclear status
+                            return {
+                                'bucket': bucket_name,
+                                'url': url,
+                                'status': 'Private (Exists)'
+                            }
+
+                    elif response.status_code == 403:
+                        # Check if it's a "bucket exists but private" vs "access denied"
+                        if 'Access denied' in response.text or 'does not have permission' in response.text:
+                            return {
+                                'bucket': bucket_name,
+                                'url': url,
+                                'status': 'Private (Exists)'
+                            }
+                    elif response.status_code in [301, 302, 307, 308]:
+                        # Check redirect location
+                        location = response.headers.get('Location', '')
+                        if 'accounts.google.com' in location:
+                            # Redirecting to login, so bucket exists but is private
+                            return {
+                                'bucket': bucket_name,
+                                'url': url,
+                                'status': 'Private (Exists)'
+                            }
+                    elif response.status_code == 404:
+                        # Bucket doesn't exist
+                        continue
+
+                except Exception as e:
                     continue
 
-            except Exception as e:
-                continue
-
-        return None
+            return None
 
     def _analyze_gcp_bucket_contents(self, bucket_info: Dict[str, Any]):
             """Analyze GCP storage bucket contents"""
@@ -2063,7 +2096,7 @@ class ReconAutomation:
             self.print_info(f"Fetching bucket listing from: {bucket_url}")
 
             try:
-                response = self.session.get(bucket_url, timeout=10, verify=False)
+                response = self.session.get(bucket_url, timeout=10, verify=False, allow_redirects=False)
                 self.print_info(f"Response status: {response.status_code}")
 
                 if response.status_code != 200:
@@ -2071,7 +2104,19 @@ class ReconAutomation:
                     return
 
                 content = response.text
+                content_type = response.headers.get('Content-Type', '')
+
+                # Check if response is HTML instead of XML
+                if 'text/html' in content_type or '<html' in content[:1000].lower():
+                    self.print_warning(f"Bucket returned HTML instead of XML (likely requires authentication)")
+                    self.print_warning(f"This bucket is NOT actually publicly accessible")
+                    # Update the bucket status
+                    bucket_info['status'] = 'Private (Exists)'
+                    return
+
                 self.print_info(f"Response length: {len(content)} bytes")
+                self.print_info(f"Content-Type: {content_type}")
+
                 files = []
 
                 # Parse GCP XML listing
@@ -2114,6 +2159,11 @@ class ReconAutomation:
 
                 except ET.ParseError as e:
                     self.print_warning(f"XML parsing failed: {e}")
+                    # Check if content looks like XML at all
+                    if not content.strip().startswith('<?xml') and not content.strip().startswith('<'):
+                        self.print_warning("Response doesn't appear to be XML")
+                        return
+
                     # Fallback regex parsing
                     keys = re.findall(r'<Key>([^<]+)</Key>', content)
                     sizes = re.findall(r'<Size>([^<]+)</Size>', content)
@@ -2133,8 +2183,7 @@ class ReconAutomation:
                 bucket_info['file_count'] = len(files)
 
                 if not files:
-                    self.print_warning(f"  No files found in bucket (may be empty or misconfigured)")
-                    self.print_info(f"  Response preview: {content[:500]}")
+                    self.print_warning(f"  No files found in bucket (bucket may be empty)")
                     return
 
                 total_size = sum(f['size'] for f in files) / 1024  # KB
