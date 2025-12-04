@@ -161,6 +161,32 @@ class ReconAutomation:
             self.print_error(f"Command failed: {e}")
             return None
 
+    def _download_file(self, url: str, output_path: Path, max_size_mb: int = 10) -> bool:
+            """Download file from URL with size limit"""
+            try:
+                # HEAD request to check file size
+                head_response = self.session.head(url, timeout=5, allow_redirects=True)
+                content_length = int(head_response.headers.get('Content-Length', 0))
+
+                # Check size limit (convert MB to bytes)
+                if content_length > (max_size_mb * 1024 * 1024):
+                    self.print_warning(f"Skipping file (too large: {content_length/(1024*1024):.1f}MB)")
+                    return False
+
+                # Download file
+                response = self.session.get(url, timeout=30, stream=True)
+                if response.status_code == 200:
+                    with open(output_path, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+                    return True
+            except Exception as e:
+                self.print_error(f"Download failed: {e}")
+                return False
+
+            return False
+
     def scope_validation(self):
             """Perform scope validation including WHOIS and DNS verification"""
             self.print_section("SCOPE VALIDATION")
@@ -1516,49 +1542,73 @@ class ReconAutomation:
         return None
 
     def _analyze_s3_bucket_contents(self, bucket_info: Dict[str, Any]):
-        """Analyze S3 bucket contents"""
-        try:
-            response = self.session.get(bucket_info['url'], timeout=10)
-            if response.status_code != 200:
-                return
-
-            content = response.text
-            files = []
-
-            # Parse XML listing
-            import xml.etree.ElementTree as ET
+            """Analyze S3 bucket contents"""
             try:
-                root = ET.fromstring(content)
-                for contents in root.findall('.//{http://s3.amazonaws.com/doc/2006-03-01/}Contents'):
-                    key = contents.find('{http://s3.amazonaws.com/doc/2006-03-01/}Key')
-                    size = contents.find('{http://s3.amazonaws.com/doc/2006-03-01/}Size')
-                    modified = contents.find('{http://s3.amazonaws.com/doc/2006-03-01/}LastModified')
+                response = self.session.get(bucket_info['url'], timeout=10)
+                if response.status_code != 200:
+                    return
 
-                    if key is not None:
-                        files.append({
-                            'key': key.text,
-                            'size': int(size.text) if size is not None else 0,
-                            'last_modified': modified.text if modified is not None else 'Unknown'
-                        })
-            except ET.ParseError:
-                # Fallback regex
-                keys = re.findall(r'<Key>([^<]+)</Key>', content)
-                files = [{'key': k, 'size': 0, 'last_modified': 'Unknown'} for k in keys]
+                content = response.text
+                files = []
 
-            bucket_info['files'] = files
-            bucket_info['file_count'] = len(files)
+                # Parse XML listing
+                import xml.etree.ElementTree as ET
+                try:
+                    root = ET.fromstring(content)
+                    for contents in root.findall('.//{http://s3.amazonaws.com/doc/2006-03-01/}Contents'):
+                        key = contents.find('{http://s3.amazonaws.com/doc/2006-03-01/}Key')
+                        size = contents.find('{http://s3.amazonaws.com/doc/2006-03-01/}Size')
+                        modified = contents.find('{http://s3.amazonaws.com/doc/2006-03-01/}LastModified')
 
-            if files:
-                total_size = sum(f['size'] for f in files) / 1024  # KB
-                self.print_warning(f"  Found {len(files)} files ({total_size:.1f}KB total)")
+                        if key is not None:
+                            file_url = f"{bucket_info['url'].rstrip('/')}/{key.text}"
+                            files.append({
+                                'key': key.text,
+                                'size': int(size.text) if size is not None else 0,
+                                'last_modified': modified.text if modified is not None else 'Unknown',
+                                'url': file_url
+                            })
+                except ET.ParseError:
+                    # Fallback regex
+                    keys = re.findall(r'<Key>([^<]+)</Key>', content)
+                    for k in keys:
+                        file_url = f"{bucket_info['url'].rstrip('/')}/{k}"
+                        files.append({'key': k, 'size': 0, 'last_modified': 'Unknown', 'url': file_url})
 
-                # Show first 10 files
-                for i, f in enumerate(files[:10]):
-                    self.print_info(f"    {f['key']} ({f['size']/1024:.1f}KB)")
-                if len(files) > 10:
-                    self.print_info(f"    ... and {len(files)-10} more files")
-        except Exception as e:
-            self.print_error(f"Error analyzing bucket: {e}")
+                bucket_info['files'] = files
+                bucket_info['file_count'] = len(files)
+
+                if files:
+                    total_size = sum(f['size'] for f in files) / 1024  # KB
+                    self.print_warning(f"  Found {len(files)} files ({total_size:.1f}KB total)")
+
+                    # Create download directory
+                    download_dir = self.output_dir / 's3_downloads' / bucket_info['bucket']
+                    download_dir.mkdir(parents=True, exist_ok=True)
+
+                    # Download files (limit to first 50 files and 10MB each)
+                    downloaded_count = 0
+                    for f in files[:50]:
+                        file_name = f['key'].split('/')[-1]
+                        if not file_name:  # Skip directories
+                            continue
+
+                        output_path = download_dir / file_name
+                        self.print_info(f"    Downloading: {f['key']} ({f['size']/1024:.1f}KB)")
+
+                        if self._download_file(f['url'], output_path):
+                            downloaded_count += 1
+                            self.print_success(f"      Saved to: {output_path}")
+
+                        time.sleep(0.5)  # Rate limiting
+
+                    if len(files) > 50:
+                        self.print_warning(f"    Only downloaded first 50 files (total: {len(files)})")
+
+                    self.print_success(f"  Downloaded {downloaded_count} files to {download_dir}")
+
+            except Exception as e:
+                self.print_error(f"Error analyzing bucket: {e}")
 
     def azure_storage_enumeration(self):
         """Enumerate Azure Blob Storage containers"""
@@ -1685,58 +1735,82 @@ class ReconAutomation:
         return None
 
     def _analyze_azure_storage_contents(self, storage_info: Dict[str, Any]):
-        """Analyze Azure storage container contents"""
-        try:
-            response = self.session.get(storage_info['url'], timeout=10)
-            if response.status_code != 200:
-                return
-
-            content = response.text
-            files = []
-
-            # Parse Azure XML listing
-            import xml.etree.ElementTree as ET
+            """Analyze Azure storage container contents"""
             try:
-                root = ET.fromstring(content)
+                response = self.session.get(storage_info['url'], timeout=10)
+                if response.status_code != 200:
+                    return
 
-                # Azure uses different namespace
-                for blob in root.findall('.//{http://schemas.microsoft.com/ado/2007/08/dataservices}Name'):
-                    file_info = {
-                        'name': blob.text,
-                        'url': f"https://{storage_info['account']}.blob.core.windows.net/{storage_info['container']}/{blob.text}"
-                    }
-                    files.append(file_info)
+                content = response.text
+                files = []
 
-                # Also try without namespace
-                if not files:
-                    for blob in root.findall('.//Name'):
+                # Parse Azure XML listing
+                import xml.etree.ElementTree as ET
+                try:
+                    root = ET.fromstring(content)
+
+                    # Azure uses different namespace
+                    for blob in root.findall('.//{http://schemas.microsoft.com/ado/2007/08/dataservices}Name'):
+                        file_url = f"https://{storage_info['account']}.blob.core.windows.net/{storage_info['container']}/{blob.text}"
                         file_info = {
                             'name': blob.text,
-                            'url': f"https://{storage_info['account']}.blob.core.windows.net/{storage_info['container']}/{blob.text}"
+                            'url': file_url
                         }
                         files.append(file_info)
 
-            except ET.ParseError:
-                # Fallback regex parsing
-                names = re.findall(r'<Name>([^<]+)</Name>', content)
-                for name in names:
-                    files.append({
-                        'name': name,
-                        'url': f"https://{storage_info['account']}.blob.core.windows.net/{storage_info['container']}/{name}"
-                    })
+                    # Also try without namespace
+                    if not files:
+                        for blob in root.findall('.//Name'):
+                            file_url = f"https://{storage_info['account']}.blob.core.windows.net/{storage_info['container']}/{blob.text}"
+                            file_info = {
+                                'name': blob.text,
+                                'url': file_url
+                            }
+                            files.append(file_info)
 
-            storage_info['files'] = files
-            storage_info['file_count'] = len(files)
+                except ET.ParseError:
+                    # Fallback regex parsing
+                    names = re.findall(r'<Name>([^<]+)</Name>', content)
+                    for name in names:
+                        file_url = f"https://{storage_info['account']}.blob.core.windows.net/{storage_info['container']}/{name}"
+                        files.append({
+                            'name': name,
+                            'url': file_url
+                        })
 
-            if files:
-                self.print_warning(f"  Found {len(files)} blob(s)")
-                for i, f in enumerate(files[:10]):
-                    self.print_info(f"    {f['name']}")
-                if len(files) > 10:
-                    self.print_info(f"    ... and {len(files)-10} more blobs")
+                storage_info['files'] = files
+                storage_info['file_count'] = len(files)
 
-        except Exception as e:
-            self.print_error(f"Error analyzing Azure storage: {e}")
+                if files:
+                    self.print_warning(f"  Found {len(files)} blob(s)")
+
+                    # Create download directory
+                    download_dir = self.output_dir / 'azure_downloads' / f"{storage_info['account']}_{storage_info['container']}"
+                    download_dir.mkdir(parents=True, exist_ok=True)
+
+                    # Download files (limit to first 50 files)
+                    downloaded_count = 0
+                    for f in files[:50]:
+                        file_name = f['name'].split('/')[-1]
+                        if not file_name:  # Skip directories
+                            continue
+
+                        output_path = download_dir / file_name
+                        self.print_info(f"    Downloading: {f['name']}")
+
+                        if self._download_file(f['url'], output_path):
+                            downloaded_count += 1
+                            self.print_success(f"      Saved to: {output_path}")
+
+                        time.sleep(0.5)  # Rate limiting
+
+                    if len(files) > 50:
+                        self.print_warning(f"    Only downloaded first 50 files (total: {len(files)})")
+
+                    self.print_success(f"  Downloaded {downloaded_count} files to {download_dir}")
+
+            except Exception as e:
+                self.print_error(f"Error analyzing Azure storage: {e}")
 
     def gcp_storage_enumeration(self):
         """Enumerate Google Cloud Platform (GCP) Storage buckets"""
@@ -1866,78 +1940,102 @@ class ReconAutomation:
         return None
 
     def _analyze_gcp_bucket_contents(self, bucket_info: Dict[str, Any]):
-        """Analyze GCP storage bucket contents"""
-        try:
-            response = self.session.get(bucket_info['url'], timeout=10)
-            if response.status_code != 200:
-                return
-
-            content = response.text
-            files = []
-
-            # Parse GCP XML listing
-            import xml.etree.ElementTree as ET
+            """Analyze GCP storage bucket contents"""
             try:
-                root = ET.fromstring(content)
+                response = self.session.get(bucket_info['url'], timeout=10)
+                if response.status_code != 200:
+                    return
 
-                # GCP uses similar structure to S3
-                for contents in root.findall('.//{http://doc.s3.amazonaws.com/2006-03-01}Contents'):
-                    key = contents.find('{http://doc.s3.amazonaws.com/2006-03-01}Key')
-                    size = contents.find('{http://doc.s3.amazonaws.com/2006-03-01}Size')
-                    modified = contents.find('{http://doc.s3.amazonaws.com/2006-03-01}LastModified')
+                content = response.text
+                files = []
 
-                    if key is not None:
-                        file_info = {
-                            'key': key.text,
-                            'size': int(size.text) if size is not None else 0,
-                            'last_modified': modified.text if modified is not None else 'Unknown',
-                            'url': f"{bucket_info['url'].rstrip('/')}/{key.text}"
-                        }
-                        files.append(file_info)
+                # Parse GCP XML listing
+                import xml.etree.ElementTree as ET
+                try:
+                    root = ET.fromstring(content)
 
-                # Also try without namespace
-                if not files:
-                    for contents in root.findall('.//Contents'):
-                        key = contents.find('Key')
-                        size = contents.find('Size')
-                        modified = contents.find('LastModified')
+                    # GCP uses similar structure to S3
+                    for contents in root.findall('.//{http://doc.s3.amazonaws.com/2006-03-01}Contents'):
+                        key = contents.find('{http://doc.s3.amazonaws.com/2006-03-01}Key')
+                        size = contents.find('{http://doc.s3.amazonaws.com/2006-03-01}Size')
+                        modified = contents.find('{http://doc.s3.amazonaws.com/2006-03-01}LastModified')
 
                         if key is not None:
+                            file_url = f"{bucket_info['url'].rstrip('/')}/{key.text}"
                             file_info = {
                                 'key': key.text,
                                 'size': int(size.text) if size is not None else 0,
                                 'last_modified': modified.text if modified is not None else 'Unknown',
-                                'url': f"{bucket_info['url'].rstrip('/')}/{key.text}"
+                                'url': file_url
                             }
                             files.append(file_info)
 
-            except ET.ParseError:
-                # Fallback regex parsing
-                keys = re.findall(r'<Key>([^<]+)</Key>', content)
-                sizes = re.findall(r'<Size>([^<]+)</Size>', content)
+                    # Also try without namespace
+                    if not files:
+                        for contents in root.findall('.//Contents'):
+                            key = contents.find('Key')
+                            size = contents.find('Size')
+                            modified = contents.find('LastModified')
 
-                for i, key in enumerate(keys):
-                    size = int(sizes[i]) if i < len(sizes) and sizes[i].isdigit() else 0
-                    files.append({
-                        'key': key,
-                        'size': size,
-                        'last_modified': 'Unknown',
-                        'url': f"{bucket_info['url'].rstrip('/')}/{key}"
-                    })
+                            if key is not None:
+                                file_url = f"{bucket_info['url'].rstrip('/')}/{key.text}"
+                                file_info = {
+                                    'key': key.text,
+                                    'size': int(size.text) if size is not None else 0,
+                                    'last_modified': modified.text if modified is not None else 'Unknown',
+                                    'url': file_url
+                                }
+                                files.append(file_info)
 
-            bucket_info['files'] = files
-            bucket_info['file_count'] = len(files)
+                except ET.ParseError:
+                    # Fallback regex parsing
+                    keys = re.findall(r'<Key>([^<]+)</Key>', content)
+                    sizes = re.findall(r'<Size>([^<]+)</Size>', content)
 
-            if files:
-                total_size = sum(f['size'] for f in files) / 1024  # KB
-                self.print_warning(f"  Found {len(files)} file(s) ({total_size:.1f}KB total)")
-                for i, f in enumerate(files[:10]):
-                    self.print_info(f"    {f['key']} ({f['size']/1024:.1f}KB)")
-                if len(files) > 10:
-                    self.print_info(f"    ... and {len(files)-10} more files")
+                    for i, key in enumerate(keys):
+                        size = int(sizes[i]) if i < len(sizes) and sizes[i].isdigit() else 0
+                        file_url = f"{bucket_info['url'].rstrip('/')}/{key}"
+                        files.append({
+                            'key': key,
+                            'size': size,
+                            'last_modified': 'Unknown',
+                            'url': file_url
+                        })
 
-        except Exception as e:
-            self.print_error(f"Error analyzing GCP bucket: {e}")
+                bucket_info['files'] = files
+                bucket_info['file_count'] = len(files)
+
+                if files:
+                    total_size = sum(f['size'] for f in files) / 1024  # KB
+                    self.print_warning(f"  Found {len(files)} file(s) ({total_size:.1f}KB total)")
+
+                    # Create download directory
+                    download_dir = self.output_dir / 'gcp_downloads' / bucket_info['bucket']
+                    download_dir.mkdir(parents=True, exist_ok=True)
+
+                    # Download files (limit to first 50 files and 10MB each)
+                    downloaded_count = 0
+                    for f in files[:50]:
+                        file_name = f['key'].split('/')[-1]
+                        if not file_name:  # Skip directories
+                            continue
+
+                        output_path = download_dir / file_name
+                        self.print_info(f"    Downloading: {f['key']} ({f['size']/1024:.1f}KB)")
+
+                        if self._download_file(f['url'], output_path):
+                            downloaded_count += 1
+                            self.print_success(f"      Saved to: {output_path}")
+
+                        time.sleep(0.5)  # Rate limiting
+
+                    if len(files) > 50:
+                        self.print_warning(f"    Only downloaded first 50 files (total: {len(files)})")
+
+                    self.print_success(f"  Downloaded {downloaded_count} files to {download_dir}")
+
+            except Exception as e:
+                self.print_error(f"Error analyzing GCP bucket: {e}")
 
     def breach_database_check(self):
         """Check for compromised credentials in breach databases"""
