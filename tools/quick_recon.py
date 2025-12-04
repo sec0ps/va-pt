@@ -1336,43 +1336,67 @@ class ReconAutomation:
         return emails
 
     def _locate_theharvester(self) -> Optional[str]:
-        """Locate theHarvester installation using system tools"""
-        # Try standard PATH lookup first
-        for cmd in ['theHarvester.py', 'theHarvester', 'theharvester']:
-            path = shutil.which(cmd)
-            if path:
-                return path
+            """Locate theHarvester installation using system tools"""
+            # Try standard PATH lookup first
+            for cmd in ['theHarvester.py', 'theHarvester', 'theharvester']:
+                path = shutil.which(cmd)
+                if path:
+                    return path
 
-        # Try locate command
-        try:
-            output = self.run_command(['locate', 'theHarvester.py'], timeout=10)
-            if output:
-                # Get first result that's executable or readable
-                for line in output.strip().split('\n'):
-                    if line and Path(line).exists():
-                        return line
-        except:
-            pass
+            # Check if locate command exists, install if missing
+            if not shutil.which('locate'):
+                self.print_warning("'locate' command not found. Attempting to install mlocate...")
+                try:
+                    # Try to install mlocate
+                    install_result = subprocess.run(
+                        ['sudo', 'apt-get', 'install', '-y', 'mlocate'],
+                        capture_output=True,
+                        text=True,
+                        timeout=120
+                    )
+                    if install_result.returncode == 0:
+                        self.print_success("mlocate installed successfully")
+                        # Update the database
+                        self.print_info("Updating mlocate database...")
+                        subprocess.run(['sudo', 'updatedb'], timeout=60)
+                        self.print_success("Database updated")
+                    else:
+                        self.print_warning("Could not install mlocate (may need sudo privileges)")
+                except Exception as e:
+                    self.print_warning(f"mlocate installation failed: {e}")
 
-        # Try find command in common base directories
-        try:
-            for base_dir in ['/usr', '/opt', str(Path.home())]:
-                output = self.run_command([
-                    'find', base_dir,
-                    '-name', 'theHarvester.py',
-                    '-type', 'f',
-                    '-readable',
-                    '2>/dev/null'
-                ], timeout=30)
-                if output:
-                    # Return first valid result
-                    for line in output.strip().split('\n'):
-                        if line and Path(line).exists():
-                            return line
-        except:
-            pass
+            # Try locate command if now available
+            if shutil.which('locate'):
+                try:
+                    output = self.run_command(['locate', 'theHarvester.py'], timeout=10)
+                    if output:
+                        # Get first result that's executable or readable
+                        for line in output.strip().split('\n'):
+                            if line and Path(line).exists():
+                                return line
+                except Exception as e:
+                    self.print_warning(f"locate command failed: {e}")
 
-        return None
+            # Try find command in common base directories as fallback
+            self.print_info("Falling back to find command (may be slow)...")
+            try:
+                for base_dir in ['/usr', '/opt', str(Path.home())]:
+                    output = self.run_command([
+                        'find', base_dir,
+                        '-name', 'theHarvester.py',
+                        '-type', 'f',
+                        '-readable',
+                        '2>/dev/null'
+                    ], timeout=30)
+                    if output:
+                        # Return first valid result
+                        for line in output.strip().split('\n'):
+                            if line and Path(line).exists():
+                                return line
+            except Exception as e:
+                self.print_warning(f"find command failed: {e}")
+
+            return None
 
     def _scrape_emails_from_web(self) -> List[str]:
         """Scrape emails from company website"""
