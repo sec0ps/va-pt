@@ -1345,7 +1345,7 @@ class ReconAutomation:
 
             # Check if locate command exists, install if missing
             if not shutil.which('locate'):
-                self.print_warning("'locate' command not found. Attempting to install mlocate...")
+                self.print_warning("'locate' command not found. Installing mlocate...")
                 try:
                     # Try to install mlocate
                     install_result = subprocess.run(
@@ -1361,32 +1361,36 @@ class ReconAutomation:
                         subprocess.run(['sudo', 'updatedb'], timeout=60)
                         self.print_success("Database updated")
                     else:
-                        self.print_warning("Could not install mlocate (may need sudo privileges)")
+                        self.print_error("Failed to install mlocate - falling back to find command")
+                        # Fall back to find only if installation failed
+                        return self._find_theharvester_with_find()
                 except Exception as e:
-                    self.print_warning(f"mlocate installation failed: {e}")
+                    self.print_error(f"mlocate installation failed: {e} - falling back to find command")
+                    return self._find_theharvester_with_find()
 
-            # Try locate command if now available
-            if shutil.which('locate'):
-                try:
-                    output = self.run_command(['locate', 'theHarvester.py'], timeout=10)
-                    if output:
-                        # Get first result that's executable or readable
-                        for line in output.strip().split('\n'):
-                            if line and Path(line).exists():
-                                return line
-                except Exception as e:
-                    self.print_warning(f"locate command failed: {e}")
+            # Try locate command (either was already installed or just installed)
+            try:
+                output = self.run_command(['locate', 'theHarvester.py'], timeout=10)
+                if output:
+                    # Get first result that's executable or readable
+                    for line in output.strip().split('\n'):
+                        if line and Path(line).exists():
+                            return line
+            except Exception as e:
+                self.print_warning(f"locate command failed: {e}")
 
-            # Try find command in common base directories as fallback
-            self.print_info("Falling back to find command (may be slow)...")
+            return None
+
+        def _find_theharvester_with_find(self) -> Optional[str]:
+            """Use find command to locate theHarvester (slow fallback method)"""
+            self.print_info("Searching for theHarvester with find command (may be slow)...")
             try:
                 for base_dir in ['/usr', '/opt', str(Path.home())]:
                     output = self.run_command([
                         'find', base_dir,
                         '-name', 'theHarvester.py',
                         '-type', 'f',
-                        '-readable',
-                        '2>/dev/null'
+                        '-readable'
                     ], timeout=30)
                     if output:
                         # Return first valid result
