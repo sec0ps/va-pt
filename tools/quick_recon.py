@@ -1656,89 +1656,96 @@ class ReconAutomation:
                 traceback.print_exc()
 
     def azure_storage_enumeration(self):
-        """Enumerate Azure Blob Storage containers"""
-        self.print_section("AZURE STORAGE ENUMERATION")
+            """Enumerate Azure Blob Storage containers"""
+            self.print_section("AZURE STORAGE ENUMERATION")
 
-        # Generate Azure storage account name variations
-        storage_candidates = set()
+            # Generate Azure storage account name variations
+            storage_candidates = set()
 
-        # Basic domain variations
-        company_name = self.domain.split('.')[0]
-        storage_candidates.add(company_name)
-        storage_candidates.add(self.domain.replace('.', ''))
-        storage_candidates.add(self.domain.replace('.', '-'))
+            # Basic domain variations
+            company_name = self.domain.split('.')[0]
+            storage_candidates.add(company_name)
+            storage_candidates.add(self.domain.replace('.', ''))
+            storage_candidates.add(self.domain.replace('.', '-'))
 
-        # Add variations from discovered subdomains
-        resolved = self.results.get('dns_enumeration', {}).get('resolved', {})
-        for subdomain in list(resolved.keys())[:20]:
-            if subdomain.endswith(self.domain):
-                sub_part = subdomain.replace(f".{self.domain}", "").replace(f"{self.domain}", "")
-                if sub_part and '.' not in sub_part:
-                    storage_candidates.add(sub_part.replace('-', '').replace('_', ''))
-                    storage_candidates.add(f"{company_name}{sub_part}".replace('-', '').replace('_', ''))
+            # Add variations from discovered subdomains
+            resolved = self.results.get('dns_enumeration', {}).get('resolved', {})
+            for subdomain in list(resolved.keys())[:20]:
+                if subdomain.endswith(self.domain):
+                    sub_part = subdomain.replace(f".{self.domain}", "").replace(f"{self.domain}", "")
+                    if sub_part and '.' not in sub_part:
+                        storage_candidates.add(sub_part.replace('-', '').replace('_', ''))
+                        storage_candidates.add(f"{company_name}{sub_part}".replace('-', '').replace('_', ''))
 
-        # Add common affixes
-        common_affixes = ['backup', 'backups', 'data', 'files', 'storage', 'assets',
-                        'static', 'uploads', 'images', 'docs', 'logs', 'dev', 'prod',
-                        'staging', 'test', 'blob', 'store']
+            # Add common affixes
+            common_affixes = ['backup', 'backups', 'data', 'files', 'storage', 'assets',
+                            'static', 'uploads', 'images', 'docs', 'logs', 'dev', 'prod',
+                            'staging', 'test', 'blob', 'store']
 
-        for affix in common_affixes:
-            storage_candidates.add(f"{company_name}{affix}".replace('-', '').replace('_', ''))
-            storage_candidates.add(f"{affix}{company_name}".replace('-', '').replace('_', ''))
+            for affix in common_affixes:
+                storage_candidates.add(f"{company_name}{affix}".replace('-', '').replace('_', ''))
+                storage_candidates.add(f"{affix}{company_name}".replace('-', '').replace('_', ''))
 
-        # Clean candidates - Azure storage names must be 3-24 chars, lowercase, alphanumeric
-        storage_candidates = [
-            name.lower().replace('-', '').replace('_', '')
-            for name in storage_candidates
-            if name and 3 <= len(name.replace('-', '').replace('_', '')) <= 24
-        ]
-        storage_candidates = list(set(storage_candidates))
+            # Clean candidates - Azure storage names must be 3-24 chars, lowercase, alphanumeric
+            storage_candidates = [
+                name.lower().replace('-', '').replace('_', '')
+                for name in storage_candidates
+                if name and 3 <= len(name.replace('-', '').replace('_', '')) <= 24
+            ]
+            storage_candidates = list(set(storage_candidates))
 
-        self.print_info(f"Testing {len(storage_candidates)} potential Azure storage account names...")
+            self.print_info(f"Testing {len(storage_candidates)} potential Azure storage account names...")
 
-        found_storage = []
+            found_storage = []
 
-        # Check each storage account
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            future_to_storage = {
-                executor.submit(self._check_azure_storage, account): account
-                for account in storage_candidates
+            # Check each storage account
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                future_to_storage = {
+                    executor.submit(self._check_azure_storage, account): account
+                    for account in storage_candidates
+                }
+
+                for future in concurrent.futures.as_completed(future_to_storage):
+                    account_name = future_to_storage[future]
+                    try:
+                        result = future.result()
+                        if result:
+                            found_storage.append(result)
+                            status = result['status']
+                            if status == 'Public Read':
+                                self.print_warning(f"PUBLICLY ACCESSIBLE: {account_name}")
+                            elif status == 'Private (Exists)':
+                                self.print_success(f"EXISTS (Private): {account_name}")
+                    except Exception as e:
+                        pass
+
+            # Summary FIRST
+            self.results['azure_storage'] = {
+                'tested': len(storage_candidates),
+                'found': found_storage,
+                'public_count': len([s for s in found_storage if s['status'] == 'Public Read']),
+                'private_count': len([s for s in found_storage if s['status'] == 'Private (Exists)'])
             }
 
-            for future in concurrent.futures.as_completed(future_to_storage):
-                account_name = future_to_storage[future]
-                try:
-                    result = future.result()
-                    if result:
-                        found_storage.append(result)
-                        status = result['status']
-                        if status == 'Public Read':
-                            self.print_warning(f"PUBLICLY ACCESSIBLE: {account_name}")
-                        elif status == 'Private (Exists)':
-                            self.print_success(f"EXISTS (Private): {account_name}")
-                except Exception as e:
-                    pass
+            if found_storage:
+                self.print_warning(f"\nFound {len(found_storage)} Azure storage accounts:")
+                for storage in found_storage:
+                    self.print_info(f"  {storage['account']} - {storage['status']}")
+            else:
+                self.print_success("No Azure storage accounts found")
 
-        # Analyze accessible storage accounts
-        for storage in found_storage:
-            if storage['status'] == 'Public Read':
-                self.print_info(f"Analyzing contents of {storage['account']}...")
-                self._analyze_azure_storage_contents(storage)
-
-        self.results['azure_storage'] = {
-            'tested': len(storage_candidates),
-            'found': found_storage,
-            'public_count': len([s for s in found_storage if s['status'] == 'Public Read']),
-            'private_count': len([s for s in found_storage if s['status'] == 'Private (Exists)'])
-        }
-
-        # Summary
-        if found_storage:
-            self.print_warning(f"Found {len(found_storage)} Azure storage accounts:")
-            for storage in found_storage:
-                self.print_info(f"  {storage['account']} - {storage['status']}")
-        else:
-            self.print_success("No Azure storage accounts found")
+            # Analyze accessible storage accounts AFTER summary
+            public_storage = [s for s in found_storage if s['status'] == 'Public Read']
+            if public_storage:
+                self.print_info(f"\n[*] Analyzing {len(public_storage)} publicly accessible storage accounts...")
+                for storage in public_storage:
+                    self.print_info(f"\n[*] Analyzing contents of {storage['account']}...")
+                    try:
+                        self._analyze_azure_storage_contents(storage)
+                    except Exception as e:
+                        self.print_error(f"Analysis failed for {storage['account']}: {e}")
+                        import traceback
+                        traceback.print_exc()
 
     def _check_azure_storage(self, account_name: str) -> Optional[Dict[str, Any]]:
         """Check if Azure storage account exists"""
@@ -1781,12 +1788,22 @@ class ReconAutomation:
 
     def _analyze_azure_storage_contents(self, storage_info: Dict[str, Any]):
             """Analyze Azure storage container contents"""
+            account_name = storage_info.get('account', 'unknown')
+            container = storage_info.get('container', 'unknown')
+            storage_url = storage_info.get('url', '')
+
+            self.print_info(f"Fetching container listing from: {storage_url}")
+
             try:
-                response = self.session.get(storage_info['url'], timeout=10)
+                response = self.session.get(storage_url, timeout=10, verify=False)
+                self.print_info(f"Response status: {response.status_code}")
+
                 if response.status_code != 200:
+                    self.print_warning(f"Cannot list container contents (status {response.status_code})")
                     return
 
                 content = response.text
+                self.print_info(f"Response length: {len(content)} bytes")
                 files = []
 
                 # Parse Azure XML listing
@@ -1796,7 +1813,7 @@ class ReconAutomation:
 
                     # Azure uses different namespace
                     for blob in root.findall('.//{http://schemas.microsoft.com/ado/2007/08/dataservices}Name'):
-                        file_url = f"https://{storage_info['account']}.blob.core.windows.net/{storage_info['container']}/{blob.text}"
+                        file_url = f"https://{account_name}.blob.core.windows.net/{container}/{blob.text}"
                         file_info = {
                             'name': blob.text,
                             'url': file_url
@@ -1806,18 +1823,20 @@ class ReconAutomation:
                     # Also try without namespace
                     if not files:
                         for blob in root.findall('.//Name'):
-                            file_url = f"https://{storage_info['account']}.blob.core.windows.net/{storage_info['container']}/{blob.text}"
+                            file_url = f"https://{account_name}.blob.core.windows.net/{container}/{blob.text}"
                             file_info = {
                                 'name': blob.text,
                                 'url': file_url
                             }
                             files.append(file_info)
 
-                except ET.ParseError:
+                except ET.ParseError as e:
+                    self.print_warning(f"XML parsing failed: {e}")
                     # Fallback regex parsing
                     names = re.findall(r'<Name>([^<]+)</Name>', content)
+                    self.print_info(f"Regex found {len(names)} names")
                     for name in names:
-                        file_url = f"https://{storage_info['account']}.blob.core.windows.net/{storage_info['container']}/{name}"
+                        file_url = f"https://{account_name}.blob.core.windows.net/{container}/{name}"
                         files.append({
                             'name': name,
                             'url': file_url
@@ -1826,127 +1845,151 @@ class ReconAutomation:
                 storage_info['files'] = files
                 storage_info['file_count'] = len(files)
 
-                if files:
-                    self.print_warning(f"  Found {len(files)} blob(s)")
+                if not files:
+                    self.print_warning(f"  No files found in container (may be empty or misconfigured)")
+                    self.print_info(f"  Response preview: {content[:500]}")
+                    return
 
-                    # Create download directory
-                    download_dir = self.output_dir / 'azure_downloads' / f"{storage_info['account']}_{storage_info['container']}"
-                    download_dir.mkdir(parents=True, exist_ok=True)
+                self.print_success(f"  Found {len(files)} blob(s)")
 
-                    # Download files (limit to first 50 files)
-                    downloaded_count = 0
-                    for f in files[:50]:
-                        file_name = f['name'].split('/')[-1]
-                        if not file_name:  # Skip directories
-                            continue
+                # Show sample files
+                self.print_info(f"  Sample blobs:")
+                for f in files[:5]:
+                    self.print_info(f"    - {f['name']}")
+                if len(files) > 5:
+                    self.print_info(f"    ... and {len(files)-5} more")
 
-                        output_path = download_dir / file_name
-                        self.print_info(f"    Downloading: {f['name']}")
+                # Create download directory
+                download_dir = self.output_dir / 'azure_downloads' / f"{account_name}_{container}"
+                download_dir.mkdir(parents=True, exist_ok=True)
+                self.print_info(f"  Download directory: {download_dir}")
 
-                        if self._download_file(f['url'], output_path):
-                            downloaded_count += 1
-                            self.print_success(f"      Saved to: {output_path}")
+                # Download files (limit to first 50 files)
+                downloaded_count = 0
+                for f in files[:50]:
+                    file_name = f['name'].split('/')[-1]
+                    if not file_name:  # Skip directories
+                        continue
 
-                        time.sleep(0.5)  # Rate limiting
+                    output_path = download_dir / file_name
+                    self.print_info(f"    Downloading: {f['name']}")
 
-                    if len(files) > 50:
-                        self.print_warning(f"    Only downloaded first 50 files (total: {len(files)})")
+                    if self._download_file(f['url'], output_path):
+                        downloaded_count += 1
+                        self.print_success(f"      Saved to: {output_path}")
 
+                    time.sleep(0.5)  # Rate limiting
+
+                if len(files) > 50:
+                    self.print_warning(f"    Only downloaded first 50 files (total: {len(files)})")
+
+                if downloaded_count > 0:
                     self.print_success(f"  Downloaded {downloaded_count} files to {download_dir}")
+                else:
+                    self.print_warning(f"  No files were downloaded (check permissions or size limits)")
 
             except Exception as e:
-                self.print_error(f"Error analyzing Azure storage: {e}")
+                self.print_error(f"Error analyzing Azure storage {account_name}: {e}")
+                import traceback
+                traceback.print_exc()
 
     def gcp_storage_enumeration(self):
-        """Enumerate Google Cloud Platform (GCP) Storage buckets"""
-        self.print_section("GCP STORAGE ENUMERATION")
+            """Enumerate Google Cloud Platform (GCP) Storage buckets"""
+            self.print_section("GCP STORAGE ENUMERATION")
 
-        # Generate GCP bucket name variations
-        bucket_candidates = set()
+            # Generate GCP bucket name variations
+            bucket_candidates = set()
 
-        # Basic domain variations
-        company_name = self.domain.split('.')[0]
-        bucket_candidates.add(self.domain)
-        bucket_candidates.add(self.domain.replace('.', '-'))
-        bucket_candidates.add(self.domain.replace('.', '_'))
-        bucket_candidates.add(self.domain.replace('.', ''))
-        bucket_candidates.add(company_name)
+            # Basic domain variations
+            company_name = self.domain.split('.')[0]
+            bucket_candidates.add(self.domain)
+            bucket_candidates.add(self.domain.replace('.', '-'))
+            bucket_candidates.add(self.domain.replace('.', '_'))
+            bucket_candidates.add(self.domain.replace('.', ''))
+            bucket_candidates.add(company_name)
 
-        # Add variations from discovered subdomains
-        resolved = self.results.get('dns_enumeration', {}).get('resolved', {})
-        for subdomain in list(resolved.keys())[:20]:
-            if subdomain.endswith(self.domain):
-                sub_part = subdomain.replace(f".{self.domain}", "").replace(f"{self.domain}", "")
-                if sub_part and '.' not in sub_part:
-                    bucket_candidates.add(sub_part)
-                    bucket_candidates.add(f"{sub_part}-{company_name}")
-                    bucket_candidates.add(f"{company_name}-{sub_part}")
-                    bucket_candidates.add(sub_part.replace('-', '_'))
+            # Add variations from discovered subdomains
+            resolved = self.results.get('dns_enumeration', {}).get('resolved', {})
+            for subdomain in list(resolved.keys())[:20]:
+                if subdomain.endswith(self.domain):
+                    sub_part = subdomain.replace(f".{self.domain}", "").replace(f"{self.domain}", "")
+                    if sub_part and '.' not in sub_part:
+                        bucket_candidates.add(sub_part)
+                        bucket_candidates.add(f"{sub_part}-{company_name}")
+                        bucket_candidates.add(f"{company_name}-{sub_part}")
+                        bucket_candidates.add(sub_part.replace('-', '_'))
 
-        # Add common affixes
-        common_affixes = ['backup', 'backups', 'data', 'files', 'storage', 'assets',
-                        'static', 'uploads', 'images', 'docs', 'logs', 'dev', 'prod',
-                        'staging', 'test', 'bucket', 'gcs', 'gcp']
+            # Add common affixes
+            common_affixes = ['backup', 'backups', 'data', 'files', 'storage', 'assets',
+                            'static', 'uploads', 'images', 'docs', 'logs', 'dev', 'prod',
+                            'staging', 'test', 'bucket', 'gcs', 'gcp']
 
-        for affix in common_affixes:
-            bucket_candidates.add(f"{company_name}-{affix}")
-            bucket_candidates.add(f"{affix}-{company_name}")
-            bucket_candidates.add(f"{company_name}_{affix}")
-            bucket_candidates.add(f"{affix}_{company_name}")
+            for affix in common_affixes:
+                bucket_candidates.add(f"{company_name}-{affix}")
+                bucket_candidates.add(f"{affix}-{company_name}")
+                bucket_candidates.add(f"{company_name}_{affix}")
+                bucket_candidates.add(f"{affix}_{company_name}")
 
-        # Clean candidates - GCP bucket names: 3-63 chars, lowercase letters, numbers, hyphens, underscores, dots
-        bucket_candidates = [
-            name.lower().strip()
-            for name in bucket_candidates
-            if name and 3 <= len(name) <= 63 and re.match(r'^[a-z0-9][a-z0-9._-]*[a-z0-9]$', name.lower())
-        ]
-        bucket_candidates = list(set(bucket_candidates))
+            # Clean candidates - GCP bucket names: 3-63 chars, lowercase letters, numbers, hyphens, underscores, dots
+            bucket_candidates = [
+                name.lower().strip()
+                for name in bucket_candidates
+                if name and 3 <= len(name) <= 63 and re.match(r'^[a-z0-9][a-z0-9._-]*[a-z0-9]$', name.lower())
+            ]
+            bucket_candidates = list(set(bucket_candidates))
 
-        self.print_info(f"Testing {len(bucket_candidates)} potential GCP bucket names...")
+            self.print_info(f"Testing {len(bucket_candidates)} potential GCP bucket names...")
 
-        found_buckets = []
+            found_buckets = []
 
-        # Check each bucket
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            future_to_bucket = {
-                executor.submit(self._check_gcp_bucket, bucket): bucket
-                for bucket in bucket_candidates
+            # Check each bucket
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                future_to_bucket = {
+                    executor.submit(self._check_gcp_bucket, bucket): bucket
+                    for bucket in bucket_candidates
+                }
+
+                for future in concurrent.futures.as_completed(future_to_bucket):
+                    bucket_name = future_to_bucket[future]
+                    try:
+                        result = future.result()
+                        if result:
+                            found_buckets.append(result)
+                            status = result['status']
+                            if status == 'Public Read':
+                                self.print_warning(f"PUBLICLY ACCESSIBLE: {bucket_name}")
+                            elif status == 'Private (Exists)':
+                                self.print_success(f"EXISTS (Private): {bucket_name}")
+                    except Exception as e:
+                        pass
+
+            # Summary FIRST
+            self.results['gcp_storage'] = {
+                'tested': len(bucket_candidates),
+                'found': found_buckets,
+                'public_count': len([b for b in found_buckets if b['status'] == 'Public Read']),
+                'private_count': len([b for b in found_buckets if b['status'] == 'Private (Exists)'])
             }
 
-            for future in concurrent.futures.as_completed(future_to_bucket):
-                bucket_name = future_to_bucket[future]
-                try:
-                    result = future.result()
-                    if result:
-                        found_buckets.append(result)
-                        status = result['status']
-                        if status == 'Public Read':
-                            self.print_warning(f"PUBLICLY ACCESSIBLE: {bucket_name}")
-                        elif status == 'Private (Exists)':
-                            self.print_success(f"EXISTS (Private): {bucket_name}")
-                except Exception as e:
-                    pass
+            if found_buckets:
+                self.print_warning(f"\nFound {len(found_buckets)} GCP storage buckets:")
+                for bucket in found_buckets:
+                    self.print_info(f"  {bucket['bucket']} - {bucket['status']}")
+            else:
+                self.print_success("No GCP storage buckets found")
 
-        # Analyze accessible buckets
-        for bucket in found_buckets:
-            if bucket['status'] == 'Public Read':
-                self.print_info(f"Analyzing contents of {bucket['bucket']}...")
-                self._analyze_gcp_bucket_contents(bucket)
-
-        self.results['gcp_storage'] = {
-            'tested': len(bucket_candidates),
-            'found': found_buckets,
-            'public_count': len([b for b in found_buckets if b['status'] == 'Public Read']),
-            'private_count': len([b for b in found_buckets if b['status'] == 'Private (Exists)'])
-        }
-
-        # Summary
-        if found_buckets:
-            self.print_warning(f"Found {len(found_buckets)} GCP storage buckets:")
-            for bucket in found_buckets:
-                self.print_info(f"  {bucket['bucket']} - {bucket['status']}")
-        else:
-            self.print_success("No GCP storage buckets found")
+            # Analyze accessible buckets AFTER summary
+            public_buckets = [b for b in found_buckets if b['status'] == 'Public Read']
+            if public_buckets:
+                self.print_info(f"\n[*] Analyzing {len(public_buckets)} publicly accessible buckets...")
+                for bucket in public_buckets:
+                    self.print_info(f"\n[*] Analyzing contents of {bucket['bucket']}...")
+                    try:
+                        self._analyze_gcp_bucket_contents(bucket)
+                    except Exception as e:
+                        self.print_error(f"Analysis failed for {bucket['bucket']}: {e}")
+                        import traceback
+                        traceback.print_exc()
 
     def _check_gcp_bucket(self, bucket_name: str) -> Optional[Dict[str, Any]]:
         """Check if GCP storage bucket exists"""
@@ -1986,12 +2029,21 @@ class ReconAutomation:
 
     def _analyze_gcp_bucket_contents(self, bucket_info: Dict[str, Any]):
             """Analyze GCP storage bucket contents"""
+            bucket_name = bucket_info.get('bucket', 'unknown')
+            bucket_url = bucket_info.get('url', '')
+
+            self.print_info(f"Fetching bucket listing from: {bucket_url}")
+
             try:
-                response = self.session.get(bucket_info['url'], timeout=10)
+                response = self.session.get(bucket_url, timeout=10, verify=False)
+                self.print_info(f"Response status: {response.status_code}")
+
                 if response.status_code != 200:
+                    self.print_warning(f"Cannot list bucket contents (status {response.status_code})")
                     return
 
                 content = response.text
+                self.print_info(f"Response length: {len(content)} bytes")
                 files = []
 
                 # Parse GCP XML listing
@@ -2006,7 +2058,7 @@ class ReconAutomation:
                         modified = contents.find('{http://doc.s3.amazonaws.com/2006-03-01}LastModified')
 
                         if key is not None:
-                            file_url = f"{bucket_info['url'].rstrip('/')}/{key.text}"
+                            file_url = f"https://storage.googleapis.com/{bucket_name}/{key.text}"
                             file_info = {
                                 'key': key.text,
                                 'size': int(size.text) if size is not None else 0,
@@ -2023,7 +2075,7 @@ class ReconAutomation:
                             modified = contents.find('LastModified')
 
                             if key is not None:
-                                file_url = f"{bucket_info['url'].rstrip('/')}/{key.text}"
+                                file_url = f"https://storage.googleapis.com/{bucket_name}/{key.text}"
                                 file_info = {
                                     'key': key.text,
                                     'size': int(size.text) if size is not None else 0,
@@ -2032,14 +2084,16 @@ class ReconAutomation:
                                 }
                                 files.append(file_info)
 
-                except ET.ParseError:
+                except ET.ParseError as e:
+                    self.print_warning(f"XML parsing failed: {e}")
                     # Fallback regex parsing
                     keys = re.findall(r'<Key>([^<]+)</Key>', content)
                     sizes = re.findall(r'<Size>([^<]+)</Size>', content)
+                    self.print_info(f"Regex found {len(keys)} keys")
 
                     for i, key in enumerate(keys):
                         size = int(sizes[i]) if i < len(sizes) and sizes[i].isdigit() else 0
-                        file_url = f"{bucket_info['url'].rstrip('/')}/{key}"
+                        file_url = f"https://storage.googleapis.com/{bucket_name}/{key}"
                         files.append({
                             'key': key,
                             'size': size,
@@ -2050,37 +2104,54 @@ class ReconAutomation:
                 bucket_info['files'] = files
                 bucket_info['file_count'] = len(files)
 
-                if files:
-                    total_size = sum(f['size'] for f in files) / 1024  # KB
-                    self.print_warning(f"  Found {len(files)} file(s) ({total_size:.1f}KB total)")
+                if not files:
+                    self.print_warning(f"  No files found in bucket (may be empty or misconfigured)")
+                    self.print_info(f"  Response preview: {content[:500]}")
+                    return
 
-                    # Create download directory
-                    download_dir = self.output_dir / 'gcp_downloads' / bucket_info['bucket']
-                    download_dir.mkdir(parents=True, exist_ok=True)
+                total_size = sum(f['size'] for f in files) / 1024  # KB
+                self.print_success(f"  Found {len(files)} file(s) ({total_size:.1f}KB total)")
 
-                    # Download files (limit to first 50 files and 10MB each)
-                    downloaded_count = 0
-                    for f in files[:50]:
-                        file_name = f['key'].split('/')[-1]
-                        if not file_name:  # Skip directories
-                            continue
+                # Show sample files
+                self.print_info(f"  Sample files:")
+                for f in files[:5]:
+                    self.print_info(f"    - {f['key']} ({f['size']/1024:.1f}KB)")
+                if len(files) > 5:
+                    self.print_info(f"    ... and {len(files)-5} more")
 
-                        output_path = download_dir / file_name
-                        self.print_info(f"    Downloading: {f['key']} ({f['size']/1024:.1f}KB)")
+                # Create download directory
+                download_dir = self.output_dir / 'gcp_downloads' / bucket_name
+                download_dir.mkdir(parents=True, exist_ok=True)
+                self.print_info(f"  Download directory: {download_dir}")
 
-                        if self._download_file(f['url'], output_path):
-                            downloaded_count += 1
-                            self.print_success(f"      Saved to: {output_path}")
+                # Download files (limit to first 50 files and 10MB each)
+                downloaded_count = 0
+                for f in files[:50]:
+                    file_name = f['key'].split('/')[-1]
+                    if not file_name:  # Skip directories
+                        continue
 
-                        time.sleep(0.5)  # Rate limiting
+                    output_path = download_dir / file_name
+                    self.print_info(f"    Downloading: {f['key']} ({f['size']/1024:.1f}KB)")
 
-                    if len(files) > 50:
-                        self.print_warning(f"    Only downloaded first 50 files (total: {len(files)})")
+                    if self._download_file(f['url'], output_path):
+                        downloaded_count += 1
+                        self.print_success(f"      Saved to: {output_path}")
 
+                    time.sleep(0.5)  # Rate limiting
+
+                if len(files) > 50:
+                    self.print_warning(f"    Only downloaded first 50 files (total: {len(files)})")
+
+                if downloaded_count > 0:
                     self.print_success(f"  Downloaded {downloaded_count} files to {download_dir}")
+                else:
+                    self.print_warning(f"  No files were downloaded (check permissions or size limits)")
 
             except Exception as e:
-                self.print_error(f"Error analyzing GCP bucket: {e}")
+                self.print_error(f"Error analyzing GCP bucket {bucket_name}: {e}")
+                import traceback
+                traceback.print_exc()
 
     def breach_database_check(self):
         """Check for compromised credentials in breach databases"""
