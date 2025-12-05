@@ -1299,99 +1299,99 @@ class ReconAutomation:
                 for vuln in low_confidence[:5]:  # Only show first 5
                     self.print_info(f"  - {vuln['subdomain']} ({vuln['service']})")
 
-        def _validate_subdomain_takeover(self, subdomain: str, cname: str, response_patterns: List[str], validation_url: str = None) -> Dict[str, Any]:
-            """Validate if a subdomain takeover is actually exploitable"""
-            result = {
-                'is_vulnerable': False,
-                'confidence': 'LOW',
-                'evidence': []
-            }
+    def _validate_subdomain_takeover(self, subdomain: str, cname: str, response_patterns: List[str], validation_url: str = None) -> Dict[str, Any]:
+        """Validate if a subdomain takeover is actually exploitable"""
+        result = {
+            'is_vulnerable': False,
+            'confidence': 'LOW',
+            'evidence': []
+        }
 
-            try:
-                # Check both HTTPS and HTTP
-                for protocol in ['https', 'http']:
-                    try:
-                        url = f"{protocol}://{subdomain}"
-                        response = self.session.get(url, timeout=10, allow_redirects=True, verify=False)
+        try:
+            # Check both HTTPS and HTTP
+            for protocol in ['https', 'http']:
+                try:
+                    url = f"{protocol}://{subdomain}"
+                    response = self.session.get(url, timeout=10, allow_redirects=True, verify=False)
 
-                        response_text = response.text.lower()
-                        status_code = response.status_code
+                    response_text = response.text.lower()
+                    status_code = response.status_code
 
-                        # Check for specific error patterns
-                        pattern_matches = 0
-                        for pattern in response_patterns:
-                            if pattern.lower() in response_text:
-                                pattern_matches += 1
-                                result['evidence'].append(f"Found pattern: {pattern}")
+                    # Check for specific error patterns
+                    pattern_matches = 0
+                    for pattern in response_patterns:
+                        if pattern.lower() in response_text:
+                            pattern_matches += 1
+                            result['evidence'].append(f"Found pattern: {pattern}")
 
-                        # Must match at least one pattern
-                        if pattern_matches == 0:
-                            continue
-
-                        # Additional validation checks
-                        validation_score = 0
-
-                        # Check 1: CNAME points to service (HIGH confidence indicator)
-                        if cname:
-                            validation_score += 2
-                            result['evidence'].append(f"CNAME points to service: {cname}")
-
-                        # Check 2: 404 status code
-                        if status_code == 404:
-                            validation_score += 1
-                            result['evidence'].append(f"Returns 404 status")
-
-                        # Check 3: Response size (real sites are usually larger)
-                        if len(response.content) < 5000:  # Less than 5KB likely error page
-                            validation_score += 1
-                            result['evidence'].append(f"Small response size: {len(response.content)} bytes")
-
-                        # Check 4: No active content (no scripts, forms, etc.)
-                        if '<script' not in response_text and '<form' not in response_text:
-                            validation_score += 1
-                            result['evidence'].append("No active content (scripts/forms)")
-
-                        # Check 5: Service-specific validation
-                        if validation_url:
-                            try:
-                                val_response = self.session.get(f"{url}{validation_url}", timeout=5, verify=False)
-                                if val_response.status_code == 404:
-                                    validation_score += 2
-                                    result['evidence'].append(f"Validation URL confirms: {validation_url}")
-                            except:
-                                pass
-
-                        # Determine confidence based on validation score
-                        if validation_score >= 5:
-                            result['confidence'] = 'HIGH'
-                            result['is_vulnerable'] = True
-                        elif validation_score >= 3:
-                            result['confidence'] = 'MEDIUM'
-                            result['is_vulnerable'] = True
-                        elif validation_score >= 2:
-                            result['confidence'] = 'LOW'
-                            result['is_vulnerable'] = True
-
-                        # If we found something, no need to try HTTP
-                        if result['is_vulnerable']:
-                            break
-
-                    except requests.exceptions.SSLError:
+                    # Must match at least one pattern
+                    if pattern_matches == 0:
                         continue
-                    except requests.exceptions.ConnectionError:
-                        # Connection refused might mean unclaimed
-                        if cname:  # But only if we have CNAME proof
-                            result['is_vulnerable'] = True
-                            result['confidence'] = 'MEDIUM'
-                            result['evidence'].append("Connection refused but CNAME exists")
+
+                    # Additional validation checks
+                    validation_score = 0
+
+                    # Check 1: CNAME points to service (HIGH confidence indicator)
+                    if cname:
+                        validation_score += 2
+                        result['evidence'].append(f"CNAME points to service: {cname}")
+
+                    # Check 2: 404 status code
+                    if status_code == 404:
+                        validation_score += 1
+                        result['evidence'].append(f"Returns 404 status")
+
+                    # Check 3: Response size (real sites are usually larger)
+                    if len(response.content) < 5000:  # Less than 5KB likely error page
+                        validation_score += 1
+                        result['evidence'].append(f"Small response size: {len(response.content)} bytes")
+
+                    # Check 4: No active content (no scripts, forms, etc.)
+                    if '<script' not in response_text and '<form' not in response_text:
+                        validation_score += 1
+                        result['evidence'].append("No active content (scripts/forms)")
+
+                    # Check 5: Service-specific validation
+                    if validation_url:
+                        try:
+                            val_response = self.session.get(f"{url}{validation_url}", timeout=5, verify=False)
+                            if val_response.status_code == 404:
+                                validation_score += 2
+                                result['evidence'].append(f"Validation URL confirms: {validation_url}")
+                        except:
+                            pass
+
+                    # Determine confidence based on validation score
+                    if validation_score >= 5:
+                        result['confidence'] = 'HIGH'
+                        result['is_vulnerable'] = True
+                    elif validation_score >= 3:
+                        result['confidence'] = 'MEDIUM'
+                        result['is_vulnerable'] = True
+                    elif validation_score >= 2:
+                        result['confidence'] = 'LOW'
+                        result['is_vulnerable'] = True
+
+                    # If we found something, no need to try HTTP
+                    if result['is_vulnerable']:
                         break
-                    except Exception as e:
-                        continue
 
-            except Exception as e:
-                pass
+                except requests.exceptions.SSLError:
+                    continue
+                except requests.exceptions.ConnectionError:
+                    # Connection refused might mean unclaimed
+                    if cname:  # But only if we have CNAME proof
+                        result['is_vulnerable'] = True
+                        result['confidence'] = 'MEDIUM'
+                        result['evidence'].append("Connection refused but CNAME exists")
+                    break
+                except Exception as e:
+                    continue
 
-            return result
+        except Exception as e:
+            pass
+
+        return result
 
     def _check_http_takeover(self, subdomain: str, response_patterns: List[str]) -> bool:
         """Check HTTP response for takeover indicators"""
