@@ -1302,24 +1302,83 @@ class ReconAutomation:
         return False
 
     def _check_certificate_transparency(self) -> List[str]:
-        """Check certificate transparency logs for subdomains"""
-        domains = []
-        try:
-            url = f"https://crt.sh/?q=%.{self.domain}&output=json"
-            response = requests.get(url, timeout=30)
-            if response.status_code == 200:
-                data = response.json()
-                for entry in data:
-                    name = entry.get('name_value', '')
-                    # Handle multiple domains in one cert
-                    for domain in name.split('\n'):
-                        domain = domain.strip()
-                        if domain and '*' not in domain:
-                            domains.append(domain)
-        except Exception as e:
-            self.print_error(f"CT log check failed: {e}")
+            """Check certificate transparency logs for subdomains"""
+            domains = []
 
-        return list(set(domains))
+            self.print_info(f"Querying crt.sh for {self.domain}...")
+
+            try:
+                # Try crt.sh with proper timeout and headers
+                url = f"https://crt.sh/?q=%.{self.domain}&output=json"
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+
+                response = requests.get(url, timeout=30, headers=headers)
+
+                self.print_info(f"crt.sh response status: {response.status_code}")
+
+                if response.status_code == 200:
+                    try:
+                        data = response.json()
+                        self.print_info(f"crt.sh returned {len(data)} certificate entries")
+
+                        for entry in data:
+                            name = entry.get('name_value', '')
+                            # Handle multiple domains in one cert
+                            for domain in name.split('\n'):
+                                domain = domain.strip().lower()
+                                # Skip wildcards and empty entries
+                                if domain and '*' not in domain:
+                                    domains.append(domain)
+
+                        # Remove duplicates
+                        domains = list(set(domains))
+                        self.print_success(f"Extracted {len(domains)} unique domains from certificates")
+
+                    except json.JSONDecodeError as e:
+                        self.print_error(f"Failed to parse crt.sh JSON response: {e}")
+                        self.print_info(f"Response preview: {response.text[:500]}")
+                else:
+                    self.print_warning(f"crt.sh returned status {response.status_code}")
+                    self.print_info(f"Response: {response.text[:200]}")
+
+            except requests.exceptions.Timeout:
+                self.print_error("crt.sh request timed out after 30 seconds")
+            except requests.exceptions.ConnectionError as e:
+                self.print_error(f"Connection error to crt.sh: {e}")
+            except Exception as e:
+                self.print_error(f"CT log check failed: {e}")
+                import traceback
+                traceback.print_exc()
+
+            # Try alternative CT log source if crt.sh failed
+            if not domains:
+                self.print_info("Trying alternative CT source (certspotter)...")
+                try:
+                    url = f"https://api.certspotter.com/v1/issuances?domain={self.domain}&include_subdomains=true&expand=dns_names"
+                    response = requests.get(url, timeout=30)
+
+                    if response.status_code == 200:
+                        data = response.json()
+                        self.print_info(f"certspotter returned {len(data)} entries")
+
+                        for entry in data:
+                            dns_names = entry.get('dns_names', [])
+                            for name in dns_names:
+                                name = name.strip().lower()
+                                if name and '*' not in name:
+                                    domains.append(name)
+
+                        domains = list(set(domains))
+                        self.print_success(f"Extracted {len(domains)} unique domains from certspotter")
+                    else:
+                        self.print_warning(f"certspotter returned status {response.status_code}")
+
+                except Exception as e:
+                    self.print_error(f"certspotter check failed: {e}")
+
+            return list(set(domains))
 
     def _dns_bruteforce(self) -> List[str]:
         """Brute force common subdomain names"""
