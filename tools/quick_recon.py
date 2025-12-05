@@ -1532,8 +1532,7 @@ class ReconAutomation:
 
             try:
                 # Use specific fast sources instead of 'all' to avoid timeout
-                # 'all' can take 10+ minutes for large domains
-                fast_sources = 'baidu,bing,bingapi,certspotter,crtsh,dnsdumpster,duckduckgo,hackertarget,otx,rapiddns,threatcrowd,urlscan,yahoo'
+                fast_sources = 'baidu,bing,certspotter,crtsh,duckduckgo,hackertarget,otx,rapiddns,threatcrowd,urlscan,yahoo'
 
                 self.print_info("Running theHarvester with fast sources (this may take 2-3 minutes)...")
 
@@ -1543,23 +1542,41 @@ class ReconAutomation:
                 else:
                     command = [self.theharvester_path, '-d', self.domain, '-b', fast_sources, '-l', '500']
 
-                # Increased timeout to 300 seconds (5 minutes)
-                output = self.run_command(command, timeout=300)
+                # Run with increased timeout and capture both stdout and stderr
+                try:
+                    result = subprocess.run(
+                        command,
+                        capture_output=True,
+                        text=True,
+                        timeout=300,
+                        check=False
+                    )
 
-                if output:
-                    # Extract emails from output
-                    email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-                    emails = re.findall(email_pattern, output)
-                    self.print_success(f"theHarvester found {len(set(emails))} email(s)")
-                else:
-                    self.print_warning("theHarvester completed but returned no output")
+                    # theHarvester writes to both stdout and stderr, check both
+                    output = result.stdout + result.stderr
 
-            except subprocess.TimeoutExpired:
-                self.print_error("theHarvester timed out after 5 minutes. Continuing with other sources...")
+                    if output:
+                        # Extract emails from output
+                        email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+                        emails = re.findall(email_pattern, output)
+
+                        if emails:
+                            self.print_success(f"theHarvester found {len(set(emails))} email(s)")
+                        else:
+                            self.print_warning("theHarvester completed but found no emails")
+                            # Show a preview of output for debugging
+                            if len(output) > 0:
+                                self.print_info(f"Output preview: {output[:200]}")
+                    else:
+                        self.print_warning("theHarvester produced no output")
+
+                except subprocess.TimeoutExpired:
+                    self.print_error("theHarvester timed out after 5 minutes. Continuing with other sources...")
+
             except Exception as e:
                 self.print_warning(f"theHarvester execution failed: {e}")
 
-            return emails
+            return list(set(emails))  # Return unique emails
 
     def _locate_theharvester(self) -> Optional[str]:
             """Locate theHarvester installation using system tools"""
@@ -3355,7 +3372,7 @@ Examples:
     parser.add_argument('-i', '--ip-ranges', nargs='+', help='In-scope IP ranges (e.g., 192.168.1.0/24)')
     parser.add_argument('-f', '--file', help='File containing IP ranges (one CIDR per line)')
     parser.add_argument('-c', '--client', required=True, help='Client name for reporting')
-    parser.add_argument('-o', '--output', default='./recon_output', help='Output directory (default: ./recon_output)')
+    parser.add_argument('-o', '--output', help='Output directory (default: ./<client_name>_recon)')
 
     # Module control flags
     parser.add_argument('--skip-breach-check', action='store_true', help='Skip breach database checking')
@@ -3375,6 +3392,12 @@ Examples:
     if args.skip_osint:
         args.skip_github = True
         args.skip_linkedin = True
+
+    # Set output directory based on client name if not specified
+    if not args.output:
+        # Sanitize client name for use as directory name
+        safe_client_name = re.sub(r'[^\w\s-]', '', args.client).strip().replace(' ', '_')
+        args.output = f"./{safe_client_name}_recon"
 
     # Parse IP ranges from command line and/or file
     ip_ranges = []
@@ -3415,6 +3438,9 @@ Examples:
 
     if len(ip_ranges) != len(unique_ranges):
         print(f"{Colors.WARNING}[!] Removed {len(ip_ranges) - len(unique_ranges)} duplicate IP range(s){Colors.ENDC}")
+
+    # Show output directory
+    print(f"{Colors.OKCYAN}[i] Output directory: {args.output}{Colors.ENDC}")
 
     # Create recon automation instance
     recon = ReconAutomation(
