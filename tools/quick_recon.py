@@ -1675,10 +1675,6 @@ class ReconAutomation:
                     continue
 
                 # Check if email is from target domain or subdomain
-                # For domain "delta.com", accept:
-                # - user@delta.com
-                # - user@subdomain.delta.com
-                # - user@mail.delta.com
                 domain_lower = domain.lower()
                 target_domain_lower = self.domain.lower()
 
