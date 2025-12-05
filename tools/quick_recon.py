@@ -187,6 +187,140 @@ class ReconAutomation:
 
             return False
 
+    def _is_sensitive_file(self, filename: str) -> tuple[bool, str]:
+            """Determine if a file is potentially sensitive based on extension and name patterns"""
+            filename_lower = filename.lower()
+
+            # Image extensions to exclude
+            image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.webp', '.ico', '.tiff', '.tif', '.heic', '.heif'}
+
+            # Media/binary files to exclude (not typically sensitive)
+            media_extensions = {'.mp4', '.mp3', '.avi', '.mov', '.wav', '.flac', '.zip', '.tar', '.gz', '.exe', '.dll', '.so'}
+
+            # HIGH INTEREST - Configuration, credentials, keys
+            high_interest = {
+                '.env': 'Environment configuration',
+                '.config': 'Configuration file',
+                '.conf': 'Configuration file',
+                '.cfg': 'Configuration file',
+                '.ini': 'Configuration file',
+                '.yaml': 'Configuration file',
+                '.yml': 'Configuration file',
+                '.json': 'JSON data/config',
+                '.xml': 'XML data/config',
+                '.properties': 'Configuration properties',
+                '.key': 'Private key',
+                '.pem': 'Certificate/key',
+                '.p12': 'Certificate',
+                '.pfx': 'Certificate',
+                '.cer': 'Certificate',
+                '.crt': 'Certificate',
+                '.der': 'Certificate',
+                '.pub': 'Public key',
+                '.ppk': 'PuTTY private key',
+                '.keystore': 'Java keystore',
+                '.jks': 'Java keystore',
+                '.kdbx': 'KeePass database',
+                '.asc': 'PGP key',
+                '.gpg': 'GPG key'
+            }
+
+            # MEDIUM INTEREST - Databases, backups, documents
+            medium_interest = {
+                '.sql': 'SQL database/dump',
+                '.db': 'Database file',
+                '.sqlite': 'SQLite database',
+                '.mdb': 'Access database',
+                '.bak': 'Backup file',
+                '.backup': 'Backup file',
+                '.old': 'Old/backup file',
+                '.log': 'Log file',
+                '.pcap': 'Packet capture',
+                '.cap': 'Packet capture',
+                '.xlsx': 'Excel spreadsheet',
+                '.xls': 'Excel spreadsheet',
+                '.csv': 'CSV data',
+                '.doc': 'Word document',
+                '.docx': 'Word document',
+                '.pdf': 'PDF document',
+                '.txt': 'Text file'
+            }
+
+            # MEDIUM INTEREST - Source code
+            code_extensions = {
+                '.py': 'Python script',
+                '.js': 'JavaScript',
+                '.php': 'PHP script',
+                '.sh': 'Shell script',
+                '.bash': 'Bash script',
+                '.ps1': 'PowerShell script',
+                '.bat': 'Batch script',
+                '.rb': 'Ruby script',
+                '.pl': 'Perl script',
+                '.java': 'Java source',
+                '.cs': 'C# source',
+                '.cpp': 'C++ source',
+                '.c': 'C source',
+                '.go': 'Go source'
+            }
+
+            # HIGH INTEREST - Sensitive filename patterns
+            sensitive_patterns = {
+                'password': 'Password file',
+                'passwd': 'Password file',
+                'secret': 'Secret data',
+                'credential': 'Credentials',
+                'apikey': 'API key',
+                'api_key': 'API key',
+                'private': 'Private data',
+                'confidential': 'Confidential data',
+                'backup': 'Backup file',
+                'dump': 'Database dump',
+                'export': 'Data export',
+                'migration': 'Migration data',
+                'users': 'User data',
+                'accounts': 'Account data',
+                'token': 'Token/credential',
+                'auth': 'Authentication data',
+                '.env': 'Environment file',
+                'config': 'Configuration',
+                'settings': 'Settings file',
+                'id_rsa': 'SSH private key',
+                'id_dsa': 'SSH private key',
+                'id_ecdsa': 'SSH private key',
+                'wallet': 'Wallet/credentials',
+                'shadow': 'Shadow password file',
+                'htpasswd': 'HTTP passwords'
+            }
+
+            # Check if it's an excluded type
+            for ext in image_extensions | media_extensions:
+                if filename_lower.endswith(ext):
+                    return (False, f'Excluded: {ext}')
+
+            # Check high interest extensions
+            for ext, reason in high_interest.items():
+                if filename_lower.endswith(ext):
+                    return (True, f'HIGH: {reason}')
+
+            # Check sensitive patterns in filename
+            for pattern, reason in sensitive_patterns.items():
+                if pattern in filename_lower:
+                    return (True, f'HIGH: {reason}')
+
+            # Check medium interest extensions
+            for ext, reason in medium_interest.items():
+                if filename_lower.endswith(ext):
+                    return (True, f'MEDIUM: {reason}')
+
+            # Check code extensions (medium interest, but lower priority)
+            for ext, reason in code_extensions.items():
+                if filename_lower.endswith(ext):
+                    return (True, f'MEDIUM: {reason}')
+
+            # Unknown file type - might be interesting
+            return (True, 'UNKNOWN: Unknown file type')
+
     def scope_validation(self):
             """Perform scope validation including WHOIS and DNS verification"""
             self.print_section("SCOPE VALIDATION")
@@ -393,15 +527,56 @@ class ReconAutomation:
                                         content_data = content_resp.json()
                                         content = base64.b64decode(content_data.get('content', '')).decode('utf-8', errors='ignore')
 
-                                        # Check for sensitive patterns
+                                        # Check for sensitive patterns with validation
                                         for secret_type, pattern in sensitive_patterns.items():
                                             matches = re.findall(pattern, content, re.IGNORECASE)
                                             if matches:
-                                                repo_finding['secrets_found'].append({
-                                                    'type': secret_type,
-                                                    'count': len(matches)
-                                                })
-                                                github_findings['total_secrets_found'] += len(matches)
+                                                # Validate if it's a real secret (inline validation)
+                                                is_real = True
+
+                                                # High confidence patterns are always real
+                                                high_confidence = {'aws_access_key', 'private_key', 'jwt_token', 'slack_token', 'google_api'}
+
+                                                if secret_type not in high_confidence:
+                                                    # For password patterns, check for false positives
+                                                    if secret_type == 'password':
+                                                        content_lower = content.lower()
+                                                        false_positive_contexts = [
+                                                            'password:', 'password =', 'password">', 'your password',
+                                                            'enter password', 'password must', 'password field',
+                                                            'password input', 'password strength', 'password policy',
+                                                            'example password', 'test password', 'sample password',
+                                                            'placeholder="password"', 'type="password"', '# password',
+                                                            '// password', '* password', 'password requirements'
+                                                        ]
+                                                        if any(fp in content_lower for fp in false_positive_contexts):
+                                                            is_real = False
+
+                                                    # For API keys, validate they look real
+                                                    elif secret_type == 'api_key':
+                                                        for match in matches:
+                                                            if len(match) < 20 or 'xxx' in match.lower() or 'your_api_key' in match.lower() or 'example' in match.lower():
+                                                                is_real = False
+                                                                break
+
+                                                    # Database URLs with localhost/example are not real
+                                                    elif secret_type == 'database_url':
+                                                        for match in matches:
+                                                            if 'localhost' in match or '127.0.0.1' in match or 'example' in match:
+                                                                is_real = False
+                                                                break
+
+                                                    # Cloud storage with many matches is likely documentation
+                                                    elif secret_type in {'s3_bucket', 'azure_storage', 'gcp_bucket'}:
+                                                        if len(matches) > 5:
+                                                            is_real = False
+
+                                                if is_real:
+                                                    repo_finding['secrets_found'].append({
+                                                        'type': secret_type,
+                                                        'count': len(matches)
+                                                    })
+                                                    github_findings['total_secrets_found'] += len(matches)
 
                                         if repo_finding['secrets_found']:
                                             github_findings['repositories'].append(repo_finding)
@@ -472,16 +647,29 @@ class ReconAutomation:
                         for item in data.get('items', []):
                             body = item.get('body', '')
 
-                            # Check for sensitive patterns in issue body
+                            # Check for sensitive patterns in issue body with validation
                             secrets_found = []
                             for secret_type, pattern in sensitive_patterns.items():
                                 matches = re.findall(pattern, body, re.IGNORECASE)
                                 if matches:
-                                    secrets_found.append({
-                                        'type': secret_type,
-                                        'count': len(matches)
-                                    })
-                                    github_findings['total_secrets_found'] += len(matches)
+                                    # Same validation logic as code search
+                                    is_real = True
+                                    high_confidence = {'aws_access_key', 'private_key', 'jwt_token', 'slack_token', 'google_api'}
+
+                                    if secret_type not in high_confidence:
+                                        if secret_type == 'password':
+                                            body_lower = body.lower()
+                                            if any(fp in body_lower for fp in ['password:', 'your password', 'example password']):
+                                                is_real = False
+                                        elif secret_type in {'s3_bucket', 'azure_storage', 'gcp_bucket'} and len(matches) > 5:
+                                            is_real = False
+
+                                    if is_real:
+                                        secrets_found.append({
+                                            'type': secret_type,
+                                            'count': len(matches)
+                                        })
+                                        github_findings['total_secrets_found'] += len(matches)
 
                             if secrets_found:
                                 issue_finding = {
@@ -719,162 +907,188 @@ class ReconAutomation:
         return False
 
     def asn_enumeration(self):
-        """Enumerate ASN and associated IP ranges for the organization"""
-        self.print_section("ASN ENUMERATION")
+            """Enumerate ASN and associated IP ranges for the organization"""
+            self.print_section("ASN ENUMERATION")
 
-        asn_data = {
-            'asn_numbers': [],
-            'ip_ranges': [],
-            'organization_names': set(),
-            'related_domains': []
-        }
+            asn_data = {
+                'asn_numbers': [],
+                'ip_ranges': [],
+                'organization_names': set(),
+                'related_domains': []
+            }
 
-        # Method 1: Get ASN from existing IP addresses
-        self.print_info("Looking up ASN information from known IPs...")
+            # Method 1: Get ASN from existing IP addresses
+            self.print_info("Looking up ASN information from known IPs...")
 
-        # Get IPs from DNS resolution
-        dns_records = self.results.get('scope_validation', {}).get('dns_verification', {})
-        known_ips = dns_records.get('A', [])
+            # Get IPs from DNS resolution
+            dns_records = self.results.get('scope_validation', {}).get('dns_verification', {})
+            known_ips = dns_records.get('A', [])
 
-        # Also check resolved subdomains
-        resolved_subdomains = self.results.get('dns_enumeration', {}).get('resolved', {})
-        for subdomain, ips in resolved_subdomains.items():
-            known_ips.extend(ips)
+            # Also check resolved subdomains
+            resolved_subdomains = self.results.get('dns_enumeration', {}).get('resolved', {})
+            for subdomain, ips in resolved_subdomains.items():
+                known_ips.extend(ips)
 
-        known_ips = list(set(known_ips))  # Remove duplicates
+            known_ips = list(set(known_ips))  # Remove duplicates
 
-        self.print_info(f"Checking ASN for {len(known_ips)} discovered IP addresses...")
+            self.print_info(f"Checking ASN for {len(known_ips)} discovered IP addresses...")
 
-        for ip in known_ips[:10]:  # Limit to first 10 to avoid excessive queries
-            try:
-                # Use Team Cymru's IP to ASN service (DNS-based)
-                asn_info = self._lookup_asn_cymru(ip)
+            for ip in known_ips[:10]:  # Limit to first 10 to avoid excessive queries
+                try:
+                    # Use Team Cymru's IP to ASN service (DNS-based)
+                    asn_info = self._lookup_asn_cymru(ip)
 
-                if asn_info:
-                    if asn_info not in asn_data['asn_numbers']:
-                        asn_data['asn_numbers'].append(asn_info)
-                        self.print_success(f"Found ASN for {ip}: AS{asn_info['asn']} ({asn_info['owner']})")
-                        asn_data['organization_names'].add(asn_info['owner'])
+                    if asn_info:
+                        if asn_info not in asn_data['asn_numbers']:
+                            asn_data['asn_numbers'].append(asn_info)
+                            self.print_success(f"Found ASN for {ip}: AS{asn_info['asn']} ({asn_info['owner']})")
+                            asn_data['organization_names'].add(asn_info['owner'])
 
-                time.sleep(0.5)  # Rate limiting
+                    time.sleep(0.5)  # Rate limiting
 
-            except Exception as e:
-                self.print_error(f"Error looking up ASN for {ip}: {e}")
+                except Exception as e:
+                    self.print_error(f"Error looking up ASN for {ip}: {e}")
 
-        # Method 2: Get ASN from organization name via RIPEstat/RIPE API
-        self.print_info("\nQuerying RIPE database for additional ASN information...")
+            # Method 2: Get ASN from organization name via RIPEstat/RIPE API
+            self.print_info("\nQuerying RIPE database for additional ASN information...")
 
-        company_name = self.domain.split('.')[0]
-
-        try:
-            # Search RIPE for organization
-            url = f"https://stat.ripe.net/data/searchcomplete/data.json?resource={company_name}"
-            response = self.session.get(url, timeout=10)
-
-            if response.status_code == 200:
-                data = response.json()
-
-                for category in data.get('data', {}).get('categories', []):
-                    if category.get('category') == 'asns':
-                        for suggestion in category.get('suggestions', []):
-                            asn_num = suggestion.get('value', '').replace('AS', '')
-                            asn_label = suggestion.get('label', '')
-
-                            if asn_num and asn_num.isdigit():
-                                asn_exists = any(a['asn'] == asn_num for a in asn_data['asn_numbers'])
-                                if not asn_exists:
-                                    asn_data['asn_numbers'].append({
-                                        'asn': asn_num,
-                                        'owner': asn_label,
-                                        'source': 'ripe_search'
-                                    })
-                                    self.print_success(f"Found ASN from RIPE: AS{asn_num} ({asn_label})")
-
-        except Exception as e:
-            self.print_error(f"Error querying RIPE: {e}")
-
-        # Method 3: For each ASN, get all associated IP prefixes
-        self.print_info("\nEnumerating IP ranges for discovered ASNs...")
-
-        for asn_info in asn_data['asn_numbers']:
-            asn_num = asn_info['asn']
+            company_name = self.domain.split('.')[0]
 
             try:
-                # Use RIPE API to get prefixes for ASN
-                url = f"https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS{asn_num}"
-                response = self.session.get(url, timeout=10)
+                # Search RIPE for organization with increased timeout
+                url = f"https://stat.ripe.net/data/searchcomplete/data.json?resource={company_name}"
+                response = self.session.get(url, timeout=30)
 
                 if response.status_code == 200:
                     data = response.json()
-                    prefixes = data.get('data', {}).get('prefixes', [])
 
-                    self.print_info(f"AS{asn_num} announces {len(prefixes)} IP prefix(es)")
+                    for category in data.get('data', {}).get('categories', []):
+                        if category.get('category') == 'asns':
+                            for suggestion in category.get('suggestions', []):
+                                asn_num = suggestion.get('value', '').replace('AS', '')
+                                asn_label = suggestion.get('label', '')
 
-                    for prefix in prefixes:
-                        prefix_str = prefix.get('prefix')
-                        if prefix_str:
-                            asn_data['ip_ranges'].append({
-                                'prefix': prefix_str,
-                                'asn': asn_num,
-                                'in_scope': self._check_if_in_scope(prefix_str)
-                            })
-
-                            # Check if this range is in our authorized scope
-                            in_scope = self._check_if_in_scope(prefix_str)
-                            scope_marker = "[IN SCOPE]" if in_scope else "[OUT OF SCOPE]"
-
-                            self.print_info(f"  {prefix_str} - {scope_marker}")
-
-                time.sleep(1)  # Rate limiting
+                                if asn_num and asn_num.isdigit():
+                                    asn_exists = any(a['asn'] == asn_num for a in asn_data['asn_numbers'])
+                                    if not asn_exists:
+                                        asn_data['asn_numbers'].append({
+                                            'asn': asn_num,
+                                            'owner': asn_label,
+                                            'source': 'ripe_search'
+                                        })
+                                        self.print_success(f"Found ASN from RIPE: AS{asn_num} ({asn_label})")
 
             except Exception as e:
-                self.print_error(f"Error getting prefixes for AS{asn_num}: {e}")
+                self.print_error(f"Error querying RIPE: {e}")
 
-        # Method 4: Reverse IP lookup to find related domains
-        self.print_info("\nSearching for related domains on discovered IPs...")
+            # Method 3: For each ASN, get all associated IP prefixes with retry logic
+            self.print_info("\nEnumerating IP ranges for discovered ASNs...")
 
-        for ip in known_ips[:5]:  # Limit to first 5
-            try:
-                # Simple reverse DNS
+            for asn_info in asn_data['asn_numbers']:
+                asn_num = asn_info['asn']
+
+                # Retry logic for RIPE API
+                max_retries = 3
+                retry_count = 0
+                success = False
+
+                while retry_count < max_retries and not success:
+                    try:
+                        # Use RIPE API to get prefixes for ASN with increased timeout
+                        url = f"https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS{asn_num}"
+                        response = self.session.get(url, timeout=30)
+
+                        if response.status_code == 200:
+                            data = response.json()
+                            prefixes = data.get('data', {}).get('prefixes', [])
+
+                            self.print_info(f"AS{asn_num} announces {len(prefixes)} IP prefix(es)")
+
+                            for prefix in prefixes:
+                                prefix_str = prefix.get('prefix')
+                                if prefix_str:
+                                    asn_data['ip_ranges'].append({
+                                        'prefix': prefix_str,
+                                        'asn': asn_num,
+                                        'in_scope': self._check_if_in_scope(prefix_str)
+                                    })
+
+                                    # Check if this range is in our authorized scope
+                                    in_scope = self._check_if_in_scope(prefix_str)
+                                    scope_marker = "[IN SCOPE]" if in_scope else "[OUT OF SCOPE]"
+
+                                    self.print_info(f"  {prefix_str} - {scope_marker}")
+
+                            success = True  # Mark as successful
+                        else:
+                            self.print_warning(f"RIPE API returned status {response.status_code} for AS{asn_num}")
+                            retry_count += 1
+                            if retry_count < max_retries:
+                                self.print_info(f"Retrying... (attempt {retry_count + 1}/{max_retries})")
+                                time.sleep(2)
+
+                        time.sleep(1)  # Rate limiting
+
+                    except requests.exceptions.Timeout:
+                        retry_count += 1
+                        if retry_count < max_retries:
+                            self.print_warning(f"Request timed out for AS{asn_num}. Retrying... (attempt {retry_count + 1}/{max_retries})")
+                            time.sleep(2)
+                        else:
+                            self.print_error(f"Failed to get prefixes for AS{asn_num} after {max_retries} attempts (timeout)")
+                    except Exception as e:
+                        retry_count += 1
+                        if retry_count < max_retries:
+                            self.print_warning(f"Error for AS{asn_num}: {e}. Retrying... (attempt {retry_count + 1}/{max_retries})")
+                            time.sleep(2)
+                        else:
+                            self.print_error(f"Failed to get prefixes for AS{asn_num} after {max_retries} attempts: {e}")
+
+            # Method 4: Reverse IP lookup to find related domains
+            self.print_info("\nSearching for related domains on discovered IPs...")
+
+            for ip in known_ips[:5]:  # Limit to first 5
                 try:
-                    hostname = socket.gethostbyaddr(ip)[0]
-                    if hostname and hostname != ip:
-                        asn_data['related_domains'].append({
-                            'domain': hostname,
-                            'ip': ip,
-                            'source': 'reverse_dns'
-                        })
-                        self.print_success(f"Related domain: {hostname} ({ip})")
-                except:
+                    # Simple reverse DNS
+                    try:
+                        hostname = socket.gethostbyaddr(ip)[0]
+                        if hostname and hostname != ip:
+                            asn_data['related_domains'].append({
+                                'domain': hostname,
+                                'ip': ip,
+                                'source': 'reverse_dns'
+                            })
+                            self.print_success(f"Related domain: {hostname} ({ip})")
+                    except:
+                        pass
+
+                except Exception as e:
                     pass
 
-            except Exception as e:
-                pass
+            # Store results
+            self.results['asn_data'] = {
+                'asn_numbers': asn_data['asn_numbers'],
+                'ip_ranges': asn_data['ip_ranges'],
+                'organization_names': list(asn_data['organization_names']),
+                'related_domains': asn_data['related_domains']
+            }
 
-        # Store results
-        self.results['asn_data'] = {
-            'asn_numbers': asn_data['asn_numbers'],
-            'ip_ranges': asn_data['ip_ranges'],
-            'organization_names': list(asn_data['organization_names']),
-            'related_domains': asn_data['related_domains']
-        }
+            # Summary
+            self.print_info(f"\nASN Enumeration Summary:")
+            self.print_info(f"  ASNs discovered: {len(asn_data['asn_numbers'])}")
+            self.print_info(f"  Total IP ranges found: {len(asn_data['ip_ranges'])}")
 
-        # Summary
-        self.print_info(f"\nASN Enumeration Summary:")
-        self.print_info(f"  ASNs discovered: {len(asn_data['asn_numbers'])}")
-        self.print_info(f"  Total IP ranges found: {len(asn_data['ip_ranges'])}")
+            in_scope_ranges = [r for r in asn_data['ip_ranges'] if r['in_scope']]
+            out_scope_ranges = [r for r in asn_data['ip_ranges'] if not r['in_scope']]
 
-        in_scope_ranges = [r for r in asn_data['ip_ranges'] if r['in_scope']]
-        out_scope_ranges = [r for r in asn_data['ip_ranges'] if not r['in_scope']]
+            self.print_info(f"  Ranges in authorized scope: {len(in_scope_ranges)}")
+            self.print_warning(f"  Ranges OUT OF SCOPE (do not test): {len(out_scope_ranges)}")
+            self.print_info(f"  Related domains found: {len(asn_data['related_domains'])}")
 
-        self.print_info(f"  Ranges in authorized scope: {len(in_scope_ranges)}")
-        self.print_warning(f"  Ranges OUT OF SCOPE (do not test): {len(out_scope_ranges)}")
-        self.print_info(f"  Related domains found: {len(asn_data['related_domains'])}")
-
-        if out_scope_ranges:
-            self.print_warning("\n[!] WARNING: Additional IP ranges found that are NOT in authorized scope!")
-            self.print_warning("These ranges belong to the organization but are not authorized for testing.")
-            self.print_warning("Do NOT scan or test these ranges without explicit authorization.")
+            if out_scope_ranges:
+                self.print_warning("\n[!] WARNING: Additional IP ranges found that are NOT in authorized scope!")
+                self.print_warning("These ranges belong to the organization but are not authorized for testing.")
+                self.print_warning("Do NOT scan or test these ranges without explicit authorization.")
 
     def _lookup_asn_cymru(self, ip: str) -> Optional[Dict[str, str]]:
         """Lookup ASN using Team Cymru's IP to ASN service"""
@@ -1309,31 +1523,43 @@ class ReconAutomation:
             self.print_info(f"  {email}")
 
     def _run_theharvester(self) -> List[str]:
-        """Run theHarvester tool"""
-        emails = []
+            """Run theHarvester tool"""
+            emails = []
 
-        if not self.theharvester_path:
-            self.print_warning("theHarvester not found. Install it or add to PATH.")
+            if not self.theharvester_path:
+                self.print_warning("theHarvester not found. Install it or add to PATH.")
+                return emails
+
+            try:
+                # Use specific fast sources instead of 'all' to avoid timeout
+                # 'all' can take 10+ minutes for large domains
+                fast_sources = 'baidu,bing,bingapi,certspotter,crtsh,dnsdumpster,duckduckgo,hackertarget,otx,rapiddns,threatcrowd,urlscan,yahoo'
+
+                self.print_info("Running theHarvester with fast sources (this may take 2-3 minutes)...")
+
+                # Build command based on whether it's a Python script or executable
+                if self.theharvester_path.endswith('.py'):
+                    command = ['python3', self.theharvester_path, '-d', self.domain, '-b', fast_sources, '-l', '500']
+                else:
+                    command = [self.theharvester_path, '-d', self.domain, '-b', fast_sources, '-l', '500']
+
+                # Increased timeout to 300 seconds (5 minutes)
+                output = self.run_command(command, timeout=300)
+
+                if output:
+                    # Extract emails from output
+                    email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+                    emails = re.findall(email_pattern, output)
+                    self.print_success(f"theHarvester found {len(set(emails))} email(s)")
+                else:
+                    self.print_warning("theHarvester completed but returned no output")
+
+            except subprocess.TimeoutExpired:
+                self.print_error("theHarvester timed out after 5 minutes. Continuing with other sources...")
+            except Exception as e:
+                self.print_warning(f"theHarvester execution failed: {e}")
+
             return emails
-
-        try:
-            # Build command based on whether it's a Python script or executable
-            if self.theharvester_path.endswith('.py'):
-                command = ['python3', self.theharvester_path, '-d', self.domain, '-b', 'all', '-l', '500']
-            else:
-                command = [self.theharvester_path, '-d', self.domain, '-b', 'all', '-l', '500']
-
-            output = self.run_command(command, timeout=120)
-
-            if output:
-                # Extract emails from output
-                email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-                emails = re.findall(email_pattern, output)
-                self.print_success(f"theHarvester found {len(set(emails))} email(s)")
-        except Exception as e:
-            self.print_warning(f"theHarvester execution failed: {e}")
-
-        return emails
 
     def _locate_theharvester(self) -> Optional[str]:
             """Locate theHarvester installation using system tools"""
@@ -1432,6 +1658,80 @@ class ReconAutomation:
             self.print_warning(f"Web scraping failed: {e}")
 
         return list(set(emails))
+
+    def _is_real_secret(self, secret_type: str, matches: list, content: str) -> bool:
+            """Determine if detected pattern is likely a real secret vs false positive"""
+
+            # These patterns are high-confidence and rarely false positives
+            high_confidence = {'aws_access_key', 'private_key', 'jwt_token', 'slack_token', 'google_api'}
+
+            if secret_type in high_confidence:
+                return True
+
+            # For password patterns, check context to avoid false positives
+            if secret_type == 'password':
+                # Common false positives
+                false_positive_contexts = [
+                    'password:',  # Documentation
+                    'password =',  # Example code
+                    'password">',  # HTML
+                    'your password',  # Instructions
+                    'enter password',  # UI text
+                    'password must',  # Validation rules
+                    'password field',  # Documentation
+                    'password input',  # UI reference
+                    'password strength',  # Validation
+                    'password policy',  # Documentation
+                    'password requirements',  # Documentation
+                    'example password',  # Documentation
+                    'test password',  # Test data
+                    'sample password',  # Example
+                    'placeholder="password"',  # HTML
+                    'type="password"'  # HTML
+                ]
+
+                content_lower = content.lower()
+                # If any false positive context found, likely not a real secret
+                if any(fp in content_lower for fp in false_positive_contexts):
+                    return False
+
+                # Check if it's in a comment
+                for match in matches:
+                    # Find the line containing the match
+                    lines = content.split('\n')
+                    for line in lines:
+                        if match in line:
+                            line_stripped = line.strip()
+                            # Skip if it's a comment
+                            if line_stripped.startswith('#') or line_stripped.startswith('//') or line_stripped.startswith('*'):
+                                return False
+                            # Skip if it's in documentation/markdown
+                            if '```' in content or line.startswith('>'):
+                                return False
+
+            # For API keys, check if they look valid
+            if secret_type == 'api_key':
+                # Real API keys are usually longer and more random
+                for match in matches:
+                    if len(match) < 20:  # Too short to be real
+                        return False
+                    # Check for common placeholder patterns
+                    if 'xxx' in match.lower() or 'your_api_key' in match.lower() or 'example' in match.lower():
+                        return False
+
+            # Database URLs in examples are common
+            if secret_type == 'database_url':
+                for match in matches:
+                    if 'localhost' in match or '127.0.0.1' in match or 'example' in match:
+                        return False
+
+            # S3 buckets and cloud storage might be documentation
+            if secret_type in {'s3_bucket', 'azure_storage', 'gcp_bucket'}:
+                # If there are many matches, likely documentation
+                if len(matches) > 5:
+                    return False
+
+            return True
 
     def s3_bucket_enumeration(self):
             """Perform S3 bucket enumeration"""
@@ -1566,7 +1866,7 @@ class ReconAutomation:
         return None
 
     def _analyze_s3_bucket_contents(self, bucket_info: Dict[str, Any]):
-            """Analyze S3 bucket contents and download files"""
+            """Analyze S3 bucket contents and download sensitive files only"""
             bucket_name = bucket_info.get('bucket', 'unknown')
             bucket_url = bucket_info.get('url', '')
 
@@ -1635,34 +1935,105 @@ class ReconAutomation:
 
                 if not files:
                     self.print_warning(f"  No files found in bucket (may be empty or misconfigured)")
-                    # Show first 500 chars of response for debugging
                     self.print_info(f"  Response preview: {content[:500]}")
                     return
 
                 total_size = sum(f['size'] for f in files) / 1024  # KB
                 self.print_success(f"  Found {len(files)} files ({total_size:.1f}KB total)")
 
-                # Show sample files
-                self.print_info(f"  Sample files:")
-                for f in files[:5]:
-                    self.print_info(f"    - {f['key']} ({f['size']/1024:.1f}KB)")
-                if len(files) > 5:
-                    self.print_info(f"    ... and {len(files)-5} more")
+                # Filter files by sensitivity using inline logic
+                sensitive_files = []
+                excluded_files = []
+
+                # Define exclusion and interest patterns
+                exclude_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.webp', '.ico',
+                                    '.tiff', '.tif', '.heic', '.heif', '.mp4', '.mp3', '.avi', '.mov',
+                                    '.wav', '.flac', '.woff', '.woff2', '.ttf', '.eot', '.otf'}
+
+                high_interest_extensions = {'.env', '.config', '.conf', '.cfg', '.ini', '.yaml', '.yml',
+                                        '.key', '.pem', '.p12', '.pfx', '.cer', '.crt', '.ppk',
+                                        '.keystore', '.jks', '.kdbx', '.sql', '.db', '.sqlite',
+                                        '.bak', '.backup', '.old'}
+
+                medium_interest_extensions = {'.json', '.xml', '.properties', '.log', '.txt', '.csv',
+                                            '.xlsx', '.xls', '.doc', '.docx', '.pdf', '.pcap', '.cap',
+                                            '.py', '.js', '.php', '.sh', '.bash', '.ps1', '.bat'}
+
+                sensitive_keywords = ['password', 'passwd', 'secret', 'credential', 'apikey', 'api_key',
+                                    'private', 'confidential', 'backup', 'dump', 'export', 'users',
+                                    'accounts', 'token', 'auth', 'config', 'settings', 'id_rsa',
+                                    'wallet', 'shadow', 'htpasswd']
+
+                for f in files:
+                    filename_lower = f['key'].lower()
+                    is_sensitive = False
+                    reason = 'EXCLUDED'
+
+                    # Check if excluded
+                    if any(filename_lower.endswith(ext) for ext in exclude_extensions):
+                        excluded_files.append(f)
+                        continue
+
+                    # Check high interest extensions
+                    for ext in high_interest_extensions:
+                        if filename_lower.endswith(ext):
+                            is_sensitive = True
+                            reason = f'HIGH: {ext} file'
+                            break
+
+                    # Check sensitive keywords in filename
+                    if not is_sensitive:
+                        for keyword in sensitive_keywords:
+                            if keyword in filename_lower:
+                                is_sensitive = True
+                                reason = f'HIGH: Contains "{keyword}"'
+                                break
+
+                    # Check medium interest extensions
+                    if not is_sensitive:
+                        for ext in medium_interest_extensions:
+                            if filename_lower.endswith(ext):
+                                is_sensitive = True
+                                reason = f'MEDIUM: {ext} file'
+                                break
+
+                    # If still not categorized, include as unknown (might be interesting)
+                    if not is_sensitive and not any(filename_lower.endswith(ext) for ext in exclude_extensions):
+                        is_sensitive = True
+                        reason = 'UNKNOWN: Unknown file type'
+
+                    if is_sensitive:
+                        sensitive_files.append((f, reason))
+                    else:
+                        excluded_files.append(f)
+
+                self.print_info(f"  Files breakdown: {len(sensitive_files)} sensitive/interesting, {len(excluded_files)} excluded")
+
+                if not sensitive_files:
+                    self.print_warning(f"  No sensitive files identified for download")
+                    return
+
+                # Show what we're downloading and why
+                self.print_info(f"  Files identified for download:")
+                for f, reason in sensitive_files[:10]:
+                    self.print_info(f"    - {f['key']} ({f['size']/1024:.1f}KB) - {reason}")
+                if len(sensitive_files) > 10:
+                    self.print_info(f"    ... and {len(sensitive_files)-10} more")
 
                 # Create download directory
                 download_dir = self.output_dir / 's3_downloads' / bucket_name
                 download_dir.mkdir(parents=True, exist_ok=True)
                 self.print_info(f"  Download directory: {download_dir}")
 
-                # Download files (limit to first 50 files and 10MB each)
+                # Download sensitive files only (limit to first 100 sensitive files and 10MB each)
                 downloaded_count = 0
-                for f in files[:50]:
+                for f, reason in sensitive_files[:100]:
                     file_name = f['key'].split('/')[-1]
                     if not file_name:  # Skip directories
                         continue
 
                     output_path = download_dir / file_name
-                    self.print_info(f"    Downloading: {f['key']} ({f['size']/1024:.1f}KB)")
+                    self.print_info(f"    Downloading: {f['key']} ({f['size']/1024:.1f}KB) - {reason}")
 
                     if self._download_file(f['url'], output_path):
                         downloaded_count += 1
@@ -1670,11 +2041,11 @@ class ReconAutomation:
 
                     time.sleep(0.5)  # Rate limiting
 
-                if len(files) > 50:
-                    self.print_warning(f"    Only downloaded first 50 files (total: {len(files)})")
+                if len(sensitive_files) > 100:
+                    self.print_warning(f"    Only downloaded first 100 files (total sensitive: {len(sensitive_files)})")
 
                 if downloaded_count > 0:
-                    self.print_success(f"  Downloaded {downloaded_count} files to {download_dir}")
+                    self.print_success(f"  Downloaded {downloaded_count} sensitive files to {download_dir}")
                 else:
                     self.print_warning(f"  No files were downloaded (check permissions or size limits)")
 
