@@ -712,158 +712,109 @@ class ReconAutomation:
                 self.print_warning(f"\n[!] Downloaded files with secrets to: {github_download_dir}")
 
     def linkedin_enumeration(self):
-        """Multi-method LinkedIn intelligence gathering"""
-        self.print_section("LinkedIn Information Gathering")
+            """Multi-method LinkedIn intelligence gathering"""
+            self.print_section("LinkedIn Information Gathering")
 
-        linkedin_intel = {
-            'google_dork_results': [],
-            'theharvester_names': [],
-            'inferred_employees': [],
-            'search_urls': [],
-            'email_patterns': {}
-        }
+            linkedin_intel = {
+                'google_dork_results': [],
+                'theharvester_names': [],
+                'inferred_employees': [],
+                'search_urls': [],
+                'email_patterns': {}
+            }
 
-        company_name = self.domain.split('.')[0].title()
+            company_name = self.domain.split('.')[0].title()
 
-        # Method 1: Google Dorking LinkedIn
-        self.print_info("Performing Google dorks on LinkedIn...")
-        google_dork_patterns = [
-            f'site:linkedin.com/in "{company_name}"',
-            f'site:linkedin.com/in "{company_name}" "security"',
-            f'site:linkedin.com/in "{company_name}" "engineer"',
-            f'site:linkedin.com/in "{company_name}" "developer"',
-            f'site:linkedin.com/in "{company_name}" "admin"',
-            f'site:linkedin.com/in "{company_name}" "manager"'
-        ]
+            # Skip Google dorking - too unreliable and often blocked
+            self.print_info("Skipping Google dorks (unreliable and often blocked)")
 
-        for dork in google_dork_patterns:
-            try:
-                # Use Google search (with caution for rate limiting)
-                search_url = f"https://www.google.com/search?q={dork.replace(' ', '+')}&num=10"
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            # Method 1: Parse theHarvester/web scraping results for names
+            self.print_info("Extracting employee information from discovered emails...")
+            emails = self.results.get('email_addresses', [])
+
+            # Filter to only emails from target domain
+            target_emails = [e for e in emails if self.domain in e]
+
+            if target_emails:
+                for email in target_emails:
+                    # Extract name from email
+                    local_part = email.split('@')[0]
+
+                    # Skip generic/service accounts
+                    generic_accounts = ['info', 'admin', 'support', 'contact', 'sales', 'help',
+                                    'noreply', 'no-reply', 'postmaster', 'webmaster', 'abuse',
+                                    'security', 'privacy', 'legal', 'marketing', 'hr']
+
+                    if local_part.lower() in generic_accounts:
+                        continue
+
+                    # Common patterns: firstname.lastname, firstnamelastname, first.last
+                    if '.' in local_part:
+                        parts = local_part.split('.')
+                        if len(parts) == 2:
+                            first_name = parts[0].title()
+                            last_name = parts[1].title()
+                            full_name = f"{first_name} {last_name}"
+
+                            linkedin_intel['inferred_employees'].append({
+                                'name': full_name,
+                                'email': email,
+                                'first_name': first_name,
+                                'last_name': last_name,
+                                'source': 'email_parsing'
+                            })
+
+                            self.print_success(f"Inferred employee: {full_name} ({email})")
+
+            # Method 2: Email pattern inference (only if we have target domain emails)
+            if len(target_emails) >= 2:
+                self.print_info("\nInferring email patterns from discovered addresses...")
+
+                patterns = {
+                    'firstname.lastname@domain': 0,
+                    'firstnamelastname@domain': 0,
+                    'first.last@domain': 0,
+                    'flastname@domain': 0,
+                    'firstnamel@domain': 0
                 }
 
-                response = self.session.get(search_url, headers=headers, timeout=10)
+                for email in target_emails:
+                    local = email.split('@')[0]
 
-                if response.status_code == 200:
-                    # Extract LinkedIn profile URLs
-                    linkedin_urls = re.findall(r'https://[a-z]{2,3}\.linkedin\.com/in/([a-zA-Z0-9-]+)', response.text)
+                    if '.' in local and len(local.split('.')) == 2:
+                        patterns['firstname.lastname@domain'] += 1
+                    elif '.' not in local and len(local) > 3:
+                        patterns['firstnamelastname@domain'] += 1
 
-                    for profile_slug in set(linkedin_urls):
-                        profile_info = {
-                            'profile_url': f"https://www.linkedin.com/in/{profile_slug}",
-                            'profile_slug': profile_slug,
-                            'source': 'google_dork'
-                        }
+                # Determine most likely pattern
+                likely_pattern = max(patterns, key=patterns.get)
+                confidence = patterns[likely_pattern] / len(target_emails) * 100 if target_emails else 0
 
-                        # Try to extract name from slug
-                        name_parts = profile_slug.replace('-', ' ').title()
-                        if len(name_parts.split()) >= 2:
-                            profile_info['inferred_name'] = name_parts
+                if confidence > 0:
+                    linkedin_intel['email_patterns'] = {
+                        'likely_pattern': likely_pattern,
+                        'confidence': confidence,
+                        'sample_emails': target_emails[:5]
+                    }
 
-                        linkedin_intel['google_dork_results'].append(profile_info)
-                        self.print_success(f"Found profile: {profile_slug}")
+                    self.print_success(f"Inferred email pattern: {likely_pattern} ({confidence:.0f}% confidence)")
+                    self.print_info("This pattern can be used to generate username lists for authentication testing")
 
-                    time.sleep(3)  # Rate limiting for Google
-                else:
-                    self.print_warning(f"Google search returned status {response.status_code}")
+            # Store results
+            self.results['linkedin_intel'] = linkedin_intel
 
-            except Exception as e:
-                self.print_error(f"Error with Google dork: {e}")
+            # Summary
+            total_inferred = len(linkedin_intel['inferred_employees'])
 
-        # Method 2: Parse theHarvester results for names
-        self.print_info("Extracting employee information from theHarvester results...")
-        emails = self.results.get('email_addresses', [])
+            self.print_info(f"\nLinkedIn Intelligence Summary:")
+            self.print_info(f"  Employees inferred from emails: {total_inferred}")
 
-        if emails:
-            for email in emails:
-                # Extract name from email
-                local_part = email.split('@')[0]
+            if linkedin_intel.get('email_patterns'):
+                self.print_info(f"  Email pattern identified: {linkedin_intel['email_patterns']['likely_pattern']}")
 
-                # Common patterns: firstname.lastname, firstnamelastname, first.last
-                if '.' in local_part:
-                    parts = local_part.split('.')
-                    if len(parts) == 2:
-                        first_name = parts[0].title()
-                        last_name = parts[1].title()
-                        full_name = f"{first_name} {last_name}"
-
-                        linkedin_intel['inferred_employees'].append({
-                            'name': full_name,
-                            'email': email,
-                            'first_name': first_name,
-                            'last_name': last_name,
-                            'source': 'email_parsing'
-                        })
-
-                        self.print_success(f"Inferred employee: {full_name}")
-
-        # Method 3: Generate manual search URLs
-        self.print_info("Generating LinkedIn search URLs for manual review...")
-
-        search_urls = [
-            f"https://www.linkedin.com/search/results/people/?keywords={company_name.replace(' ', '%20')}",
-            f"https://www.linkedin.com/search/results/people/?keywords={company_name.replace(' ', '%20')}%20security",
-            f"https://www.linkedin.com/search/results/people/?keywords={company_name.replace(' ', '%20')}%20engineer",
-            f"https://www.linkedin.com/search/results/people/?keywords={company_name.replace(' ', '%20')}%20IT",
-            f"https://www.linkedin.com/search/results/people/?keywords={company_name.replace(' ', '%20')}%20admin",
-            f"https://www.linkedin.com/search/results/people/?keywords={self.domain.replace('.', '%20')}",
-        ]
-
-        linkedin_intel['search_urls'] = search_urls
-
-        self.print_info("\nManual LinkedIn Search URLs:")
-        for url in search_urls:
-            self.print_info(f"  {url}")
-
-        # Method 4: Email pattern inference
-        self.print_info("\nInferring email patterns from discovered addresses...")
-
-        if len(emails) >= 2:
-            patterns = {
-                'firstname.lastname@domain': 0,
-                'firstnamelastname@domain': 0,
-                'first.last@domain': 0,
-                'flastname@domain': 0,
-                'firstnamel@domain': 0
-            }
-
-            for email in emails:
-                local = email.split('@')[0]
-
-                if '.' in local and len(local.split('.')) == 2:
-                    patterns['firstname.lastname@domain'] += 1
-                elif '.' not in local and len(local) > 3:
-                    patterns['firstnamelastname@domain'] += 1
-
-            # Determine most likely pattern
-            likely_pattern = max(patterns, key=patterns.get)
-            confidence = patterns[likely_pattern] / len(emails) * 100 if emails else 0
-
-            linkedin_intel['email_patterns'] = {
-                'likely_pattern': likely_pattern,
-                'confidence': confidence,
-                'sample_emails': emails[:5]
-            }
-
-            self.print_success(f"Inferred email pattern: {likely_pattern} ({confidence:.0f}% confidence)")
-            self.print_info("This pattern can be used to generate username lists for authentication testing")
-
-        # Store results
-        self.results['linkedin_intel'] = linkedin_intel
-
-        # Summary
-        total_profiles = len(linkedin_intel['google_dork_results'])
-        total_inferred = len(linkedin_intel['inferred_employees'])
-
-        self.print_info(f"\nLinkedIn Intelligence Summary:")
-        self.print_info(f"  Profiles found via Google: {total_profiles}")
-        self.print_info(f"  Employees inferred from emails: {total_inferred}")
-        self.print_info(f"  Manual search URLs generated: {len(linkedin_intel['search_urls'])}")
-
-        if linkedin_intel.get('email_patterns'):
-            self.print_info(f"  Email pattern identified: {linkedin_intel['email_patterns']['likely_pattern']}")
+            # Only show if we actually found something useful
+            if total_inferred == 0 and not linkedin_intel.get('email_patterns'):
+                self.print_warning("No actionable LinkedIn intelligence gathered from available data")
 
     def _parse_whois(self, whois_output: str) -> Dict[str, str]:
         """Parse WHOIS output"""
@@ -1500,27 +1451,53 @@ class ReconAutomation:
         return tech_info if tech_info['headers'] or tech_info.get('detected_technologies') else None
 
     def email_harvesting(self):
-        """Harvest email addresses from public sources"""
-        self.print_section("EMAIL ADDRESS HARVESTING")
+            """Harvest email addresses from public sources"""
+            self.print_section("EMAIL ADDRESS HARVESTING")
 
-        emails = set()
+            emails = set()
 
-        # Method 1: theHarvester (if installed)
-        self.print_info("Running theHarvester...")
-        harvester_emails = self._run_theharvester()
-        emails.update(harvester_emails)
+            # Method 1: theHarvester (if installed)
+            self.print_info("Running theHarvester...")
+            harvester_emails = self._run_theharvester()
+            emails.update(harvester_emails)
 
-        # Method 2: Web scraping
-        self.print_info("Scraping web pages for emails...")
-        web_emails = self._scrape_emails_from_web()
-        emails.update(web_emails)
+            # Method 2: Web scraping
+            self.print_info("Scraping web pages for emails...")
+            web_emails = self._scrape_emails_from_web()
+            emails.update(web_emails)
 
-        # Store results
-        self.results['email_addresses'] = sorted(list(emails))
+            # Filter to only valid-looking emails from target domain and related domains
+            filtered_emails = []
+            for email in emails:
+                email_lower = email.lower()
 
-        self.print_success(f"Total unique email addresses found: {len(emails)}")
-        for email in sorted(emails):
-            self.print_info(f"  {email}")
+                # Skip obvious garbage
+                if len(email) > 100:  # Too long
+                    continue
+                if email.count('@') != 1:  # Invalid format
+                    continue
+
+                local, domain = email.split('@')
+
+                # Skip hash/UUID-style emails (like sentry errors)
+                if len(local) == 32 and all(c in '0123456789abcdef' for c in local):
+                    continue
+
+                # Only include emails from target domain or clearly related
+                if self.domain in domain or domain.endswith(f'.{self.domain}'):
+                    filtered_emails.append(email)
+
+            # Store results
+            self.results['email_addresses'] = sorted(filtered_emails)
+
+            self.print_success(f"Total unique email addresses found: {len(filtered_emails)}")
+
+            if filtered_emails:
+                self.print_info(f"Emails from target domain ({self.domain}):")
+                for email in sorted(filtered_emails):
+                    self.print_info(f"  {email}")
+            else:
+                self.print_warning(f"No emails found for target domain ({self.domain})")
 
     def _run_theharvester(self) -> List[str]:
             """Run theHarvester tool"""
@@ -2619,54 +2596,75 @@ class ReconAutomation:
                 traceback.print_exc()
 
     def breach_database_check(self):
-        """Check for compromised credentials in breach databases"""
-        self.print_section("BREACH DATABASE CHECK")
+            """Check for compromised credentials in breach databases"""
+            self.print_section("BREACH DATABASE CHECK")
 
-        if not self.results.get('email_addresses'):
-            self.print_warning("No email addresses to check. Run email harvesting first.")
-            return
+            # Only check emails from target domain
+            all_emails = self.results.get('email_addresses', [])
+            target_emails = [e for e in all_emails if self.domain in e]
 
-        breach_results = {}
+            if not target_emails:
+                self.print_warning(f"No email addresses from target domain ({self.domain}) to check.")
+                return
 
-        self.print_info("Checking Have I Been Pwned (HIBP) API...")
+            breach_results = {}
 
-        for email in self.results['email_addresses'][:10]:  # Limit to first 10 to avoid rate limits
-            breaches = self._check_hibp(email)
-            if breaches:
-                breach_results[email] = breaches
-                self.print_warning(f"{email}: Found in {len(breaches)} breach(es)")
+            self.print_info("Checking Have I Been Pwned (HIBP) API...")
+            self.print_info(f"Note: HIBP now requires an API key for full access")
+
+            for email in target_emails[:10]:  # Limit to first 10 to avoid rate limits
+                breaches = self._check_hibp(email)
+                if breaches:
+                    breach_results[email] = breaches
+                    self.print_warning(f"{email}: Found in {len(breaches)} breach(es)")
+                else:
+                    self.print_success(f"{email}: No breaches found")
+
+                time.sleep(1.5)  # Rate limiting
+
+            self.results['breach_data'] = breach_results
+
+            if breach_results:
+                self.print_warning(f"\nTotal accounts with breaches: {len(breach_results)}")
+                for email, breaches in breach_results.items():
+                    self.print_warning(f"  {email}:")
+                    for breach in breaches[:5]:  # Show first 5
+                        self.print_info(f"    - {breach}")
             else:
-                self.print_success(f"{email}: No breaches found")
-
-        self.results['breach_data'] = breach_results
-
-        if breach_results:
-            self.print_warning(f"Total accounts with breaches: {len(breach_results)}")
-        else:
-            self.print_success("No compromised credentials found in breach databases")
+                self.print_success("No compromised credentials found in breach databases")
 
     def _check_hibp(self, email: str) -> List[str]:
-        """Check email against Have I Been Pwned API"""
-        breaches = []
-        try:
-            url = f"https://haveibeenpwned.com/api/v3/breachedaccount/{email}"
-            headers = {
-                'User-Agent': 'Penetration-Testing-Reconnaissance-Tool'
-            }
-            response = requests.get(url, headers=headers, timeout=10)
+            """Check email against Have I Been Pwned API"""
+            breaches = []
+            try:
+                url = f"https://haveibeenpwned.com/api/v3/breachedaccount/{email}"
+                headers = {
+                    'User-Agent': 'Penetration-Testing-Reconnaissance-Tool',
+                    'hibp-api-key': self.config.get('hibp_api_key', '')  # Optional API key
+                }
+                response = requests.get(url, headers=headers, timeout=10)
 
-            if response.status_code == 200:
-                data = response.json()
-                breaches = [breach['Name'] for breach in data]
-            elif response.status_code == 404:
-                # No breaches found
-                pass
-            else:
-                self.print_warning(f"HIBP API returned status {response.status_code}")
-        except Exception as e:
-            self.print_warning(f"HIBP check failed for {email}: {e}")
+                if response.status_code == 200:
+                    data = response.json()
+                    breaches = [breach['Name'] for breach in data]
+                elif response.status_code == 404:
+                    # No breaches found (good news)
+                    pass
+                elif response.status_code == 401:
+                    # API key required or invalid
+                    if not self.config.get('hibp_api_key'):
+                        self.print_warning("HIBP API requires a key for reliable access. Get one at https://haveibeenpwned.com/API/Key")
+                        self.print_info("Continuing with limited/public API access...")
+                    else:
+                        self.print_warning("HIBP API key is invalid")
+                elif response.status_code == 429:
+                    self.print_warning(f"HIBP rate limit hit for {email}")
+                else:
+                    self.print_warning(f"HIBP API returned status {response.status_code} for {email}")
+            except Exception as e:
+                self.print_warning(f"HIBP check failed for {email}: {e}")
 
-        return breaches
+            return breaches
 
     def network_enumeration(self):
             """Perform network scanning on in-scope IP ranges"""
