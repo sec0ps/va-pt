@@ -134,7 +134,7 @@ class ZAPHTMLParser(HTMLParser):
             self.in_instance = False
 
 def detect_format(file_path):
-    """Auto-detect report type: zap_xml, zap_html, burp_xml"""
+    """Auto-detect report type: zap_xml, zap_html, burp_xml, burp_html"""
     with open(file_path, 'r', encoding='utf-8') as f:
         content = f.read(2000)
 
@@ -146,6 +146,9 @@ def detect_format(file_path):
             else:
                 return 'unknown'
         elif '<html' in content.lower() or '<!doctype' in content.lower():
+            # Check for Burp HTML markers first
+            if 'Burp Scanner Report' in content or 'burp' in content.lower():
+                return 'burp_html'
             return 'zap_html'
 
     return 'unknown'
@@ -159,7 +162,7 @@ def find_reports_in_directory():
         if file.is_file() and file.suffix.lower() in ['.xml', '.html', '.htm']:
             try:
                 report_type = detect_format(file)
-                if report_type in ['zap_xml', 'zap_html', 'burp_xml']:
+                if report_type in ['zap_xml', 'zap_html', 'burp_xml', 'burp_html']:
                     supported_files.append((file, report_type))
             except:
                 continue
@@ -325,6 +328,94 @@ def parse_burp_report(file_path):
         risk_level = alert_data['risk']
         alerts_by_severity[risk_level].append(alert_data)
         all_alerts.append(alert_data)
+
+    return metadata, alerts_by_severity, all_alerts
+
+def parse_burp_html_report(file_path):
+    """Parse Burp Suite HTML report"""
+    with open(file_path, 'r', encoding='utf-8') as f:
+        html_content = f.read()
+
+    import re
+    from html import unescape
+
+    metadata = {
+        'program': 'Burp Suite',
+        'version': 'Unknown',
+        'generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
+
+    alerts_by_severity = defaultdict(list)
+    all_alerts = []
+
+    severity_map = {
+        'high': 'High',
+        'medium': 'Medium',
+        'low': 'Low',
+        'information': 'Informational',
+        'informational': 'Informational'
+    }
+
+    # Try to extract issues from HTML tables
+    # Burp HTML reports often have tables with issue details
+    issue_pattern = re.compile(
+        r'<tr[^>]*>.*?<td[^>]*>(.*?)</td>.*?<td[^>]*>(.*?)</td>.*?<td[^>]*>(.*?)</td>',
+        re.DOTALL | re.IGNORECASE
+    )
+
+    # Extract severity/name/description patterns
+    for match in issue_pattern.finditer(html_content):
+        severity_raw = re.sub('<.*?>', '', match.group(1)).strip()
+        name = re.sub('<.*?>', '', match.group(2)).strip()
+        description = re.sub('<.*?>', '', match.group(3)).strip()
+
+        if not name:
+            continue
+
+        severity_clean = severity_raw.lower()
+        risk_level = severity_map.get(severity_clean, 'Informational')
+
+        alert_data = {
+            'name': unescape(name),
+            'risk': risk_level,
+            'confidence': 'Certain',
+            'description': unescape(description),
+            'solution': '',
+            'reference': '',
+            'instances': []
+        }
+
+        alerts_by_severity[risk_level].append(alert_data)
+        all_alerts.append(alert_data)
+
+    # If no issues found with table pattern, try alternative parsing
+    if not all_alerts:
+        # Look for issue blocks with headers
+        issue_blocks = re.finditer(
+            r'<h[23][^>]*>(.*?)</h[23]>.*?<p[^>]*>(.*?)</p>',
+            html_content,
+            re.DOTALL | re.IGNORECASE
+        )
+
+        for match in issue_blocks:
+            name = re.sub('<.*?>', '', match.group(1)).strip()
+            description = re.sub('<.*?>', '', match.group(2)).strip()
+
+            if len(name) < 5 or len(description) < 10:
+                continue
+
+            alert_data = {
+                'name': unescape(name),
+                'risk': 'Medium',  # Default if severity not found
+                'confidence': 'Tentative',
+                'description': unescape(description),
+                'solution': '',
+                'reference': '',
+                'instances': []
+            }
+
+            alerts_by_severity['Medium'].append(alert_data)
+            all_alerts.append(alert_data)
 
     return metadata, alerts_by_severity, all_alerts
 
@@ -650,6 +741,8 @@ def process_report(input_path, report_type, args):
             metadata, alerts_by_severity, all_alerts = parse_html_report(input_path)
         elif report_type == 'burp_xml':
             metadata, alerts_by_severity, all_alerts = parse_burp_report(input_path)
+        elif report_type == 'burp_html':
+            metadata, alerts_by_severity, all_alerts = parse_burp_html_report(input_path)
 
         print(f"[+] Parsed {len(all_alerts)} total findings from {input_path.name}")
 
@@ -748,7 +841,7 @@ def main():
     report_type = detect_format(input_path)
     print(f"[*] Detected: {report_type.replace('_', ' ').upper()}")
 
-    if report_type not in ['zap_xml', 'zap_html', 'burp_xml']:
+    if report_type not in ['zap_xml', 'zap_html', 'burp_xml', 'burp_html']:
         print(f"[!] Unsupported report type: {report_type}")
         sys.exit(1)
 
