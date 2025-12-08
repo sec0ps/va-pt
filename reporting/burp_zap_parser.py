@@ -141,12 +141,12 @@ def detect_format(file_path):
         if '<?xml' in content:
             if '<OWASPZAPReport' in content or 'programName="ZAP"' in content:
                 return 'zap_xml'
-            elif '<issues' in content and 'burpVersion' in content:
+            # Check for Burp DOCTYPE or ATTLIST (appears early in file)
+            elif '<!DOCTYPE issues' in content or 'burpVersion CDATA' in content:
                 return 'burp_xml'
             else:
                 return 'unknown'
         elif '<html' in content.lower() or '<!doctype' in content.lower():
-            # Check for Burp HTML markers first
             if 'Burp Scanner Report' in content or 'burp' in content.lower():
                 return 'burp_html'
             return 'zap_html'
