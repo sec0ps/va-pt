@@ -399,49 +399,85 @@ class ReconAutomation:
             self.print_error(f"Error saving config: {e}")
 
     def prompt_for_api_keys(self):
-        """Prompt user for API keys if not already configured"""
-        print("\n" + "="*80)
-        print("API KEY CONFIGURATION")
-        print("="*80)
-        print("Some modules require API keys/tokens for enhanced functionality.")
-        print("Press Enter to skip any key you don't have or want to configure later.")
-        print("")
+            """Prompt user for API keys if not already configured"""
+            print("\n" + "="*80)
+            print("API KEY CONFIGURATION")
+            print("="*80)
+            print("Some modules require API keys/tokens for enhanced functionality.")
+            print("Press Enter to skip any key you don't have or want to configure later.")
+            print("")
 
-        updated = False
+            updated = False
 
-        # GitHub Token
-        if not self.config.get('github_token'):
-            print("[*] GitHub Token (for secret scanning in repos/gists/issues)")
-            print("    Generate at: https://github.com/settings/tokens")
-            print("    Required scopes: public_repo (read:org optional)")
-            token = input("    Enter GitHub token (or press Enter to skip): ").strip()
-            if token:
-                self.config['github_token'] = token
-                updated = True
-                self.print_success("GitHub token configured")
+            # GitHub Token
+            if not self.config.get('github_token'):
+                print("[*] GitHub Token (for secret scanning in repos/gists/issues)")
+                print("    Generate at: https://github.com/settings/tokens")
+                print("    Required scopes: public_repo (read:org optional)")
+                token = input("    Enter GitHub token (or press Enter to skip): ").strip()
+                if token:
+                    self.config['github_token'] = token
+                    updated = True
+                    self.print_success("GitHub token configured")
+                else:
+                    self.print_info("Skipping GitHub token - secret scanning will be limited")
             else:
-                self.print_info("Skipping GitHub token - secret scanning will be limited")
-        else:
-            self.print_success("GitHub token already configured")
+                self.print_success("GitHub token already configured")
 
-        print("")
+            print("")
 
-        # Optional: Shodan (for future use)
-        if not self.config.get('shodan_api_key'):
-            print("[*] Shodan API Key (optional - for enhanced service discovery)")
-            print("    Register at: https://account.shodan.io/register")
-            key = input("    Enter Shodan API key (or press Enter to skip): ").strip()
-            if key:
-                self.config['shodan_api_key'] = key
-                updated = True
-                self.print_success("Shodan API key configured")
-        else:
-            self.print_success("Shodan API key already configured")
+            # LinkedIn Cookie
+            if not self.config.get('linkedin_cookie'):
+                print("[*] LinkedIn Session Cookie (for employee enumeration)")
+                print("    1. Log into LinkedIn in your browser")
+                print("    2. Open Developer Tools (F12) -> Application -> Cookies -> linkedin.com")
+                print("    3. Find the 'li_at' cookie and copy its value")
+                print("    Note: Cookie typically valid for 1 year")
+                cookie = input("    Enter LinkedIn li_at cookie (or press Enter to skip): ").strip()
+                if cookie:
+                    self.config['linkedin_cookie'] = cookie
+                    updated = True
+                    self.print_success("LinkedIn cookie configured")
+                else:
+                    self.print_info("Skipping LinkedIn cookie - employee enumeration will be limited")
+            else:
+                self.print_success("LinkedIn cookie already configured")
 
-        if updated:
-            self.save_config()
+            print("")
 
-        print("="*80 + "\n")
+            # HIBP API Key (optional but recommended)
+            if not self.config.get('hibp_api_key'):
+                print("[*] Have I Been Pwned API Key (optional - for breach checking)")
+                print("    Get key at: https://haveibeenpwned.com/API/Key")
+                print("    Cost: $3.50/month for full API access")
+                key = input("    Enter HIBP API key (or press Enter to skip): ").strip()
+                if key:
+                    self.config['hibp_api_key'] = key
+                    updated = True
+                    self.print_success("HIBP API key configured")
+                else:
+                    self.print_info("Skipping HIBP API key - breach checking will use free tier (limited)")
+            else:
+                self.print_success("HIBP API key already configured")
+
+            print("")
+
+            # Optional: Shodan (for future use)
+            if not self.config.get('shodan_api_key'):
+                print("[*] Shodan API Key (optional - for enhanced service discovery)")
+                print("    Register at: https://account.shodan.io/register")
+                key = input("    Enter Shodan API key (or press Enter to skip): ").strip()
+                if key:
+                    self.config['shodan_api_key'] = key
+                    updated = True
+                    self.print_success("Shodan API key configured")
+            else:
+                self.print_success("Shodan API key already configured")
+
+            if updated:
+                self.save_config()
+
+            print("="*80 + "\n")
 
     def github_secret_scanning(self):
             """Search GitHub for leaked credentials and secrets"""
@@ -712,109 +748,265 @@ class ReconAutomation:
                 self.print_warning(f"\n[!] Downloaded files with secrets to: {github_download_dir}")
 
     def linkedin_enumeration(self):
-            """Multi-method LinkedIn intelligence gathering"""
+            """LinkedIn intelligence gathering using authenticated session"""
             self.print_section("LinkedIn Information Gathering")
 
             linkedin_intel = {
-                'google_dork_results': [],
-                'theharvester_names': [],
-                'inferred_employees': [],
+                'employees': [],
                 'search_urls': [],
-                'email_patterns': {}
+                'email_patterns': {},
+                'titles': {},
+                'departments': set()
             }
 
-            company_name = self.domain.split('.')[0].title()
+            # Check if LinkedIn cookie is configured
+            if not self.config.get('linkedin_cookie'):
+                self.print_warning("No LinkedIn session cookie configured.")
+                self.print_info("To enable LinkedIn enumeration:")
+                self.print_info("  1. Log into LinkedIn in your browser")
+                self.print_info("  2. Open Developer Tools (F12) -> Application -> Cookies")
+                self.print_info("  3. Find the 'li_at' cookie value")
+                self.print_info("  4. Add to config: \"linkedin_cookie\": \"your_li_at_value\"")
+                self.print_info("Skipping LinkedIn enumeration...")
+                return
 
-            # Skip Google dorking - too unreliable and often blocked
-            self.print_info("Skipping Google dorks (unreliable and often blocked)")
+            company_name = self.domain.split('.')[0]
 
-            # Method 1: Parse theHarvester/web scraping results for names
-            self.print_info("Extracting employee information from discovered emails...")
-            emails = self.results.get('email_addresses', [])
+            # Set up authenticated session
+            linkedin_session = requests.Session()
+            linkedin_session.cookies.set('li_at', self.config['linkedin_cookie'])
+            linkedin_session.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Csrf-Token': 'ajax:' + ''.join(re.findall(r'\d+', self.config['linkedin_cookie'])[:12])
+            })
 
-            # Filter to only emails from target domain
-            target_emails = [e for e in emails if self.domain in e]
+            self.print_info(f"Searching LinkedIn for employees at {company_name}...")
 
-            if target_emails:
-                for email in target_emails:
-                    # Extract name from email
-                    local_part = email.split('@')[0]
+            # Method 1: Search for company employees
+            try:
+                # LinkedIn people search URL
+                search_url = f"https://www.linkedin.com/search/results/people/?keywords={company_name}&origin=GLOBAL_SEARCH_HEADER"
 
-                    # Skip generic/service accounts
-                    generic_accounts = ['info', 'admin', 'support', 'contact', 'sales', 'help',
-                                    'noreply', 'no-reply', 'postmaster', 'webmaster', 'abuse',
-                                    'security', 'privacy', 'legal', 'marketing', 'hr']
+                self.print_info("Fetching employee profiles from LinkedIn search...")
+                response = linkedin_session.get(search_url, timeout=15)
 
-                    if local_part.lower() in generic_accounts:
-                        continue
+                if response.status_code == 200:
+                    if 'authwall' in response.url or 'login' in response.url:
+                        self.print_error("LinkedIn session cookie is invalid or expired")
+                        self.print_info("Please update your li_at cookie in the config file")
+                        return
 
-                    # Common patterns: firstname.lastname, firstnamelastname, first.last
-                    if '.' in local_part:
-                        parts = local_part.split('.')
-                        if len(parts) == 2:
-                            first_name = parts[0].title()
-                            last_name = parts[1].title()
-                            full_name = f"{first_name} {last_name}"
+                    # Parse HTML for employee data
+                    html = response.text
 
-                            linkedin_intel['inferred_employees'].append({
-                                'name': full_name,
-                                'email': email,
-                                'first_name': first_name,
-                                'last_name': last_name,
-                                'source': 'email_parsing'
-                            })
+                    # Extract employee cards from search results
+                    # LinkedIn uses data-chameleon-result-urn for each result
+                    employee_cards = re.findall(r'data-chameleon-result-urn="urn:li:member:(\d+)"', html)
 
-                            self.print_success(f"Inferred employee: {full_name} ({email})")
+                    # Extract names from results (multiple patterns as backup)
+                    name_patterns = [
+                        r'<span[^>]*aria-hidden="true">([^<]+)</span>[^<]*<span[^>]*>([^<]+)</span>',  # First Last name pattern
+                        r'alt="([^"]+)"[^>]*class="[^"]*profile-photo',  # Profile photo alt text
+                        r'<span class="entity-result__title-text[^>]*>.*?<span[^>]*>([^<]+)</span>',  # Title text
+                    ]
 
-            # Method 2: Email pattern inference (only if we have target domain emails)
-            if len(target_emails) >= 2:
-                self.print_info("\nInferring email patterns from discovered addresses...")
+                    names_found = set()
+                    for pattern in name_patterns:
+                        matches = re.findall(pattern, html, re.DOTALL)
+                        for match in matches:
+                            if isinstance(match, tuple):
+                                name = ' '.join(match).strip()
+                            else:
+                                name = match.strip()
 
-                patterns = {
-                    'firstname.lastname@domain': 0,
-                    'firstnamelastname@domain': 0,
-                    'first.last@domain': 0,
-                    'flastname@domain': 0,
-                    'firstnamel@domain': 0
-                }
+                            # Filter out non-name results
+                            if len(name) > 3 and len(name) < 50 and ' ' in name:
+                                names_found.add(name)
 
-                for email in target_emails:
-                    local = email.split('@')[0]
+                    # Extract job titles
+                    title_pattern = r'<div[^>]*class="[^"]*entity-result__primary-subtitle[^>]*>([^<]+)</div>'
+                    titles = re.findall(title_pattern, html)
 
-                    if '.' in local and len(local.split('.')) == 2:
-                        patterns['firstname.lastname@domain'] += 1
-                    elif '.' not in local and len(local) > 3:
-                        patterns['firstnamelastname@domain'] += 1
+                    # Combine names with titles where possible
+                    for i, name in enumerate(sorted(names_found)):
+                        employee_data = {
+                            'name': name,
+                            'source': 'linkedin_search',
+                            'title': titles[i] if i < len(titles) else 'Unknown',
+                            'profile_url': f"https://www.linkedin.com/search/results/people/?keywords={name.replace(' ', '%20')}%20{company_name}"
+                        }
 
-                # Determine most likely pattern
-                likely_pattern = max(patterns, key=patterns.get)
-                confidence = patterns[likely_pattern] / len(target_emails) * 100 if target_emails else 0
+                        # Try to infer email
+                        name_parts = name.split()
+                        if len(name_parts) >= 2:
+                            employee_data['first_name'] = name_parts[0]
+                            employee_data['last_name'] = name_parts[-1]
 
-                if confidence > 0:
+                            # Generate possible emails based on discovered patterns
+                            emails = self.results.get('email_addresses', [])
+                            if emails:
+                                # Infer format from existing emails
+                                sample_email = emails[0] if emails else None
+                                if sample_email:
+                                    local_part = sample_email.split('@')[0]
+                                    if '.' in local_part:
+                                        # firstname.lastname format
+                                        possible_email = f"{name_parts[0].lower()}.{name_parts[-1].lower()}@{self.domain}"
+                                    else:
+                                        # firstnamelastname format
+                                        possible_email = f"{name_parts[0].lower()}{name_parts[-1].lower()}@{self.domain}"
+
+                                    employee_data['possible_email'] = possible_email
+
+                        linkedin_intel['employees'].append(employee_data)
+
+                        # Track titles and departments
+                        if employee_data['title'] != 'Unknown':
+                            title_lower = employee_data['title'].lower()
+                            linkedin_intel['titles'][employee_data['title']] = linkedin_intel['titles'].get(employee_data['title'], 0) + 1
+
+                            # Identify departments from titles
+                            dept_keywords = {
+                                'engineering': ['engineer', 'developer', 'architect', 'devops'],
+                                'security': ['security', 'infosec', 'cybersecurity', 'ciso', 'soc'],
+                                'it': ['it ', 'sysadmin', 'system administrator', 'infrastructure'],
+                                'management': ['manager', 'director', 'vp', 'chief', 'head of'],
+                                'sales': ['sales', 'account executive', 'business development'],
+                                'marketing': ['marketing', 'content', 'communications']
+                            }
+
+                            for dept, keywords in dept_keywords.items():
+                                if any(keyword in title_lower for keyword in keywords):
+                                    linkedin_intel['departments'].add(dept)
+
+                    self.print_success(f"Found {len(linkedin_intel['employees'])} employee profiles")
+
+                    # Show sample results
+                    for emp in linkedin_intel['employees'][:10]:
+                        title_info = f" - {emp['title']}" if emp['title'] != 'Unknown' else ""
+                        email_info = f" ({emp.get('possible_email', 'email unknown')})" if emp.get('possible_email') else ""
+                        self.print_info(f"  {emp['name']}{title_info}{email_info}")
+
+                    if len(linkedin_intel['employees']) > 10:
+                        self.print_info(f"  ... and {len(linkedin_intel['employees']) - 10} more")
+
+                    time.sleep(2)  # Rate limiting
+
+                elif response.status_code == 429:
+                    self.print_error("LinkedIn rate limit hit. Wait before trying again.")
+                else:
+                    self.print_warning(f"LinkedIn search returned status {response.status_code}")
+
+            except Exception as e:
+                self.print_error(f"Error searching LinkedIn: {e}")
+                import traceback
+                traceback.print_exc()
+
+            # Method 2: Email pattern inference from discovered names
+            if linkedin_intel['employees']:
+                self.print_info("\nInferring email patterns from LinkedIn data...")
+
+                # Compare with discovered emails to confirm pattern
+                discovered_emails = self.results.get('email_addresses', [])
+
+                if discovered_emails:
+                    patterns = {
+                        'firstname.lastname@domain': 0,
+                        'firstnamelastname@domain': 0,
+                        'flastname@domain': 0,
+                        'first.last@domain': 0
+                    }
+
+                    for email in discovered_emails:
+                        local = email.split('@')[0]
+                        if '.' in local and len(local.split('.')) == 2:
+                            patterns['firstname.lastname@domain'] += 1
+                        elif '.' not in local and len(local) > 3:
+                            patterns['firstnamelastname@domain'] += 1
+
+                    likely_pattern = max(patterns, key=patterns.get)
+                    confidence = patterns[likely_pattern] / len(discovered_emails) * 100 if discovered_emails else 0
+
                     linkedin_intel['email_patterns'] = {
                         'likely_pattern': likely_pattern,
                         'confidence': confidence,
-                        'sample_emails': target_emails[:5]
+                        'sample_emails': discovered_emails[:5]
                     }
 
-                    self.print_success(f"Inferred email pattern: {likely_pattern} ({confidence:.0f}% confidence)")
-                    self.print_info("This pattern can be used to generate username lists for authentication testing")
+                    self.print_success(f"Email pattern: {likely_pattern} ({confidence:.0f}% confidence)")
 
             # Store results
             self.results['linkedin_intel'] = linkedin_intel
+            linkedin_intel['departments'] = list(linkedin_intel['departments'])
 
             # Summary
-            total_inferred = len(linkedin_intel['inferred_employees'])
-
             self.print_info(f"\nLinkedIn Intelligence Summary:")
-            self.print_info(f"  Employees inferred from emails: {total_inferred}")
+            self.print_info(f"  Employees found: {len(linkedin_intel['employees'])}")
+            self.print_info(f"  Departments identified: {', '.join(linkedin_intel['departments']) if linkedin_intel['departments'] else 'None'}")
+
+            if linkedin_intel['titles']:
+                self.print_info(f"  Top job titles:")
+                sorted_titles = sorted(linkedin_intel['titles'].items(), key=lambda x: x[1], reverse=True)[:5]
+                for title, count in sorted_titles:
+                    self.print_info(f"    - {title} ({count})")
 
             if linkedin_intel.get('email_patterns'):
-                self.print_info(f"  Email pattern identified: {linkedin_intel['email_patterns']['likely_pattern']}")
+                self.print_info(f"  Email pattern: {linkedin_intel['email_patterns']['likely_pattern']}")
 
-            # Only show if we actually found something useful
-            if total_inferred == 0 and not linkedin_intel.get('email_patterns'):
-                self.print_warning("No actionable LinkedIn intelligence gathered from available data")
+    def run_linkedin_only(self):
+            """Run only LinkedIn enumeration for testing"""
+            self.print_banner()
+
+            # Prompt for API keys if needed
+            if not self.config.get('linkedin_cookie'):
+                self.prompt_for_api_keys()
+
+            try:
+                # Need basic DNS enumeration first for context
+                self.print_info("Running minimal DNS enumeration for context...")
+                self.dns_enumeration()
+
+                # Need email harvesting for pattern detection
+                self.print_info("Running email harvesting for pattern detection...")
+                self.email_harvesting()
+
+                # Now run LinkedIn enumeration
+                self.linkedin_enumeration()
+
+                # Generate a simple report
+                self.print_section("LINKEDIN TEST COMPLETE")
+                self.print_success("LinkedIn enumeration completed!")
+
+                # Show results summary
+                linkedin_data = self.results.get('linkedin_intel', {})
+                if linkedin_data.get('employees'):
+                    self.print_info(f"\nResults Summary:")
+                    self.print_info(f"  Employees found: {len(linkedin_data['employees'])}")
+                    self.print_info(f"  Departments: {', '.join(linkedin_data.get('departments', []))}")
+
+                    # Save to JSON for review
+                    json_file = self.output_dir / f"linkedin_test_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                    with open(json_file, 'w') as f:
+                        json.dump(linkedin_data, f, indent=2)
+                    self.print_success(f"Results saved to: {json_file}")
+                else:
+                    self.print_warning("No LinkedIn data collected - check cookie validity")
+
+            except KeyboardInterrupt:
+                self.print_warning("\nLinkedIn test interrupted by user")
+            except Exception as e:
+                self.print_error(f"Error during LinkedIn test: {e}")
+                import traceback
+                traceback.print_exc()
 
     def _parse_whois(self, whois_output: str) -> Dict[str, str]:
         """Parse WHOIS output"""
@@ -3552,25 +3744,28 @@ def main():
         epilog='''
 Examples:
   Basic scan:
-    python3 pentest_recon.py -d example.com -i 192.168.1.0/24 -c "Acme Corp"
+    python3 quick_recon.py -d example.com -i 192.168.1.0/24 -c "Acme Corp"
 
   Multiple IP ranges:
-    python3 pentest_recon.py -d example.com -i 10.0.0.0/24 172.16.0.0/16 -c "Acme Corp"
+    python3 quick_recon.py -d example.com -i 10.0.0.0/24 172.16.0.0/16 -c "Acme Corp"
 
   IP ranges from file:
-    python3 pentest_recon.py -d example.com -f targets.txt -c "Acme Corp"
+    python3 quick_recon.py -d example.com -f targets.txt -c "Acme Corp"
 
   Combine file and command line:
-    python3 pentest_recon.py -d example.com -f targets.txt -i 10.0.0.0/24 -c "Acme Corp"
+    python3 quick_recon.py -d example.com -f targets.txt -i 10.0.0.0/24 -c "Acme Corp"
 
   Custom output directory:
-    python3 pentest_recon.py -d example.com -i 192.168.1.0/24 -o /tmp/recon -c "Acme Corp"
+    python3 quick_recon.py -d example.com -i 192.168.1.0/24 -o /tmp/recon -c "Acme Corp"
 
   Skip specific modules:
-    python3 pentest_recon.py -d example.com -i 192.168.1.0/24 -c "Acme Corp" --skip-s3 --skip-scan
+    python3 quick_recon.py -d example.com -i 192.168.1.0/24 -c "Acme Corp" --skip-s3 --skip-scan
+
+  Test LinkedIn enumeration only:
+    python3 quick_recon.py -d example.com -c "Acme Corp" --linkedin-only
 
   Skip all OSINT modules:
-    python3 pentest_recon.py -d example.com -i 192.168.1.0/24 -c "Acme Corp" --skip-osint
+    python3 quick_recon.py -d example.com -i 192.168.1.0/24 -c "Acme Corp" --skip-osint
         '''
     )
 
@@ -3587,17 +3782,18 @@ Examples:
     parser.add_argument('--skip-azure', action='store_true', help='Skip Azure storage enumeration')
     parser.add_argument('--skip-gcp', action='store_true', help='Skip GCP storage enumeration')
     parser.add_argument('--skip-github', action='store_true', help='Skip GitHub secret scanning')
-    parser.add_argument('--skip-linkedin', action='store_true', help='Skip LinkedIn enumeration')
     parser.add_argument('--skip-asn', action='store_true', help='Skip ASN enumeration')
     parser.add_argument('--skip-subdomain-takeover', action='store_true', help='Skip subdomain takeover detection')
     parser.add_argument('--skip-osint', action='store_true', help='Skip all OSINT modules (GitHub, LinkedIn)')
+
+    # Testing flags
+    parser.add_argument('--linkedin-only', action='store_true', help='Run only LinkedIn enumeration (for testing)')
 
     args = parser.parse_args()
 
     # Apply skip-osint flag
     if args.skip_osint:
         args.skip_github = True
-        args.skip_linkedin = True
 
     # Set output directory based on client name if not specified
     if not args.output:
@@ -3605,7 +3801,24 @@ Examples:
         safe_client_name = re.sub(r'[^\w\s-]', '', args.client).strip().replace(' ', '_')
         args.output = f"./{safe_client_name}_recon"
 
-    # Parse IP ranges from command line and/or file
+    # Check for LinkedIn-only mode BEFORE processing IP ranges
+    if args.linkedin_only:
+        print(f"{Colors.OKCYAN}[i] Running in LinkedIn-only test mode{Colors.ENDC}")
+        print(f"{Colors.OKCYAN}[i] Output directory: {args.output}{Colors.ENDC}")
+
+        # Create minimal recon instance
+        recon = ReconAutomation(
+            domain=args.domain,
+            ip_ranges=[],  # Not needed for LinkedIn-only
+            output_dir=args.output,
+            client_name=args.client
+        )
+
+        # Run LinkedIn-only test
+        recon.run_linkedin_only()
+        sys.exit(0)
+
+    # Parse IP ranges from command line and/or file (only for non-LinkedIn-only mode)
     ip_ranges = []
 
     # Add command line IP ranges
