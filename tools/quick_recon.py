@@ -1026,50 +1026,58 @@ class ReconAutomation:
                 self.print_info(f"    - {title} ({count})")
 
     def run_linkedin_only(self):
-            """Run only LinkedIn enumeration for testing"""
-            self.print_banner()
+        """Run only LinkedIn enumeration for testing"""
+        self.print_banner()
 
-            # Prompt for API keys if needed
-            if not self.config.get('linkedin_cookie'):
-                self.prompt_for_api_keys()
+        # Prompt for LinkedIn cookie if needed
+        if not self.config.get('linkedin_cookie'):
+            print("\n" + "="*80)
+            print("LINKEDIN COOKIE REQUIRED")
+            print("="*80)
+            print("[*] LinkedIn Session Cookie (for employee enumeration)")
+            print("    1. Log into LinkedIn in a NEW incognito/private browser window")
+            print("    2. Open Developer Tools (F12) -> Application -> Cookies -> linkedin.com")
+            print("    3. Find the 'li_at' cookie and copy its value")
+            print("    Note: Cookie typically valid for 1 year")
+            cookie = input("    Enter LinkedIn li_at cookie (or press Enter to skip): ").strip()
+            if cookie:
+                self.config['linkedin_cookie'] = cookie
+                self.print_success("LinkedIn cookie configured")
+            else:
+                self.print_error("LinkedIn cookie required for enumeration. Exiting.")
+                return
+            print("="*80 + "\n")
 
-            try:
-                # Need basic DNS enumeration first for context
-                self.print_info("Running minimal DNS enumeration for context...")
-                self.dns_enumeration()
+        try:
+            # Run ONLY LinkedIn enumeration
+            self.linkedin_enumeration()
 
-                # Need email harvesting for pattern detection
-                self.print_info("Running email harvesting for pattern detection...")
-                self.email_harvesting()
+            # Generate a simple report
+            self.print_section("LINKEDIN TEST COMPLETE")
 
-                # Now run LinkedIn enumeration
-                self.linkedin_enumeration()
-
-                # Generate a simple report
-                self.print_section("LINKEDIN TEST COMPLETE")
+            # Show results summary
+            linkedin_data = self.results.get('linkedin_intel', {})
+            if linkedin_data.get('employees'):
                 self.print_success("LinkedIn enumeration completed!")
+                self.print_info(f"\nResults Summary:")
+                self.print_info(f"  Employees found: {len(linkedin_data['employees'])}")
+                self.print_info(f"  Departments: {', '.join(linkedin_data.get('departments', []))}")
 
-                # Show results summary
-                linkedin_data = self.results.get('linkedin_intel', {})
-                if linkedin_data.get('employees'):
-                    self.print_info(f"\nResults Summary:")
-                    self.print_info(f"  Employees found: {len(linkedin_data['employees'])}")
-                    self.print_info(f"  Departments: {', '.join(linkedin_data.get('departments', []))}")
+                # Save to JSON for review
+                json_file = self.output_dir / f"linkedin_test_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                with open(json_file, 'w') as f:
+                    json.dump(linkedin_data, f, indent=2)
+                self.print_success(f"Results saved to: {json_file}")
+            else:
+                self.print_warning("No LinkedIn data collected")
+                self.print_info("Check the HTML debug files in the output directory")
 
-                    # Save to JSON for review
-                    json_file = self.output_dir / f"linkedin_test_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-                    with open(json_file, 'w') as f:
-                        json.dump(linkedin_data, f, indent=2)
-                    self.print_success(f"Results saved to: {json_file}")
-                else:
-                    self.print_warning("No LinkedIn data collected - check cookie validity")
-
-            except KeyboardInterrupt:
-                self.print_warning("\nLinkedIn test interrupted by user")
-            except Exception as e:
-                self.print_error(f"Error during LinkedIn test: {e}")
-                import traceback
-                traceback.print_exc()
+        except KeyboardInterrupt:
+            self.print_warning("\nLinkedIn test interrupted by user")
+        except Exception as e:
+            self.print_error(f"Error during LinkedIn test: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _parse_whois(self, whois_output: str) -> Dict[str, str]:
         """Parse WHOIS output"""
