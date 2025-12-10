@@ -390,13 +390,19 @@ class ReconAutomation:
         return default_config
 
     def save_config(self):
-        """Save configuration to file"""
-        try:
-            with open(self.config_file, 'w') as f:
-                json.dump(self.config, f, indent=2)
-            self.print_success(f"Configuration saved to {self.config_file}")
-        except Exception as e:
-            self.print_error(f"Error saving config: {e}")
+            """Save configuration to file (excludes temporary credentials)"""
+            try:
+                # Create a copy without temporary credentials
+                config_to_save = self.config.copy()
+
+                # Remove temporary credentials that shouldn't be saved
+                config_to_save.pop('linkedin_cookie', None)
+
+                with open(self.config_file, 'w') as f:
+                    json.dump(config_to_save, f, indent=2)
+                self.print_success(f"Configuration saved to {self.config_file}")
+            except Exception as e:
+                self.print_error(f"Error saving config: {e}")
 
     def prompt_for_api_keys(self):
             """Prompt user for API keys if not already configured"""
@@ -426,22 +432,20 @@ class ReconAutomation:
 
             print("")
 
-            # LinkedIn Cookie
-            if not self.config.get('linkedin_cookie'):
-                print("[*] LinkedIn Session Cookie (for employee enumeration)")
-                print("    1. Log into LinkedIn in your browser")
-                print("    2. Open Developer Tools (F12) -> Application -> Cookies -> linkedin.com")
-                print("    3. Find the 'li_at' cookie and copy its value")
-                print("    Note: Cookie typically valid for 1 year")
-                cookie = input("    Enter LinkedIn li_at cookie (or press Enter to skip): ").strip()
-                if cookie:
-                    self.config['linkedin_cookie'] = cookie
-                    updated = True
-                    self.print_success("LinkedIn cookie configured")
-                else:
-                    self.print_info("Skipping LinkedIn cookie - employee enumeration will be limited")
+            # LinkedIn Cookie - ALWAYS prompt (not saved, expires after use)
+            print("[*] LinkedIn Session Cookie (for employee enumeration)")
+            print("    Note: Cookie must be fresh - expires after single use")
+            print("    1. Log into LinkedIn in your browser (in a NEW incognito/private window)")
+            print("    2. Open Developer Tools (F12) -> Application -> Cookies -> linkedin.com")
+            print("    3. Find the 'li_at' cookie and copy its value")
+            print("    4. Paste it below (cookie will NOT be saved for security)")
+            cookie = input("    Enter LinkedIn li_at cookie (or press Enter to skip): ").strip()
+            if cookie:
+                self.config['linkedin_cookie'] = cookie
+                # NOTE: Do NOT save to config file - it's temporary
+                self.print_success("LinkedIn cookie configured for this session only")
             else:
-                self.print_success("LinkedIn cookie already configured")
+                self.print_info("Skipping LinkedIn cookie - employee enumeration will be skipped")
 
             print("")
 
@@ -761,12 +765,14 @@ class ReconAutomation:
 
             # Check if LinkedIn cookie is configured
             if not self.config.get('linkedin_cookie'):
-                self.print_warning("No LinkedIn session cookie configured.")
+                self.print_warning("No LinkedIn session cookie provided.")
+                self.print_info("LinkedIn requires a fresh session cookie for each run.")
                 self.print_info("To enable LinkedIn enumeration:")
-                self.print_info("  1. Log into LinkedIn in your browser")
-                self.print_info("  2. Open Developer Tools (F12) -> Application -> Cookies")
-                self.print_info("  3. Find the 'li_at' cookie value")
-                self.print_info("  4. Add to config: \"linkedin_cookie\": \"your_li_at_value\"")
+                self.print_info("  1. Open LinkedIn in a NEW incognito/private browser window")
+                self.print_info("  2. Log in to LinkedIn")
+                self.print_info("  3. Open Developer Tools (F12) -> Application -> Cookies")
+                self.print_info("  4. Find the 'li_at' cookie value")
+                self.print_info("  5. Re-run script and provide the fresh cookie when prompted")
                 self.print_info("Skipping LinkedIn enumeration...")
                 return
 
@@ -3677,65 +3683,68 @@ class ReconAutomation:
                     f.write("\n")
 
     def run_all(self):
-        """Run all reconnaissance modules"""
-        self.print_banner()
+            """Run all reconnaissance modules"""
+            self.print_banner()
 
-        # Prompt for API keys at startup
-        self.prompt_for_api_keys()
+            # Prompt for API keys at startup
+            self.prompt_for_api_keys()
 
-        try:
-            # Phase 1: Basic reconnaissance
-            self.scope_validation()
-            self.dns_enumeration()
-            self.technology_stack_identification()
+            try:
+                # Phase 1: Basic reconnaissance
+                self.scope_validation()
+                self.dns_enumeration()
+                self.technology_stack_identification()
 
-            # Phase 2: OSINT and intelligence gathering
-            if not self.args.skip_linkedin:
-                self.linkedin_enumeration()
+                # Phase 2: OSINT and intelligence gathering
+                # LinkedIn enumeration - runs if cookie was provided
+                if self.config.get('linkedin_cookie'):
+                    self.linkedin_enumeration()
+                else:
+                    self.print_info("Skipping LinkedIn enumeration (no cookie provided)")
 
-            self.email_harvesting()
+                self.email_harvesting()
 
-            if not self.args.skip_breach_check:
-                self.breach_database_check()
+                if not self.args.skip_breach_check:
+                    self.breach_database_check()
 
-            # Phase 3: Advanced enumeration
-            if not self.args.skip_github:
-                self.github_secret_scanning()
+                # Phase 3: Advanced enumeration
+                if not self.args.skip_github:
+                    self.github_secret_scanning()
 
-            if not self.args.skip_asn:
-                self.asn_enumeration()
+                if not self.args.skip_asn:
+                    self.asn_enumeration()
 
-            if not self.args.skip_subdomain_takeover:
-                self.subdomain_takeover_detection()
+                if not self.args.skip_subdomain_takeover:
+                    self.subdomain_takeover_detection()
 
-            # Phase 4: Cloud storage enumeration
-            if not self.args.skip_s3:
-                self.s3_bucket_enumeration()
+                # Phase 4: Cloud storage enumeration
+                if not self.args.skip_s3:
+                    self.s3_bucket_enumeration()
 
-            if not self.args.skip_azure:
-                self.azure_storage_enumeration()
+                if not self.args.skip_azure:
+                    self.azure_storage_enumeration()
 
-            if not self.args.skip_gcp:
-                self.gcp_storage_enumeration()
+                if not self.args.skip_gcp:
+                    self.gcp_storage_enumeration()
 
-            # Phase 5: Network enumeration (last due to time)
-            if not self.args.skip_scan:
-                self.network_enumeration()
+                # Phase 5: Network enumeration (last due to time)
+                if not self.args.skip_scan:
+                    self.network_enumeration()
 
-            # Generate reports
-            self.generate_report()
+                # Generate reports
+                self.generate_report()
 
-            self.print_section("RECONNAISSANCE COMPLETE")
-            self.print_success("All modules completed successfully!")
-            self.print_info(f"Results saved to: {self.output_dir}")
+                self.print_section("RECONNAISSANCE COMPLETE")
+                self.print_success("All modules completed successfully!")
+                self.print_info(f"Results saved to: {self.output_dir}")
 
-        except KeyboardInterrupt:
-            self.print_warning("\nReconnaissance interrupted by user")
-            self.generate_report()
-        except Exception as e:
-            self.print_error(f"Error during reconnaissance: {e}")
-            import traceback
-            traceback.print_exc()
+            except KeyboardInterrupt:
+                self.print_warning("\nReconnaissance interrupted by user")
+                self.generate_report()
+            except Exception as e:
+                self.print_error(f"Error during reconnaissance: {e}")
+                import traceback
+                traceback.print_exc()
 
 def main():
     parser = argparse.ArgumentParser(
