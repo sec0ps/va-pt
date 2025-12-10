@@ -776,7 +776,26 @@ class ReconAutomation:
                 self.print_info("Skipping LinkedIn enumeration...")
                 return
 
-            company_name = self.domain.split('.')[0]
+            # Generate search terms from both domain and client name
+            search_terms = []
+
+            # Term 1: Domain prefix (e.g., "redcellsecurity" from "redcellsecurity.org")
+            domain_prefix = self.domain.split('.')[0]
+            search_terms.append(domain_prefix)
+
+            # Term 2: Client name as provided (e.g., "Red Cell Security")
+            if self.client_name and self.client_name != domain_prefix:
+                search_terms.append(self.client_name)
+
+            # Term 3: Client name variations (remove common suffixes)
+            client_clean = self.client_name
+            for suffix in [' LLC', ' Inc', ' Corp', ' Corporation', ' Ltd', ' Limited', ' Company', ' Co']:
+                if client_clean.endswith(suffix):
+                    client_clean = client_clean[:-len(suffix)].strip()
+            if client_clean not in search_terms:
+                search_terms.append(client_clean)
+
+            self.print_info(f"Search terms: {', '.join(search_terms)}")
 
             # Set up authenticated session
             linkedin_session = requests.Session()
@@ -795,127 +814,138 @@ class ReconAutomation:
                 'Csrf-Token': 'ajax:' + ''.join(re.findall(r'\d+', self.config['linkedin_cookie'])[:12])
             })
 
-            self.print_info(f"Searching LinkedIn for employees at {company_name}...")
+            all_names_found = set()
+            all_titles = []
 
-            # Method 1: Search for company employees
-            try:
-                # LinkedIn people search URL
-                search_url = f"https://www.linkedin.com/search/results/people/?keywords={company_name}&origin=GLOBAL_SEARCH_HEADER"
+            # Search for each term
+            for search_term in search_terms:
+                self.print_info(f"Searching LinkedIn for: {search_term}")
 
-                self.print_info("Fetching employee profiles from LinkedIn search...")
-                response = linkedin_session.get(search_url, timeout=15)
+                try:
+                    # LinkedIn people search URL
+                    search_url = f"https://www.linkedin.com/search/results/people/?keywords={search_term.replace(' ', '%20')}&origin=GLOBAL_SEARCH_HEADER"
 
-                if response.status_code == 200:
-                    if 'authwall' in response.url or 'login' in response.url:
-                        self.print_error("LinkedIn session cookie is invalid or expired")
-                        self.print_info("Please update your li_at cookie in the config file")
-                        return
+                    response = linkedin_session.get(search_url, timeout=15)
 
-                    # Parse HTML for employee data
-                    html = response.text
+                    if response.status_code == 200:
+                        if 'authwall' in response.url or 'login' in response.url:
+                            self.print_error("LinkedIn session cookie is invalid or expired")
+                            self.print_info("Please provide a fresh li_at cookie")
+                            return
 
-                    # Extract employee cards from search results
-                    # LinkedIn uses data-chameleon-result-urn for each result
-                    employee_cards = re.findall(r'data-chameleon-result-urn="urn:li:member:(\d+)"', html)
+                        # Parse HTML for employee data
+                        html = response.text
 
-                    # Extract names from results (multiple patterns as backup)
-                    name_patterns = [
-                        r'<span[^>]*aria-hidden="true">([^<]+)</span>[^<]*<span[^>]*>([^<]+)</span>',  # First Last name pattern
-                        r'alt="([^"]+)"[^>]*class="[^"]*profile-photo',  # Profile photo alt text
-                        r'<span class="entity-result__title-text[^>]*>.*?<span[^>]*>([^<]+)</span>',  # Title text
-                    ]
+                        # Extract employee cards from search results
+                        employee_cards = re.findall(r'data-chameleon-result-urn="urn:li:member:(\d+)"', html)
 
-                    names_found = set()
-                    for pattern in name_patterns:
-                        matches = re.findall(pattern, html, re.DOTALL)
-                        for match in matches:
-                            if isinstance(match, tuple):
-                                name = ' '.join(match).strip()
+                        # Extract names from results (multiple patterns as backup)
+                        name_patterns = [
+                            r'<span[^>]*aria-hidden="true">([^<]+)</span>[^<]*<span[^>]*>([^<]+)</span>',
+                            r'alt="([^"]+)"[^>]*class="[^"]*profile-photo',
+                            r'<span class="entity-result__title-text[^>]*>.*?<span[^>]*>([^<]+)</span>',
+                        ]
+
+                        names_found = set()
+                        for pattern in name_patterns:
+                            matches = re.findall(pattern, html, re.DOTALL)
+                            for match in matches:
+                                if isinstance(match, tuple):
+                                    name = ' '.join(match).strip()
+                                else:
+                                    name = match.strip()
+
+                                # Filter out non-name results
+                                if len(name) > 3 and len(name) < 50 and ' ' in name:
+                                    names_found.add(name)
+                                    all_names_found.add(name)
+
+                        # Extract job titles
+                        title_pattern = r'<div[^>]*class="[^"]*entity-result__primary-subtitle[^>]*>([^<]+)</div>'
+                        titles = re.findall(title_pattern, html)
+                        all_titles.extend(titles)
+
+                        self.print_success(f"Found {len(names_found)} names for '{search_term}'")
+
+                        time.sleep(3)  # Rate limiting between searches
+
+                    elif response.status_code == 429:
+                        self.print_error("LinkedIn rate limit hit. Stopping LinkedIn enumeration.")
+                        break
+                    else:
+                        self.print_warning(f"LinkedIn search returned status {response.status_code} for '{search_term}'")
+
+                except Exception as e:
+                    self.print_error(f"Error searching LinkedIn for '{search_term}': {e}")
+
+            # Process all found names
+            self.print_info(f"\nProcessing {len(all_names_found)} unique names...")
+
+            for i, name in enumerate(sorted(all_names_found)):
+                employee_data = {
+                    'name': name,
+                    'source': 'linkedin_search',
+                    'title': all_titles[i] if i < len(all_titles) else 'Unknown',
+                    'profile_url': f"https://www.linkedin.com/search/results/people/?keywords={name.replace(' ', '%20')}"
+                }
+
+                # Try to infer email
+                name_parts = name.split()
+                if len(name_parts) >= 2:
+                    employee_data['first_name'] = name_parts[0]
+                    employee_data['last_name'] = name_parts[-1]
+
+                    # Generate possible emails based on discovered patterns
+                    emails = self.results.get('email_addresses', [])
+                    if emails:
+                        # Infer format from existing emails
+                        sample_email = emails[0] if emails else None
+                        if sample_email:
+                            local_part = sample_email.split('@')[0]
+                            if '.' in local_part:
+                                # firstname.lastname format
+                                possible_email = f"{name_parts[0].lower()}.{name_parts[-1].lower()}@{self.domain}"
                             else:
-                                name = match.strip()
+                                # firstnamelastname format
+                                possible_email = f"{name_parts[0].lower()}{name_parts[-1].lower()}@{self.domain}"
 
-                            # Filter out non-name results
-                            if len(name) > 3 and len(name) < 50 and ' ' in name:
-                                names_found.add(name)
+                            employee_data['possible_email'] = possible_email
 
-                    # Extract job titles
-                    title_pattern = r'<div[^>]*class="[^"]*entity-result__primary-subtitle[^>]*>([^<]+)</div>'
-                    titles = re.findall(title_pattern, html)
+                linkedin_intel['employees'].append(employee_data)
 
-                    # Combine names with titles where possible
-                    for i, name in enumerate(sorted(names_found)):
-                        employee_data = {
-                            'name': name,
-                            'source': 'linkedin_search',
-                            'title': titles[i] if i < len(titles) else 'Unknown',
-                            'profile_url': f"https://www.linkedin.com/search/results/people/?keywords={name.replace(' ', '%20')}%20{company_name}"
-                        }
+                # Track titles and departments
+                if employee_data['title'] != 'Unknown':
+                    title_lower = employee_data['title'].lower()
+                    linkedin_intel['titles'][employee_data['title']] = linkedin_intel['titles'].get(employee_data['title'], 0) + 1
 
-                        # Try to infer email
-                        name_parts = name.split()
-                        if len(name_parts) >= 2:
-                            employee_data['first_name'] = name_parts[0]
-                            employee_data['last_name'] = name_parts[-1]
+                    # Identify departments from titles
+                    dept_keywords = {
+                        'engineering': ['engineer', 'developer', 'architect', 'devops', 'programmer', 'coder'],
+                        'security': ['security', 'infosec', 'cybersecurity', 'ciso', 'soc', 'analyst'],
+                        'it': ['it ', 'sysadmin', 'system administrator', 'infrastructure', 'network'],
+                        'management': ['manager', 'director', 'vp', 'chief', 'head of', 'ceo', 'cto', 'cfo'],
+                        'sales': ['sales', 'account executive', 'business development', 'account manager'],
+                        'marketing': ['marketing', 'content', 'communications', 'brand'],
+                        'operations': ['operations', 'ops', 'logistics', 'project manager'],
+                        'finance': ['finance', 'accounting', 'accountant', 'controller', 'treasurer']
+                    }
 
-                            # Generate possible emails based on discovered patterns
-                            emails = self.results.get('email_addresses', [])
-                            if emails:
-                                # Infer format from existing emails
-                                sample_email = emails[0] if emails else None
-                                if sample_email:
-                                    local_part = sample_email.split('@')[0]
-                                    if '.' in local_part:
-                                        # firstname.lastname format
-                                        possible_email = f"{name_parts[0].lower()}.{name_parts[-1].lower()}@{self.domain}"
-                                    else:
-                                        # firstnamelastname format
-                                        possible_email = f"{name_parts[0].lower()}{name_parts[-1].lower()}@{self.domain}"
+                    for dept, keywords in dept_keywords.items():
+                        if any(keyword in title_lower for keyword in keywords):
+                            linkedin_intel['departments'].add(dept)
 
-                                    employee_data['possible_email'] = possible_email
+            self.print_success(f"Processed {len(linkedin_intel['employees'])} total unique employees")
 
-                        linkedin_intel['employees'].append(employee_data)
+            # Show sample results
+            if linkedin_intel['employees']:
+                self.print_info("\nSample employee profiles:")
+                for emp in linkedin_intel['employees'][:10]:
+                    title_info = f" - {emp['title']}" if emp['title'] != 'Unknown' else ""
+                    email_info = f" ({emp.get('possible_email', 'email unknown')})" if emp.get('possible_email') else ""
+                    self.print_info(f"  {emp['name']}{title_info}{email_info}")
 
-                        # Track titles and departments
-                        if employee_data['title'] != 'Unknown':
-                            title_lower = employee_data['title'].lower()
-                            linkedin_intel['titles'][employee_data['title']] = linkedin_intel['titles'].get(employee_data['title'], 0) + 1
-
-                            # Identify departments from titles
-                            dept_keywords = {
-                                'engineering': ['engineer', 'developer', 'architect', 'devops'],
-                                'security': ['security', 'infosec', 'cybersecurity', 'ciso', 'soc'],
-                                'it': ['it ', 'sysadmin', 'system administrator', 'infrastructure'],
-                                'management': ['manager', 'director', 'vp', 'chief', 'head of'],
-                                'sales': ['sales', 'account executive', 'business development'],
-                                'marketing': ['marketing', 'content', 'communications']
-                            }
-
-                            for dept, keywords in dept_keywords.items():
-                                if any(keyword in title_lower for keyword in keywords):
-                                    linkedin_intel['departments'].add(dept)
-
-                    self.print_success(f"Found {len(linkedin_intel['employees'])} employee profiles")
-
-                    # Show sample results
-                    for emp in linkedin_intel['employees'][:10]:
-                        title_info = f" - {emp['title']}" if emp['title'] != 'Unknown' else ""
-                        email_info = f" ({emp.get('possible_email', 'email unknown')})" if emp.get('possible_email') else ""
-                        self.print_info(f"  {emp['name']}{title_info}{email_info}")
-
-                    if len(linkedin_intel['employees']) > 10:
-                        self.print_info(f"  ... and {len(linkedin_intel['employees']) - 10} more")
-
-                    time.sleep(2)  # Rate limiting
-
-                elif response.status_code == 429:
-                    self.print_error("LinkedIn rate limit hit. Wait before trying again.")
-                else:
-                    self.print_warning(f"LinkedIn search returned status {response.status_code}")
-
-            except Exception as e:
-                self.print_error(f"Error searching LinkedIn: {e}")
-                import traceback
-                traceback.print_exc()
+                if len(linkedin_intel['employees']) > 10:
+                    self.print_info(f"  ... and {len(linkedin_intel['employees']) - 10} more")
 
             # Method 2: Email pattern inference from discovered names
             if linkedin_intel['employees']:
@@ -956,6 +986,7 @@ class ReconAutomation:
 
             # Summary
             self.print_info(f"\nLinkedIn Intelligence Summary:")
+            self.print_info(f"  Search terms used: {', '.join(search_terms)}")
             self.print_info(f"  Employees found: {len(linkedin_intel['employees'])}")
             self.print_info(f"  Departments identified: {', '.join(linkedin_intel['departments']) if linkedin_intel['departments'] else 'None'}")
 
