@@ -1850,12 +1850,21 @@ class ReconAutomation:
             web_emails = self._scrape_emails_from_web()
             emails.update(web_emails)
 
+            # Hardcoded exclusion list - known false positives
+            excluded_addresses = {
+                'cmartorella@edge-security.com',  # theHarvester author - shows up in tool output
+            }
+
             # Filter to only valid-looking emails from target domain and related domains
             filtered_emails = []
             rejected_emails = []
 
             for email in emails:
                 email_lower = email.lower()
+
+                # Skip hardcoded exclusions
+                if email_lower in excluded_addresses:
+                    continue
 
                 # Skip obvious garbage
                 if len(email) > 100:  # Too long
@@ -1872,7 +1881,6 @@ class ReconAutomation:
                     rejected_emails.append((email, "looks like hash/UUID"))
                     continue
 
-                # Check if email is from target domain or subdomain
                 domain_lower = domain.lower()
                 target_domain_lower = self.domain.lower()
 
@@ -1899,11 +1907,13 @@ class ReconAutomation:
             else:
                 self.print_warning(f"No emails found for target domain ({self.domain})")
 
-                # Show all emails found before filtering for debugging
+                # Show all emails found before filtering for debugging (exclude hardcoded exclusions)
                 if emails:
-                    self.print_info(f"All emails discovered (before filtering):")
-                    for email in sorted(emails)[:10]:
-                        self.print_info(f"  {email}")
+                    debug_emails = [e for e in emails if e.lower() not in excluded_addresses]
+                    if debug_emails:
+                        self.print_info(f"All emails discovered (before filtering):")
+                        for email in sorted(debug_emails)[:10]:
+                            self.print_info(f"  {email}")
 
     def _run_theharvester(self) -> List[str]:
             """Run theHarvester tool"""
