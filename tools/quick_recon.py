@@ -781,20 +781,24 @@ class ReconAutomation:
 
             self.print_info(f"Searching LinkedIn for: {search_term}")
 
-            # Set up authenticated session
+            # Set up authenticated session with desktop headers
             linkedin_session = requests.Session()
             linkedin_session.cookies.set('li_at', self.config['linkedin_cookie'])
             linkedin_session.headers.update({
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
                 'Accept-Encoding': 'gzip, deflate, br',
-                'DNT': '1',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache',
+                'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                'Sec-Ch-Ua-Mobile': '?0',
+                'Sec-Ch-Ua-Platform': '"Windows"',
                 'Sec-Fetch-Dest': 'document',
                 'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'none'
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'Upgrade-Insecure-Requests': '1',
             })
 
             encoded_term = search_term.replace(' ', '%20').replace(',', '%2C')
@@ -804,89 +808,66 @@ class ReconAutomation:
             # =====================================================================
             self.print_info(f"\n[1/2] Searching for company: {search_term}")
 
+            # Use www. explicitly to avoid mobile redirect
             company_search_url = f"https://www.linkedin.com/search/results/companies/?keywords={encoded_term}&origin=SWITCH_SEARCH_VERTICAL"
-
-            self.print_info(f"URL: {company_search_url}")
 
             try:
                 response = linkedin_session.get(company_search_url, timeout=15, allow_redirects=True)
 
-                # Debug output
                 self.print_info(f"Response status: {response.status_code}")
                 self.print_info(f"Final URL: {response.url}")
-                self.print_info(f"Response length: {len(response.text)} bytes")
 
                 if response.status_code == 200:
-                    # Check for auth redirect
                     if 'authwall' in response.url or 'login' in response.url or 'checkpoint' in response.url:
                         self.print_error("LinkedIn session cookie is invalid or expired")
-                        self.print_info("Please provide a fresh li_at cookie")
                         return
 
                     html = response.text
 
-                    # Debug: Check what we got
-                    if 'search-results' in html.lower() or 'entity-result' in html.lower():
-                        self.print_info("Response contains search results")
-                    else:
-                        self.print_warning("Response does NOT appear to contain search results")
-                        # Show a snippet to debug
-                        self.print_info(f"Response preview: {html[:500]}")
-
-                    # Extract company links - try multiple patterns
-                    patterns = [
-                        r'href="(https://www\.linkedin\.com/company/[^"/]+)/?[^"]*"',
-                        r'href="/company/([^"/]+)/?[^"]*"',
-                        r'data-entity-urn="urn:li:company:(\d+)"',
+                    # LinkedIn embeds data as JSON in script tags - look for it
+                    # Pattern 1: Look for company data in included JSON
+                    json_patterns = [
+                        r'"companyName":"([^"]+)"',
+                        r'"name":"([^"]+)"[^}]*"entityUrn":"urn:li:fsd_company:',
+                        r'"title":"([^"]+)"[^}]*"url":"https://www\.linkedin\.com/company/',
+                        r'"company":\{[^}]*"name":"([^"]+)"',
+                        r'data-anonymize="company-name">([^<]+)<',
+                        r'"universalName":"([^"]+)"',
                     ]
 
-                    company_matches = []
-                    for pattern in patterns:
+                    company_names = set()
+                    for pattern in json_patterns:
                         matches = re.findall(pattern, html)
-                        self.print_info(f"Pattern '{pattern[:40]}...' found {len(matches)} matches")
-                        company_matches.extend(matches)
+                        for match in matches:
+                            if len(match) > 2 and len(match) < 100:
+                                company_names.add(match)
 
-                    if company_matches:
-                        # Normalize URLs
-                        unique_companies = []
-                        for match in company_matches:
-                            if match.startswith('http'):
-                                url = match
-                            elif match.isdigit():
-                                url = f"https://www.linkedin.com/company/{match}"
-                            else:
-                                url = f"https://www.linkedin.com/company/{match}"
-                            if url not in unique_companies:
-                                unique_companies.append(url)
+                    # Also look for company URLs
+                    url_pattern = r'linkedin\.com/company/([a-zA-Z0-9\-]+)'
+                    company_slugs = set(re.findall(url_pattern, html))
 
-                        unique_companies = unique_companies[:5]
-                        self.print_success(f"Found {len(unique_companies)} company matches:")
+                    # Filter out generic slugs
+                    filtered_slugs = [s for s in company_slugs if s not in ['company', 'companies', 'search', 'login']]
 
-                        for company_url in unique_companies:
-                            company_slug = company_url.split('/company/')[-1].rstrip('/')
-                            self.print_info(f"  - {company_slug}: {company_url}")
+                    if filtered_slugs:
+                        self.print_success(f"Found {len(filtered_slugs)} company matches:")
+                        for slug in list(filtered_slugs)[:10]:
+                            url = f"https://www.linkedin.com/company/{slug}"
+                            self.print_info(f"  - {slug}: {url}")
 
                         linkedin_intel['company_info'] = {
-                            'url': unique_companies[0],
-                            'slug': unique_companies[0].split('/company/')[-1].rstrip('/'),
-                            'all_matches': unique_companies
+                            'slugs': list(filtered_slugs)[:10],
+                            'urls': [f"https://www.linkedin.com/company/{s}" for s in list(filtered_slugs)[:10]]
                         }
                     else:
-                        self.print_warning("No company matches found")
-                        # Check if content contains "Baker Tilly" to verify we got the right page
-                        if search_term.lower() in html.lower():
-                            self.print_info(f"Search term '{search_term}' IS present in response")
-                        else:
-                            self.print_warning(f"Search term '{search_term}' NOT found in response")
+                        self.print_warning("No company matches found in response")
                 else:
                     self.print_warning(f"Company search returned status {response.status_code}")
 
             except Exception as e:
                 self.print_error(f"Error during company search: {e}")
-                import traceback
-                traceback.print_exc()
 
-            time.sleep(3)  # Rate limiting between searches
+            time.sleep(3)
 
             # =====================================================================
             # SEARCH 2: Find people who work at the company
@@ -895,18 +876,14 @@ class ReconAutomation:
 
             people_search_url = f"https://www.linkedin.com/search/results/people/?keywords={encoded_term}&origin=SWITCH_SEARCH_VERTICAL"
 
-            self.print_info(f"URL: {people_search_url}")
-
             all_names_found = set()
             all_titles = []
 
             try:
                 response = linkedin_session.get(people_search_url, timeout=15, allow_redirects=True)
 
-                # Debug output
                 self.print_info(f"Response status: {response.status_code}")
                 self.print_info(f"Final URL: {response.url}")
-                self.print_info(f"Response length: {len(response.text)} bytes")
 
                 if response.status_code == 200:
                     if 'authwall' in response.url or 'login' in response.url:
@@ -915,36 +892,49 @@ class ReconAutomation:
 
                     html = response.text
 
-                    # Debug: Check what we got
-                    if 'search-results' in html.lower() or 'entity-result' in html.lower():
-                        self.print_info("Response contains search results")
-                    else:
-                        self.print_warning("Response does NOT appear to contain search results")
-                        self.print_info(f"Response preview: {html[:500]}")
-
-                    # Extract names using multiple patterns
-                    patterns_with_names = [
-                        (r'<span[^>]*aria-hidden="true"[^>]*>([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)</span>', 'aria-hidden'),
-                        (r'href="/in/[^"]+">([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)</a>', 'profile links'),
-                        (r'entity-result__title[^>]*>.*?<span[^>]*>([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)</span>', 'entity-result'),
-                        (r'"name":"([^"]+)"', 'JSON name field'),
+                    # LinkedIn embeds profile data as JSON - extract names from it
+                    name_patterns = [
+                        # JSON embedded data patterns
+                        r'"firstName":"([^"]+)","lastName":"([^"]+)"',
+                        r'"name":"([A-Z][a-z]+ [A-Z][a-z]+(?:\s[A-Z][a-z]+)?)"',
+                        r'"title":"([A-Z][a-z]+ [A-Z][a-z]+(?:\s[A-Z][a-z]+)?)"[^}]*"publicIdentifier"',
+                        r'"text":"([A-Z][a-z]+ [A-Z][a-z]+(?:\s[A-Z][a-z]+)?)"[^}]*"accessibilityText"',
+                        # HTML patterns (fallback)
+                        r'aria-label="([A-Z][a-z]+ [A-Z][a-z]+(?:\s[A-Z][a-z]+)?)[,\s]',
+                        r'>([A-Z][a-z]+ [A-Z][a-z]+(?:\s[A-Z][a-z]+)?)</span></a></span><span',
                     ]
 
-                    for pattern, desc in patterns_with_names:
-                        matches = re.findall(pattern, html, re.DOTALL)
-                        self.print_info(f"Pattern '{desc}' found {len(matches)} matches")
-
+                    for pattern in name_patterns:
+                        matches = re.findall(pattern, html)
                         for match in matches:
-                            name = match.strip()
+                            if isinstance(match, tuple):
+                                # firstName, lastName tuple
+                                name = f"{match[0]} {match[1]}"
+                            else:
+                                name = match.strip()
+
+                            # Validate name
                             if len(name) > 4 and len(name) < 50 and 1 < len(name.split()) <= 4:
-                                if not any(word in name.lower() for word in ['linkedin', 'view', 'profile', 'message', 'connect', 'search', 'people']):
+                                # Skip non-names
+                                skip_words = ['linkedin', 'view', 'profile', 'message', 'connect',
+                                            'search', 'people', 'results', 'baker tilly', 'about',
+                                            'jobs', 'company', 'sign', 'join']
+                                if not any(word in name.lower() for word in skip_words):
                                     all_names_found.add(name)
 
-                    # Extract job titles
-                    title_pattern = r'<div[^>]*class="[^"]*entity-result__primary-subtitle[^>]*>([^<]+)</div>'
-                    titles = re.findall(title_pattern, html)
-                    all_titles = [t.strip() for t in titles if t.strip()]
-                    self.print_info(f"Found {len(all_titles)} job titles")
+                    # Extract job titles from JSON
+                    title_patterns = [
+                        r'"headline":"([^"]+)"',
+                        r'"text":"([^"]+)"[^}]*"$type":"com.linkedin.voyager.dash.search.SearchHitV2Text"',
+                    ]
+
+                    for pattern in title_patterns:
+                        titles = re.findall(pattern, html)
+                        for title in titles:
+                            if len(title) > 3 and len(title) < 200:
+                                # Filter out non-title content
+                                if not any(word in title.lower() for word in ['linkedin', 'search', 'view']):
+                                    all_titles.append(title.strip())
 
                     self.print_success(f"Found {len(all_names_found)} employees")
 
@@ -955,8 +945,6 @@ class ReconAutomation:
 
             except Exception as e:
                 self.print_error(f"Error during people search: {e}")
-                import traceback
-                traceback.print_exc()
 
             # =====================================================================
             # Process and store results
@@ -1021,8 +1009,10 @@ class ReconAutomation:
 
             # Summary
             self.print_info(f"\nLinkedIn Summary:")
-            if linkedin_intel.get('company_info'):
-                self.print_info(f"  Company: {linkedin_intel['company_info'].get('url', 'Unknown')}")
+            if linkedin_intel.get('company_info', {}).get('urls'):
+                self.print_info(f"  Companies found: {len(linkedin_intel['company_info']['urls'])}")
+                for url in linkedin_intel['company_info']['urls'][:5]:
+                    self.print_info(f"    - {url}")
             self.print_info(f"  Employees: {len(linkedin_intel['employees'])}")
             self.print_info(f"  Departments: {', '.join(linkedin_intel['departments']) if linkedin_intel['departments'] else 'None'}")
 
