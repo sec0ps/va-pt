@@ -756,8 +756,8 @@ class ReconAutomation:
         self.print_section("LinkedIn Information Gathering")
 
         linkedin_intel = {
+            'company_info': {},
             'employees': [],
-            'search_urls': [],
             'email_patterns': {},
             'titles': {},
             'departments': set()
@@ -776,26 +776,10 @@ class ReconAutomation:
             self.print_info("Skipping LinkedIn enumeration...")
             return
 
-        # Generate search terms from both domain and client name
-        search_terms = []
+        # Use client name for searches
+        search_term = self.client_name
 
-        # Term 1: Domain prefix (e.g., "redcellsecurity" from "redcellsecurity.org")
-        domain_prefix = self.domain.split('.')[0]
-        search_terms.append(domain_prefix)
-
-        # Term 2: Client name as provided (e.g., "Red Cell Security")
-        if self.client_name and self.client_name != domain_prefix:
-            search_terms.append(self.client_name)
-
-        # Term 3: Client name variations (remove common suffixes)
-        client_clean = self.client_name
-        for suffix in [' LLC', ' Inc', ' Corp', ' Corporation', ' Ltd', ' Limited', ' Company', ' Co']:
-            if client_clean.endswith(suffix):
-                client_clean = client_clean[:-len(suffix)].strip()
-        if client_clean not in search_terms:
-            search_terms.append(client_clean)
-
-        self.print_info(f"Search terms: {', '.join(search_terms)}")
+        self.print_info(f"Searching LinkedIn for: {search_term}")
 
         # Set up authenticated session
         linkedin_session = requests.Session()
@@ -813,147 +797,121 @@ class ReconAutomation:
             'Sec-Fetch-Site': 'none'
         })
 
+        encoded_term = search_term.replace(' ', '%20').replace(',', '%2C')
+
+        # =====================================================================
+        # SEARCH 1: Find the company
+        # =====================================================================
+        self.print_info(f"\n[1/2] Searching for company: {search_term}")
+
+        company_search_url = f"https://www.linkedin.com/search/results/companies/?keywords={encoded_term}&origin=SWITCH_SEARCH_VERTICAL"
+
+        try:
+            response = linkedin_session.get(company_search_url, timeout=15, allow_redirects=True)
+
+            if response.status_code == 200:
+                if 'authwall' in response.url or 'login' in response.url or 'checkpoint' in response.url:
+                    self.print_error("LinkedIn session cookie is invalid or expired")
+                    self.print_info("Please provide a fresh li_at cookie")
+                    return
+
+                html = response.text
+
+                # Extract company links
+                company_pattern = r'href="(https://www\.linkedin\.com/company/[^"/]+)/?[^"]*"'
+                company_matches = re.findall(company_pattern, html)
+
+                if company_matches:
+                    unique_companies = list(dict.fromkeys(company_matches))[:5]
+                    self.print_success(f"Found {len(unique_companies)} company matches:")
+
+                    for company_url in unique_companies:
+                        company_slug = company_url.split('/company/')[-1].rstrip('/')
+                        self.print_info(f"  - {company_slug}: {company_url}")
+
+                    linkedin_intel['company_info'] = {
+                        'url': unique_companies[0],
+                        'slug': unique_companies[0].split('/company/')[-1].rstrip('/'),
+                        'all_matches': unique_companies
+                    }
+                else:
+                    self.print_warning("No company matches found")
+            else:
+                self.print_warning(f"Company search returned status {response.status_code}")
+
+        except Exception as e:
+            self.print_error(f"Error during company search: {e}")
+
+        time.sleep(3)  # Rate limiting between searches
+
+        # =====================================================================
+        # SEARCH 2: Find people who work at the company
+        # =====================================================================
+        self.print_info(f"\n[2/2] Searching for people at: {search_term}")
+
+        people_search_url = f"https://www.linkedin.com/search/results/people/?keywords={encoded_term}&origin=SWITCH_SEARCH_VERTICAL"
+
         all_names_found = set()
         all_titles = []
 
-        # Search for each term
-        for search_term in search_terms:
-            self.print_info(f"Searching LinkedIn for: {search_term}")
+        try:
+            response = linkedin_session.get(people_search_url, timeout=15, allow_redirects=True)
 
-            try:
-                # LinkedIn people search URL - try company search instead
-                search_url = f"https://www.linkedin.com/search/results/people/?keywords={search_term.replace(' ', '%20')}&origin=GLOBAL_SEARCH_HEADER"
+            if response.status_code == 200:
+                if 'authwall' in response.url or 'login' in response.url:
+                    self.print_error("LinkedIn session cookie is invalid or expired")
+                    return
 
-                self.print_info(f"Request URL: {search_url}")
-                response = linkedin_session.get(search_url, timeout=15, allow_redirects=True)
+                html = response.text
 
-                self.print_info(f"Response status: {response.status_code}")
-                self.print_info(f"Final URL: {response.url}")
+                # Extract names using multiple patterns
+                pattern1 = r'<span[^>]*aria-hidden="true"[^>]*>([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)</span>'
+                matches1 = re.findall(pattern1, html)
 
-                if response.status_code == 200:
-                    # Check for auth issues
-                    if 'authwall' in response.url or 'login' in response.url or 'checkpoint' in response.url:
-                        self.print_error("LinkedIn session cookie is invalid or expired")
-                        self.print_info("Cookie redirected to login/auth page")
-                        # Save HTML for debugging
-                        debug_file = self.output_dir / f"linkedin_debug_{search_term.replace(' ', '_')}.html"
-                        with open(debug_file, 'w', encoding='utf-8') as f:
-                            f.write(response.text)
-                        self.print_info(f"Saved response to: {debug_file}")
-                        return
+                pattern2 = r'href="/in/[^"]+">([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)</a>'
+                matches2 = re.findall(pattern2, html)
 
-                    # Parse HTML for employee data
-                    html = response.text
-                    html_lower = html.lower()
+                pattern3 = r'entity-result__title[^>]*>.*?<span[^>]*>([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)</span>'
+                matches3 = re.findall(pattern3, html, re.DOTALL)
 
-                    # Debug: Check what's in the response
-                    self.print_info(f"Response length: {len(html)} bytes")
+                # Combine all matches
+                for match in matches1 + matches2 + matches3:
+                    name = match.strip()
+                    if len(name) > 4 and len(name) < 50 and 1 < len(name.split()) <= 4:
+                        if not any(word in name.lower() for word in ['linkedin', 'view', 'profile', 'message', 'connect']):
+                            all_names_found.add(name)
 
-                    # Check if it's actually a search results page
-                    if 'search-results' not in html_lower and 'entity-result' not in html_lower:
-                        self.print_warning("Response doesn't appear to be a search results page")
-                        debug_file = self.output_dir / f"linkedin_debug_{search_term.replace(' ', '_')}.html"
-                        with open(debug_file, 'w', encoding='utf-8') as f:
-                            f.write(html)
-                        self.print_info(f"Saved response for inspection: {debug_file}")
-                        self.print_info("Check this file to see what LinkedIn returned")
-                        continue
+                # Extract job titles
+                title_pattern = r'<div[^>]*class="[^"]*entity-result__primary-subtitle[^>]*>([^<]+)</div>'
+                titles = re.findall(title_pattern, html)
+                all_titles = [t.strip() for t in titles if t.strip()]
 
-                    # Try multiple extraction methods
-                    names_found = set()
+                self.print_success(f"Found {len(all_names_found)} employees")
 
-                    # Method 1: Look for name spans with entity-result class
-                    pattern1 = r'<span[^>]*entity-result__title[^>]*>.*?<span[^>]*aria-hidden="true"[^>]*>([^<]+)</span>'
-                    matches1 = re.findall(pattern1, html, re.DOTALL)
-                    self.print_info(f"Method 1 (entity-result__title): {len(matches1)} matches")
-                    for match in matches1:
-                        name = match.strip()
-                        if len(name) > 3 and len(name) < 50 and (' ' in name or '-' in name):
-                            names_found.add(name)
+            elif response.status_code == 429:
+                self.print_error("LinkedIn rate limit hit")
+            else:
+                self.print_warning(f"People search returned status {response.status_code}")
 
-                    # Method 2: Look for actor name
-                    pattern2 = r'<span[^>]*class="[^"]*entity-result__title-text[^>]*>.*?<a[^>]*>.*?<span[^>]*aria-hidden="true"[^>]*>([^<]+)</span>'
-                    matches2 = re.findall(pattern2, html, re.DOTALL)
-                    self.print_info(f"Method 2 (entity-result__title-text): {len(matches2)} matches")
-                    for match in matches2:
-                        name = match.strip()
-                        if len(name) > 3 and len(name) < 50 and (' ' in name or '-' in name):
-                            names_found.add(name)
+        except Exception as e:
+            self.print_error(f"Error during people search: {e}")
 
-                    # Method 3: Profile photo alt text
-                    pattern3 = r'<img[^>]*alt="([^"]+)"[^>]*class="[^"]*presence-entity__image'
-                    matches3 = re.findall(pattern3, html)
-                    self.print_info(f"Method 3 (profile photo alt): {len(matches3)} matches")
-                    for match in matches3:
-                        name = match.strip()
-                        if len(name) > 3 and len(name) < 50 and ' ' in name and name != 'LinkedIn':
-                            names_found.add(name)
-
-                    # Method 4: Simple name pattern (First Last)
-                    pattern4 = r'<a[^>]*href="/in/[^"]*"[^>]*>([A-Z][a-z]+ [A-Z][a-z]+(?:\s[A-Z][a-z]+)?)</a>'
-                    matches4 = re.findall(pattern4, html)
-                    self.print_info(f"Method 4 (simple name pattern): {len(matches4)} matches")
-                    for match in matches4:
-                        name = match.strip()
-                        if len(name) > 3 and len(name) < 50:
-                            names_found.add(name)
-
-                    all_names_found.update(names_found)
-
-                    # Extract job titles
-                    title_patterns = [
-                        r'<div[^>]*class="[^"]*entity-result__primary-subtitle[^>]*>([^<]+)</div>',
-                        r'<div[^>]*class="[^"]*entity-result__summary[^>]*>.*?<div[^>]*>([^<]+)</div>',
-                    ]
-
-                    for pattern in title_patterns:
-                        titles = re.findall(pattern, html)
-                        all_titles.extend(titles)
-
-                    self.print_success(f"Found {len(names_found)} names for '{search_term}'")
-
-                    if len(names_found) == 0:
-                        self.print_warning(f"No names extracted - LinkedIn HTML structure may have changed")
-                        self.print_info("Saving HTML response for manual inspection...")
-                        debug_file = self.output_dir / f"linkedin_search_{search_term.replace(' ', '_')}.html"
-                        with open(debug_file, 'w', encoding='utf-8') as f:
-                            f.write(html)
-                        self.print_info(f"Saved to: {debug_file}")
-                        self.print_info("Manual search URL for comparison:")
-                        self.print_info(f"  {search_url}")
-
-                    time.sleep(3)  # Rate limiting between searches
-
-                elif response.status_code == 429:
-                    self.print_error("LinkedIn rate limit hit. Stopping LinkedIn enumeration.")
-                    break
-                else:
-                    self.print_warning(f"LinkedIn search returned status {response.status_code} for '{search_term}'")
-
-            except Exception as e:
-                self.print_error(f"Error searching LinkedIn for '{search_term}': {e}")
-                import traceback
-                traceback.print_exc()
-
-        # Process all found names
+        # =====================================================================
+        # Process and store results
+        # =====================================================================
         if all_names_found:
-            self.print_info(f"\nProcessing {len(all_names_found)} unique names...")
-
             for i, name in enumerate(sorted(all_names_found)):
                 employee_data = {
                     'name': name,
                     'source': 'linkedin_search',
                     'title': all_titles[i] if i < len(all_titles) else 'Unknown',
-                    'profile_url': f"https://www.linkedin.com/search/results/people/?keywords={name.replace(' ', '%20')}"
                 }
 
-                # Try to infer email
                 name_parts = name.split()
                 if len(name_parts) >= 2:
                     employee_data['first_name'] = name_parts[0]
                     employee_data['last_name'] = name_parts[-1]
 
-                    # Generate possible emails based on discovered patterns
                     emails = self.results.get('email_addresses', [])
                     if emails:
                         sample_email = emails[0]
@@ -962,65 +920,52 @@ class ReconAutomation:
                             possible_email = f"{name_parts[0].lower()}.{name_parts[-1].lower()}@{self.domain}"
                         else:
                             possible_email = f"{name_parts[0].lower()}{name_parts[-1].lower()}@{self.domain}"
-
                         employee_data['possible_email'] = possible_email
 
                 linkedin_intel['employees'].append(employee_data)
 
-                # Track titles and departments
                 if employee_data['title'] != 'Unknown':
                     title_lower = employee_data['title'].lower()
                     linkedin_intel['titles'][employee_data['title']] = linkedin_intel['titles'].get(employee_data['title'], 0) + 1
 
-                    # Identify departments from titles
                     dept_keywords = {
-                        'engineering': ['engineer', 'developer', 'architect', 'devops', 'programmer', 'coder'],
+                        'engineering': ['engineer', 'developer', 'architect', 'devops', 'programmer'],
                         'security': ['security', 'infosec', 'cybersecurity', 'ciso', 'soc', 'analyst'],
                         'it': ['it ', 'sysadmin', 'system administrator', 'infrastructure', 'network'],
                         'management': ['manager', 'director', 'vp', 'chief', 'head of', 'ceo', 'cto', 'cfo'],
-                        'sales': ['sales', 'account executive', 'business development', 'account manager'],
-                        'marketing': ['marketing', 'content', 'communications', 'brand'],
-                        'operations': ['operations', 'ops', 'logistics', 'project manager'],
-                        'finance': ['finance', 'accounting', 'accountant', 'controller', 'treasurer']
+                        'sales': ['sales', 'account executive', 'business development'],
+                        'marketing': ['marketing', 'content', 'communications'],
+                        'hr': ['human resources', 'hr ', 'recruiter', 'talent'],
+                        'finance': ['finance', 'accounting', 'accountant', 'controller']
                     }
 
                     for dept, keywords in dept_keywords.items():
                         if any(keyword in title_lower for keyword in keywords):
                             linkedin_intel['departments'].add(dept)
 
-            self.print_success(f"Processed {len(linkedin_intel['employees'])} total unique employees")
+            # Display results to stdout
+            self.print_info("\nEmployees found:")
+            for emp in linkedin_intel['employees']:
+                title_info = f" - {emp['title']}" if emp['title'] != 'Unknown' else ""
+                email_info = f" ({emp.get('possible_email', '')})" if emp.get('possible_email') else ""
+                self.print_success(f"  {emp['name']}{title_info}{email_info}")
 
-            # Show sample results
-            if linkedin_intel['employees']:
-                self.print_info("\nSample employee profiles:")
-                for emp in linkedin_intel['employees'][:10]:
-                    title_info = f" - {emp['title']}" if emp['title'] != 'Unknown' else ""
-                    email_info = f" ({emp.get('possible_email', 'email unknown')})" if emp.get('possible_email') else ""
-                    self.print_info(f"  {emp['name']}{title_info}{email_info}")
-
-                if len(linkedin_intel['employees']) > 10:
-                    self.print_info(f"  ... and {len(linkedin_intel['employees']) - 10} more")
         else:
-            self.print_warning("No employee names could be extracted from LinkedIn")
-            self.print_info("Possible reasons:")
-            self.print_info("  1. Cookie is invalid/expired - get a fresh one")
-            self.print_info("  2. LinkedIn's HTML structure has changed")
-            self.print_info("  3. Rate limiting or bot detection")
-            self.print_info("  4. Search terms don't match any profiles")
-            self.print_info("\nCheck the saved HTML files in the output directory for manual review")
+            self.print_warning("No employees found")
 
         # Store results
-        self.results['linkedin_intel'] = linkedin_intel
         linkedin_intel['departments'] = list(linkedin_intel['departments'])
+        self.results['linkedin_intel'] = linkedin_intel
 
         # Summary
-        self.print_info(f"\nLinkedIn Intelligence Summary:")
-        self.print_info(f"  Search terms used: {', '.join(search_terms)}")
-        self.print_info(f"  Employees found: {len(linkedin_intel['employees'])}")
-        self.print_info(f"  Departments identified: {', '.join(linkedin_intel['departments']) if linkedin_intel['departments'] else 'None'}")
+        self.print_info(f"\nLinkedIn Summary:")
+        if linkedin_intel.get('company_info'):
+            self.print_info(f"  Company: {linkedin_intel['company_info'].get('url', 'Unknown')}")
+        self.print_info(f"  Employees: {len(linkedin_intel['employees'])}")
+        self.print_info(f"  Departments: {', '.join(linkedin_intel['departments']) if linkedin_intel['departments'] else 'None'}")
 
         if linkedin_intel['titles']:
-            self.print_info(f"  Top job titles:")
+            self.print_info(f"  Top titles:")
             sorted_titles = sorted(linkedin_intel['titles'].items(), key=lambda x: x[1], reverse=True)[:5]
             for title, count in sorted_titles:
                 self.print_info(f"    - {title} ({count})")
