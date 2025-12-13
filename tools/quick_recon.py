@@ -2212,26 +2212,35 @@ class ReconAutomation:
             """Perform S3 bucket enumeration"""
             self.print_section("S3 BUCKET ENUMERATION")
 
+            # Get base domain - if 3+ parts, drop first (e.g., www.redcellsecurity.org -> redcellsecurity.org)
+            domain_parts = self.domain.split('.')
+            if len(domain_parts) > 2:
+                base_domain = '.'.join(domain_parts[1:])
+            else:
+                base_domain = self.domain
+
+            company_name = base_domain.split('.')[0]
+
+            self.print_info(f"Searching for buckets matching: {company_name}")
+
             # Generate bucket name variations from domain
             bucket_candidates = set()
 
             # Basic domain variations
-            bucket_candidates.add(self.domain)
-            bucket_candidates.add(self.domain.replace('.', '-'))
-            bucket_candidates.add(self.domain.replace('.', ''))
+            bucket_candidates.add(base_domain)
+            bucket_candidates.add(base_domain.replace('.', '-'))
+            bucket_candidates.add(base_domain.replace('.', ''))
 
             # Add company name variations
-            company_name = self.domain.split('.')[0]
             bucket_candidates.add(company_name)
 
             # Add variations from discovered subdomains
             resolved = self.results.get('dns_enumeration', {}).get('resolved', {})
             for subdomain in list(resolved.keys())[:20]:  # Limit to top 20
                 # Extract subdomain part
-                if subdomain.endswith(self.domain):
-                    sub_part = subdomain.replace(f".{self.domain}", "").replace(f"{self.domain}", "")
+                if subdomain.endswith(base_domain):
+                    sub_part = subdomain.replace(f".{base_domain}", "").replace(f"{base_domain}", "")
                     if sub_part and '.' not in sub_part:
-                        bucket_candidates.add(sub_part)
                         bucket_candidates.add(f"{sub_part}-{company_name}")
                         bucket_candidates.add(f"{company_name}-{sub_part}")
 
@@ -2239,11 +2248,9 @@ class ReconAutomation:
             common_affixes = ['backup', 'backups', 'data', 'files', 'assets', 'static',
                             'uploads', 'images', 'docs', 'logs', 'dev', 'prod', 'staging']
 
-            base_names = [company_name, self.domain.replace('.', '-')]
-            for base in base_names:
-                for affix in common_affixes:
-                    bucket_candidates.add(f"{base}-{affix}")
-                    bucket_candidates.add(f"{affix}-{base}")
+            for affix in common_affixes:
+                bucket_candidates.add(f"{company_name}-{affix}")
+                bucket_candidates.add(f"{affix}-{company_name}")
 
             # Clean and limit bucket list
             bucket_candidates = [b.lower().strip() for b in bucket_candidates
@@ -2533,22 +2540,30 @@ class ReconAutomation:
             """Enumerate Azure Blob Storage containers"""
             self.print_section("AZURE STORAGE ENUMERATION")
 
+            # Get base domain - if 3+ parts, drop first (e.g., www.redcellsecurity.org -> redcellsecurity.org)
+            domain_parts = self.domain.split('.')
+            if len(domain_parts) > 2:
+                base_domain = '.'.join(domain_parts[1:])
+            else:
+                base_domain = self.domain
+
+            company_name = base_domain.split('.')[0]
+
+            self.print_info(f"Searching for storage accounts matching: {company_name}")
+
             # Generate Azure storage account name variations
             storage_candidates = set()
 
             # Basic domain variations
-            company_name = self.domain.split('.')[0]
             storage_candidates.add(company_name)
-            storage_candidates.add(self.domain.replace('.', ''))
-            storage_candidates.add(self.domain.replace('.', '-'))
+            storage_candidates.add(base_domain.replace('.', ''))
 
             # Add variations from discovered subdomains
             resolved = self.results.get('dns_enumeration', {}).get('resolved', {})
             for subdomain in list(resolved.keys())[:20]:
-                if subdomain.endswith(self.domain):
-                    sub_part = subdomain.replace(f".{self.domain}", "").replace(f"{self.domain}", "")
+                if subdomain.endswith(base_domain):
+                    sub_part = subdomain.replace(f".{base_domain}", "").replace(f"{base_domain}", "")
                     if sub_part and '.' not in sub_part:
-                        storage_candidates.add(sub_part.replace('-', '').replace('_', ''))
                         storage_candidates.add(f"{company_name}{sub_part}".replace('-', '').replace('_', ''))
 
             # Add common affixes
@@ -2771,27 +2786,35 @@ class ReconAutomation:
             """Enumerate Google Cloud Platform (GCP) Storage buckets"""
             self.print_section("GCP STORAGE ENUMERATION")
 
+            # Get base domain - if 3+ parts, drop first (e.g., www.redcellsecurity.org -> redcellsecurity.org)
+            domain_parts = self.domain.split('.')
+            if len(domain_parts) > 2:
+                base_domain = '.'.join(domain_parts[1:])
+            else:
+                base_domain = self.domain
+
+            company_name = base_domain.split('.')[0]
+
+            self.print_info(f"Searching for buckets matching: {company_name}")
+
             # Generate GCP bucket name variations
             bucket_candidates = set()
 
             # Basic domain variations
-            company_name = self.domain.split('.')[0]
-            bucket_candidates.add(self.domain)
-            bucket_candidates.add(self.domain.replace('.', '-'))
-            bucket_candidates.add(self.domain.replace('.', '_'))
-            bucket_candidates.add(self.domain.replace('.', ''))
+            bucket_candidates.add(base_domain)
+            bucket_candidates.add(base_domain.replace('.', '-'))
+            bucket_candidates.add(base_domain.replace('.', '_'))
+            bucket_candidates.add(base_domain.replace('.', ''))
             bucket_candidates.add(company_name)
 
             # Add variations from discovered subdomains
             resolved = self.results.get('dns_enumeration', {}).get('resolved', {})
             for subdomain in list(resolved.keys())[:20]:
-                if subdomain.endswith(self.domain):
-                    sub_part = subdomain.replace(f".{self.domain}", "").replace(f"{self.domain}", "")
+                if subdomain.endswith(base_domain):
+                    sub_part = subdomain.replace(f".{base_domain}", "").replace(f"{base_domain}", "")
                     if sub_part and '.' not in sub_part:
-                        bucket_candidates.add(sub_part)
                         bucket_candidates.add(f"{sub_part}-{company_name}")
                         bucket_candidates.add(f"{company_name}-{sub_part}")
-                        bucket_candidates.add(sub_part.replace('-', '_'))
 
             # Add common affixes
             common_affixes = ['backup', 'backups', 'data', 'files', 'storage', 'assets',
