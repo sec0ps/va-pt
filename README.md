@@ -67,8 +67,7 @@ TheHarvester, Recon-ng, SpiderFoot
 ## Installation
 
 ### Prerequisites
-- Ubuntu/Debian-based Linux system
-- Non-root user with sudo privileges
+- Ubuntu 22
 - Internet connection
 
 ### Quick Start
