@@ -19,10 +19,10 @@ The VAPT Toolkit provides a streamlined way to install, configure, and maintain 
 Metasploit, Covenant, Merlin, SILENTTRINITY, Impacket
 
 ### Web Application Testing
-Nikto, XSStrike, Dirsearch, FFUF, Kiterunner, OWASP ZAP, SQLMap, Burp Suite integration
+Nikto, XSStrike, Dirsearch, FFUF, Kiterunner, OWASP ZAP, SQLMap, BurpSuite
 
 ### Network Scanning & Enumeration
-Nmap (with vulners), Masscan, Nuclei, Amass
+Nmap, Masscan, Nuclei, Amass
 
 ### Active Directory
 BloodHound, PowerSploit, Rubeus, Certipy, Impacket suite
