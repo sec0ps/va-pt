@@ -925,7 +925,7 @@ class ReconAutomation:
                         break
 
                     start += page_size
-                    time.sleep(1)  # Rate limiting
+                    time.sleep(5)  # Rate limiting
 
                 except Exception as e:
                     self.print_error(f"Error fetching companies: {e}")
@@ -1060,7 +1060,7 @@ class ReconAutomation:
                         break
 
                     start += page_size
-                    time.sleep(1)  # Rate limiting
+                    time.sleep(5)  # Rate limiting
 
                 except Exception as e:
                     self.print_error(f"Error fetching people: {e}")
@@ -1337,7 +1337,7 @@ class ReconAutomation:
                                 self.print_info(f"Retrying... (attempt {retry_count + 1}/{max_retries})")
                                 time.sleep(2)
 
-                        time.sleep(1)  # Rate limiting
+                        time.sleep(5)  # Rate limiting
 
                     except requests.exceptions.Timeout:
                         retry_count += 1
