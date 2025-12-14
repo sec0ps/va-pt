@@ -2,27 +2,67 @@
 
 ## Overview
 
-The VAPT Toolkit provides a streamlined way to install, configure, and maintain a complete penetration testing environment with over 50+ security tools organized across multiple categories.
+The VAPT Toolkit provides a streamlined way to install, configure, and maintain a complete penetration testing environment with 50+ security tools and custom automation frameworks organized across multiple categories.
 
 ## Features
 
 - **Automated Installation**: One-click installation of essential security tools
-- **Organized Structure**: Tools categorized by function (web, network, mobile, etc.)
+- **Organized Structure**: Tools categorized by function (web, network, wireless, cloud, etc.)
+- **Custom Automation**: Integrated custom tools for OSINT, O365 testing, wireless attacks, and reporting
 - **Dependency Management**: Automatic installation of required dependencies
+- **Multi-Client Support**: Session resume and target-specific directory organization
 - **Update Management**: Bulk update functionality for all installed tools
-- **Clean Migration**: Automatic cleanup and migration from older installations
 
-## Tool Categories and Tool Examples (Not Inclusive)
+## Tool Categories and Tooling (Not Inclusive)
 
-- **Exploitation Tools**: Metasploit, Covenant, Merlin, SILENTTRINITY, Impacket
-- **Web Testing**: Nikto, XSStrike, Dirsearch, FFUF, Kiterunner, OWASP ZAP
-- **Network Scanning**: Nmap, Masscan, Nuclei, Amass
-- **Active Directory**: BloodHound, PowerSploit, Rubeus, Certipy
-- **Mobile Security**: MobSF, Objection
-- **Cloud Security**: Trivy, Checkov, Pacu, ScoutSuite
-- **Password Tools**: John the Ripper, Hashcat, SecLists
-- **OSINT**: TheHarvester, Recon-ng, SpiderFoot
-- **Wireless**: QtTinySA, QSpectrumAnalyzer
+### Exploitation Tools
+Metasploit, Covenant, Merlin, SILENTTRINITY, Impacket
+
+### Web Application Testing
+Nikto, XSStrike, Dirsearch, FFUF, Kiterunner, OWASP ZAP, SQLMap, Burp Suite integration
+
+### Network Scanning & Enumeration
+Nmap (with vulners), Masscan, Nuclei, Amass
+
+### Active Directory
+BloodHound, PowerSploit, Rubeus, Certipy, Impacket suite
+
+### Mobile Security
+MobSF, Objection
+
+### Cloud Security
+Trivy, Checkov, Pacu, ScoutSuite, custom S3/EC2 enumeration modules
+
+### Password & Credential Tools
+John the Ripper, Hashcat, SecLists
+
+### OSINT & Reconnaissance
+TheHarvester, Recon-ng, SpiderFoot
+
+## Custom Tools
+
+### OSINT Collection Framework
+- **CT Mining**: Certificate Transparency log enumeration and subdomain discovery
+- **OSINT Correlator**: Automated intelligence correlation across multiple data sources
+- **Recon Automation**: Integrated reconnaissance workflow with target profiling
+
+### Office 365 Security Testing
+- **O365 Enumerator**: User enumeration via multiple Microsoft endpoints
+- **Spray Framework**: Intelligent password spraying with lockout detection and timing controls
+- **Token Analysis**: OAuth token extraction and analysis utilities
+
+### Wireless Security Testing
+- **Attack Automation**: Custom Python framework integrating aircrack-ng suite
+- **Handshake Capture**: Automated WPA/WPA2 handshake collection with mdk3 deauth
+- **Captive Portal**: Portal cloning and credential capture framework
+- **Enterprise Testing**: 802.1X and WPA3 assessment modules
+- **Hardware Support**: Optimized for USB adapters and Raspberry Pi deployment
+
+### Reporting & Documentation
+- **Report Generator**: Automated penetration test report generation from scan data
+- **Finding Consolidator**: Multi-tool output parsing and deduplication
+- **Evidence Manager**: Screenshot and proof-of-concept organization
+- **Compliance Mapper**: Finding-to-framework mapping (NIST 800-53, CMMC, etc.)
 
 ## Installation
 
