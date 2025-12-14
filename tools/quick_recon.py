@@ -820,167 +820,253 @@ class ReconAutomation:
             encoded_term = search_term.replace(' ', '%20').replace(',', '%2C')
 
             # =====================================================================
-            # SEARCH 1: Find companies
+            # SEARCH 1: Find companies (with pagination)
             # =====================================================================
-            self.print_info(f"\n[1/2] Searching for company: {search_term}")
+            self.print_info(f"\n[1/2] Searching for companies: {search_term}")
 
-            # Try the search results page first to get data
-            company_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(keywords:{encoded_term},flagshipSearchIntent:SEARCH_SRP,queryParameters:(resultType:List(COMPANIES)),includeFiltersInResponse:false)&start=0"
+            all_companies = []
+            start = 0
+            page_size = 10
+            max_results = 100  # Limit to avoid rate limiting
 
-            try:
-                response = linkedin_session.get(company_search_url, headers=api_headers, timeout=15)
+            while start < max_results:
+                company_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(keywords:{encoded_term},flagshipSearchIntent:SEARCH_SRP,queryParameters:(resultType:List(COMPANIES)),includeFiltersInResponse:false)&start={start}"
 
-                self.print_info(f"Response status: {response.status_code}")
+                try:
+                    response = linkedin_session.get(company_search_url, headers=api_headers, timeout=15)
 
-                if response.status_code == 200:
-                    try:
-                        data = response.json()
+                    if response.status_code != 200:
+                        self.print_warning(f"API returned status {response.status_code}")
+                        break
 
-                        companies = []
-                        included = data.get('included', [])
+                    data = response.json()
+                    included = data.get('included', [])
 
-                        self.print_info(f"Response contains {len(included)} items")
+                    if not included:
+                        break
 
-                        for item in included:
-                            # Look for company data
-                            item_type = item.get('$type', '')
+                    page_companies = []
 
-                            if 'Company' in item_type or 'Organization' in item_type:
-                                name = item.get('name', '')
-                                universal_name = item.get('universalName', '')
-                                if name:
-                                    companies.append({
-                                        'name': name,
-                                        'slug': universal_name,
-                                        'url': f"https://www.linkedin.com/company/{universal_name}" if universal_name else ''
-                                    })
+                    # First pass: build a map of entity URNs to company data
+                    company_map = {}
+                    for item in included:
+                        item_type = item.get('$type', '')
+                        entity_urn = item.get('entityUrn', '')
 
-                            # Also check for title text containing company names
-                            title = item.get('title', {})
-                            if isinstance(title, dict):
-                                text = title.get('text', '')
-                                if text and len(text) > 2 and len(text) < 100:
-                                    if not any(c['name'] == text for c in companies):
-                                        companies.append({'name': text, 'slug': '', 'url': ''})
+                        if 'Company' in item_type or 'Organization' in item_type:
+                            name = item.get('name', '')
+                            universal_name = item.get('universalName', '')
+                            logo = item.get('logo', {})
 
-                        # Extract from full JSON as backup
-                        if not companies:
-                            text = json.dumps(data)
-                            # Look for company names
-                            name_matches = re.findall(r'"name":\s*"([^"]{3,50})"', text)
-                            universal_matches = re.findall(r'"universalName":\s*"([^"]+)"', text)
+                            if name and entity_urn:
+                                company_map[entity_urn] = {
+                                    'name': name,
+                                    'slug': universal_name,
+                                    'url': f"https://www.linkedin.com/company/{universal_name}" if universal_name else '',
+                                    'entity_urn': entity_urn
+                                }
 
-                            for name in name_matches[:20]:
-                                if not any(c['name'] == name for c in companies):
-                                    companies.append({'name': name, 'slug': '', 'url': ''})
+                    # Second pass: extract from search results
+                    for item in included:
+                        # Check for title/text with company names
+                        title = item.get('title', {})
+                        if isinstance(title, dict):
+                            text = title.get('text', '')
+                            if text and len(text) > 2 and len(text) < 100:
+                                # Check if this links to a company
+                                navigation = item.get('navigationUrl', '') or ''
+                                if '/company/' in navigation:
+                                    slug = navigation.split('/company/')[-1].split('/')[0].split('?')[0]
+                                    if not any(c['slug'] == slug for c in page_companies):
+                                        page_companies.append({
+                                            'name': text,
+                                            'slug': slug,
+                                            'url': f"https://www.linkedin.com/company/{slug}"
+                                        })
 
-                        if companies:
-                            self.print_success(f"Found {len(companies)} companies:")
-                            for company in companies[:10]:
-                                url_info = f": {company['url']}" if company.get('url') else ""
-                                self.print_info(f"  - {company['name']}{url_info}")
-                            linkedin_intel['company_info'] = {'companies': companies[:10]}
-                        else:
-                            self.print_warning("No companies found in response")
-                            # Debug output
-                            self.print_info(f"Response preview: {str(data)[:500]}")
+                        # Also check trackingUrn for company links
+                        tracking = item.get('trackingUrn', '')
+                        if 'company:' in tracking:
+                            company_id = tracking.split('company:')[-1]
+                            # Find matching company in map
+                            for urn, comp in company_map.items():
+                                if company_id in urn and comp not in page_companies:
+                                    page_companies.append(comp)
 
-                    except json.JSONDecodeError as e:
-                        self.print_warning(f"Response is not JSON: {e}")
-                        self.print_info(f"Response preview: {response.text[:500]}")
-                else:
-                    self.print_warning(f"API returned status {response.status_code}")
-                    if response.status_code == 403:
-                        self.print_error("Access denied - cookies may be expired or invalid")
+                    # Add companies from map that weren't added yet
+                    for urn, comp in company_map.items():
+                        if not any(c['slug'] == comp['slug'] for c in page_companies) and comp['slug']:
+                            page_companies.append(comp)
 
-            except Exception as e:
-                self.print_error(f"Error during company search: {e}")
-                import traceback
-                traceback.print_exc()
+                    if not page_companies:
+                        # Try regex extraction as fallback
+                        text = json.dumps(data)
+                        slug_matches = re.findall(r'"universalName":\s*"([^"]+)"', text)
+                        name_matches = re.findall(r'"name":\s*"([^"]{3,60})"', text)
+
+                        for i, slug in enumerate(slug_matches):
+                            if slug and not any(c['slug'] == slug for c in page_companies):
+                                name = name_matches[i] if i < len(name_matches) else slug
+                                page_companies.append({
+                                    'name': name,
+                                    'slug': slug,
+                                    'url': f"https://www.linkedin.com/company/{slug}"
+                                })
+
+                    new_count = 0
+                    for comp in page_companies:
+                        if not any(c['slug'] == comp['slug'] and c['name'] == comp['name'] for c in all_companies):
+                            all_companies.append(comp)
+                            new_count += 1
+
+                    self.print_info(f"  Page {start // page_size + 1}: Found {new_count} new companies")
+
+                    if new_count == 0:
+                        break
+
+                    start += page_size
+                    time.sleep(1)  # Rate limiting
+
+                except Exception as e:
+                    self.print_error(f"Error fetching companies: {e}")
+                    break
+
+            if all_companies:
+                self.print_success(f"Found {len(all_companies)} total companies:")
+                for company in all_companies:
+                    self.print_info(f"  - {company['name']}")
+                    if company.get('url'):
+                        self.print_info(f"    {company['url']}")
+                linkedin_intel['company_info'] = {'companies': all_companies}
+            else:
+                self.print_warning("No companies found")
 
             time.sleep(2)
 
             # =====================================================================
-            # SEARCH 2: Find people
+            # SEARCH 2: Find people (with pagination)
             # =====================================================================
             self.print_info(f"\n[2/2] Searching for people at: {search_term}")
 
-            people_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(keywords:{encoded_term},flagshipSearchIntent:SEARCH_SRP,queryParameters:(resultType:List(PEOPLE)),includeFiltersInResponse:false)&start=0"
-
             all_employees = []
+            start = 0
+            max_results = 200  # Get more people
 
-            try:
-                response = linkedin_session.get(people_search_url, headers=api_headers, timeout=15)
+            while start < max_results:
+                people_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(keywords:{encoded_term},flagshipSearchIntent:SEARCH_SRP,queryParameters:(resultType:List(PEOPLE)),includeFiltersInResponse:false)&start={start}"
 
-                self.print_info(f"Response status: {response.status_code}")
+                try:
+                    response = linkedin_session.get(people_search_url, headers=api_headers, timeout=15)
 
-                if response.status_code == 200:
-                    try:
-                        data = response.json()
+                    if response.status_code != 200:
+                        self.print_warning(f"API returned status {response.status_code}")
+                        break
 
-                        included = data.get('included', [])
-                        self.print_info(f"Response contains {len(included)} items")
+                    data = response.json()
+                    included = data.get('included', [])
 
-                        for item in included:
-                            item_type = item.get('$type', '')
+                    if not included:
+                        break
 
-                            # Look for profile/member data
-                            if 'Profile' in item_type or 'Member' in item_type or 'MiniProfile' in item_type:
-                                first_name = item.get('firstName', '')
-                                last_name = item.get('lastName', '')
-                                headline = item.get('headline', '') or item.get('occupation', '')
-                                public_id = item.get('publicIdentifier', '')
+                    page_employees = []
 
-                                if first_name and last_name:
-                                    all_employees.append({
-                                        'name': f"{first_name} {last_name}",
-                                        'first_name': first_name,
-                                        'last_name': last_name,
-                                        'title': headline or 'Unknown',
-                                        'profile_url': f"https://www.linkedin.com/in/{public_id}" if public_id else ''
-                                    })
+                    # First pass: build map of profiles
+                    profile_map = {}
+                    for item in included:
+                        item_type = item.get('$type', '')
+                        entity_urn = item.get('entityUrn', '')
 
-                            # Also check title text for names
-                            title = item.get('title', {})
-                            if isinstance(title, dict):
-                                text = title.get('text', '')
-                                if text and ' ' in text and len(text) > 4 and len(text) < 50:
+                        if 'Profile' in item_type or 'Member' in item_type or 'MiniProfile' in item_type:
+                            first_name = item.get('firstName', '')
+                            last_name = item.get('lastName', '')
+                            headline = item.get('headline', '') or item.get('occupation', '')
+                            public_id = item.get('publicIdentifier', '')
+
+                            if first_name and last_name:
+                                profile_map[entity_urn] = {
+                                    'name': f"{first_name} {last_name}",
+                                    'first_name': first_name,
+                                    'last_name': last_name,
+                                    'title': headline or 'Unknown',
+                                    'profile_url': f"https://www.linkedin.com/in/{public_id}" if public_id else '',
+                                    'public_id': public_id
+                                }
+
+                    # Second pass: extract from search results
+                    for item in included:
+                        title = item.get('title', {})
+                        if isinstance(title, dict):
+                            text = title.get('text', '')
+                            if text and ' ' in text and len(text) > 4 and len(text) < 60:
+                                # Check for profile link
+                                navigation = item.get('navigationUrl', '') or ''
+                                if '/in/' in navigation:
+                                    public_id = navigation.split('/in/')[-1].split('/')[0].split('?')[0]
+
+                                    # Get headline from secondary subtitle
+                                    headline = ''
+                                    primary_subtitle = item.get('primarySubtitle', {})
+                                    if isinstance(primary_subtitle, dict):
+                                        headline = primary_subtitle.get('text', '')
+
                                     parts = text.split()
-                                    if len(parts) >= 2 and parts[0][0].isupper() and parts[1][0].isupper():
-                                        if not any(e['name'] == text for e in all_employees):
-                                            all_employees.append({
-                                                'name': text,
-                                                'first_name': parts[0],
-                                                'last_name': parts[-1],
-                                                'title': 'Unknown'
-                                            })
+                                    if len(parts) >= 2:
+                                        emp = {
+                                            'name': text,
+                                            'first_name': parts[0],
+                                            'last_name': ' '.join(parts[1:]),
+                                            'title': headline or 'Unknown',
+                                            'profile_url': f"https://www.linkedin.com/in/{public_id}",
+                                            'public_id': public_id
+                                        }
+                                        if not any(e['public_id'] == public_id for e in page_employees if e.get('public_id')):
+                                            page_employees.append(emp)
 
-                        # Extract from full JSON as backup
-                        if not all_employees:
-                            text = json.dumps(data)
-                            name_matches = re.findall(r'"firstName":\s*"([^"]+)"[^}]*"lastName":\s*"([^"]+)"', text)
-                            headline_matches = re.findall(r'"headline":\s*"([^"]+)"', text)
+                    # Add from profile map
+                    for urn, profile in profile_map.items():
+                        if profile['public_id'] and not any(e.get('public_id') == profile['public_id'] for e in page_employees):
+                            page_employees.append(profile)
 
-                            for i, (first, last) in enumerate(name_matches):
-                                all_employees.append({
+                    # Regex fallback
+                    if not page_employees:
+                        text = json.dumps(data)
+                        name_matches = re.findall(r'"firstName":\s*"([^"]+)"[^}]*"lastName":\s*"([^"]+)"', text)
+                        public_id_matches = re.findall(r'"publicIdentifier":\s*"([^"]+)"', text)
+                        headline_matches = re.findall(r'"headline":\s*"([^"]+)"', text)
+
+                        for i, (first, last) in enumerate(name_matches):
+                            public_id = public_id_matches[i] if i < len(public_id_matches) else ''
+                            headline = headline_matches[i] if i < len(headline_matches) else 'Unknown'
+
+                            if public_id and not any(e.get('public_id') == public_id for e in page_employees):
+                                page_employees.append({
                                     'name': f"{first} {last}",
                                     'first_name': first,
                                     'last_name': last,
-                                    'title': headline_matches[i] if i < len(headline_matches) else 'Unknown'
+                                    'title': headline,
+                                    'profile_url': f"https://www.linkedin.com/in/{public_id}" if public_id else '',
+                                    'public_id': public_id
                                 })
 
-                        self.print_success(f"Found {len(all_employees)} employees")
+                    new_count = 0
+                    for emp in page_employees:
+                        if not any(e.get('public_id') == emp.get('public_id') for e in all_employees if emp.get('public_id')):
+                            all_employees.append(emp)
+                            new_count += 1
 
-                        if not all_employees:
-                            self.print_info(f"Response preview: {str(data)[:500]}")
+                    self.print_info(f"  Page {start // page_size + 1}: Found {new_count} new employees")
 
-                    except json.JSONDecodeError as e:
-                        self.print_warning(f"Response is not JSON: {e}")
-                else:
-                    self.print_warning(f"API returned status {response.status_code}")
+                    if new_count == 0:
+                        break
 
-            except Exception as e:
-                self.print_error(f"Error during people search: {e}")
+                    start += page_size
+                    time.sleep(1)  # Rate limiting
+
+                except Exception as e:
+                    self.print_error(f"Error fetching people: {e}")
+                    break
+
+            self.print_success(f"Found {len(all_employees)} total employees")
 
             # =====================================================================
             # Process and store results
@@ -1019,14 +1105,12 @@ class ReconAutomation:
                                 linkedin_intel['departments'].add(dept)
 
                 self.print_info("\nEmployees found:")
-                for emp in linkedin_intel['employees'][:20]:
+                for emp in linkedin_intel['employees']:
                     title_info = f" - {emp['title']}" if emp.get('title') and emp['title'] != 'Unknown' else ""
                     email_info = f" ({emp.get('possible_email', '')})" if emp.get('possible_email') else ""
-                    url_info = f" [{emp.get('profile_url', '')}]" if emp.get('profile_url') else ""
                     self.print_success(f"  {emp['name']}{title_info}{email_info}")
-
-                if len(linkedin_intel['employees']) > 20:
-                    self.print_info(f"  ... and {len(linkedin_intel['employees']) - 20} more")
+                    if emp.get('profile_url'):
+                        self.print_info(f"    {emp['profile_url']}")
             else:
                 self.print_warning("No employees found")
 
@@ -1043,7 +1127,7 @@ class ReconAutomation:
 
             if linkedin_intel['titles']:
                 self.print_info(f"  Top titles:")
-                sorted_titles = sorted(linkedin_intel['titles'].items(), key=lambda x: x[1], reverse=True)[:5]
+                sorted_titles = sorted(linkedin_intel['titles'].items(), key=lambda x: x[1], reverse=True)[:10]
                 for title, count in sorted_titles:
                     self.print_info(f"    - {title} ({count})")
 
