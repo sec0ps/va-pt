@@ -2,7 +2,7 @@
 
 ## Overview
 
-The VAPT Toolkit provides a streamlined way to install, configure, and maintain a complete penetration testing environment with 50+ security tools and custom automation frameworks organized across multiple categories.
+The VAPT Toolkit provides a streamlined way to install, configure, and maintain a complete penetration testing environment with 50+ security tools and custom automation frameworks organized across multiple categories. This is desiged to work on Ubuntu 22.
 
 ## Features
 
