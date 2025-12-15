@@ -779,6 +779,12 @@ class ReconAutomation:
             search_term = self.client_name
             self.print_info(f"Searching LinkedIn for: {search_term}")
 
+            # Get max results from args or default
+            max_employee_results = getattr(self.args, 'linkedin_max_results', 100) if hasattr(self, 'args') else 100
+            max_company_results = 50
+
+            self.print_info(f"Max employee results: {max_employee_results}")
+
             # Set up authenticated session with all cookies
             linkedin_session = requests.Session()
 
@@ -827,9 +833,8 @@ class ReconAutomation:
             all_companies = []
             start = 0
             page_size = 10
-            max_results = 100  # Limit to avoid rate limiting
 
-            while start < max_results:
+            while start < max_company_results:
                 company_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(keywords:{encoded_term},flagshipSearchIntent:SEARCH_SRP,queryParameters:(resultType:List(COMPANIES)),includeFiltersInResponse:false)&start={start}"
 
                 try:
@@ -856,7 +861,6 @@ class ReconAutomation:
                         if 'Company' in item_type or 'Organization' in item_type:
                             name = item.get('name', '')
                             universal_name = item.get('universalName', '')
-                            logo = item.get('logo', {})
 
                             if name and entity_urn:
                                 company_map[entity_urn] = {
@@ -868,12 +872,10 @@ class ReconAutomation:
 
                     # Second pass: extract from search results
                     for item in included:
-                        # Check for title/text with company names
                         title = item.get('title', {})
                         if isinstance(title, dict):
                             text = title.get('text', '')
                             if text and len(text) > 2 and len(text) < 100:
-                                # Check if this links to a company
                                 navigation = item.get('navigationUrl', '') or ''
                                 if '/company/' in navigation:
                                     slug = navigation.split('/company/')[-1].split('/')[0].split('?')[0]
@@ -884,22 +886,18 @@ class ReconAutomation:
                                             'url': f"https://www.linkedin.com/company/{slug}"
                                         })
 
-                        # Also check trackingUrn for company links
                         tracking = item.get('trackingUrn', '')
                         if 'company:' in tracking:
                             company_id = tracking.split('company:')[-1]
-                            # Find matching company in map
                             for urn, comp in company_map.items():
                                 if company_id in urn and comp not in page_companies:
                                     page_companies.append(comp)
 
-                    # Add companies from map that weren't added yet
                     for urn, comp in company_map.items():
                         if not any(c['slug'] == comp['slug'] for c in page_companies) and comp['slug']:
                             page_companies.append(comp)
 
                     if not page_companies:
-                        # Try regex extraction as fallback
                         text = json.dumps(data)
                         slug_matches = re.findall(r'"universalName":\s*"([^"]+)"', text)
                         name_matches = re.findall(r'"name":\s*"([^"]{3,60})"', text)
@@ -925,7 +923,7 @@ class ReconAutomation:
                         break
 
                     start += page_size
-                    time.sleep(5)  # Rate limiting
+                    time.sleep(5)
 
                 except Exception as e:
                     self.print_error(f"Error fetching companies: {e}")
@@ -950,9 +948,8 @@ class ReconAutomation:
 
             all_employees = []
             start = 0
-            max_results = 200  # Get more people
 
-            while start < max_results:
+            while start < max_employee_results:
                 people_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(keywords:{encoded_term},flagshipSearchIntent:SEARCH_SRP,queryParameters:(resultType:List(PEOPLE)),includeFiltersInResponse:false)&start={start}"
 
                 try:
@@ -998,12 +995,10 @@ class ReconAutomation:
                         if isinstance(title, dict):
                             text = title.get('text', '')
                             if text and ' ' in text and len(text) > 4 and len(text) < 60:
-                                # Check for profile link
                                 navigation = item.get('navigationUrl', '') or ''
                                 if '/in/' in navigation:
                                     public_id = navigation.split('/in/')[-1].split('/')[0].split('?')[0]
 
-                                    # Get headline from secondary subtitle
                                     headline = ''
                                     primary_subtitle = item.get('primarySubtitle', {})
                                     if isinstance(primary_subtitle, dict):
@@ -1054,13 +1049,13 @@ class ReconAutomation:
                             all_employees.append(emp)
                             new_count += 1
 
-                    self.print_info(f"  Page {start // page_size + 1}: Found {new_count} new employees")
+                    self.print_info(f"  Page {start // page_size + 1}: Found {new_count} new employees (total: {len(all_employees)})")
 
                     if new_count == 0:
                         break
 
                     start += page_size
-                    time.sleep(5)  # Rate limiting
+                    time.sleep(5)
 
                 except Exception as e:
                     self.print_error(f"Error fetching people: {e}")
@@ -1446,40 +1441,45 @@ class ReconAutomation:
             return False
 
     def dns_enumeration(self):
-        """Perform DNS enumeration to discover subdomains"""
-        self.print_section("DNS ENUMERATION")
+            """Perform DNS enumeration to discover subdomains"""
+            self.print_section("DNS ENUMERATION")
 
-        subdomains = set()
+            subdomains = set()
 
-        # Method 1: Certificate Transparency Logs
-        self.print_info("Checking Certificate Transparency logs...")
-        ct_domains = self._check_certificate_transparency()
-        subdomains.update(ct_domains)
-        self.print_success(f"Found {len(ct_domains)} domains from CT logs")
+            # Method 1: Certificate Transparency Logs
+            self.print_info("Checking Certificate Transparency logs...")
+            ct_domains = self._check_certificate_transparency()
+            subdomains.update(ct_domains)
+            self.print_success(f"Found {len(ct_domains)} domains from CT logs")
 
-        # Method 2: DNS brute force with common names
-        self.print_info("Performing DNS brute force...")
-        brute_domains = self._dns_bruteforce()
-        subdomains.update(brute_domains)
-        self.print_success(f"Found {len(brute_domains)} domains from brute force")
+            # Method 2: DNS brute force with common names
+            self.print_info("Performing DNS brute force...")
+            brute_domains = self._dns_bruteforce()
+            subdomains.update(brute_domains)
+            self.print_success(f"Found {len(brute_domains)} domains from brute force")
 
-        # Resolve all discovered subdomains
-        self.print_info("Resolving discovered subdomains...")
-        resolved = {}
-        for subdomain in sorted(subdomains):
-            ips = self._resolve_domain(subdomain)
-            if ips:
-                resolved[subdomain] = ips
-                self.print_success(f"{subdomain} -> {', '.join(ips)}")
+            # Resolve all discovered subdomains
+            self.print_info("Resolving discovered subdomains...")
+            resolved = {}
+            for subdomain in sorted(subdomains):
+                ips = self._resolve_domain(subdomain)
+                if ips:
+                    resolved[subdomain] = ips
+                    self.print_success(f"{subdomain} -> {', '.join(ips)}")
 
-        self.results['dns_enumeration'] = {
-            'total_discovered': len(subdomains),
-            'resolved': resolved,
-            'unresolved': list(subdomains - set(resolved.keys()))
-        }
+            self.results['dns_enumeration'] = {
+                'total_discovered': len(subdomains),
+                'ct_log_domains': sorted(list(ct_domains)),
+                'bruteforce_domains': sorted(list(brute_domains)),
+                'all_discovered': sorted(list(subdomains)),
+                'resolved': resolved,
+                'unresolved': sorted(list(subdomains - set(resolved.keys())))
+            }
 
-        self.print_info(f"Total unique subdomains discovered: {len(subdomains)}")
-        self.print_info(f"Successfully resolved: {len(resolved)}")
+            self.print_info(f"Total unique subdomains discovered: {len(subdomains)}")
+            self.print_info(f"  - From CT logs: {len(ct_domains)}")
+            self.print_info(f"  - From brute force: {len(brute_domains)}")
+            self.print_info(f"Successfully resolved: {len(resolved)}")
 
     def subdomain_takeover_detection(self):
             """Check for subdomain takeover vulnerabilities with validation"""
@@ -1909,37 +1909,64 @@ class ReconAutomation:
             return []
 
     def technology_stack_identification(self):
-        """Identify technology stack of web services"""
-        self.print_section("TECHNOLOGY STACK IDENTIFICATION")
+            """Identify technology stack of web services"""
+            self.print_section("TECHNOLOGY STACK IDENTIFICATION")
 
-        tech_stack = {}
+            tech_stack = {}
 
-        # Get resolved domains from DNS enumeration
-        resolved_domains = self.results.get('dns_enumeration', {}).get('resolved', {})
+            # Get resolved domains from DNS enumeration
+            resolved_domains = self.results.get('dns_enumeration', {}).get('resolved', {})
 
-        if not resolved_domains:
-            self.print_warning("No resolved domains available for tech stack identification")
-            return
+            if not resolved_domains:
+                self.print_warning("No resolved domains available for tech stack identification")
+                return
 
-        # Check main domain and a few key subdomains
-        targets = [self.domain]
-        for subdomain in list(resolved_domains.keys())[:5]:  # Limit to first 5
-            targets.append(subdomain)
+            # Analyze ALL resolved domains, not just first 5
+            targets = [self.domain] if self.domain not in resolved_domains else []
+            targets.extend(list(resolved_domains.keys()))
 
-        for target in targets:
-            self.print_info(f"Analyzing {target}...")
-            tech_info = self._identify_technologies(target)
-            if tech_info:
-                tech_stack[target] = tech_info
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_targets = []
+            for t in targets:
+                if t not in seen:
+                    seen.add(t)
+                    unique_targets.append(t)
 
-                # Print findings
-                if tech_info.get('server'):
-                    self.print_success(f"Server: {tech_info['server']}")
-                if tech_info.get('headers'):
-                    for key, value in tech_info['headers'].items():
-                        self.print_info(f"  {key}: {value}")
+            self.print_info(f"Analyzing {len(unique_targets)} targets for technology stack...")
 
-        self.results['technology_stack'] = tech_stack
+            # Use threading for faster scanning
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                future_to_target = {
+                    executor.submit(self._identify_technologies, target): target
+                    for target in unique_targets
+                }
+
+                completed = 0
+                for future in concurrent.futures.as_completed(future_to_target):
+                    target = future_to_target[future]
+                    completed += 1
+
+                    try:
+                        tech_info = future.result()
+                        if tech_info:
+                            tech_stack[target] = tech_info
+
+                            # Print findings
+                            self.print_info(f"[{completed}/{len(unique_targets)}] {target}")
+                            if tech_info.get('server'):
+                                self.print_success(f"  Server: {tech_info['server']}")
+                            if tech_info.get('powered_by'):
+                                self.print_info(f"  X-Powered-By: {tech_info['powered_by']}")
+                            if tech_info.get('detected_technologies'):
+                                self.print_info(f"  Technologies: {', '.join(tech_info['detected_technologies'])}")
+                        else:
+                            self.print_info(f"[{completed}/{len(unique_targets)}] {target} - No response")
+                    except Exception as e:
+                        self.print_warning(f"[{completed}/{len(unique_targets)}] {target} - Error: {e}")
+
+            self.results['technology_stack'] = tech_stack
+            self.print_success(f"\nTechnology stack identified for {len(tech_stack)} targets")
 
     def _identify_technologies(self, domain: str) -> Dict[str, Any]:
         """Identify technologies for a specific domain"""
@@ -3383,252 +3410,307 @@ class ReconAutomation:
         self.print_success(f"Report template saved to: {template_file}")
 
     def _generate_markdown_report(self, filepath: Path):
-        """Generate markdown format report"""
-        with open(filepath, 'w') as f:
-            f.write(f"# Penetration Testing Reconnaissance Report\n\n")
-            f.write(f"**Client:** {self.client_name}\n\n")
-            f.write(f"**Domain:** {self.domain}\n\n")
-            f.write(f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-            f.write(f"---\n\n")
+            """Generate markdown format report"""
+            with open(filepath, 'w') as f:
+                f.write(f"# Penetration Testing Reconnaissance Report\n\n")
+                f.write(f"**Client:** {self.client_name}\n\n")
+                f.write(f"**Domain:** {self.domain}\n\n")
+                f.write(f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                f.write(f"---\n\n")
 
-            # Scope Validation
-            f.write(f"## Scope Validation\n\n")
-            whois = self.results.get('scope_validation', {}).get('whois', {})
-            for ip_range, info in whois.items():
-                f.write(f"### {ip_range}\n")
-                f.write(f"- **Organization:** {info.get('org', 'N/A')}\n")
-                f.write(f"- **Net Range:** {info.get('netrange', 'N/A')}\n")
-                f.write(f"- **Country:** {info.get('country', 'N/A')}\n\n")
+                # Scope Validation
+                f.write(f"## Scope Validation\n\n")
+                whois = self.results.get('scope_validation', {}).get('whois', {})
+                for ip_range, info in whois.items():
+                    f.write(f"### {ip_range}\n")
+                    f.write(f"- **Organization:** {info.get('org', 'N/A')}\n")
+                    f.write(f"- **Net Range:** {info.get('netrange', 'N/A')}\n")
+                    f.write(f"- **Country:** {info.get('country', 'N/A')}\n\n")
 
-            # DNS Enumeration
-            f.write(f"## DNS Enumeration\n\n")
-            dns = self.results.get('dns_enumeration', {})
-            f.write(f"**Total Subdomains Discovered:** {dns.get('total_discovered', 0)}\n\n")
+                # DNS Enumeration
+                f.write(f"## DNS Enumeration\n\n")
+                dns = self.results.get('dns_enumeration', {})
+                f.write(f"**Total Subdomains Discovered:** {dns.get('total_discovered', 0)}\n\n")
 
-            resolved = dns.get('resolved', {})
-            if resolved:
-                f.write(f"### Resolved Subdomains ({len(resolved)})\n\n")
-                for subdomain, ips in sorted(resolved.items()):
-                    f.write(f"- `{subdomain}` → {', '.join(ips)}\n")
-                f.write(f"\n")
-
-            # Subdomain Takeover
-            f.write(f"## Subdomain Takeover Vulnerabilities\n\n")
-            takeovers = self.results.get('subdomain_takeovers', [])
-            if takeovers:
-                f.write(f"**Potentially Vulnerable Subdomains:** {len(takeovers)}\n\n")
-                for vuln in takeovers:
-                    f.write(f"### {vuln['subdomain']}\n")
-                    f.write(f"- **Service:** {vuln['service']}\n")
-                    if vuln.get('cname'):
-                        f.write(f"- **CNAME:** {', '.join(vuln['cname'])}\n")
-                    f.write(f"- **Risk:** Subdomain may be claimable by attacker\n\n")
-            else:
-                f.write(f"No subdomain takeover vulnerabilities detected.\n\n")
-
-            # Technology Stack
-            f.write(f"## Technology Stack\n\n")
-            tech = self.results.get('technology_stack', {})
-            for domain, info in tech.items():
-                f.write(f"### {domain}\n")
-                if info.get('server'):
-                    f.write(f"- **Server:** {info['server']}\n")
-                if info.get('powered_by'):
-                    f.write(f"- **Powered By:** {info['powered_by']}\n")
-                if info.get('detected_technologies'):
-                    f.write(f"- **Technologies:** {', '.join(info['detected_technologies'])}\n")
-                f.write(f"\n")
-
-            # LinkedIn Intelligence
-            f.write(f"## LinkedIn Intelligence\n\n")
-            linkedin = self.results.get('linkedin_intel', {})
-
-            google_results = linkedin.get('google_dork_results', [])
-            inferred = linkedin.get('inferred_employees', [])
-
-            f.write(f"**Profiles Found (Google):** {len(google_results)}\n")
-            f.write(f"**Employees Inferred:** {len(inferred)}\n\n")
-
-            if linkedin.get('email_patterns'):
-                pattern = linkedin['email_patterns'].get('likely_pattern', 'Unknown')
-                confidence = linkedin['email_patterns'].get('confidence', 0)
-                f.write(f"**Email Pattern:** {pattern} ({confidence:.0f}% confidence)\n\n")
-
-            if inferred:
-                f.write(f"### Inferred Employees (Sample)\n\n")
-                for emp in inferred[:10]:
-                    f.write(f"- {emp['name']} ({emp['email']})\n")
-                if len(inferred) > 10:
-                    f.write(f"- ... and {len(inferred) - 10} more\n")
-                f.write(f"\n")
-
-            # Email Addresses
-            f.write(f"## Email Addresses\n\n")
-            emails = self.results.get('email_addresses', [])
-            f.write(f"**Total Found:** {len(emails)}\n\n")
-            for email in emails:
-                f.write(f"- {email}\n")
-            f.write(f"\n")
-
-            # Breach Data
-            f.write(f"## Breach Database Results\n\n")
-            breaches = self.results.get('breach_data', {})
-            if breaches:
-                f.write(f"**Accounts with Breaches:** {len(breaches)}\n\n")
-                for email, breach_list in breaches.items():
-                    f.write(f"### {email}\n")
-                    for breach in breach_list:
-                        f.write(f"- {breach}\n")
-                    f.write(f"\n")
-            else:
-                f.write(f"No compromised credentials found.\n\n")
-
-            # GitHub Secret Scanning
-            f.write(f"## GitHub Secret Scanning\n\n")
-            github = self.results.get('github_secrets', {})
-
-            if github.get('total_secrets_found', 0) > 0:
-                f.write(f"**Total Secrets Detected:** {github['total_secrets_found']}\n\n")
-
-                repos = github.get('repositories', [])
-                if repos:
-                    f.write(f"### Repositories with Secrets ({len(repos)})\n\n")
-                    for repo in repos:
-                        f.write(f"#### {repo['repository']}\n")
-                        f.write(f"- **File:** {repo['file_path']}\n")
-                        f.write(f"- **URL:** {repo['html_url']}\n")
-                        f.write(f"- **Secrets Found:**\n")
-                        for secret in repo['secrets_found']:
-                            f.write(f"  - {secret['type']}: {secret['count']} match(es)\n")
-                        f.write(f"\n")
-
-                issues = github.get('issues', [])
-                if issues:
-                    f.write(f"### Issues with Secrets ({len(issues)})\n\n")
-                    for issue in issues:
-                        f.write(f"- **{issue['title']}**\n")
-                        f.write(f"  - URL: {issue['html_url']}\n")
-                        f.write(f"  - State: {issue['state']}\n\n")
-            else:
-                f.write(f"No secrets found in GitHub repositories.\n\n")
-
-            # ASN Data
-            f.write(f"## ASN Enumeration\n\n")
-            asn_data = self.results.get('asn_data', {})
-
-            asns = asn_data.get('asn_numbers', [])
-            if asns:
-                f.write(f"**ASNs Discovered:** {len(asns)}\n\n")
-                for asn in asns:
-                    f.write(f"### AS{asn['asn']}\n")
-                    f.write(f"- **Owner:** {asn['owner']}\n")
-                    if asn.get('country'):
-                        f.write(f"- **Country:** {asn['country']}\n")
+                # CT Log domains
+                ct_domains = dns.get('ct_log_domains', [])
+                if ct_domains:
+                    f.write(f"### Certificate Transparency Log Domains ({len(ct_domains)})\n\n")
+                    f.write(f"Domains discovered via crt.sh and certificate transparency logs:\n\n")
+                    for domain in ct_domains:
+                        f.write(f"- `{domain}`\n")
                     f.write(f"\n")
 
-            ip_ranges = asn_data.get('ip_ranges', [])
-            if ip_ranges:
-                f.write(f"### IP Ranges ({len(ip_ranges)})\n\n")
-                in_scope = [r for r in ip_ranges if r['in_scope']]
-                out_scope = [r for r in ip_ranges if not r['in_scope']]
-
-                if in_scope:
-                    f.write(f"#### In Authorized Scope ({len(in_scope)})\n\n")
-                    for r in in_scope:
-                        f.write(f"- {r['prefix']} (AS{r['asn']})\n")
+                # Bruteforce domains
+                brute_domains = dns.get('bruteforce_domains', [])
+                if brute_domains:
+                    f.write(f"### DNS Bruteforce Domains ({len(brute_domains)})\n\n")
+                    f.write(f"Domains discovered via DNS bruteforce enumeration:\n\n")
+                    for domain in brute_domains:
+                        f.write(f"- `{domain}`\n")
                     f.write(f"\n")
 
-                if out_scope:
-                    f.write(f"#### Out of Scope - DO NOT TEST ({len(out_scope)})\n\n")
-                    for r in out_scope:
-                        f.write(f"- {r['prefix']} (AS{r['asn']})\n")
+                # Resolved subdomains
+                resolved = dns.get('resolved', {})
+                if resolved:
+                    f.write(f"### Resolved Subdomains ({len(resolved)})\n\n")
+                    f.write(f"Subdomains that successfully resolved to IP addresses:\n\n")
+                    for subdomain, ips in sorted(resolved.items()):
+                        f.write(f"- `{subdomain}` → {', '.join(ips)}\n")
                     f.write(f"\n")
 
-            # S3 Buckets
-            f.write(f"## AWS S3 Buckets\n\n")
-            s3 = self.results.get('s3_buckets', {})
-            found_s3 = s3.get('found', [])
+                # Unresolved domains
+                unresolved = dns.get('unresolved', [])
+                if unresolved:
+                    f.write(f"### Unresolved Domains ({len(unresolved)})\n\n")
+                    f.write(f"Domains that did not resolve (may be expired, internal, or misconfigured):\n\n")
+                    for domain in unresolved[:100]:
+                        f.write(f"- `{domain}`\n")
+                    if len(unresolved) > 100:
+                        f.write(f"- ... and {len(unresolved) - 100} more\n")
+                    f.write(f"\n")
 
-            if found_s3:
-                public_s3 = [b for b in found_s3 if b['status'] == 'Public Read']
-                private_s3 = [b for b in found_s3 if b['status'] == 'Private (Exists)']
+                # Subdomain Takeover
+                f.write(f"## Subdomain Takeover Vulnerabilities\n\n")
+                takeovers = self.results.get('subdomain_takeovers', [])
+                if takeovers:
+                    f.write(f"**Potentially Vulnerable Subdomains:** {len(takeovers)}\n\n")
+                    for vuln in takeovers:
+                        f.write(f"### {vuln['subdomain']}\n")
+                        f.write(f"- **Service:** {vuln['service']}\n")
+                        f.write(f"- **Confidence:** {vuln.get('confidence', 'Unknown')}\n")
+                        if vuln.get('cname'):
+                            f.write(f"- **CNAME:** {', '.join(vuln['cname'])}\n")
+                        f.write(f"- **Risk:** Subdomain may be claimable by attacker\n\n")
+                else:
+                    f.write(f"No subdomain takeover vulnerabilities detected.\n\n")
 
-                f.write(f"**Buckets Found:** {len(found_s3)}\n")
-                f.write(f"**Public:** {len(public_s3)} | **Private:** {len(private_s3)}\n\n")
-
-                if public_s3:
-                    f.write(f"### Public S3 Buckets\n\n")
-                    for bucket in public_s3:
-                        f.write(f"#### {bucket['bucket']}\n")
-                        f.write(f"- **URL:** {bucket['url']}\n")
-                        if bucket.get('file_count'):
-                            f.write(f"- **Files:** {bucket['file_count']}\n")
+                # Technology Stack
+                f.write(f"## Technology Stack\n\n")
+                tech = self.results.get('technology_stack', {})
+                if tech:
+                    f.write(f"**Systems Analyzed:** {len(tech)}\n\n")
+                    for domain, info in sorted(tech.items()):
+                        f.write(f"### {domain}\n")
+                        if info.get('server'):
+                            f.write(f"- **Server:** {info['server']}\n")
+                        if info.get('powered_by'):
+                            f.write(f"- **Powered By:** {info['powered_by']}\n")
+                        if info.get('detected_technologies'):
+                            f.write(f"- **Technologies:** {', '.join(info['detected_technologies'])}\n")
+                        if info.get('headers'):
+                            f.write(f"- **Security Headers:**\n")
+                            for header, value in info['headers'].items():
+                                if header not in ['Server', 'X-Powered-By']:
+                                    f.write(f"  - {header}: {value}\n")
                         f.write(f"\n")
-            else:
-                f.write(f"No S3 buckets found.\n\n")
+                else:
+                    f.write(f"No technology stack information collected.\n\n")
 
-            # Azure Storage
-            f.write(f"## Azure Storage\n\n")
-            azure = self.results.get('azure_storage', {})
-            found_azure = azure.get('found', [])
+                # LinkedIn Intelligence
+                f.write(f"## LinkedIn Intelligence\n\n")
+                linkedin = self.results.get('linkedin_intel', {})
 
-            if found_azure:
-                public_azure = [s for s in found_azure if s['status'] == 'Public Read']
-                private_azure = [s for s in found_azure if s['status'] == 'Private (Exists)']
+                # New format with companies and employees
+                companies = linkedin.get('company_info', {}).get('companies', [])
+                employees = linkedin.get('employees', [])
 
-                f.write(f"**Storage Accounts Found:** {len(found_azure)}\n")
-                f.write(f"**Public:** {len(public_azure)} | **Private:** {len(private_azure)}\n\n")
+                f.write(f"**Companies Found:** {len(companies)}\n")
+                f.write(f"**Employees Found:** {len(employees)}\n\n")
 
-                if public_azure:
-                    f.write(f"### Public Azure Storage\n\n")
-                    for storage in public_azure:
-                        f.write(f"#### {storage['account']}\n")
-                        f.write(f"- **Container:** {storage['container']}\n")
-                        f.write(f"- **URL:** {storage['url']}\n")
-                        if storage.get('file_count'):
-                            f.write(f"- **Files:** {storage['file_count']}\n")
+                if companies:
+                    f.write(f"### Companies\n\n")
+                    for company in companies:
+                        f.write(f"- **{company['name']}**\n")
+                        if company.get('url'):
+                            f.write(f"  - {company['url']}\n")
+                    f.write(f"\n")
+
+                if employees:
+                    f.write(f"### Employees\n\n")
+                    for emp in employees:
+                        title_info = f" - {emp['title']}" if emp.get('title') and emp['title'] != 'Unknown' else ""
+                        f.write(f"- **{emp['name']}**{title_info}\n")
+                        if emp.get('profile_url'):
+                            f.write(f"  - Profile: {emp['profile_url']}\n")
+                        if emp.get('possible_email'):
+                            f.write(f"  - Possible Email: {emp['possible_email']}\n")
+                    f.write(f"\n")
+
+                departments = linkedin.get('departments', [])
+                if departments:
+                    f.write(f"### Departments Identified\n\n")
+                    for dept in departments:
+                        f.write(f"- {dept.title()}\n")
+                    f.write(f"\n")
+
+                titles = linkedin.get('titles', {})
+                if titles:
+                    f.write(f"### Top Job Titles\n\n")
+                    sorted_titles = sorted(titles.items(), key=lambda x: x[1], reverse=True)[:15]
+                    for title, count in sorted_titles:
+                        f.write(f"- {title} ({count})\n")
+                    f.write(f"\n")
+
+                # Legacy support for old format
+                google_results = linkedin.get('google_dork_results', [])
+                inferred = linkedin.get('inferred_employees', [])
+
+                if google_results or inferred:
+                    f.write(f"### Legacy Data\n\n")
+                    f.write(f"**Profiles Found (Google):** {len(google_results)}\n")
+                    f.write(f"**Employees Inferred:** {len(inferred)}\n\n")
+
+                    if linkedin.get('email_patterns'):
+                        pattern = linkedin['email_patterns'].get('likely_pattern', 'Unknown')
+                        confidence = linkedin['email_patterns'].get('confidence', 0)
+                        f.write(f"**Email Pattern:** {pattern} ({confidence:.0f}% confidence)\n\n")
+
+                    if inferred:
+                        f.write(f"#### Inferred Employees (Sample)\n\n")
+                        for emp in inferred[:10]:
+                            f.write(f"- {emp['name']} ({emp['email']})\n")
+                        if len(inferred) > 10:
+                            f.write(f"- ... and {len(inferred) - 10} more\n")
                         f.write(f"\n")
-            else:
-                f.write(f"No Azure storage accounts found.\n\n")
 
-            # GCP Storage
-            f.write(f"## GCP Storage\n\n")
-            gcp = self.results.get('gcp_storage', {})
-            found_gcp = gcp.get('found', [])
-
-            if found_gcp:
-                public_gcp = [b for b in found_gcp if b['status'] == 'Public Read']
-                private_gcp = [b for b in found_gcp if b['status'] == 'Private (Exists)']
-
-                f.write(f"**Buckets Found:** {len(found_gcp)}\n")
-                f.write(f"**Public:** {len(public_gcp)} | **Private:** {len(private_gcp)}\n\n")
-
-                if public_gcp:
-                    f.write(f"### Public GCP Buckets\n\n")
-                    for bucket in public_gcp:
-                        f.write(f"#### {bucket['bucket']}\n")
-                        f.write(f"- **URL:** {bucket['url']}\n")
-                        if bucket.get('file_count'):
-                            f.write(f"- **Files:** {bucket['file_count']}\n")
-                        f.write(f"\n")
-            else:
-                f.write(f"No GCP buckets found.\n\n")
-
-            # Network Scan
-            f.write(f"## Network Enumeration\n\n")
-            scan = self.results.get('network_scan', {})
-            f.write(f"**Hosts with Open Ports:** {len(scan)}\n\n")
-
-            for host, ports in scan.items():
-                f.write(f"### {host}\n")
-                f.write(f"**Open Ports:** {len(ports)}\n\n")
-                f.write(f"| Port | Service | Version |\n")
-                f.write(f"|------|---------|--------|\n")
-                for port_num, port_info in sorted(ports.items()):
-                    service = port_info.get('service', 'unknown')
-                    version = port_info.get('version', '')
-                    f.write(f"| {port_num} | {service} | {version} |\n")
+                # Email Addresses
+                f.write(f"## Email Addresses\n\n")
+                emails = self.results.get('email_addresses', [])
+                f.write(f"**Total Found:** {len(emails)}\n\n")
+                for email in emails:
+                    f.write(f"- {email}\n")
                 f.write(f"\n")
+
+                # Breach Data
+                f.write(f"## Breach Database Results\n\n")
+                breaches = self.results.get('breach_data', {})
+                if breaches:
+                    f.write(f"**Accounts with Breaches:** {len(breaches)}\n\n")
+                    for email, breach_list in breaches.items():
+                        f.write(f"### {email}\n")
+                        for breach in breach_list:
+                            f.write(f"- {breach}\n")
+                        f.write(f"\n")
+                else:
+                    f.write(f"No compromised credentials found.\n\n")
+
+                # GitHub Secret Scanning
+                f.write(f"## GitHub Secret Scanning\n\n")
+                github = self.results.get('github_secrets', {})
+
+                if github.get('total_secrets_found', 0) > 0:
+                    f.write(f"**Total Secrets Detected:** {github['total_secrets_found']}\n\n")
+
+                    repos = github.get('repositories', [])
+                    if repos:
+                        f.write(f"### Repositories with Secrets ({len(repos)})\n\n")
+                        for repo in repos:
+                            f.write(f"#### {repo['repository']}\n")
+                            f.write(f"- **File:** {repo['file_path']}\n")
+                            f.write(f"- **URL:** {repo['html_url']}\n")
+                            f.write(f"- **Secrets Found:**\n")
+                            for secret in repo['secrets_found']:
+                                f.write(f"  - {secret['type']}: {secret['count']} match(es)\n")
+                            f.write(f"\n")
+
+                    issues = github.get('issues', [])
+                    if issues:
+                        f.write(f"### Issues with Secrets ({len(issues)})\n\n")
+                        for issue in issues:
+                            f.write(f"- **{issue['title']}**\n")
+                            f.write(f"  - URL: {issue['html_url']}\n")
+                            f.write(f"  - State: {issue['state']}\n\n")
+                else:
+                    f.write(f"No secrets found in GitHub repositories.\n\n")
+
+                # ASN Data
+                f.write(f"## ASN Enumeration\n\n")
+                asn_data = self.results.get('asn_data', {})
+
+                asns = asn_data.get('asn_numbers', [])
+                if asns:
+                    f.write(f"**ASNs Discovered:** {len(asns)}\n\n")
+                    for asn in asns:
+                        f.write(f"### AS{asn['asn']}\n")
+                        f.write(f"- **Owner:** {asn['owner']}\n")
+                        if asn.get('country'):
+                            f.write(f"- **Country:** {asn['country']}\n")
+                        f.write(f"\n")
+
+                ip_ranges = asn_data.get('ip_ranges', [])
+                if ip_ranges:
+                    f.write(f"### IP Ranges ({len(ip_ranges)})\n\n")
+                    in_scope = [r for r in ip_ranges if r['in_scope']]
+                    out_scope = [r for r in ip_ranges if not r['in_scope']]
+
+                    if in_scope:
+                        f.write(f"#### In Authorized Scope ({len(in_scope)})\n\n")
+                        for r in in_scope:
+                            f.write(f"- {r['prefix']} (AS{r['asn']})\n")
+                        f.write(f"\n")
+
+                    if out_scope:
+                        f.write(f"#### Out of Scope - DO NOT TEST ({len(out_scope)})\n\n")
+                        for r in out_scope:
+                            f.write(f"- {r['prefix']} (AS{r['asn']})\n")
+                        f.write(f"\n")
+
+                # S3 Buckets
+                f.write(f"## AWS S3 Buckets\n\n")
+                s3 = self.results.get('s3_buckets', {})
+                found_s3 = s3.get('found', [])
+
+                if found_s3:
+                    public_s3 = [b for b in found_s3 if b['status'] == 'Public Read']
+                    private_s3 = [b for b in found_s3 if b['status'] == 'Private (Exists)']
+
+                    f.write(f"**Buckets Found:** {len(found_s3)}\n")
+                    f.write(f"**Public:** {len(public_s3)} | **Private:** {len(private_s3)}\n\n")
+
+                    if public_s3:
+                        f.write(f"### Public S3 Buckets\n\n")
+                        for bucket in public_s3:
+                            f.write(f"#### {bucket['bucket']}\n")
+                            f.write(f"- **URL:** {bucket['url']}\n")
+                            if bucket.get('file_count'):
+                                f.write(f"- **Files:** {bucket['file_count']}\n")
+                            f.write(f"\n")
+                else:
+                    f.write(f"No S3 buckets found.\n\n")
+
+                # Azure Storage
+                f.write(f"## Azure Storage\n\n")
+                azure = self.results.get('azure_storage', {})
+                found_azure = azure.get('found', [])
+
+                if found_azure:
+                    f.write(f"**Storage Accounts Found:** {len(found_azure)}\n\n")
+                    for storage in found_azure:
+                        f.write(f"### {storage.get('account', 'Unknown')}\n")
+                        f.write(f"- **Container:** {storage.get('container', 'N/A')}\n")
+                        f.write(f"- **Status:** {storage.get('status', 'N/A')}\n")
+                        if storage.get('url'):
+                            f.write(f"- **URL:** {storage['url']}\n")
+                        f.write(f"\n")
+                else:
+                    f.write(f"No Azure storage accounts found.\n\n")
+
+                # GCP Storage
+                f.write(f"## GCP Storage\n\n")
+                gcp = self.results.get('gcp_storage', {})
+                found_gcp = gcp.get('found', [])
+
+                if found_gcp:
+                    f.write(f"**Buckets Found:** {len(found_gcp)}\n\n")
+                    for bucket in found_gcp:
+                        f.write(f"### {bucket.get('bucket', 'Unknown')}\n")
+                        f.write(f"- **Status:** {bucket.get('status', 'N/A')}\n")
+                        if bucket.get('url'):
+                            f.write(f"- **URL:** {bucket['url']}\n")
+                        f.write(f"\n")
+                else:
+                    f.write(f"No GCP storage buckets found.\n\n")
 
     def _generate_report_template(self, filepath: Path):
         """Generate report template with findings"""
@@ -3988,6 +4070,7 @@ Examples:
     parser.add_argument('--skip-asn', action='store_true', help='Skip ASN enumeration')
     parser.add_argument('--skip-subdomain-takeover', action='store_true', help='Skip subdomain takeover detection')
     parser.add_argument('--skip-osint', action='store_true', help='Skip all OSINT modules (GitHub, LinkedIn)')
+    parser.add_argument('--linkedin-max-results', type=int, default=100, help='Maximum LinkedIn employee results to fetch (default: 100)')
 
     # Testing flags
     parser.add_argument('--linkedin-only', action='store_true', help='Run only LinkedIn enumeration (for testing)')
