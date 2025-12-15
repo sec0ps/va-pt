@@ -193,7 +193,7 @@ def install_base_dependencies():
 
     print("Installing Python Packages and Dependencies")
     run_command("pip3 install build dnspython kerberoast certipy-ad knowsmore sherlock-project wafw00f pypykatz zeep netaddr ujson aiomultiprocess aoihttp censys shodan")
-    run_command("pip install playwright uvloop easysnmp pysnmp tftpy python-docx")
+    run_command("pip install playwright uvloop easysnmp pysnmp tftpy python-docx mitmproxy")
 
     # Install each pipx package separately
     pipx_packages = ["urh", "scoutsuite", "checkov", "impacket", "dnsrecon"]
