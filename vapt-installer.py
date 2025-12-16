@@ -186,6 +186,8 @@ def install_base_dependencies():
     run_command("sudo apt install -y ncftp wine-development libcurl4-openssl-dev smbclient hackrf nfs-common samba gpsd snmp libsnmp-dev libsnmp-perl snmp-mibs-downloader")
     run_command("sudo apt install -y docker.io docker-compose hcxtools httrack tshark git python-is-python3 tig tftpd-hpa libimage-exiftool-perl wkhtmltopdf")
     run_command("sudo apt install -y libffi-dev libyaml-dev libreadline-dev libncurses5-dev libgdbm-dev zlib1g-dev build-essential bison libedit-dev libxml2-utils")
+    run_command("sudo apt install -y automake libtool pkg-config libnl-3-dev libnl-genl-3-dev ethtool shtool rfkill libpcre3-dev libhwloc-dev libcmocka-dev hostapd")
+    run_command("sudo apt install -y wpasupplicant tcpdump iw usbutils")
     run_command("sudo usermod -aG docker $USER")
     run_command("sudo snap install powershell --classic")
     #Adding these in for the eventual move to Ubuntu 24+
@@ -193,7 +195,7 @@ def install_base_dependencies():
 
     print("Installing Python Packages and Dependencies")
     run_command("pip3 install build dnspython kerberoast certipy-ad knowsmore sherlock-project wafw00f pypykatz zeep netaddr ujson aiomultiprocess aoihttp censys shodan")
-    run_command("pip install playwright uvloop easysnmp pysnmp tftpy python-docx mitmproxy")
+    run_command("pip install playwright uvloop easysnmp pysnmp tftpy dnspython")
 
     # Install each pipx package separately
     pipx_packages = ["urh", "scoutsuite", "checkov", "impacket", "dnsrecon"]
@@ -382,8 +384,34 @@ def install_toolkit_packages():
 
     # Wireless Signal Analysis tools
     wireless_tools = [
-        ("https://github.com/g4ixt/QtTinySA.git", "/vapt/wireless/QtTinySA", ["pip3 install -r requirements.txt"]),
-        ("https://github.com/xmikos/qspectrumanalyzer.git", "/vapt/wireless/qspectrumanalyzer", ["sudo python3 setup.py install"])
+        # QtTinySA – spectrum analyzer frontend
+        (
+            "https://github.com/g4ixt/QtTinySA.git",
+            "/vapt/wireless/QtTinySA",
+            ["pip3 install -r requirements.txt"]
+        ),
+
+        # qspectrumanalyzer
+        (
+            "https://github.com/xmikos/qspectrumanalyzer.git",
+            "/vapt/wireless/qspectrumanalyzer",
+            ["sudo python3 setup.py install"]
+        ),
+
+        # Aircrack-ng – wireless attack & analysis suite (source build)
+        (
+            "https://download.aircrack-ng.org/aircrack-ng-1.7.tar.gz",
+            "/vapt/wireless/aircrack-ng-1.7",
+            [
+                "tar -zxvf aircrack-ng-1.7.tar.gz",
+                "cd aircrack-ng-1.7",
+                "autoreconf -i",
+                "./configure --with-experimental",
+                "make",
+                "sudo make install",
+                "sudo ldconfig"
+            ]
+        )
     ]
 
     # OWASP ZAP installation
@@ -392,10 +420,10 @@ def install_toolkit_packages():
         print("OWASP ZAP already installed, skipping.")
     else:
         print("Installing OWASP ZAP")
-        run_command("cd /vapt/web && wget https://github.com/zaproxy/zaproxy/releases/download/v2.17.0/ZAP_2.17.0_Linux.tar.gz")
-        run_command("cd /vapt/web && tar xvf ZAP_2.17.0_Linux.tar.gz")
-        run_command("cd /vapt/web && rm -rf ZAP_2.17.0_Linux.tar.gz")
-        run_command("cd /vapt/web && mv ZAP_2.17.0/ zap/")
+        run_command("cd /vapt/web && wget https://github.com/zaproxy/zaproxy/releases/download/v2.16.1/ZAP_2.16.1_Linux.tar.gz")
+        run_command("cd /vapt/web && tar xvf ZAP_2.16.1_Linux.tar.gz")
+        run_command("cd /vapt/web && rm -rf ZAP_ZAP_2.16.1_Linux.tar.gz")
+        run_command("cd /vapt/web && mv ZAP_2.16.1/ zap/")
 
     # Arachni installation
     arachni_dir = "/vapt/web/arachni"
