@@ -397,6 +397,7 @@ class ReconAutomation:
 
                 # Remove temporary credentials that shouldn't be saved
                 config_to_save.pop('linkedin_cookie', None)
+                config_to_save.pop('linkedin_cookies', None)
 
                 with open(self.config_file, 'w') as f:
                     json.dump(config_to_save, f, indent=2)
@@ -432,20 +433,24 @@ class ReconAutomation:
 
             print("")
 
-            # LinkedIn Cookie - ALWAYS prompt (not saved, expires after use)
-            print("[*] LinkedIn Session Cookie (for employee enumeration)")
-            print("    Note: Cookie must be fresh - expires after single use")
-            print("    1. Log into LinkedIn in your browser (in a NEW incognito/private window)")
-            print("    2. Open Developer Tools (F12) -> Application -> Cookies -> linkedin.com")
-            print("    3. Find the 'li_at' cookie and copy its value")
-            print("    4. Paste it below (cookie will NOT be saved for security)")
-            cookie = input("    Enter LinkedIn li_at cookie (or press Enter to skip): ").strip()
-            if cookie:
-                self.config['linkedin_cookie'] = cookie
+            # LinkedIn Cookies - ALWAYS prompt (not saved, expires after use)
+            print("="*80)
+            print("LINKEDIN COOKIES REQUIRED")
+            print("="*80)
+            print("[*] LinkedIn Session Cookies (for employee enumeration)")
+            print("    Note: Requires FULL cookie string from browser")
+            print("    1. Open LinkedIn in your browser and log in")
+            print("    2. Open Developer Tools (F12) -> Network tab")
+            print("    3. Refresh the page, click any linkedin.com request")
+            print("    4. In Request Headers, find 'Cookie:' and copy the ENTIRE value")
+            print("    5. Paste the full cookie string below (will NOT be saved)")
+            cookies = input("    Enter full LinkedIn cookie string (or press Enter to skip): ").strip()
+            if cookies:
+                self.config['linkedin_cookies'] = cookies
                 # NOTE: Do NOT save to config file - it's temporary
-                self.print_success("LinkedIn cookie configured for this session only")
+                self.print_success("LinkedIn cookies configured for this session only")
             else:
-                self.print_info("Skipping LinkedIn cookie - employee enumeration will be skipped")
+                self.print_info("Skipping LinkedIn cookies - employee enumeration will be skipped")
 
             print("")
 
@@ -3972,11 +3977,11 @@ class ReconAutomation:
                 self.technology_stack_identification()
 
                 # Phase 2: OSINT and intelligence gathering
-                # LinkedIn enumeration - runs if cookie was provided
-                if self.config.get('linkedin_cookie'):
+                # LinkedIn enumeration - runs if cookies were provided
+                if self.config.get('linkedin_cookies'):
                     self.linkedin_enumeration()
                 else:
-                    self.print_info("Skipping LinkedIn enumeration (no cookie provided)")
+                    self.print_info("Skipping LinkedIn enumeration (no cookies provided)")
 
                 self.email_harvesting()
 
@@ -4003,20 +4008,15 @@ class ReconAutomation:
                 if not self.args.skip_gcp:
                     self.gcp_storage_enumeration()
 
-                # Phase 5: Network enumeration (last due to time)
-                if not self.args.skip_scan:
-                    self.network_enumeration()
-
-                # Generate reports
+                # Phase 5: Generate reports
                 self.generate_report()
 
                 self.print_section("RECONNAISSANCE COMPLETE")
-                self.print_success("All modules completed successfully!")
-                self.print_info(f"Results saved to: {self.output_dir}")
+                self.print_success(f"All results saved to: {self.output_dir}")
 
             except KeyboardInterrupt:
                 self.print_warning("\nReconnaissance interrupted by user")
-                self.generate_report()
+                self.print_info("Partial results may be available in output directory")
             except Exception as e:
                 self.print_error(f"Error during reconnaissance: {e}")
                 import traceback
