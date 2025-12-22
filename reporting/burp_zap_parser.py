@@ -45,6 +45,8 @@ from collections import defaultdict
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 
 class ZAPHTMLParser(HTMLParser):
     """Parse ZAP HTML report format"""
@@ -471,7 +473,6 @@ def add_bullet(doc, text, level=0):
     return para
 
 def generate_docx_report(metadata, alerts_by_severity, all_alerts, target_name="Target"):
-    """Generate DOCX report matching nessus_parser style"""
 
     doc = Document()
 
@@ -523,7 +524,7 @@ def generate_docx_report(metadata, alerts_by_severity, all_alerts, target_name="
             else:
                 add_bullet(doc, 'Unknown')
 
-            # Description
+            # Description (strip HTML)
             label = doc.add_paragraph()
             run = label.add_run('Description:')
             run.bold = True
@@ -531,13 +532,13 @@ def generate_docx_report(metadata, alerts_by_severity, all_alerts, target_name="
             run.font.size = Pt(11)
 
             if alert.get('description'):
-                add_paragraph(doc, alert['description'].strip())
+                add_paragraph(doc, strip_html_tags(alert['description']))
             else:
                 p = add_paragraph(doc, 'N/A')
                 p.runs[0].italic = True
                 p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
 
-            # Solution (called Remediation in nessus_parser)
+            # Solution/Remediation (strip HTML)
             label = doc.add_paragraph()
             run = label.add_run('Remediation:')
             run.bold = True
@@ -545,7 +546,7 @@ def generate_docx_report(metadata, alerts_by_severity, all_alerts, target_name="
             run.font.size = Pt(11)
 
             if alert.get('solution'):
-                add_paragraph(doc, alert['solution'].strip())
+                add_paragraph(doc, strip_html_tags(alert['solution']))
             else:
                 p = add_paragraph(doc, 'N/A')
                 p.runs[0].italic = True
@@ -560,7 +561,7 @@ def generate_docx_report(metadata, alerts_by_severity, all_alerts, target_name="
 
             if alert.get('reference'):
                 has_refs = False
-                for ref in alert['reference'].split('\n'):
+                for ref in strip_html_tags(alert['reference']).split('\n'):
                     ref = ref.strip()
                     if ref:
                         para = doc.add_paragraph(ref)
@@ -589,64 +590,55 @@ def generate_docx_report(metadata, alerts_by_severity, all_alerts, target_name="
                 first_instance = all_instances[0]
                 has_evidence = False
 
-                # Request Header
+                # Request (header + body combined)
+                request_text = ''
                 if first_instance.get('request_header'):
-                    sub_label = doc.add_paragraph()
-                    run = sub_label.add_run('Request Header:')
-                    run.bold = True
-                    run.font.name = 'Arial'
-                    run.font.size = Pt(11)
-
-                    para = doc.add_paragraph(first_instance['request_header'])
-                    for run in para.runs:
-                        run.font.name = 'Courier New'
-                        run.font.size = Pt(9)
-                    has_evidence = True
-
-                # Request Body
+                    request_text = first_instance['request_header']
                 if first_instance.get('request_body'):
+                    request_text += '\n\n' + first_instance['request_body'] if request_text else first_instance['request_body']
+
+                if request_text:
                     sub_label = doc.add_paragraph()
-                    run = sub_label.add_run('Request Body:')
+                    run = sub_label.add_run('Request:')
                     run.bold = True
                     run.font.name = 'Arial'
                     run.font.size = Pt(11)
 
-                    para = doc.add_paragraph(first_instance['request_body'])
+                    para = doc.add_paragraph(request_text)
                     for run in para.runs:
-                        run.font.name = 'Courier New'
-                        run.font.size = Pt(9)
+                        run.font.name = 'Consolas'
+                        run.font.size = Pt(10)
+                    # Add grey background shading
+                    shading = OxmlElement('w:shd')
+                    shading.set(qn('w:fill'), 'D9D9D9')
+                    para._p.get_or_add_pPr().append(shading)
                     has_evidence = True
 
-                # Response Header
+                # Response (header + body combined)
+                response_text = ''
                 if first_instance.get('response_header'):
-                    sub_label = doc.add_paragraph()
-                    run = sub_label.add_run('Response Header:')
-                    run.bold = True
-                    run.font.name = 'Arial'
-                    run.font.size = Pt(11)
-
-                    para = doc.add_paragraph(first_instance['response_header'])
-                    for run in para.runs:
-                        run.font.name = 'Courier New'
-                        run.font.size = Pt(9)
-                    has_evidence = True
-
-                # Response Body
+                    response_text = first_instance['response_header']
                 if first_instance.get('response_body'):
+                    body = first_instance['response_body']
+                    if len(body) > 500:
+                        body = body[:500] + '\n... (truncated)'
+                    response_text += '\n\n' + body if response_text else body
+
+                if response_text:
                     sub_label = doc.add_paragraph()
-                    run = sub_label.add_run('Response Body:')
+                    run = sub_label.add_run('Response:')
                     run.bold = True
                     run.font.name = 'Arial'
                     run.font.size = Pt(11)
 
-                    response_body = first_instance['response_body']
-                    if len(response_body) > 500:
-                        response_body = response_body[:500] + '\n... (truncated)'
-
-                    para = doc.add_paragraph(response_body)
+                    para = doc.add_paragraph(response_text)
                     for run in para.runs:
-                        run.font.name = 'Courier New'
-                        run.font.size = Pt(9)
+                        run.font.name = 'Consolas'
+                        run.font.size = Pt(10)
+                    # Add grey background shading
+                    shading = OxmlElement('w:shd')
+                    shading.set(qn('w:fill'), 'D9D9D9')
+                    para._p.get_or_add_pPr().append(shading)
                     has_evidence = True
 
                 # If no evidence found, show N/A
@@ -663,6 +655,14 @@ def generate_docx_report(metadata, alerts_by_severity, all_alerts, target_name="
             doc.add_paragraph()
 
     return doc
+
+def strip_html_tags(text):
+    """Remove HTML tags from text"""
+    import re
+    if not text:
+        return text
+    clean = re.sub(r'<[^>]+>', '', text)
+    return clean.strip()
 
 def print_test_output(metadata, alerts_by_severity, all_alerts, target_name):
     """Print test output showing document structure"""
