@@ -732,6 +732,80 @@ def print_test_output(metadata, alerts_by_severity, all_alerts, target_name):
     print(f"Full report would contain all {unique_findings} unique findings")
     print("="*60)
 
+def write_burp_xml(alerts, output_path):
+    """Write merged alerts to Burp XML format"""
+    root = ET.Element('issues', burpVersion="Merged", exportTime=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+    for alert in alerts:
+        issue = ET.SubElement(root, 'issue')
+        ET.SubElement(issue, 'name').text = alert.get('name', '')
+        ET.SubElement(issue, 'severity').text = alert.get('risk', 'Information')
+        ET.SubElement(issue, 'confidence').text = alert.get('confidence', '')
+        ET.SubElement(issue, 'issueBackground').text = alert.get('description', '')
+        ET.SubElement(issue, 'remediationBackground').text = alert.get('solution', '')
+
+        for instance in alert.get('instances', []):
+            ET.SubElement(issue, 'host').text = instance.get('uri', '').split('/')[2] if '://' in instance.get('uri', '') else ''
+            ET.SubElement(issue, 'path').text = '/' + '/'.join(instance.get('uri', '').split('/')[3:]) if '://' in instance.get('uri', '') else instance.get('uri', '')
+            break  # Burp has one host/path per issue element
+
+    tree = ET.ElementTree(root)
+    ET.indent(tree, space="  ")
+    tree.write(output_path, encoding='utf-8', xml_declaration=True)
+    print(f"[+] Written: {output_path}")
+
+
+def write_zap_xml(alerts, output_path):
+    """Write merged alerts to ZAP XML format"""
+    root = ET.Element('OWASPZAPReport', version="Merged", generated=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+    # Group by site
+    sites = defaultdict(list)
+    for alert in alerts:
+        for instance in alert.get('instances', []):
+            uri = instance.get('uri', '')
+            if '://' in uri:
+                site_name = '/'.join(uri.split('/')[:3])
+            else:
+                site_name = 'Unknown'
+            sites[site_name].append((alert, instance))
+            break
+        if not alert.get('instances'):
+            sites['Unknown'].append((alert, {}))
+
+    for site_name, alert_instances in sites.items():
+        site = ET.SubElement(root, 'site', name=site_name)
+        alerts_elem = ET.SubElement(site, 'alerts')
+
+        seen = set()
+        for alert, instance in alert_instances:
+            if alert['name'] in seen:
+                continue
+            seen.add(alert['name'])
+
+            alertitem = ET.SubElement(alerts_elem, 'alertitem')
+            ET.SubElement(alertitem, 'name').text = alert.get('name', '')
+            ET.SubElement(alertitem, 'riskdesc').text = alert.get('risk', '')
+            ET.SubElement(alertitem, 'confidence').text = alert.get('confidence', '')
+            ET.SubElement(alertitem, 'desc').text = alert.get('description', '')
+            ET.SubElement(alertitem, 'solution').text = alert.get('solution', '')
+            ET.SubElement(alertitem, 'reference').text = alert.get('reference', '')
+            ET.SubElement(alertitem, 'cweid').text = alert.get('cweid', '')
+            ET.SubElement(alertitem, 'wascid').text = alert.get('wascid', '')
+
+            instances_elem = ET.SubElement(alertitem, 'instances')
+            for a, inst in alert_instances:
+                if a['name'] == alert['name'] and inst:
+                    inst_elem = ET.SubElement(instances_elem, 'instance')
+                    ET.SubElement(inst_elem, 'uri').text = inst.get('uri', '')
+                    ET.SubElement(inst_elem, 'method').text = inst.get('method', '')
+                    ET.SubElement(inst_elem, 'param').text = inst.get('param', '')
+
+    tree = ET.ElementTree(root)
+    ET.indent(tree, space="  ")
+    tree.write(output_path, encoding='utf-8', xml_declaration=True)
+    print(f"[+] Written: {output_path}")
+
 def process_report(input_path, report_type, args):
     """Process a single report file"""
     try:
@@ -814,84 +888,123 @@ def main():
         for i, (file, report_type) in enumerate(reports, 1):
             print(f"  {i}. {file.name} ({report_type.replace('_', ' ').upper()})")
 
-        action = input("\n(m)erge reports or (g)enerate docx? ").strip().lower()
+        print("\nOptions:")
+        print("  1) Merge Reports - merge like XML files into single XML")
+        print("  2) Generate DOCX - merge all and generate single report")
+        action = input("\nSelect option (1/2): ").strip()
 
-        if action == 'm':
-            # Group reports by type
-            by_type = defaultdict(list)
-            for file, report_type in reports:
-                by_type[report_type].append(file)
+        # Group reports by type
+        by_type = defaultdict(list)
+        for file, report_type in reports:
+            by_type[report_type].append(file)
 
-            # Show available types for merging
-            mergeable = {k: v for k, v in by_type.items() if len(v) >= 2}
-            if not mergeable:
-                print("[!] Need at least 2 reports of the same type to merge")
+        if action == '1':
+            # Merge to XML - only XML files eligible
+            xml_types = {k: v for k, v in by_type.items() if k.endswith('_xml')}
+
+            if not xml_types:
+                print("[!] No XML reports found for merging")
                 sys.exit(1)
 
-            print("\n[*] Report types available for merge:")
-            type_list = list(mergeable.keys())
-            for i, rt in enumerate(type_list, 1):
-                print(f"  {i}. {rt.replace('_', ' ').upper()} ({len(mergeable[rt])} reports)")
+            merged_any = False
+            for report_type, files in xml_types.items():
+                if len(files) < 2:
+                    print(f"[*] Skipping {report_type}: only {len(files)} file(s)")
+                    continue
 
-            type_choice = input(f"\nSelect type to merge (1-{len(type_list)}): ").strip()
-            try:
-                selected_type = type_list[int(type_choice) - 1]
-            except (ValueError, IndexError):
-                print("[!] Invalid selection")
-                sys.exit(1)
+                print(f"\n[*] Merging {len(files)} {report_type.replace('_', ' ').upper()} reports...")
 
-            files_to_merge = mergeable[selected_type]
-            print(f"[*] Merging {len(files_to_merge)} {selected_type.replace('_', ' ').upper()} reports...")
+                # Select parser
+                parse_func = parse_burp_report if report_type == 'burp_xml' else parse_xml_report
 
-            # Select parser based on type
-            if selected_type == 'burp_xml':
-                parse_func = parse_burp_report
-            elif selected_type == 'burp_html':
-                parse_func = parse_burp_html_report
-            elif selected_type == 'zap_xml':
-                parse_func = parse_xml_report
-            else:
-                parse_func = parse_html_report
+                # Parse and merge by name
+                merged_findings = {}
+                for fp in files:
+                    try:
+                        _, _, alerts = parse_func(fp)
+                        print(f"[+] Parsed {len(alerts)} findings from {fp.name}")
+                        for alert in alerts:
+                            name = alert['name']
+                            if name in merged_findings:
+                                merged_findings[name]['instances'].extend(alert.get('instances', []))
+                            else:
+                                merged_findings[name] = dict(alert)
+                                merged_findings[name]['instances'] = list(alert.get('instances', []))
+                    except Exception as e:
+                        print(f"[!] Error parsing {fp.name}: {e}")
+                        continue
 
-            # Parse and merge by finding name
-            merged_findings = {}
-            for fp in files_to_merge:
-                try:
-                    metadata, _, alerts = parse_func(fp)
-                    print(f"[+] Parsed {len(alerts)} findings from {fp.name}")
-                    for alert in alerts:
-                        name = alert['name']
-                        if name in merged_findings:
-                            merged_findings[name]['instances'].extend(alert.get('instances', []))
-                        else:
-                            merged_findings[name] = dict(alert)
-                            merged_findings[name]['instances'] = list(alert.get('instances', []))
-                except Exception as e:
-                    print(f"[!] Error parsing {fp.name}: {e}")
-                    sys.exit(1)
+                all_alerts = list(merged_findings.values())
+                print(f"[+] Merged into {len(all_alerts)} unique findings")
 
-            # Rebuild structures
+                # Write output XML
+                output_name = f"{report_type.split('_')[0]}_merged.xml"
+                if report_type == 'burp_xml':
+                    write_burp_xml(all_alerts, output_name)
+                else:
+                    write_zap_xml(all_alerts, output_name)
+
+                merged_any = True
+
+            if not merged_any:
+                print("[!] No report types had 2+ files to merge")
+
+            return
+
+        elif action == '2':
+            # Generate DOCX - merge like files, combine into single report
+            all_merged_alerts = []
+
+            for report_type, files in by_type.items():
+                # Select parser
+                if report_type == 'burp_xml':
+                    parse_func = parse_burp_report
+                elif report_type == 'burp_html':
+                    parse_func = parse_burp_html_report
+                elif report_type == 'zap_xml':
+                    parse_func = parse_xml_report
+                else:
+                    parse_func = parse_html_report
+
+                # Parse and merge by name within this type
+                merged_findings = {}
+                for fp in files:
+                    try:
+                        _, _, alerts = parse_func(fp)
+                        print(f"[+] Parsed {len(alerts)} findings from {fp.name}")
+                        for alert in alerts:
+                            name = alert['name']
+                            if name in merged_findings:
+                                merged_findings[name]['instances'].extend(alert.get('instances', []))
+                            else:
+                                merged_findings[name] = dict(alert)
+                                merged_findings[name]['instances'] = list(alert.get('instances', []))
+                    except Exception as e:
+                        print(f"[!] Error parsing {fp.name}: {e}")
+                        continue
+
+                all_merged_alerts.extend(merged_findings.values())
+
+            print(f"\n[+] Total unique findings: {len(all_merged_alerts)}")
+
+            # Build severity structure
             alerts_by_severity = defaultdict(list)
-            all_alerts = []
-            for alert in merged_findings.values():
+            for alert in all_merged_alerts:
                 risk = alert.get('risk', 'Informational')
                 alerts_by_severity[risk].append(alert)
-                all_alerts.append(alert)
 
-            merged_metadata = {
-                'program': selected_type.split('_')[0].upper(),
+            metadata = {
+                'program': 'Combined Scan',
                 'version': 'Merged Report',
                 'generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             }
 
-            print(f"[+] Merged into {len(all_alerts)} unique findings")
-
             if args.test:
-                print_test_output(merged_metadata, alerts_by_severity, all_alerts, args.target)
+                print_test_output(metadata, alerts_by_severity, all_merged_alerts, args.target)
                 return
 
             try:
-                doc = generate_docx_report(merged_metadata, alerts_by_severity, all_alerts, args.target)
+                doc = generate_docx_report(metadata, alerts_by_severity, all_merged_alerts, args.target)
             except Exception as e:
                 print(f"[!] Error generating DOCX: {e}")
                 import traceback
@@ -901,31 +1014,13 @@ def main():
             if args.output:
                 output_path = Path(args.output)
             else:
-                output_path = Path(f"merged_{selected_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx")
+                output_path = Path(f"combined_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx")
 
             try:
                 doc.save(str(output_path))
-                print(f"[+] Merged report written to: {output_path}")
+                print(f"[+] Report written to: {output_path}")
             except Exception as e:
                 print(f"[!] Error writing report: {e}")
-
-            return
-
-        elif action == 'g':
-            choice = input(f"\nSelect file (1-{len(reports)}) or 'all': ").strip().lower()
-
-            if choice == 'all':
-                files_to_process = reports
-            else:
-                try:
-                    idx = int(choice) - 1
-                    files_to_process = [reports[idx]]
-                except (ValueError, IndexError):
-                    print("[!] Invalid selection")
-                    sys.exit(1)
-
-            for input_path, report_type in files_to_process:
-                process_report(input_path, report_type, args)
 
             return
 
@@ -948,6 +1043,7 @@ def main():
         sys.exit(1)
 
     process_report(input_path, report_type, args)
+
 
 if __name__ == '__main__':
     main()
