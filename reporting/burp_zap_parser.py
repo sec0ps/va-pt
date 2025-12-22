@@ -219,6 +219,7 @@ def parse_xml_report(file_path):
                 alert_data['instances'].append(instance_data)
 
             risk_level = alert_data['risk'].split()[0] if alert_data['risk'] else 'Informational'
+            alert_data['risk'] = risk_level  # Normalize to match expected keys
             alerts_by_severity[risk_level].append(alert_data)
             all_alerts.append(alert_data)
 
