@@ -44,6 +44,8 @@ from datetime import datetime
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 
 
 class NessusFinding:
@@ -445,7 +447,14 @@ def generate_report(organized_findings, output_file):
                 label = doc.add_paragraph()
                 label.add_run('Evidence:').bold = True
                 if finding.evidence:
-                    doc.add_paragraph(finding.evidence)
+                    para = doc.add_paragraph(finding.evidence)
+                    for run in para.runs:
+                        run.font.name = 'Consolas'
+                        run.font.size = Pt(10)
+                    # Add grey background shading
+                    shading = OxmlElement('w:shd')
+                    shading.set(qn('w:fill'), 'D9D9D9')
+                    para._p.get_or_add_pPr().append(shading)
                 else:
                     p = doc.add_paragraph('N/A')
                     p.runs[0].italic = True
@@ -462,7 +471,6 @@ def generate_report(organized_findings, output_file):
     except Exception as e:
         print(f"[!] Error generating report: {e}")
         return False
-
 
 def main():
     """Main execution function."""
