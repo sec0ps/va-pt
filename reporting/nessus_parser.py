@@ -479,108 +479,109 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Merge and generate report
-  python3 nessus_merger.py /path/to/scans
+  # Auto-detect .nessus files in current directory and generate report
+  python3 nessus_parser.py
+
+  # Specify directory or file
+  python3 nessus_parser.py /path/to/scans
 
   # Test mode - view parsed data
-  python3 nessus_merger.py /path/to/scans --test
-
-  # Report only from single file
-  python3 nessus_merger.py /path/to/scan.nessus --report
+  python3 nessus_parser.py --test
 
   # Merge without report
-  python3 nessus_merger.py /path/to/scans --output merged.nessus --no-report
+  python3 nessus_parser.py --no-report
         """
     )
 
-    parser.add_argument('path', help='Directory containing .nessus files or single .nessus file')
+    parser.add_argument('path', nargs='?', default=None,
+                       help='Directory containing .nessus files or single .nessus file (default: current directory)')
     parser.add_argument('--output', '-o', default='merged_scan.nessus',
                        help='Output filename for merged .nessus file (default: merged_scan.nessus)')
     parser.add_argument('--report', '-r', action='store_true',
-                       help='Generate report only (use with single .nessus file)')
+                       help='Generate report only (skip merge even with multiple files)')
     parser.add_argument('--test', '-t', action='store_true',
                        help='Test mode: display first parsed finding without generating report')
     parser.add_argument('--no-report', action='store_true',
                        help='Skip report generation (merge only)')
-    parser.add_argument('--report-output', default='nessus_report.docx',
-                       help='Output filename for DOCX report (default: nessus_report.docx)')
+    parser.add_argument('--report-output', default=None,
+                       help='Output filename for DOCX report (default: auto-generated from scan name)')
 
     args = parser.parse_args()
 
-    # Determine operation mode
-    if args.report:
-        # Report-only mode: single file
-        if not os.path.isfile(args.path):
-            print(f"[!] Error: {args.path} is not a valid file")
+    # Auto-detect: use current directory if no path specified
+    scan_path = args.path if args.path else os.getcwd()
+
+    # Locate .nessus files
+    if os.path.isfile(scan_path):
+        if not scan_path.endswith('.nessus'):
+            print(f"[!] Error: {scan_path} is not a .nessus file")
+            sys.exit(1)
+        nessus_files = [scan_path]
+        print(f"[*] Using file: {scan_path}")
+    elif os.path.isdir(scan_path):
+        print(f"[*] Scanning directory: {scan_path}")
+        nessus_files = find_nessus_files(scan_path)
+
+        if not nessus_files:
+            print("[!] No .nessus files found")
             sys.exit(1)
 
-        if not args.path.endswith('.nessus'):
-            print(f"[!] Error: {args.path} is not a .nessus file")
-            sys.exit(1)
-
-        print(f"[*] Report-only mode: {args.path}")
-        nessus_files = [args.path]
-
+        print(f"[+] Found {len(nessus_files)} .nessus file(s):")
+        for idx, file in enumerate(nessus_files, 1):
+            file_size = os.path.getsize(file) / 1024
+            print(f"    {idx}. {os.path.basename(file)} ({file_size:.1f} KB)")
     else:
-        # Merge mode: directory or file
-        if os.path.isfile(args.path):
-            if not args.path.endswith('.nessus'):
-                print(f"[!] Error: {args.path} is not a .nessus file")
-                sys.exit(1)
-            nessus_files = [args.path]
-        elif os.path.isdir(args.path):
-            print(f"[*] Scanning directory: {args.path}")
-            nessus_files = find_nessus_files(args.path)
+        print(f"[!] Error: {scan_path} is not a valid file or directory")
+        sys.exit(1)
 
-            if not nessus_files:
-                print("[!] No .nessus files found in directory")
-                sys.exit(1)
-
-            print(f"\n[*] Files found:")
-            for idx, file in enumerate(nessus_files, 1):
-                file_size = os.path.getsize(file) / 1024
-                print(f"    {idx}. {file} ({file_size:.1f} KB)")
+    # Auto-generate report filename if not specified
+    if args.report_output:
+        report_output = args.report_output
+    else:
+        # Use first .nessus filename as base, or timestamp if multiple
+        if len(nessus_files) == 1:
+            base_name = Path(nessus_files[0]).stem
         else:
-            print(f"[!] Error: {args.path} is not a valid file or directory")
-            sys.exit(1)
+            base_name = f"nessus_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        report_output = f"{base_name}.docx"
 
-    # Merge files if not in report-only mode and multiple files exist
+    # Merge files if multiple and not in report-only mode
     if not args.report and len(nessus_files) > 1:
-        print("\n[*] Starting merge process...")
+        print("\n[*] Merging .nessus files...")
         if not merge_nessus_files(nessus_files, args.output):
             print("[!] Merge failed")
             sys.exit(1)
         output_size = os.path.getsize(args.output) / 1024
         print(f"[+] Merged file size: {output_size:.1f} KB")
 
-    # Parse findings for report/test
-    if not args.no_report or args.test or args.report:
-        print("\n[*] Parsing findings and deduplicating...")
-        organized_findings = parse_findings(nessus_files)
+    # Parse findings
+    print("\n[*] Parsing findings...")
+    organized_findings = parse_findings(nessus_files)
 
-        # Calculate statistics
-        total_findings = sum(len(findings) for findings in organized_findings.values())
-        print(f"[+] Unique findings after deduplication: {total_findings}")
-        for severity in ['Critical', 'High', 'Medium', 'Low']:
-            count = len(organized_findings[severity])
-            if count > 0:
-                print(f"    {severity}: {count}")
+    # Statistics
+    total_findings = sum(len(findings) for findings in organized_findings.values())
+    print(f"[+] Unique findings: {total_findings}")
+    for severity in ['Critical', 'High', 'Medium', 'Low']:
+        count = len(organized_findings[severity])
+        if count > 0:
+            print(f"    {severity}: {count}")
 
-        # Test mode
-        if args.test:
-            display_test_finding(organized_findings)
-            sys.exit(0)
+    # Test mode - display and exit
+    if args.test:
+        display_test_finding(organized_findings)
+        sys.exit(0)
 
-        # Generate report
-        if not args.no_report:
-            if generate_report(organized_findings, args.report_output):
-                report_size = os.path.getsize(args.report_output) / 1024
-                print(f"[+] Report size: {report_size:.1f} KB")
-            else:
-                print("[!] Report generation failed")
-                sys.exit(1)
+    # Generate report
+    if not args.no_report:
+        print(f"\n[*] Generating report: {report_output}")
+        if generate_report(organized_findings, report_output):
+            report_size = os.path.getsize(report_output) / 1024
+            print(f"[+] Report size: {report_size:.1f} KB")
+        else:
+            print("[!] Report generation failed")
+            sys.exit(1)
 
-    print("\n[+] Operation completed successfully")
+    print("\n[+] Complete")
 
 
 if __name__ == "__main__":
