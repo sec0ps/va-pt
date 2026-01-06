@@ -4102,19 +4102,19 @@ Examples:
         args.output = f"./{safe_client_name}_recon"
 
     # Check for any --X-only mode BEFORE processing IP ranges
-    # Format: 'arg_name': ('display_name', 'method_name', 'result_key', needs_api_prompt)
+    # Format: 'arg_name': ('display_name', 'method_name', 'result_key')
     only_modes = {
-        'linkedin_only': ('LinkedIn enumeration', 'linkedin_enumeration', 'linkedin_intel', True),
-        'github_only': ('GitHub secret scanning', 'github_secret_scanning', 'github_secrets', True),
-        's3_only': ('S3 bucket enumeration', 's3_bucket_enumeration', 's3_buckets', False),
-        'azure_only': ('Azure storage enumeration', 'azure_storage_enumeration', 'azure_storage', False),
-        'gcp_only': ('GCP storage enumeration', 'gcp_storage_enumeration', 'gcp_storage', False),
-        'asn_only': ('ASN enumeration', 'asn_enumeration', 'asn_data', False),
-        'subdomain_takeover_only': ('Subdomain takeover detection', 'subdomain_takeover_detection', 'subdomain_takeovers', False),
-        'email_only': ('Email harvesting', 'email_harvesting', 'email_addresses', False),
-        'dns_only': ('DNS enumeration', 'dns_enumeration', 'dns_enumeration', False),
-        'breach_only': ('Breach database check', 'breach_database_check', 'breach_data', False),
-        'techstack_only': ('Technology stack identification', 'technology_stack_identification', 'technology_stack', False),
+        'linkedin_only': ('LinkedIn enumeration', 'linkedin_enumeration', 'linkedin_intel'),
+        'github_only': ('GitHub secret scanning', 'github_secret_scanning', 'github_secrets'),
+        's3_only': ('S3 bucket enumeration', 's3_bucket_enumeration', 's3_buckets'),
+        'azure_only': ('Azure storage enumeration', 'azure_storage_enumeration', 'azure_storage'),
+        'gcp_only': ('GCP storage enumeration', 'gcp_storage_enumeration', 'gcp_storage'),
+        'asn_only': ('ASN enumeration', 'asn_enumeration', 'asn_data'),
+        'subdomain_takeover_only': ('Subdomain takeover detection', 'subdomain_takeover_detection', 'subdomain_takeovers'),
+        'email_only': ('Email harvesting', 'email_harvesting', 'email_addresses'),
+        'dns_only': ('DNS enumeration', 'dns_enumeration', 'dns_enumeration'),
+        'breach_only': ('Breach database check', 'breach_database_check', 'breach_data'),
+        'techstack_only': ('Technology stack identification', 'technology_stack_identification', 'technology_stack'),
     }
 
     active_only_mode = None
@@ -4124,7 +4124,7 @@ Examples:
             break
 
     if active_only_mode:
-        mode_name, display_name, method_name, result_key, needs_api_prompt = active_only_mode
+        mode_name, display_name, method_name, result_key = active_only_mode
         print(f"{Colors.OKCYAN}[i] Running in {display_name} only mode{Colors.ENDC}")
         print(f"{Colors.OKCYAN}[i] Output directory: {args.output}{Colors.ENDC}")
 
@@ -4142,9 +4142,17 @@ Examples:
 
         recon.print_banner()
 
-        # Prompt for API keys if this module needs them
-        if needs_api_prompt:
-            recon.prompt_for_api_keys()
+        # Prompt for module-specific API key only
+        if mode_name == 'github_only':
+            if not recon.config.get('github_token'):
+                print("\n" + "="*80)
+                print("GITHUB TOKEN CONFIGURATION")
+                print("="*80)
+                token = input("    Enter GitHub personal access token (or press Enter to skip): ").strip()
+                if token:
+                    recon.config['github_token'] = token
+                    recon.print_success("GitHub token configured")
+                print("="*80 + "\n")
 
         # Subdomain takeover needs DNS enumeration first
         if mode_name == 'subdomain_takeover_only':
