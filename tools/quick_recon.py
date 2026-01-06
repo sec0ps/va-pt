@@ -4046,8 +4046,12 @@ Examples:
   Skip specific modules:
     python3 quick_recon.py -d example.com -i 192.168.1.0/24 -c "Acme Corp" --skip-s3 --skip-scan
 
-  Test LinkedIn enumeration only:
+  Run single module only:
     python3 quick_recon.py -d example.com -c "Acme Corp" --linkedin-only
+    python3 quick_recon.py -d example.com -c "Acme Corp" --github-only
+    python3 quick_recon.py -d example.com -c "Acme Corp" --s3-only
+    python3 quick_recon.py -d example.com -c "Acme Corp" --dns-only
+    python3 quick_recon.py -d example.com -c "Acme Corp" --email-only
 
   Skip all OSINT modules:
     python3 quick_recon.py -d example.com -i 192.168.1.0/24 -c "Acme Corp" --skip-osint
@@ -4072,8 +4076,18 @@ Examples:
     parser.add_argument('--skip-osint', action='store_true', help='Skip all OSINT modules (GitHub, LinkedIn)')
     parser.add_argument('--linkedin-max-results', type=int, default=100, help='Maximum LinkedIn employee results to fetch (default: 100)')
 
-    # Testing flags
-    parser.add_argument('--linkedin-only', action='store_true', help='Run only LinkedIn enumeration (for testing)')
+    # Single module execution flags
+    parser.add_argument('--linkedin-only', action='store_true', help='Run only LinkedIn enumeration')
+    parser.add_argument('--github-only', action='store_true', help='Run only GitHub secret scanning')
+    parser.add_argument('--s3-only', action='store_true', help='Run only S3 bucket enumeration')
+    parser.add_argument('--azure-only', action='store_true', help='Run only Azure storage enumeration')
+    parser.add_argument('--gcp-only', action='store_true', help='Run only GCP storage enumeration')
+    parser.add_argument('--asn-only', action='store_true', help='Run only ASN enumeration')
+    parser.add_argument('--subdomain-takeover-only', action='store_true', help='Run only subdomain takeover detection')
+    parser.add_argument('--email-only', action='store_true', help='Run only email harvesting')
+    parser.add_argument('--dns-only', action='store_true', help='Run only DNS enumeration')
+    parser.add_argument('--breach-only', action='store_true', help='Run only breach database check')
+    parser.add_argument('--techstack-only', action='store_true', help='Run only technology stack identification')
 
     args = parser.parse_args()
 
@@ -4087,24 +4101,87 @@ Examples:
         safe_client_name = re.sub(r'[^\w\s-]', '', args.client).strip().replace(' ', '_')
         args.output = f"./{safe_client_name}_recon"
 
-    # Check for LinkedIn-only mode BEFORE processing IP ranges
-    if args.linkedin_only:
-        print(f"{Colors.OKCYAN}[i] Running in LinkedIn-only test mode{Colors.ENDC}")
+    # Check for any --X-only mode BEFORE processing IP ranges
+    # Format: 'arg_name': ('display_name', 'method_name', 'result_key', needs_api_prompt)
+    only_modes = {
+        'linkedin_only': ('LinkedIn enumeration', 'linkedin_enumeration', 'linkedin_intel', True),
+        'github_only': ('GitHub secret scanning', 'github_secret_scanning', 'github_secrets', True),
+        's3_only': ('S3 bucket enumeration', 's3_bucket_enumeration', 's3_buckets', False),
+        'azure_only': ('Azure storage enumeration', 'azure_storage_enumeration', 'azure_storage', False),
+        'gcp_only': ('GCP storage enumeration', 'gcp_storage_enumeration', 'gcp_storage', False),
+        'asn_only': ('ASN enumeration', 'asn_enumeration', 'asn_data', False),
+        'subdomain_takeover_only': ('Subdomain takeover detection', 'subdomain_takeover_detection', 'subdomain_takeovers', False),
+        'email_only': ('Email harvesting', 'email_harvesting', 'email_addresses', False),
+        'dns_only': ('DNS enumeration', 'dns_enumeration', 'dns_enumeration', False),
+        'breach_only': ('Breach database check', 'breach_database_check', 'breach_data', False),
+        'techstack_only': ('Technology stack identification', 'technology_stack_identification', 'technology_stack', False),
+    }
+
+    active_only_mode = None
+    for mode_name, mode_info in only_modes.items():
+        if getattr(args, mode_name, False):
+            active_only_mode = (mode_name, *mode_info)
+            break
+
+    if active_only_mode:
+        mode_name, display_name, method_name, result_key, needs_api_prompt = active_only_mode
+        print(f"{Colors.OKCYAN}[i] Running in {display_name} only mode{Colors.ENDC}")
         print(f"{Colors.OKCYAN}[i] Output directory: {args.output}{Colors.ENDC}")
 
-        # Create minimal recon instance
         recon = ReconAutomation(
             domain=args.domain,
-            ip_ranges=[],  # Not needed for LinkedIn-only
+            ip_ranges=[],
             output_dir=args.output,
             client_name=args.client
         )
 
-        # Run LinkedIn-only test
-        recon.run_linkedin_only()
+        # LinkedIn has its own run method with cookie prompting
+        if mode_name == 'linkedin_only':
+            recon.run_linkedin_only()
+            sys.exit(0)
+
+        recon.print_banner()
+
+        # Prompt for API keys if this module needs them
+        if needs_api_prompt:
+            recon.prompt_for_api_keys()
+
+        # Subdomain takeover needs DNS enumeration first
+        if mode_name == 'subdomain_takeover_only':
+            print(f"{Colors.OKCYAN}[i] Running DNS enumeration first (required for subdomain takeover){Colors.ENDC}")
+            recon.dns_enumeration()
+
+        # Breach check needs emails - run email harvesting first
+        if mode_name == 'breach_only':
+            print(f"{Colors.OKCYAN}[i] Running email harvesting first (required for breach check){Colors.ENDC}")
+            recon.email_harvesting()
+
+        try:
+            method = getattr(recon, method_name)
+            method()
+
+            recon.print_section(f"{display_name.upper()} COMPLETE")
+
+            result_data = recon.results.get(result_key, {})
+            if result_data:
+                recon.print_success(f"{display_name} completed!")
+                json_file = recon.output_dir / f"{mode_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                with open(json_file, 'w') as f:
+                    json.dump(result_data, f, indent=2)
+                recon.print_success(f"Results saved to: {json_file}")
+            else:
+                recon.print_warning(f"No data collected from {display_name}")
+
+        except KeyboardInterrupt:
+            recon.print_warning(f"\n{display_name} interrupted by user")
+        except Exception as e:
+            recon.print_error(f"Error during {display_name}: {e}")
+            import traceback
+            traceback.print_exc()
+
         sys.exit(0)
 
-    # Parse IP ranges from command line and/or file (only for non-LinkedIn-only mode)
+    # Parse IP ranges from command line and/or file (only for full recon mode)
     ip_ranges = []
 
     # Add command line IP ranges
@@ -4160,6 +4237,7 @@ Examples:
 
     # Run all reconnaissance
     recon.run_all()
+
 
 if __name__ == '__main__':
     main()
