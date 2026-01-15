@@ -30,7 +30,6 @@
 #
 # =============================================================================
 
-import nmap
 import requests
 import json
 import socket
@@ -490,39 +489,77 @@ class DatabaseSecurityScanner:
             return False
 
     def discover_databases(self, target: str, scan_intensity: str) -> List[DatabaseTarget]:
-        """Use Nmap to discover database services"""
+        """Use system nmap to discover database services"""
         logger.info(f"[*] Starting database discovery scan on {target} (intensity: {scan_intensity})")
 
-        nm = nmap.PortScanner()
         discovered = []
-
-        # Common database ports
         common_db_ports = "3306,5432,1433,1521,27017,6379,5984,9042,7000,8086,3050,50000,5000"
 
         try:
             if scan_intensity == 'fast':
                 print(f"[*] Fast scan - checking common database ports...")
-                nm.scan(target, common_db_ports, arguments='-sV')
-            else:  # comprehensive
+                nmap_args = ['nmap', '-sV', '-p', common_db_ports, '-oX', '-', target]
+            else:
                 print(f"[*] Comprehensive scan - checking all 65535 ports...")
-                nm.scan(target, arguments='-sV -p-')
+                nmap_args = ['nmap', '-sV', '-p-', '-oX', '-', target]
 
-            for host in nm.all_hosts():
-                print(f"[*] Analyzing {host}...")
+            result = subprocess.run(nmap_args, capture_output=True, text=True, timeout=3600)
 
-                if 'tcp' in nm[host]:
-                    for port in nm[host]['tcp']:
-                        port_info = nm[host]['tcp'][port]
+            if result.returncode != 0:
+                logger.error(f"[!] Nmap scan failed: {result.stderr}")
+                return []
 
-                        if port_info['state'] == 'open':
-                            db_target = self._identify_database(host, port, port_info)
-                            if db_target:
-                                discovered.append(db_target)
-                                print(f"[+] Database found: {host}:{port} ({db_target.database_type})")
+            # Parse XML output
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(result.stdout)
+
+            for host in root.findall('.//host'):
+                status = host.find('status')
+                if status is not None and status.get('state') != 'up':
+                    continue
+
+                address = host.find('address')
+                if address is None:
+                    continue
+                host_ip = address.get('addr')
+
+                print(f"[*] Analyzing {host_ip}...")
+
+                ports = host.find('ports')
+                if ports is None:
+                    continue
+
+                for port in ports.findall('port'):
+                    state = port.find('state')
+                    if state is None or state.get('state') != 'open':
+                        continue
+
+                    port_id = int(port.get('portid'))
+                    service = port.find('service')
+
+                    port_info = {
+                        'name': service.get('name', '') if service is not None else '',
+                        'product': service.get('product', '') if service is not None else '',
+                        'version': service.get('version', '') if service is not None else ''
+                    }
+
+                    db_target = self._identify_database(host_ip, port_id, port_info)
+                    if db_target:
+                        discovered.append(db_target)
+                        print(f"[+] Database found: {host_ip}:{port_id} ({db_target.database_type})")
 
             logger.info(f"[+] Discovery complete. Found {len(discovered)} databases")
             return discovered
 
+        except subprocess.TimeoutExpired:
+            logger.error("[!] Nmap scan timeout")
+            return []
+        except FileNotFoundError:
+            logger.error("[!] Nmap not found. Please install nmap.")
+            return []
+        except ET.ParseError as e:
+            logger.error(f"[!] Failed to parse nmap XML output: {str(e)}")
+            return []
         except Exception as e:
             logger.error(f"[!] Nmap scan failed: {str(e)}")
             return []
