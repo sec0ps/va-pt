@@ -78,12 +78,10 @@ def parse_args():
     )
     return p.parse_args()
 
-
 def is_capwap(pkt):
     return UDP in pkt and (
         pkt[UDP].sport in CAPWAP_PORTS or pkt[UDP].dport in CAPWAP_PORTS
     )
-
 
 def is_interesting_l2(pkt):
     if Ether not in pkt:
@@ -99,11 +97,15 @@ def is_interesting_l2(pkt):
     if is_capwap(pkt):
         return True
 
-    # IPv4/IPv6 multicast detection for protocols like HSRP, VRRP, mDNS, SSDP
+    # IPv4 multicast detection for routing/discovery protocols
     if IP in pkt:
         ip = pkt[IP]
         if ip.dst.startswith("224.") or ip.dst.startswith("239."):
             return True
+        if ip.proto in {112, 88, 89, 2}:  # HSRP/VRRP, EIGRP, OSPF, IGMP
+            return True
+
+    # IPv6 multicast detection (Neighbor Discovery, DHCPv6)
     if pkt.haslayer("IPv6"):
         ipv6 = pkt["IPv6"]
         if ipv6.dst.startswith("ff02") or ipv6.dst.startswith("ff05"):
@@ -111,15 +113,10 @@ def is_interesting_l2(pkt):
 
     # UDP-based discovery protocols
     if UDP in pkt:
-        if pkt[UDP].dport in {5353, 137, 1900}:  # mDNS, NBNS, SSDP
+        if pkt[UDP].dport in {5353, 137, 138, 5355, 1900, 3702, 520, 546, 547, 4789}:
             return True
 
-    # HSRP (IP protocol 112), VRRP (IP protocol 112)
-    if IP in pkt and pkt[IP].proto == 112:
-        return True
-
     return False
-
 
 def get_proto_label(pkt):
     try:
@@ -138,19 +135,38 @@ def get_proto_label(pkt):
         if getattr(eth, "type", None) == LLDP_ETHERTYPE:
             return "LLDP"
 
-        # IPv4/IPv6 multicast-based protocols
+        # IPv4 multicast-based protocols
         if IP in pkt:
             ip = pkt[IP]
-            if ip.dst.startswith("224.") or ip.dst.startswith("239."):
-                if UDP in pkt:
-                    if pkt[UDP].dport == 5353:
-                        return "mDNS"
-                    if pkt[UDP].dport == 137:
-                        return "NBNS"
-                    if pkt[UDP].dport == 1900:
-                        return "SSDP"
-                if ip.proto == 112:
-                    return "HSRP/VRRP"
+            if ip.proto == 112:
+                return "HSRP/VRRP"
+            if ip.proto == 88:
+                return "EIGRP"
+            if ip.proto == 89:
+                return "OSPF"
+            if ip.proto == 2:
+                return "IGMP"
+            if UDP in pkt:
+                if pkt[UDP].dport == 5353:
+                    return "mDNS"
+                if pkt[UDP].dport == 137:
+                    return "NBNS"
+                if pkt[UDP].dport == 138:
+                    return "NBDS"
+                if pkt[UDP].dport == 5355:
+                    return "LLMNR"
+                if pkt[UDP].dport == 1900:
+                    return "SSDP"
+                if pkt[UDP].dport == 3702:
+                    return "WS-Discovery"
+                if pkt[UDP].dport == 520:
+                    return "RIP"
+                if pkt[UDP].dport in {546, 547}:
+                    return "DHCPv6"
+                if pkt[UDP].dport == 4789:
+                    return "VXLAN"
+
+        # IPv6 multicast
         if pkt.haslayer("IPv6"):
             return "IPv6-MCAST"
 
@@ -162,7 +178,6 @@ def get_proto_label(pkt):
         return "OTHER"
     except Exception:
         return "UNK"
-
 
 def mdns_info(pkt):
     return "mDNS Query" if UDP in pkt else "mDNS"
@@ -518,29 +533,45 @@ def capwap_info(pkt):
         preview += "..."
     return role, length, preview
 
-
-# ---------------- OUTPUT HELPERS ----------------
+# ---- OUTPUT HELPERS ----
 
 def generic_info(pkt, proto_label):
     return proto_label + "[" + pkt.summary() + "]"
 
+# New protocol-specific info builders
+def mdns_info(pkt): return "mDNS Query"
+def nbns_info(pkt): return "NBNS Query"
+def nbds_info(pkt): return "NBDS Datagram"
+def llmnr_info(pkt): return "LLMNR Query"
+def ssdp_info(pkt): return "SSDP Discovery"
+def wsdiscovery_info(pkt): return "WS-Discovery Probe"
+def dhcpv6_info(pkt): return "DHCPv6 Message"
+def vxlan_info(pkt): return "VXLAN Tunnel"
+def hsrp_vrrp_info(pkt): return "HSRP/VRRP Hello"
+def eigrp_info(pkt): return "EIGRP Hello"
+def ospf_info(pkt): return "OSPF Hello"
+def rip_info(pkt): return "RIP Update"
+def igmp_info(pkt): return "IGMP Membership Report"
 
 def build_info(pkt, proto_label):
-    if proto_label == "DHCP":
-        return dhcp_info(pkt)
-    if proto_label == "ARP":
-        return arp_info(pkt)
+    if proto_label == "DHCP": return dhcp_info(pkt)
+    if proto_label == "ARP": return arp_info(pkt)
     if proto_label == "CAPWAP":
         role, length, preview = capwap_info(pkt)
         return f"CAPWAP[{role}, {length} bytes, {preview}]"
-    if proto_label == "mDNS":
-        return mdns_info(pkt)
-    if proto_label == "NBNS":
-        return nbns_info(pkt)
-    if proto_label == "SSDP":
-        return ssdp_info(pkt)
-    if proto_label == "HSRP/VRRP":
-        return hsrp_vrrp_info(pkt)
+    if proto_label == "mDNS": return mdns_info(pkt)
+    if proto_label == "NBNS": return nbns_info(pkt)
+    if proto_label == "NBDS": return nbds_info(pkt)
+    if proto_label == "LLMNR": return llmnr_info(pkt)
+    if proto_label == "SSDP": return ssdp_info(pkt)
+    if proto_label == "WS-Discovery": return wsdiscovery_info(pkt)
+    if proto_label == "DHCPv6": return dhcpv6_info(pkt)
+    if proto_label == "VXLAN": return vxlan_info(pkt)
+    if proto_label == "HSRP/VRRP": return hsrp_vrrp_info(pkt)
+    if proto_label == "EIGRP": return eigrp_info(pkt)
+    if proto_label == "OSPF": return ospf_info(pkt)
+    if proto_label == "RIP": return rip_info(pkt)
+    if proto_label == "IGMP": return igmp_info(pkt)
     return generic_info(pkt, proto_label)
 
 def print_cdp_block(ts, pkt, src_mac, src_ip, dst_mac):
@@ -713,7 +744,6 @@ def packet_handler(pkt):
         # Keep sniffer running on individual packet errors
         pass
 
-
 def main():
     args = parse_args()
     print(
@@ -729,8 +759,10 @@ def main():
         prn=packet_handler,
         filter=(
             "ether broadcast or ether multicast "
-            "or udp port 5353 or udp port 137 or udp port 1900 "
-            "or udp port 5246 or udp port 5247 or ip proto 112"
+            "or udp port 5353 or udp port 137 or udp port 138 or udp port 5355 "
+            "or udp port 1900 or udp port 3702 or udp port 520 "
+            "or udp port 5246 or udp port 5247 or udp port 546 or udp port 547 "
+            "or udp port 4789 or ip proto 112 or ip proto 88 or ip proto 89 or ip proto 2"
         )
     )
 
