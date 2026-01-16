@@ -677,17 +677,14 @@ def print_capwap_block(ts, pkt, src_mac, src_ip, dst_mac):
     print(f"  Hex preview    : {preview}")
     print("=" * 80)
 
-
 def packet_handler(pkt):
     try:
         if not is_interesting_l2(pkt):
             return
-
         ts = datetime.now().strftime("%H:%M:%S")
         eth = pkt[Ether]
         src_mac = eth.src
         dst_mac = eth.dst
-
         src_ip = ""
         if IP in pkt:
             src_ip = pkt[IP].src
@@ -696,23 +693,22 @@ def packet_handler(pkt):
 
         proto = get_proto_label(pkt)
 
+        # Detailed blocks for CDP, LLDP, CAPWAP
         if proto == "CDP":
             print_cdp_block(ts, pkt, src_mac, src_ip, dst_mac)
             return
-
         if proto == "LLDP":
             print_lldp_block(ts, pkt, src_mac, src_ip, dst_mac)
             return
-
         if proto == "CAPWAP":
             print_capwap_block(ts, pkt, src_mac, src_ip, dst_mac)
             return
 
+        # Generic or new protocols
         info = build_info(pkt, proto)
         print(
-            f"{ts}  {proto:<7}  {src_mac:<17}  {src_ip:<15} -> {dst_mac:<17}  {info}"
+            f"{ts} {proto:<10} {src_mac:<17} {src_ip:<15} -> {dst_mac:<17} {info}"
         )
-
     except Exception:
         # Keep sniffer running on individual packet errors
         pass
@@ -727,7 +723,6 @@ def main():
     print("Non-block protocols: TIME PROTO SRC_MAC SRC_IP -> DST_MAC INFO")
     print("-" * 100)
 
-    # Use BPF filter to reduce noise and focus on broadcast/discovery traffic
     sniff(
         iface=args.iface,
         store=False,
