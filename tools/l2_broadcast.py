@@ -88,17 +88,34 @@ def is_capwap(pkt):
 def is_interesting_l2(pkt):
     if Ether not in pkt:
         return False
-
     eth = pkt[Ether]
     dst = eth.dst.lower()
 
-    if dst == BROADCAST_MAC:
-        return True
-    if dst in MULTICAST_MAC_LABELS:
+    # L2 broadcast or known multicast MAC
+    if dst == BROADCAST_MAC or dst in MULTICAST_MAC_LABELS:
         return True
 
-    # Always show CAPWAP even if not broadcast at L2
+    # CAPWAP detection
     if is_capwap(pkt):
+        return True
+
+    # IPv4/IPv6 multicast detection for protocols like HSRP, VRRP, mDNS, SSDP
+    if IP in pkt:
+        ip = pkt[IP]
+        if ip.dst.startswith("224.") or ip.dst.startswith("239."):
+            return True
+    if pkt.haslayer("IPv6"):
+        ipv6 = pkt["IPv6"]
+        if ipv6.dst.startswith("ff02") or ipv6.dst.startswith("ff05"):
+            return True
+
+    # UDP-based discovery protocols
+    if UDP in pkt:
+        if pkt[UDP].dport in {5353, 137, 1900}:  # mDNS, NBNS, SSDP
+            return True
+
+    # HSRP (IP protocol 112), VRRP (IP protocol 112)
+    if IP in pkt and pkt[IP].proto == 112:
         return True
 
     return False
@@ -112,23 +129,52 @@ def get_proto_label(pkt):
             return "DHCP"
         if is_capwap(pkt):
             return "CAPWAP"
-
         eth = pkt[Ether]
         dst = eth.dst.lower()
 
+        # CDP / LLDP
         if getattr(eth, "type", None) == CDP_ETHERTYPE or dst == "01:00:0c:cc:cc:cc":
             return "CDP"
         if getattr(eth, "type", None) == LLDP_ETHERTYPE:
             return "LLDP"
 
+        # IPv4/IPv6 multicast-based protocols
+        if IP in pkt:
+            ip = pkt[IP]
+            if ip.dst.startswith("224.") or ip.dst.startswith("239."):
+                if UDP in pkt:
+                    if pkt[UDP].dport == 5353:
+                        return "mDNS"
+                    if pkt[UDP].dport == 137:
+                        return "NBNS"
+                    if pkt[UDP].dport == 1900:
+                        return "SSDP"
+                if ip.proto == 112:
+                    return "HSRP/VRRP"
+        if pkt.haslayer("IPv6"):
+            return "IPv6-MCAST"
+
         if dst == BROADCAST_MAC:
             return "BCAST"
         if dst in MULTICAST_MAC_LABELS:
             return MULTICAST_MAC_LABELS[dst]
+
         return "OTHER"
     except Exception:
         return "UNK"
 
+
+def mdns_info(pkt):
+    return "mDNS Query" if UDP in pkt else "mDNS"
+
+def nbns_info(pkt):
+    return "NBNS Query" if UDP in pkt else "NBNS"
+
+def ssdp_info(pkt):
+    return "SSDP Discovery" if UDP in pkt else "SSDP"
+
+def hsrp_vrrp_info(pkt):
+    return "HSRP/VRRP Hello"
 
 def dhcp_info(pkt):
     msg_type_map = {
@@ -487,8 +533,15 @@ def build_info(pkt, proto_label):
     if proto_label == "CAPWAP":
         role, length, preview = capwap_info(pkt)
         return f"CAPWAP[{role}, {length} bytes, {preview}]"
+    if proto_label == "mDNS":
+        return mdns_info(pkt)
+    if proto_label == "NBNS":
+        return nbns_info(pkt)
+    if proto_label == "SSDP":
+        return ssdp_info(pkt)
+    if proto_label == "HSRP/VRRP":
+        return hsrp_vrrp_info(pkt)
     return generic_info(pkt, proto_label)
-
 
 def print_cdp_block(ts, pkt, src_mac, src_ip, dst_mac):
     cdp = decode_cdp(pkt)
@@ -667,20 +720,24 @@ def packet_handler(pkt):
 
 def main():
     args = parse_args()
-
     print(
         "Listening for L2 broadcast / discovery traffic "
         f"on interface: {args.iface or 'DEFAULT'}"
     )
-    print("Non-block protocols: TIME  PROTO  SRC_MAC  SRC_IP  ->  DST_MAC  INFO")
+    print("Non-block protocols: TIME PROTO SRC_MAC SRC_IP -> DST_MAC INFO")
     print("-" * 100)
 
+    # Use BPF filter to reduce noise and focus on broadcast/discovery traffic
     sniff(
         iface=args.iface,
         store=False,
         prn=packet_handler,
+        filter=(
+            "ether broadcast or ether multicast "
+            "or udp port 5353 or udp port 137 or udp port 1900 "
+            "or udp port 5246 or udp port 5247 or ip proto 112"
+        )
     )
-
 
 if __name__ == "__main__":
     main()
