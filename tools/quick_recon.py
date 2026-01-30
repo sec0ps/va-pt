@@ -52,6 +52,9 @@ import urllib3
 import dns.resolver
 import time
 import base64
+import signal
+import hashlib
+import atexit
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
