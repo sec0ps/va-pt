@@ -1613,14 +1613,14 @@ class ReconAutomation:
             self.print_info(f"  IP prefixes identified: {len(asn_data['ip_ranges'])}")
             self.print_info(f"  Related domains found: {len(asn_data['related_domains'])}")
 
-        def _ip_in_prefix(self, ip: str, prefix: str) -> bool:
-            """Check if an IP is within a given prefix"""
-            try:
-                ip_obj = ipaddress.ip_address(ip)
-                network = ipaddress.ip_network(prefix, strict=False)
-                return ip_obj in network
-            except:
-                return False
+    def _ip_in_prefix(self, ip: str, prefix: str) -> bool:
+        """Check if an IP is within a given prefix"""
+        try:
+            ip_obj = ipaddress.ip_address(ip)
+            network = ipaddress.ip_network(prefix, strict=False)
+            return ip_obj in network
+        except:
+            return False
 
     def _lookup_asn_cymru(self, ip: str) -> Optional[Dict[str, str]]:
         """Lookup ASN using Team Cymru's IP to ASN service"""
