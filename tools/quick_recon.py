@@ -517,6 +517,100 @@ class ReconAutomation:
 
             print("="*80 + "\n")
 
+    def post_dns_whois_lookup(self):
+            """Perform WHOIS lookups on IPs discovered from DNS enumeration"""
+            self.print_section("POST-DNS WHOIS LOOKUP")
+
+            # Get resolved IPs from DNS enumeration
+            resolved = self.results.get('dns_enumeration', {}).get('resolved', {})
+
+            if not resolved:
+                self.print_warning("No resolved IPs available for WHOIS lookup")
+                return
+
+            # Collect all unique IPs
+            all_ips = set()
+            for subdomain, ips in resolved.items():
+                all_ips.update(ips)
+
+            # Also add IPs from main domain DNS verification
+            dns_verification = self.results.get('scope_validation', {}).get('dns_verification', {})
+            if dns_verification.get('A'):
+                all_ips.update(dns_verification['A'])
+
+            self.print_info(f"Performing WHOIS lookups on {len(all_ips)} unique IP addresses...")
+
+            whois_results = {}
+            org_summary = {}  # Track organizations and their IPs
+
+            for ip in sorted(all_ips):
+                # Skip private/reserved IPs
+                try:
+                    ip_obj = ipaddress.ip_address(ip)
+                    if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_reserved:
+                        continue
+                except:
+                    continue
+
+                try:
+                    output = self.run_command(['whois', ip], timeout=30)
+                    if output:
+                        parsed = self._parse_whois(output)
+                        whois_results[ip] = parsed
+
+                        org = parsed.get('org', 'Unknown')
+                        netrange = parsed.get('netrange', 'Unknown')
+
+                        # Track by organization
+                        if org not in org_summary:
+                            org_summary[org] = {
+                                'ips': [],
+                                'netranges': set(),
+                                'country': parsed.get('country', 'Unknown')
+                            }
+                        org_summary[org]['ips'].append(ip)
+                        if netrange != 'Unknown':
+                            org_summary[org]['netranges'].add(netrange)
+
+                        self.print_success(f"{ip} - {org}")
+
+                    time.sleep(0.5)  # Rate limiting
+
+                except Exception as e:
+                    self.print_error(f"WHOIS failed for {ip}: {e}")
+
+            # Store results
+            self.results['post_dns_whois'] = {
+                'ip_lookups': whois_results,
+                'organizations': {}
+            }
+
+            # Convert sets to lists for JSON serialization
+            for org, data in org_summary.items():
+                self.results['post_dns_whois']['organizations'][org] = {
+                    'ips': data['ips'],
+                    'netranges': list(data['netranges']),
+                    'country': data['country'],
+                    'ip_count': len(data['ips'])
+                }
+
+            # Print summary grouped by organization
+            self.print_info(f"\nInfrastructure Summary by Organization:")
+            sorted_orgs = sorted(org_summary.items(), key=lambda x: len(x[1]['ips']), reverse=True)
+
+            for org, data in sorted_orgs:
+                ip_count = len(data['ips'])
+                self.print_info(f"\n  {org} ({ip_count} IP{'s' if ip_count > 1 else ''}):")
+                for netrange in sorted(data['netranges']):
+                    self.print_info(f"    Network: {netrange}")
+                # Show sample IPs (first 5)
+                for ip in data['ips'][:5]:
+                    self.print_info(f"    - {ip}")
+                if len(data['ips']) > 5:
+                    self.print_info(f"    ... and {len(data['ips']) - 5} more")
+
+            self.print_success(f"\nWHOIS lookup complete: {len(whois_results)} IPs across {len(org_summary)} organizations")
+
     def github_secret_scanning(self):
             """Search GitHub for leaked credentials and secrets with checkpoint support"""
             self.print_section("GITHUB SECRET SCANNING")
@@ -1341,9 +1435,6 @@ class ReconAutomation:
                 'related_domains': []
             }
 
-            # Method 1: Get ASN from existing IP addresses
-            self.print_info("Looking up ASN information from known IPs...")
-
             # Get IPs from DNS resolution
             dns_records = self.results.get('scope_validation', {}).get('dns_verification', {})
             known_ips = dns_records.get('A', [])
@@ -1355,138 +1446,156 @@ class ReconAutomation:
 
             known_ips = list(set(known_ips))  # Remove duplicates
 
-            self.print_info(f"Checking ASN for {len(known_ips)} discovered IP addresses...")
-
-            for ip in known_ips[:10]:  # Limit to first 10 to avoid excessive queries
+            # Filter out private/reserved IPs
+            public_ips = []
+            for ip in known_ips:
                 try:
-                    # Use Team Cymru's IP to ASN service (DNS-based)
+                    ip_obj = ipaddress.ip_address(ip)
+                    if not ip_obj.is_private and not ip_obj.is_loopback and not ip_obj.is_reserved:
+                        public_ips.append(ip)
+                except:
+                    pass
+
+            if not public_ips:
+                self.print_warning("No public IPs discovered for ASN lookup")
+                return
+
+            self.print_info(f"Looking up ASN information for {len(public_ips)} discovered IP addresses...")
+
+            # Track unique ASNs and which IPs belong to them
+            asn_to_ips = {}
+
+            for ip in public_ips[:50]:  # Limit to first 50 to avoid excessive queries
+                try:
                     asn_info = self._lookup_asn_cymru(ip)
 
                     if asn_info:
-                        if asn_info not in asn_data['asn_numbers']:
-                            asn_data['asn_numbers'].append(asn_info)
-                            self.print_success(f"Found ASN for {ip}: AS{asn_info['asn']} ({asn_info['owner']})")
-                            asn_data['organization_names'].add(asn_info['owner'])
+                        asn_num = asn_info['asn']
+
+                        if asn_num not in asn_to_ips:
+                            asn_to_ips[asn_num] = {
+                                'info': asn_info,
+                                'ips': [],
+                                'prefixes': set()
+                            }
+
+                        asn_to_ips[asn_num]['ips'].append(ip)
+                        if asn_info.get('prefix'):
+                            asn_to_ips[asn_num]['prefixes'].add(asn_info['prefix'])
 
                     time.sleep(0.5)  # Rate limiting
 
                 except Exception as e:
                     self.print_error(f"Error looking up ASN for {ip}: {e}")
 
-            # Method 2: Get ASN from organization name via RIPEstat/RIPE API
-            self.print_info("\nQuerying RIPE database for additional ASN information...")
+            # Display results grouped by ASN
+            self.print_info(f"\nDiscovered {len(asn_to_ips)} unique ASN(s):\n")
 
-            company_name = self.domain.split('.')[0]
+            for asn_num, data in sorted(asn_to_ips.items()):
+                info = data['info']
+                ips = data['ips']
+                prefixes = data['prefixes']
 
-            try:
-                # Search RIPE for organization with increased timeout
-                url = f"https://stat.ripe.net/data/searchcomplete/data.json?resource={company_name}"
-                response = self.session.get(url, timeout=30)
+                self.print_success(f"AS{asn_num} - {info.get('owner', 'Unknown')}")
+                if info.get('country'):
+                    self.print_info(f"  Country: {info['country']}")
+                self.print_info(f"  Registry: {info.get('registry', 'Unknown')}")
+                self.print_info(f"  Discovered IPs ({len(ips)}):")
+                for ip in ips[:10]:
+                    self.print_info(f"    - {ip}")
+                if len(ips) > 10:
+                    self.print_info(f"    ... and {len(ips) - 10} more")
 
-                if response.status_code == 200:
-                    data = response.json()
+                self.print_info(f"  Announced Prefixes containing discovered IPs:")
+                for prefix in sorted(prefixes):
+                    self.print_info(f"    - {prefix}")
 
-                    for category in data.get('data', {}).get('categories', []):
-                        if category.get('category') == 'asns':
-                            for suggestion in category.get('suggestions', []):
-                                asn_num = suggestion.get('value', '').replace('AS', '')
-                                asn_label = suggestion.get('label', '')
+                # Add to results
+                asn_entry = {
+                    'asn': asn_num,
+                    'owner': info.get('owner', 'Unknown'),
+                    'country': info.get('country', 'Unknown'),
+                    'registry': info.get('registry', 'Unknown'),
+                    'discovered_ips': ips,
+                    'source': 'dns_resolution'
+                }
 
-                                if asn_num and asn_num.isdigit():
-                                    asn_exists = any(a['asn'] == asn_num for a in asn_data['asn_numbers'])
-                                    if not asn_exists:
-                                        asn_data['asn_numbers'].append({
-                                            'asn': asn_num,
-                                            'owner': asn_label,
-                                            'source': 'ripe_search'
-                                        })
-                                        self.print_success(f"Found ASN from RIPE: AS{asn_num} ({asn_label})")
+                if asn_entry not in asn_data['asn_numbers']:
+                    asn_data['asn_numbers'].append(asn_entry)
 
-            except Exception as e:
-                self.print_error(f"Error querying RIPE: {e}")
+                asn_data['organization_names'].add(info.get('owner', 'Unknown'))
 
-            # Method 3: For each ASN, get all associated IP prefixes with retry logic
-            self.print_info("\nEnumerating IP ranges for discovered ASNs...")
+                for prefix in prefixes:
+                    asn_data['ip_ranges'].append({
+                        'prefix': prefix,
+                        'asn': asn_num,
+                        'contains_discovered_ips': True,
+                        'discovered_ips_in_prefix': [ip for ip in ips if self._ip_in_prefix(ip, prefix)]
+                    })
 
-            for asn_info in asn_data['asn_numbers']:
-                asn_num = asn_info['asn']
+                print()
 
-                # Retry logic for RIPE API
-                max_retries = 3
-                retry_count = 0
-                success = False
+            # Only fetch additional prefixes if IP ranges were explicitly provided
+            if self.ip_ranges:
+                self.print_info("Checking for additional prefixes within authorized scope...")
 
-                while retry_count < max_retries and not success:
-                    try:
-                        # Use RIPE API to get prefixes for ASN with increased timeout
-                        url = f"https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS{asn_num}"
-                        response = self.session.get(url, timeout=30)
+                for asn_num, data in asn_to_ips.items():
+                    max_retries = 3
+                    retry_count = 0
+                    success = False
 
-                        if response.status_code == 200:
-                            data = response.json()
-                            prefixes = data.get('data', {}).get('prefixes', [])
+                    while retry_count < max_retries and not success:
+                        try:
+                            url = f"https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS{asn_num}"
+                            response = self.session.get(url, timeout=30)
 
-                            self.print_info(f"AS{asn_num} announces {len(prefixes)} IP prefix(es)")
+                            if response.status_code == 200:
+                                ripe_data = response.json()
+                                prefixes = ripe_data.get('data', {}).get('prefixes', [])
 
-                            for prefix in prefixes:
-                                prefix_str = prefix.get('prefix')
-                                if prefix_str:
-                                    asn_data['ip_ranges'].append({
-                                        'prefix': prefix_str,
-                                        'asn': asn_num,
-                                        'in_scope': self._check_if_in_scope(prefix_str)
-                                    })
+                                in_scope_count = 0
+                                for prefix in prefixes:
+                                    prefix_str = prefix.get('prefix')
+                                    if prefix_str and self._check_if_in_scope(prefix_str):
+                                        in_scope_count += 1
+                                        # Only add if not already tracked
+                                        existing = [r for r in asn_data['ip_ranges'] if r['prefix'] == prefix_str]
+                                        if not existing:
+                                            asn_data['ip_ranges'].append({
+                                                'prefix': prefix_str,
+                                                'asn': asn_num,
+                                                'in_scope': True,
+                                                'contains_discovered_ips': False
+                                            })
+                                            self.print_info(f"  Additional in-scope prefix: {prefix_str} (AS{asn_num})")
 
-                                    # Check if this range is in our authorized scope
-                                    in_scope = self._check_if_in_scope(prefix_str)
-                                    scope_marker = "[IN SCOPE]" if in_scope else "[OUT OF SCOPE]"
+                                success = True
 
-                                    self.print_info(f"  {prefix_str} - {scope_marker}")
+                            time.sleep(2)
 
-                            success = True  # Mark as successful
-                        else:
-                            self.print_warning(f"RIPE API returned status {response.status_code} for AS{asn_num}")
+                        except requests.exceptions.Timeout:
                             retry_count += 1
                             if retry_count < max_retries:
-                                self.print_info(f"Retrying... (attempt {retry_count + 1}/{max_retries})")
+                                time.sleep(2)
+                        except Exception as e:
+                            retry_count += 1
+                            if retry_count < max_retries:
                                 time.sleep(2)
 
-                        time.sleep(5)  # Rate limiting
+            # Reverse DNS for related domains
+            self.print_info("\nSearching for related domains via reverse DNS...")
 
-                    except requests.exceptions.Timeout:
-                        retry_count += 1
-                        if retry_count < max_retries:
-                            self.print_warning(f"Request timed out for AS{asn_num}. Retrying... (attempt {retry_count + 1}/{max_retries})")
-                            time.sleep(2)
-                        else:
-                            self.print_error(f"Failed to get prefixes for AS{asn_num} after {max_retries} attempts (timeout)")
-                    except Exception as e:
-                        retry_count += 1
-                        if retry_count < max_retries:
-                            self.print_warning(f"Error for AS{asn_num}: {e}. Retrying... (attempt {retry_count + 1}/{max_retries})")
-                            time.sleep(2)
-                        else:
-                            self.print_error(f"Failed to get prefixes for AS{asn_num} after {max_retries} attempts: {e}")
-
-            # Method 4: Reverse IP lookup to find related domains
-            self.print_info("\nSearching for related domains on discovered IPs...")
-
-            for ip in known_ips[:5]:  # Limit to first 5
+            for ip in public_ips[:10]:  # Limit to first 10
                 try:
-                    # Simple reverse DNS
-                    try:
-                        hostname = socket.gethostbyaddr(ip)[0]
-                        if hostname and hostname != ip:
-                            asn_data['related_domains'].append({
-                                'domain': hostname,
-                                'ip': ip,
-                                'source': 'reverse_dns'
-                            })
-                            self.print_success(f"Related domain: {hostname} ({ip})")
-                    except:
-                        pass
-
-                except Exception as e:
+                    hostname = socket.gethostbyaddr(ip)[0]
+                    if hostname and hostname != ip:
+                        asn_data['related_domains'].append({
+                            'domain': hostname,
+                            'ip': ip,
+                            'source': 'reverse_dns'
+                        })
+                        self.print_success(f"Related domain: {hostname} ({ip})")
+                except:
                     pass
 
             # Store results
@@ -1499,20 +1608,19 @@ class ReconAutomation:
 
             # Summary
             self.print_info(f"\nASN Enumeration Summary:")
-            self.print_info(f"  ASNs discovered: {len(asn_data['asn_numbers'])}")
-            self.print_info(f"  Total IP ranges found: {len(asn_data['ip_ranges'])}")
-
-            in_scope_ranges = [r for r in asn_data['ip_ranges'] if r['in_scope']]
-            out_scope_ranges = [r for r in asn_data['ip_ranges'] if not r['in_scope']]
-
-            self.print_info(f"  Ranges in authorized scope: {len(in_scope_ranges)}")
-            self.print_warning(f"  Ranges OUT OF SCOPE (do not test): {len(out_scope_ranges)}")
+            self.print_info(f"  Public IPs analyzed: {len(public_ips)}")
+            self.print_info(f"  Unique ASNs discovered: {len(asn_to_ips)}")
+            self.print_info(f"  IP prefixes identified: {len(asn_data['ip_ranges'])}")
             self.print_info(f"  Related domains found: {len(asn_data['related_domains'])}")
 
-            if out_scope_ranges:
-                self.print_warning("\n[!] WARNING: Additional IP ranges found that are NOT in authorized scope!")
-                self.print_warning("These ranges belong to the organization but are not authorized for testing.")
-                self.print_warning("Do NOT scan or test these ranges without explicit authorization.")
+        def _ip_in_prefix(self, ip: str, prefix: str) -> bool:
+            """Check if an IP is within a given prefix"""
+            try:
+                ip_obj = ipaddress.ip_address(ip)
+                network = ipaddress.ip_network(prefix, strict=False)
+                return ip_obj in network
+            except:
+                return False
 
     def _lookup_asn_cymru(self, ip: str) -> Optional[Dict[str, str]]:
         """Lookup ASN using Team Cymru's IP to ASN service"""
@@ -2249,50 +2357,65 @@ class ReconAutomation:
         return tech_info if tech_info['headers'] or tech_info.get('detected_technologies') else None
 
     def email_harvesting(self):
-            """Harvest email addresses from public sources"""
+            """Harvest email addresses from multiple public sources"""
             self.print_section("EMAIL ADDRESS HARVESTING")
 
             emails = set()
+            email_sources = {}
 
-            # Method 1: theHarvester (if installed)
+            # Method 1: theHarvester
             self.print_info("Running theHarvester...")
             harvester_emails = self._run_theharvester()
-            emails.update(harvester_emails)
+            for email in harvester_emails:
+                emails.add(email)
+                email_sources[email] = email_sources.get(email, []) + ['theHarvester']
+            self.print_success(f"Found {len(harvester_emails)} emails from theHarvester")
 
             # Method 2: Web scraping
             self.print_info("Scraping web pages for emails...")
             web_emails = self._scrape_emails_from_web()
-            emails.update(web_emails)
+            for email in web_emails:
+                emails.add(email)
+                email_sources[email] = email_sources.get(email, []) + ['web_scraping']
+            self.print_success(f"Found {len(web_emails)} emails from web scraping")
 
-            # Hardcoded exclusion list - known false positives
+            # Method 3: Google dorking
+            self.print_info("Searching Google for emails...")
+            google_emails = self._google_dork_emails()
+            for email in google_emails:
+                emails.add(email)
+                email_sources[email] = email_sources.get(email, []) + ['google_dork']
+            self.print_success(f"Found {len(google_emails)} emails from Google dorking")
+
+            # Method 4: PGP key servers
+            self.print_info("Searching PGP key servers...")
+            pgp_emails = self._search_pgp_servers()
+            for email in pgp_emails:
+                emails.add(email)
+                email_sources[email] = email_sources.get(email, []) + ['pgp_keyserver']
+            self.print_success(f"Found {len(pgp_emails)} emails from PGP servers")
+
+            # Exclusion list
             excluded_addresses = {
-                'cmartorella@edge-security.com',  # theHarvester author - shows up in tool output
+                'cmartorella@edge-security.com',
             }
 
-            # Filter to only valid-looking emails from target domain and related domains
+            # Filter emails
             filtered_emails = []
-            rejected_emails = []
 
             for email in emails:
                 email_lower = email.lower()
 
-                # Skip hardcoded exclusions
                 if email_lower in excluded_addresses:
                     continue
-
-                # Skip obvious garbage
-                if len(email) > 100:  # Too long
-                    rejected_emails.append((email, "too long"))
+                if len(email) > 100:
                     continue
-                if email.count('@') != 1:  # Invalid format
-                    rejected_emails.append((email, "invalid format"))
+                if email.count('@') != 1:
                     continue
 
                 local, domain = email.split('@')
 
-                # Skip hash/UUID-style emails (like sentry errors)
                 if len(local) == 32 and all(c in '0123456789abcdef' for c in local):
-                    rejected_emails.append((email, "looks like hash/UUID"))
                     continue
 
                 domain_lower = domain.lower()
@@ -2300,34 +2423,155 @@ class ReconAutomation:
 
                 if domain_lower == target_domain_lower or domain_lower.endswith(f'.{target_domain_lower}'):
                     filtered_emails.append(email)
-                else:
-                    rejected_emails.append((email, f"not from {self.domain} domain"))
 
-            # Show what was rejected if we're getting no results
-            if not filtered_emails and rejected_emails:
-                self.print_warning(f"Found {len(rejected_emails)} email(s) but all were filtered out:")
-                for email, reason in rejected_emails[:5]:
-                    self.print_info(f"  Rejected: {email} ({reason})")
+            # Detect email pattern
+            email_pattern = self._detect_email_pattern(filtered_emails)
 
             # Store results
             self.results['email_addresses'] = sorted(filtered_emails)
+            self.results['email_pattern'] = email_pattern
+            self.results['email_sources'] = {e: email_sources.get(e, []) for e in filtered_emails}
 
-            self.print_success(f"Total unique email addresses found: {len(filtered_emails)}")
+            self.print_success(f"\nTotal unique email addresses found: {len(filtered_emails)}")
+
+            if email_pattern:
+                self.print_info(f"Detected email pattern: {email_pattern['pattern']} ({email_pattern['confidence']}% confidence)")
+                self.print_info(f"  Examples: {', '.join(email_pattern['examples'][:3])}")
 
             if filtered_emails:
-                self.print_info(f"Emails from target domain ({self.domain}):")
+                self.print_info(f"\nEmails from target domain ({self.domain}):")
                 for email in sorted(filtered_emails):
-                    self.print_info(f"  {email}")
+                    sources = email_sources.get(email, [])
+                    self.print_info(f"  {email} (from: {', '.join(sources)})")
             else:
                 self.print_warning(f"No emails found for target domain ({self.domain})")
 
-                # Show all emails found before filtering for debugging (exclude hardcoded exclusions)
-                if emails:
-                    debug_emails = [e for e in emails if e.lower() not in excluded_addresses]
-                    if debug_emails:
-                        self.print_info(f"All emails discovered (before filtering):")
-                        for email in sorted(debug_emails)[:10]:
-                            self.print_info(f"  {email}")
+    def _google_dork_emails(self) -> List[str]:
+            """Search Google for emails using dorking"""
+            emails = []
+            email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+
+            dork_queries = [
+                f'site:{self.domain} "@{self.domain}"',
+                f'"@{self.domain}" filetype:pdf',
+                f'"@{self.domain}" filetype:doc OR filetype:docx',
+                f'"@{self.domain}" filetype:xls OR filetype:xlsx',
+                f'"{self.domain}" email contact',
+            ]
+
+            for query in dork_queries:
+                try:
+                    search_url = f"https://www.google.com/search?q={requests.utils.quote(query)}&num=50"
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                    }
+
+                    response = self.session.get(search_url, headers=headers, timeout=10)
+
+                    if response.status_code == 200:
+                        found = re.findall(email_pattern, response.text)
+                        emails.extend(found)
+
+                    time.sleep(2)
+
+                except Exception as e:
+                    self.print_warning(f"Google dork failed for query: {e}")
+
+            return list(set(emails))
+
+        def _search_pgp_servers(self) -> List[str]:
+            """Search PGP key servers for emails"""
+            emails = []
+            email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+
+            pgp_servers = [
+                f"https://keys.openpgp.org/search?q={self.domain}",
+                f"https://keyserver.ubuntu.com/pks/lookup?search={self.domain}&op=index",
+            ]
+
+            for server_url in pgp_servers:
+                try:
+                    response = self.session.get(server_url, timeout=10)
+
+                    if response.status_code == 200:
+                        found = re.findall(email_pattern, response.text)
+                        emails.extend(found)
+
+                    time.sleep(1)
+
+                except:
+                    pass
+
+            return list(set(emails))
+
+        def _detect_email_pattern(self, emails: List[str]) -> Optional[Dict[str, Any]]:
+            """Detect the email naming pattern from collected emails"""
+            if not emails:
+                return None
+
+            patterns = {
+                'firstname.lastname': 0,
+                'firstnamelastname': 0,
+                'firstname_lastname': 0,
+                'firstname': 0,
+                'flastname': 0,
+                'firstl': 0,
+                'lastname.firstname': 0,
+                'other': 0
+            }
+
+            examples = {k: [] for k in patterns.keys()}
+
+            for email in emails:
+                local = email.split('@')[0].lower()
+
+                if local in ['info', 'contact', 'support', 'admin', 'sales', 'hr', 'jobs', 'careers', 'press', 'media', 'marketing']:
+                    continue
+
+                if '.' in local and len(local.split('.')) == 2:
+                    parts = local.split('.')
+                    if parts[0].isalpha() and parts[1].isalpha():
+                        if len(parts[0]) > 1 and len(parts[1]) > 1:
+                            patterns['firstname.lastname'] += 1
+                            examples['firstname.lastname'].append(email)
+                        elif len(parts[0]) == 1:
+                            patterns['flastname'] += 1
+                            examples['flastname'].append(email)
+                elif '_' in local and len(local.split('_')) == 2:
+                    patterns['firstname_lastname'] += 1
+                    examples['firstname_lastname'].append(email)
+                elif local.isalpha() and len(local) > 2:
+                    if len(local) > 10:
+                        patterns['firstnamelastname'] += 1
+                        examples['firstnamelastname'].append(email)
+                    elif len(local) < 6:
+                        patterns['firstname'] += 1
+                        examples['firstname'].append(email)
+                    else:
+                        patterns['other'] += 1
+                        examples['other'].append(email)
+                else:
+                    patterns['other'] += 1
+                    examples['other'].append(email)
+
+            total = sum(patterns.values())
+            if total == 0:
+                return None
+
+            best_pattern = max(patterns.items(), key=lambda x: x[1])
+
+            if best_pattern[1] == 0:
+                return None
+
+            confidence = int((best_pattern[1] / total) * 100)
+
+            return {
+                'pattern': best_pattern[0],
+                'confidence': confidence,
+                'count': best_pattern[1],
+                'total_analyzed': total,
+                'examples': examples[best_pattern[0]][:5]
+            }
 
     def _run_theharvester(self) -> List[str]:
             """Run theHarvester tool"""
@@ -4333,6 +4577,16 @@ class ReconAutomation:
                         self.mark_module_status('dns_enumeration', 'failed', str(e))
                         self.print_error(f"dns_enumeration failed: {e}")
 
+                # Phase 1.5: Post-DNS WHOIS lookup (when no IP ranges provided)
+                if not self.ip_ranges and self.should_run_module('post_dns_whois'):
+                    self.mark_module_status('post_dns_whois', 'in_progress')
+                    try:
+                        self.post_dns_whois_lookup()
+                        self.mark_module_status('post_dns_whois', 'complete')
+                    except Exception as e:
+                        self.mark_module_status('post_dns_whois', 'failed', str(e))
+                        self.print_error(f"post_dns_whois failed: {e}")
+
                 if self.should_run_module('technology_stack'):
                     self.mark_module_status('technology_stack', 'in_progress')
                     try:
@@ -4343,6 +4597,17 @@ class ReconAutomation:
                         self.print_error(f"technology_stack failed: {e}")
 
                 # Phase 2: OSINT and intelligence gathering
+                # Email harvesting MUST run before LinkedIn to detect email format
+                if self.should_run_module('email_harvesting'):
+                    self.mark_module_status('email_harvesting', 'in_progress')
+                    try:
+                        self.email_harvesting()
+                        self.mark_module_status('email_harvesting', 'complete')
+                    except Exception as e:
+                        self.mark_module_status('email_harvesting', 'failed', str(e))
+                        self.print_error(f"email_harvesting failed: {e}")
+
+                # LinkedIn enumeration runs after email harvesting
                 if self.should_run_module('linkedin_enumeration'):
                     if self.config.get('linkedin_cookies'):
                         self.mark_module_status('linkedin_enumeration', 'in_progress')
@@ -4355,15 +4620,6 @@ class ReconAutomation:
                     else:
                         self.print_info("Skipping LinkedIn enumeration (no cookies provided)")
                         self.mark_module_status('linkedin_enumeration', 'skipped')
-
-                if self.should_run_module('email_harvesting'):
-                    self.mark_module_status('email_harvesting', 'in_progress')
-                    try:
-                        self.email_harvesting()
-                        self.mark_module_status('email_harvesting', 'complete')
-                    except Exception as e:
-                        self.mark_module_status('email_harvesting', 'failed', str(e))
-                        self.print_error(f"email_harvesting failed: {e}")
 
                 if self.should_run_module('breach_database_check'):
                     if not self.args.skip_breach_check:
@@ -4524,40 +4780,41 @@ class ReconAutomation:
     # =========================================================================
 
     def init_state(self):
-        """Initialize state tracking structure"""
-        self.state = {
-            'version': '1.0',
-            'target': {
-                'domain': self.domain,
-                'client': self.client_name,
-                'ip_ranges': self.ip_ranges,
-                'config_hash': self._generate_config_hash()
-            },
-            'session': {
-                'started_at': datetime.now().isoformat(),
-                'last_updated': datetime.now().isoformat(),
-                'interrupted': False,
-                'completed': False
-            },
-            'modules': {
-                'scope_validation': {'status': 'pending', 'progress': {}},
-                'dns_enumeration': {'status': 'pending', 'progress': {}},
-                'technology_stack': {'status': 'pending', 'progress': {}},
-                'linkedin_enumeration': {'status': 'pending', 'progress': {}},
-                'email_harvesting': {'status': 'pending', 'progress': {}},
-                'breach_database_check': {'status': 'pending', 'progress': {}},
-                'github_secret_scanning': {'status': 'pending', 'progress': {}},
-                'asn_enumeration': {'status': 'pending', 'progress': {}},
-                'subdomain_takeover_detection': {'status': 'pending', 'progress': {}},
-                's3_bucket_enumeration': {'status': 'pending', 'progress': {}},
-                'azure_storage_enumeration': {'status': 'pending', 'progress': {}},
-                'gcp_storage_enumeration': {'status': 'pending', 'progress': {}},
-                'network_enumeration': {'status': 'pending', 'progress': {}},
-            },
-            'results': {}
-        }
-        self.state_file = self.output_dir / 'recon_state.json'
-        self._shutdown_in_progress = False
+            """Initialize state tracking structure"""
+            self.state = {
+                'version': '1.0',
+                'target': {
+                    'domain': self.domain,
+                    'client': self.client_name,
+                    'ip_ranges': self.ip_ranges,
+                    'config_hash': self._generate_config_hash()
+                },
+                'session': {
+                    'started_at': datetime.now().isoformat(),
+                    'last_updated': datetime.now().isoformat(),
+                    'interrupted': False,
+                    'completed': False
+                },
+                'modules': {
+                    'scope_validation': {'status': 'pending', 'progress': {}},
+                    'dns_enumeration': {'status': 'pending', 'progress': {}},
+                    'post_dns_whois': {'status': 'pending', 'progress': {}},
+                    'technology_stack': {'status': 'pending', 'progress': {}},
+                    'email_harvesting': {'status': 'pending', 'progress': {}},
+                    'linkedin_enumeration': {'status': 'pending', 'progress': {}},
+                    'breach_database_check': {'status': 'pending', 'progress': {}},
+                    'github_secret_scanning': {'status': 'pending', 'progress': {}},
+                    'asn_enumeration': {'status': 'pending', 'progress': {}},
+                    'subdomain_takeover_detection': {'status': 'pending', 'progress': {}},
+                    's3_bucket_enumeration': {'status': 'pending', 'progress': {}},
+                    'azure_storage_enumeration': {'status': 'pending', 'progress': {}},
+                    'gcp_storage_enumeration': {'status': 'pending', 'progress': {}},
+                    'network_enumeration': {'status': 'pending', 'progress': {}},
+                },
+                'results': {}
+            }
+            self.state_file = self.output_dir / 'recon_state.json'
+            self._shutdown_in_progress = False
 
     def _generate_config_hash(self) -> str:
         """Generate hash of target configuration for change detection"""
