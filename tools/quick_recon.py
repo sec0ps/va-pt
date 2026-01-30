@@ -2087,6 +2087,7 @@ class ReconAutomation:
     def _check_certificate_transparency(self) -> List[str]:
             """Check certificate transparency logs for subdomains"""
             domains = []
+            target = self.domain.lower()
 
             self.print_info(f"Querying crt.sh for {self.domain}...")
 
@@ -2111,13 +2112,14 @@ class ReconAutomation:
                             # Handle multiple domains in one cert
                             for domain in name.split('\n'):
                                 domain = domain.strip().lower()
-                                # Skip wildcards and empty entries
+                                # Skip wildcards and empty entries, only include in-scope domains
                                 if domain and '*' not in domain:
-                                    domains.append(domain)
+                                    if domain == target or domain.endswith(f'.{target}'):
+                                        domains.append(domain)
 
                         # Remove duplicates
                         domains = list(set(domains))
-                        self.print_success(f"Extracted {len(domains)} unique domains from certificates")
+                        self.print_success(f"Extracted {len(domains)} unique in-scope domains from certificates")
 
                     except json.JSONDecodeError as e:
                         self.print_error(f"Failed to parse crt.sh JSON response: {e}")
@@ -2151,10 +2153,11 @@ class ReconAutomation:
                             for name in dns_names:
                                 name = name.strip().lower()
                                 if name and '*' not in name:
-                                    domains.append(name)
+                                    if name == target or name.endswith(f'.{target}'):
+                                        domains.append(name)
 
                         domains = list(set(domains))
-                        self.print_success(f"Extracted {len(domains)} unique domains from certspotter")
+                        self.print_success(f"Extracted {len(domains)} unique in-scope domains from certspotter")
                     else:
                         self.print_warning(f"certspotter returned status {response.status_code}")
 
