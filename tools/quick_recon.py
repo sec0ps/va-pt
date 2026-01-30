@@ -2446,38 +2446,38 @@ class ReconAutomation:
             else:
                 self.print_warning(f"No emails found for target domain ({self.domain})")
 
-def _google_dork_emails(self) -> List[str]:
-        """Search Google for emails using dorking"""
-        emails = []
-        email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+    def _google_dork_emails(self) -> List[str]:
+            """Search Google for emails using dorking"""
+            emails = []
+            email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
 
-        dork_queries = [
-            f'site:{self.domain} "@{self.domain}"',
-            f'"@{self.domain}" filetype:pdf',
-            f'"@{self.domain}" filetype:doc OR filetype:docx',
-            f'"@{self.domain}" filetype:xls OR filetype:xlsx',
-            f'"{self.domain}" email contact',
-        ]
+            dork_queries = [
+                f'site:{self.domain} "@{self.domain}"',
+                f'"@{self.domain}" filetype:pdf',
+                f'"@{self.domain}" filetype:doc OR filetype:docx',
+                f'"@{self.domain}" filetype:xls OR filetype:xlsx',
+                f'"{self.domain}" email contact',
+            ]
 
-        for query in dork_queries:
-            try:
-                search_url = f"https://www.google.com/search?q={requests.utils.quote(query)}&num=50"
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                }
+            for query in dork_queries:
+                try:
+                    search_url = f"https://www.google.com/search?q={requests.utils.quote(query)}&num=50"
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                    }
 
-                response = self.session.get(search_url, headers=headers, timeout=10)
+                    response = self.session.get(search_url, headers=headers, timeout=10)
 
-                if response.status_code == 200:
-                    found = re.findall(email_pattern, response.text)
-                    emails.extend(found)
+                    if response.status_code == 200:
+                        found = re.findall(email_pattern, response.text)
+                        emails.extend(found)
 
-                time.sleep(2)
+                    time.sleep(2)
 
-            except Exception as e:
-                self.print_warning(f"Google dork failed for query: {e}")
+                except Exception as e:
+                    self.print_warning(f"Google dork failed for query: {e}")
 
-        return list(set(emails))
+            return list(set(emails))
 
     def _search_pgp_servers(self) -> List[str]:
         """Search PGP key servers for emails"""
