@@ -1817,115 +1817,230 @@ class ReconAutomation:
             return False
 
     def dns_enumeration(self):
-            """Perform DNS enumeration to discover subdomains with checkpoint support"""
-            self.print_section("DNS ENUMERATION")
+                """Perform DNS enumeration to discover subdomains with checkpoint support"""
+                self.print_section("DNS ENUMERATION")
 
-            # Get resume data if available
-            resume_data = self.get_resume_data('dns_enumeration')
-            progress = resume_data.get('progress', {})
+                # Get resume data if available
+                resume_data = self.get_resume_data('dns_enumeration')
+                progress = resume_data.get('progress', {})
 
-            subdomains = set()
-            ct_domains = set()
-            brute_domains = set()
+                subdomains = set()
+                ct_domains = set()
+                brute_domains = set()
 
-            # Restore previously discovered subdomains if resuming
-            if progress.get('ct_logs', {}).get('status') == 'complete':
-                ct_domains = set(progress['ct_logs'].get('domains', []))
-                self.print_info(f"Restored {len(ct_domains)} CT log domains from checkpoint")
-                subdomains.update(ct_domains)
+                # Restore previously discovered subdomains if resuming
+                if progress.get('ct_logs', {}).get('status') == 'complete':
+                    ct_domains = set(progress['ct_logs'].get('domains', []))
+                    self.print_info(f"Restored {len(ct_domains)} CT log domains from checkpoint")
+                    subdomains.update(ct_domains)
 
-            if progress.get('bruteforce', {}).get('status') == 'complete':
-                brute_domains = set(progress['bruteforce'].get('domains', []))
-                self.print_info(f"Restored {len(brute_domains)} bruteforce domains from checkpoint")
-                subdomains.update(brute_domains)
+                if progress.get('bruteforce', {}).get('status') == 'complete':
+                    brute_domains = set(progress['bruteforce'].get('domains', []))
+                    self.print_info(f"Restored {len(brute_domains)} bruteforce domains from checkpoint")
+                    subdomains.update(brute_domains)
 
-            # Method 1: Certificate Transparency Logs
-            if progress.get('ct_logs', {}).get('status') != 'complete':
-                self.print_info("Checking Certificate Transparency logs...")
-                ct_domains = set(self._check_certificate_transparency())
-                subdomains.update(ct_domains)
-                self.print_success(f"Found {len(ct_domains)} domains from CT logs")
+                # Method 1: Certificate Transparency Logs
+                if progress.get('ct_logs', {}).get('status') != 'complete':
+                    self.print_info("Checking Certificate Transparency logs...")
+                    ct_domains = set(self._check_certificate_transparency())
+                    subdomains.update(ct_domains)
+                    self.print_success(f"Found {len(ct_domains)} domains from CT logs")
 
-                # Checkpoint CT log results
-                self.checkpoint('dns_enumeration', 'ct_logs', {
-                    'status': 'complete',
-                    'domains': list(ct_domains),
-                    'count': len(ct_domains)
-                })
+                    # Checkpoint CT log results
+                    self.checkpoint('dns_enumeration', 'ct_logs', {
+                        'status': 'complete',
+                        'domains': list(ct_domains),
+                        'count': len(ct_domains)
+                    })
 
-            # Method 2: DNS brute force with common names
-            if progress.get('bruteforce', {}).get('status') != 'complete':
-                self.print_info("Performing DNS brute force...")
-                brute_domains = set(self._dns_bruteforce())
-                subdomains.update(brute_domains)
-                self.print_success(f"Found {len(brute_domains)} domains from brute force")
+                # Method 2: DNS brute force with common names
+                if progress.get('bruteforce', {}).get('status') != 'complete':
+                    self.print_info("Performing DNS brute force...")
+                    brute_domains = set(self._dns_bruteforce())
+                    subdomains.update(brute_domains)
+                    self.print_success(f"Found {len(brute_domains)} domains from brute force")
 
-                # Checkpoint bruteforce results
-                self.checkpoint('dns_enumeration', 'bruteforce', {
-                    'status': 'complete',
-                    'domains': list(brute_domains),
-                    'count': len(brute_domains)
-                })
+                    # Checkpoint bruteforce results
+                    self.checkpoint('dns_enumeration', 'bruteforce', {
+                        'status': 'complete',
+                        'domains': list(brute_domains),
+                        'count': len(brute_domains)
+                    })
 
-            # Resolve all discovered subdomains with checkpointing
-            self.print_info("Resolving discovered subdomains...")
+                # Resolve all discovered subdomains with checkpointing
+                self.print_info("Resolving discovered subdomains...")
 
-            # Get already resolved subdomains from checkpoint
-            resolved = {}
-            resolution_progress = progress.get('resolution', {})
-            if resolution_progress.get('resolved'):
-                resolved = resolution_progress['resolved']
-                self.print_info(f"Restored {len(resolved)} resolved subdomains from checkpoint")
+                # Get already resolved subdomains from checkpoint
+                resolved = {}
+                resolution_progress = progress.get('resolution', {})
+                if resolution_progress.get('resolved'):
+                    resolved = resolution_progress['resolved']
+                    self.print_info(f"Restored {len(resolved)} resolved subdomains from checkpoint")
 
-            # Determine which subdomains still need resolution
-            subdomains_to_resolve = sorted(subdomains - set(resolved.keys()))
-            total_to_resolve = len(subdomains_to_resolve)
+                # Determine which subdomains still need resolution
+                subdomains_to_resolve = sorted(subdomains - set(resolved.keys()))
+                total_to_resolve = len(subdomains_to_resolve)
 
-            if total_to_resolve > 0:
-                self.print_info(f"Resolving {total_to_resolve} remaining subdomains...")
+                if total_to_resolve > 0:
+                    self.print_info(f"Resolving {total_to_resolve} remaining subdomains...")
 
-                checkpoint_interval = 50  # Checkpoint every 50 resolutions
-                completed_since_checkpoint = 0
+                    checkpoint_interval = 50
+                    completed_since_checkpoint = 0
 
-                for i, subdomain in enumerate(subdomains_to_resolve):
-                    ips = self._resolve_domain(subdomain)
-                    if ips:
-                        resolved[subdomain] = ips
-                        self.print_success(f"[{len(resolved)}/{len(subdomains)}] {subdomain} -> {', '.join(ips)}")
+                    for i, subdomain in enumerate(subdomains_to_resolve):
+                        ips = self._resolve_domain(subdomain)
+                        if ips:
+                            resolved[subdomain] = ips
 
-                    completed_since_checkpoint += 1
+                            # Check if all IPs are internal/private
+                            all_internal = True
+                            for ip in ips:
+                                try:
+                                    ip_obj = ipaddress.ip_address(ip)
+                                    if not ip_obj.is_private and not ip_obj.is_loopback:
+                                        all_internal = False
+                                        break
+                                except:
+                                    all_internal = False
+                                    break
 
-                    # Checkpoint periodically
-                    if completed_since_checkpoint >= checkpoint_interval:
-                        self.checkpoint('dns_enumeration', 'resolution', {
-                            'resolved': resolved,
-                            'completed': len(resolved),
-                            'total': len(subdomains),
-                            'last_processed': subdomain
-                        })
-                        completed_since_checkpoint = 0
+                            if all_internal:
+                                self.print_warning(f"[{len(resolved)}/{len(subdomains)}] {subdomain} -> {', '.join(ips)} [INTERNAL]")
+                            else:
+                                self.print_success(f"[{len(resolved)}/{len(subdomains)}] {subdomain} -> {', '.join(ips)}")
 
-                # Final checkpoint for resolution
-                self.checkpoint('dns_enumeration', 'resolution', {
+                        completed_since_checkpoint += 1
+
+                        # Checkpoint periodically
+                        if completed_since_checkpoint >= checkpoint_interval:
+                            self.checkpoint('dns_enumeration', 'resolution', {
+                                'resolved': resolved,
+                                'completed': len(resolved),
+                                'total': len(subdomains),
+                                'last_processed': subdomain
+                            })
+                            completed_since_checkpoint = 0
+
+                    # Final checkpoint for resolution
+                    self.checkpoint('dns_enumeration', 'resolution', {
+                        'resolved': resolved,
+                        'completed': len(resolved),
+                        'total': len(subdomains),
+                        'status': 'complete'
+                    })
+
+                # =====================================================================
+                # Separate internal vs external resolved subdomains
+                # =====================================================================
+                resolved_internal = {}
+                resolved_external = {}
+
+                for subdomain, ips in resolved.items():
+                    internal_ips = []
+                    external_ips = []
+
+                    for ip in ips:
+                        try:
+                            ip_obj = ipaddress.ip_address(ip)
+                            if ip_obj.is_private or ip_obj.is_loopback:
+                                internal_ips.append(ip)
+                            else:
+                                external_ips.append(ip)
+                        except:
+                            external_ips.append(ip)
+
+                    if internal_ips and not external_ips:
+                        resolved_internal[subdomain] = internal_ips
+                    elif external_ips:
+                        resolved_external[subdomain] = external_ips
+                        if internal_ips:
+                            # Has both - store in external but note internal IPs exist
+                            resolved_internal[subdomain] = internal_ips
+
+                # =====================================================================
+                # WHOIS lookups on resolved IPs (when no IP ranges provided)
+                # =====================================================================
+                whois_results = {}
+                org_summary = {}
+
+                if not self.ip_ranges and resolved_external:
+                    self.print_info(f"\nPerforming WHOIS lookups on discovered external IPs...")
+
+                    # Collect unique public IPs
+                    all_ips = set()
+                    for subdomain, ips in resolved_external.items():
+                        all_ips.update(ips)
+
+                    public_ips = []
+                    for ip in all_ips:
+                        try:
+                            ip_obj = ipaddress.ip_address(ip)
+                            if not ip_obj.is_private and not ip_obj.is_loopback and not ip_obj.is_reserved:
+                                public_ips.append(ip)
+                        except:
+                            pass
+
+                    self.print_info(f"Found {len(public_ips)} unique public IPs")
+
+                    # Perform WHOIS lookups (limit to 50)
+                    for ip in sorted(public_ips)[:50]:
+                        try:
+                            output = self.run_command(['whois', ip], timeout=30)
+                            if output:
+                                parsed = self._parse_whois(output, whois_type='ip')
+                                whois_results[ip] = parsed
+
+                                org = parsed.get('org', 'Unknown')
+                                netrange = parsed.get('netrange', '')
+
+                                if org not in org_summary:
+                                    org_summary[org] = {
+                                        'ips': [],
+                                        'netranges': set(),
+                                        'country': parsed.get('country', 'Unknown')
+                                    }
+                                org_summary[org]['ips'].append(ip)
+                                if netrange:
+                                    org_summary[org]['netranges'].add(netrange)
+
+                            time.sleep(0.5)
+
+                        except Exception as e:
+                            pass
+
+                    # Print summary by organization
+                    if org_summary:
+                        self.print_info(f"\nInfrastructure by Organization:")
+                        sorted_orgs = sorted(org_summary.items(), key=lambda x: len(x[1]['ips']), reverse=True)
+
+                        for org, data in sorted_orgs:
+                            ip_count = len(data['ips'])
+                            self.print_success(f"  {org} ({ip_count} IP{'s' if ip_count > 1 else ''})")
+                            for netrange in sorted(data['netranges']):
+                                self.print_info(f"    Network: {netrange}")
+
+                # Store results
+                self.results['dns_enumeration'] = {
+                    'total_discovered': len(subdomains),
+                    'ct_log_domains': sorted(list(ct_domains)),
+                    'bruteforce_domains': sorted(list(brute_domains)),
+                    'all_discovered': sorted(list(subdomains)),
                     'resolved': resolved,
-                    'completed': len(resolved),
-                    'total': len(subdomains),
-                    'status': 'complete'
-                })
+                    'resolved_external': resolved_external,
+                    'resolved_internal': resolved_internal,
+                    'unresolved': sorted(list(subdomains - set(resolved.keys()))),
+                    'whois_lookups': whois_results,
+                    'infrastructure_summary': {org: {'ips': data['ips'], 'netranges': list(data['netranges']), 'country': data['country']} for org, data in org_summary.items()}
+                }
 
-            self.results['dns_enumeration'] = {
-                'total_discovered': len(subdomains),
-                'ct_log_domains': sorted(list(ct_domains)),
-                'bruteforce_domains': sorted(list(brute_domains)),
-                'all_discovered': sorted(list(subdomains)),
-                'resolved': resolved,
-                'unresolved': sorted(list(subdomains - set(resolved.keys())))
-            }
-
-            self.print_info(f"Total unique subdomains discovered: {len(subdomains)}")
-            self.print_info(f"  - From CT logs: {len(ct_domains)}")
-            self.print_info(f"  - From brute force: {len(brute_domains)}")
-            self.print_info(f"Successfully resolved: {len(resolved)}")
+                self.print_info(f"\nTotal unique subdomains discovered: {len(subdomains)}")
+                self.print_info(f"  - From CT logs: {len(ct_domains)}")
+                self.print_info(f"  - From brute force: {len(brute_domains)}")
+                self.print_info(f"Successfully resolved: {len(resolved)}")
+                self.print_info(f"  - External (public IPs): {len(resolved_external)}")
+                self.print_info(f"  - Internal (private IPs): {len(resolved_internal)}")
+                if whois_results:
+                    self.print_info(f"WHOIS lookups completed: {len(whois_results)} IPs across {len(org_summary)} organizations")
 
     def subdomain_takeover_detection(self):
             """Check for subdomain takeover vulnerabilities with validation"""
@@ -4279,7 +4394,14 @@ class ReconAutomation:
                     # DNS Enumeration
                     f.write(f"## DNS Enumeration\n\n")
                     dns = self.results.get('dns_enumeration', {})
-                    f.write(f"**Total Subdomains Discovered:** {dns.get('total_discovered', 0)}\n\n")
+
+                    resolved_external = dns.get('resolved_external', {})
+                    resolved_internal = dns.get('resolved_internal', {})
+                    resolved = dns.get('resolved', {})
+
+                    f.write(f"**Total Subdomains Discovered:** {dns.get('total_discovered', 0)}\n")
+                    f.write(f"**Resolved (External):** {len(resolved_external)}\n")
+                    f.write(f"**Resolved (Internal):** {len(resolved_internal)}\n\n")
 
                     # CT Log domains
                     ct_domains = dns.get('ct_log_domains', [])
@@ -4299,9 +4421,33 @@ class ReconAutomation:
                             f.write(f"- `{domain}`\n")
                         f.write(f"\n")
 
-                    # Resolved subdomains
-                    resolved = dns.get('resolved', {})
-                    if resolved:
+                    # External resolved subdomains (public IPs)
+                    if resolved_external:
+                        f.write(f"### External Subdomains ({len(resolved_external)})\n\n")
+                        f.write(f"Subdomains resolving to public IP addresses:\n\n")
+                        for subdomain, ips in sorted(resolved_external.items()):
+                            f.write(f"- `{subdomain}` → {', '.join(ips)}\n")
+                        f.write(f"\n")
+
+                    # Internal resolved subdomains (private IPs) - Information Disclosure
+                    if resolved_internal:
+                        f.write(f"### Internal Subdomains ({len(resolved_internal)}) ⚠️ INFORMATION DISCLOSURE\n\n")
+                        f.write(f"**Finding:** Internal hostnames exposed in public DNS records.\n\n")
+                        f.write(f"**Risk:** These subdomains resolve to private/internal IP addresses (RFC 1918), ")
+                        f.write(f"revealing internal network structure to external attackers. This information can be used to:\n\n")
+                        f.write(f"- Map internal network topology\n")
+                        f.write(f"- Identify internal naming conventions\n")
+                        f.write(f"- Target systems during internal penetration testing\n")
+                        f.write(f"- Craft more convincing phishing attacks\n\n")
+                        f.write(f"**Affected Subdomains:**\n\n")
+                        for subdomain, ips in sorted(resolved_internal.items()):
+                            f.write(f"- `{subdomain}` → {', '.join(ips)}\n")
+                        f.write(f"\n")
+                        f.write(f"**Recommendation:** Remove internal DNS records from public-facing DNS servers ")
+                        f.write(f"or implement split-horizon DNS to prevent internal hostname disclosure.\n\n")
+
+                    # Fallback to old resolved format if new format not available
+                    if not resolved_external and not resolved_internal and resolved:
                         f.write(f"### Resolved Subdomains ({len(resolved)})\n\n")
                         f.write(f"Subdomains that successfully resolved to IP addresses:\n\n")
                         for subdomain, ips in sorted(resolved.items()):
@@ -4318,6 +4464,21 @@ class ReconAutomation:
                         if len(unresolved) > 100:
                             f.write(f"- ... and {len(unresolved) - 100} more\n")
                         f.write(f"\n")
+
+                    # Infrastructure Summary (from WHOIS)
+                    infra_summary = dns.get('infrastructure_summary', {})
+                    if infra_summary:
+                        f.write(f"### Infrastructure Summary\n\n")
+                        f.write(f"Organizations identified from IP WHOIS lookups:\n\n")
+                        for org, data in sorted(infra_summary.items(), key=lambda x: len(x[1].get('ips', [])), reverse=True):
+                            ip_count = len(data.get('ips', []))
+                            f.write(f"#### {org}\n")
+                            f.write(f"- **IPs:** {ip_count}\n")
+                            if data.get('country'):
+                                f.write(f"- **Country:** {data['country']}\n")
+                            if data.get('netranges'):
+                                f.write(f"- **Network Ranges:** {', '.join(data['netranges'])}\n")
+                            f.write(f"\n")
 
                     # Subdomain Takeover
                     f.write(f"## Subdomain Takeover Vulnerabilities\n\n")
@@ -4580,16 +4741,44 @@ class ReconAutomation:
 
                     dns = self.results.get('dns_enumeration', {})
                     total = dns.get('total_discovered', 0)
+                    resolved_external = dns.get('resolved_external', {})
+                    resolved_internal = dns.get('resolved_internal', {})
                     resolved = dns.get('resolved', {})
 
-                    f.write(f"DNS enumeration revealed {total} subdomains. This mapped out what was reachable from the internet.\n\n")
+                    f.write(f"DNS enumeration revealed {total} subdomains. ")
+                    if resolved_external or resolved_internal:
+                        f.write(f"Of these, {len(resolved_external)} resolve to external IPs and {len(resolved_internal)} resolve to internal IPs.\n\n")
+                    else:
+                        f.write(f"This mapped out what was reachable from the internet.\n\n")
 
-                    if resolved:
-                        f.write("Key subdomains identified:\n")
-                        for subdomain in sorted(resolved.keys())[:10]:
-                            ips = resolved[subdomain]
+                    # Use external resolved if available, fall back to resolved
+                    display_resolved = resolved_external if resolved_external else resolved
+                    if display_resolved:
+                        f.write("Key external subdomains identified:\n")
+                        for subdomain in sorted(display_resolved.keys())[:10]:
+                            ips = display_resolved[subdomain]
                             f.write(f"• {subdomain} ({', '.join(ips)})\n")
                         f.write("\n")
+
+                    # Internal DNS Information Disclosure
+                    if resolved_internal:
+                        f.write("### Internal DNS Information Disclosure\n\n")
+                        f.write(f"**Finding:** {len(resolved_internal)} internal hostnames exposed in public DNS.\n\n")
+                        f.write("During DNS enumeration, multiple subdomains were discovered that resolve to private ")
+                        f.write("RFC 1918 IP addresses (10.x.x.x, 172.16-31.x.x, 192.168.x.x). This constitutes an ")
+                        f.write("information disclosure vulnerability as it reveals:\n\n")
+                        f.write("• Internal network addressing scheme\n")
+                        f.write("• Internal hostname naming conventions\n")
+                        f.write("• Potential internal services and their purposes\n\n")
+                        f.write("**Affected Systems (sample):**\n\n")
+                        for subdomain in sorted(resolved_internal.keys())[:15]:
+                            ips = resolved_internal[subdomain]
+                            f.write(f"• {subdomain} → {', '.join(ips)}\n")
+                        if len(resolved_internal) > 15:
+                            f.write(f"• ... and {len(resolved_internal) - 15} more\n")
+                        f.write("\n")
+                        f.write("**Recommendation:** Implement split-horizon DNS to prevent internal records from being ")
+                        f.write("served to external queries, or remove internal records from public DNS zones entirely.\n\n")
 
                     # Subdomain Takeover
                     takeovers = self.results.get('subdomain_takeovers', [])
@@ -4627,7 +4816,6 @@ class ReconAutomation:
                     # LinkedIn Intelligence
                     f.write("### Employee Enumeration via LinkedIn\n\n")
                     linkedin = self.results.get('linkedin_intel', {})
-
                     employees = linkedin.get('employees', [])
 
                     if employees:
