@@ -2450,37 +2450,90 @@ class ReconAutomation:
                 self.print_warning(f"No emails found for target domain ({self.domain})")
 
     def _google_dork_emails(self) -> List[str]:
-            """Search Google for emails using dorking"""
+            """Search for emails using multiple search engines"""
             emails = []
-            email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+            email_pattern = re.compile(
+                r'\b[A-Za-z0-9._%+-]+@' + re.escape(self.domain) + r'\b',
+                re.IGNORECASE
+            )
 
-            dork_queries = [
-                f'site:{self.domain} "@{self.domain}"',
-                f'"@{self.domain}" filetype:pdf',
-                f'"@{self.domain}" filetype:doc OR filetype:docx',
-                f'"@{self.domain}" filetype:xls OR filetype:xlsx',
-                f'"{self.domain}" email contact',
+            target = self.domain
+
+            # Queries to run
+            queries = [
+                f'"@{target}"',
+                f'site:{target} "@{target}"',
+                f'"@{target}" filetype:pdf',
+                f'"@{target}" contact email',
             ]
 
-            for query in dork_queries:
-                try:
-                    search_url = f"https://www.google.com/search?q={requests.utils.quote(query)}&num=50"
-                    headers = {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                    }
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+            }
 
-                    response = self.session.get(search_url, headers=headers, timeout=10)
+            # Try Bing (more scrape-friendly than Google)
+            self.print_info("Searching Bing for emails...")
+            for query in queries:
+                try:
+                    url = f"https://www.bing.com/search?q={requests.utils.quote(query)}&count=50"
+                    response = self.session.get(url, headers=headers, timeout=15)
 
                     if response.status_code == 200:
-                        found = re.findall(email_pattern, response.text)
+                        found = email_pattern.findall(response.text)
+                        if found:
+                            self.print_info(f"  Bing query found {len(found)} matches")
                         emails.extend(found)
 
                     time.sleep(2)
 
                 except Exception as e:
-                    self.print_warning(f"Google dork failed for query: {e}")
+                    self.print_warning(f"Bing search failed: {e}")
 
-            return list(set(emails))
+            # Try DuckDuckGo HTML version
+            self.print_info("Searching DuckDuckGo for emails...")
+            for query in queries[:2]:  # DDG is stricter, use fewer queries
+                try:
+                    url = f"https://html.duckduckgo.com/html/?q={requests.utils.quote(query)}"
+                    response = self.session.get(url, headers=headers, timeout=15)
+
+                    if response.status_code == 200:
+                        found = email_pattern.findall(response.text)
+                        if found:
+                            self.print_info(f"  DuckDuckGo query found {len(found)} matches")
+                        emails.extend(found)
+
+                    time.sleep(3)
+
+                except Exception as e:
+                    self.print_warning(f"DuckDuckGo search failed: {e}")
+
+            # Try Yahoo
+            self.print_info("Searching Yahoo for emails...")
+            for query in queries[:2]:
+                try:
+                    url = f"https://search.yahoo.com/search?p={requests.utils.quote(query)}&n=50"
+                    response = self.session.get(url, headers=headers, timeout=15)
+
+                    if response.status_code == 200:
+                        found = email_pattern.findall(response.text)
+                        if found:
+                            self.print_info(f"  Yahoo query found {len(found)} matches")
+                        emails.extend(found)
+
+                    time.sleep(2)
+
+                except Exception as e:
+                    self.print_warning(f"Yahoo search failed: {e}")
+
+            # Deduplicate and filter
+            unique_emails = list(set(emails))
+
+            # Filter to only target domain
+            filtered = [e for e in unique_emails if e.lower().endswith(f'@{target.lower()}')]
+
+            return filtered
 
     def _search_pgp_servers(self) -> List[str]:
         """Search PGP key servers for emails"""
