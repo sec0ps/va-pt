@@ -8,7 +8,7 @@
 # Email: keith@redcellsecurity.org
 # Website: www.redcellsecurity.org
 #
-# Copyright (c) 2025 Keith Pachulski. All rights reserved.
+# Copyright (c) 2026 Keith Pachulski. All rights reserved.
 #
 # License: This software is licensed under the MIT License.
 #          You are free to use, modify, and distribute this software
@@ -68,47 +68,73 @@ class Colors:
     UNDERLINE = '\033[4m'
 
 class ReconAutomation:
-    def __init__(self, domain: str, ip_ranges: List[str], output_dir: str, client_name: str):
-        self.domain = domain
-        self.ip_ranges = ip_ranges
-        self.output_dir = Path(output_dir)
-        self.client_name = client_name
+    def __init__(self, domain: str, ip_ranges: List[str], output_dir: str, client_name: str, auto_resume: bool = False):
+            self.domain = domain
+            self.ip_ranges = ip_ranges
+            self.output_dir = Path(output_dir)
+            self.client_name = client_name
+            self.auto_resume = auto_resume
 
-        # Initialize requests session
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        })
+            # Initialize requests session
+            self.session = requests.Session()
+            self.session.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
 
-        # Load or create config
-        self.config_file = Path('quick_recon_config.json')
-        self.config = self.load_config()
+            # Load or create config
+            self.config_file = Path('quick_recon_config.json')
+            self.config = self.load_config()
 
-        # Locate theHarvester
-        self.theharvester_path = self._locate_theharvester()
+            # Locate theHarvester
+            self.theharvester_path = self._locate_theharvester()
 
-        self.results = {
-            'timestamp': datetime.now().isoformat(),
-            'domain': domain,
-            'ip_ranges': ip_ranges,
-            'client': client_name,
-            'scope_validation': {},
-            'dns_enumeration': {},
-            'technology_stack': {},
-            'email_addresses': [],
-            'breach_data': {},
-            'network_scan': {},
-            's3_buckets': {},
-            'azure_storage': {},
-            'gcp_storage': {},
-            'github_secrets': {},
-            'linkedin_intel': {},
-            'asn_data': {},
-            'subdomain_takeovers': []
-        }
+            self.results = {
+                'timestamp': datetime.now().isoformat(),
+                'domain': domain,
+                'ip_ranges': ip_ranges,
+                'client': client_name,
+                'scope_validation': {},
+                'dns_enumeration': {},
+                'technology_stack': {},
+                'email_addresses': [],
+                'breach_data': {},
+                'network_scan': {},
+                's3_buckets': {},
+                'azure_storage': {},
+                'gcp_storage': {},
+                'github_secrets': {},
+                'linkedin_intel': {},
+                'asn_data': {},
+                'subdomain_takeovers': []
+            }
 
-        # Create output directory
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+            # Create output directory
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Initialize state tracking
+            self.init_state()
+
+            # Check for existing state and handle resume
+            self._handle_existing_state()
+
+            # Setup signal handlers for graceful shutdown
+            self.setup_signal_handlers()
+
+    def _handle_existing_state(self):
+        """Check for existing state file and handle resume logic"""
+        if self.load_state():
+            # Valid state file exists
+            if self.prompt_resume():
+                # User chose to resume
+                self.print_success("Resuming from previous state")
+                # Results were already restored in load_state()
+            else:
+                # User chose fresh start - state was reset in prompt_resume()
+                pass
+        else:
+            # No valid state file - fresh start
+            self.state['session']['started_at'] = datetime.now().isoformat()
+            self.save_state()
 
     def print_banner(self):
         """Print script banner"""
@@ -489,7 +515,7 @@ class ReconAutomation:
             print("="*80 + "\n")
 
     def github_secret_scanning(self):
-            """Search GitHub for leaked credentials and secrets"""
+            """Search GitHub for leaked credentials and secrets with checkpoint support"""
             self.print_section("GITHUB SECRET SCANNING")
 
             if not self.config.get('github_token'):
@@ -497,13 +523,22 @@ class ReconAutomation:
                 self.print_info("Run with a configured token for enhanced secret detection")
                 return
 
+            # Get resume data if available
+            resume_data = self.get_resume_data('github_secret_scanning')
+            progress = resume_data.get('progress', {})
+
             github_findings = {
-                'repositories': [],
-                'gists': [],
-                'issues': [],
-                'commits': [],
-                'total_secrets_found': 0
+                'repositories': progress.get('repositories', []),
+                'gists': progress.get('gists', []),
+                'issues': progress.get('issues', []),
+                'commits': progress.get('commits', []),
+                'total_secrets_found': progress.get('total_secrets_found', 0)
             }
+
+            # Track which queries have been completed
+            completed_code_queries = set(progress.get('completed_code_queries', []))
+            completed_gist_queries = set(progress.get('completed_gist_queries', []))
+            completed_issue_queries = set(progress.get('completed_issue_queries', []))
 
             headers = {
                 'Authorization': f"token {self.config['github_token']}",
@@ -514,7 +549,7 @@ class ReconAutomation:
             search_queries = [
                 f'"{self.domain}"',
                 f'"{self.domain.replace(".", " ")}"',
-                f'"{self.domain.split(".")[0]}"',  # company name
+                f'"{self.domain.split(".")[0]}"',
                 f'{self.domain} password',
                 f'{self.domain} api_key',
                 f'{self.domain} secret',
@@ -543,11 +578,20 @@ class ReconAutomation:
             github_download_dir = self.output_dir / 'github_secrets'
             github_download_dir.mkdir(parents=True, exist_ok=True)
 
+            if completed_code_queries or completed_gist_queries or completed_issue_queries:
+                self.print_info(f"Resuming from checkpoint:")
+                self.print_info(f"  Code queries completed: {len(completed_code_queries)}/{len(search_queries)}")
+                self.print_info(f"  Gist queries completed: {len(completed_gist_queries)}/3")
+                self.print_info(f"  Issue queries completed: {len(completed_issue_queries)}/3")
+
             self.print_info(f"Searching GitHub with {len(search_queries)} queries...")
 
             # Search Code
             self.print_info("Searching code repositories...")
             for query in search_queries:
+                if query in completed_code_queries:
+                    continue
+
                 try:
                     url = f"https://api.github.com/search/code?q={query}&per_page=10"
                     response = self.session.get(url, headers=headers, timeout=15)
@@ -576,45 +620,7 @@ class ReconAutomation:
                                         for secret_type, pattern in sensitive_patterns.items():
                                             matches = re.findall(pattern, content, re.IGNORECASE)
                                             if matches:
-                                                # Validate if it's a real secret (inline validation)
-                                                is_real = True
-
-                                                # High confidence patterns are always real
-                                                high_confidence = {'aws_access_key', 'private_key', 'jwt_token', 'slack_token', 'google_api'}
-
-                                                if secret_type not in high_confidence:
-                                                    # For password patterns, check for false positives
-                                                    if secret_type == 'password':
-                                                        content_lower = content.lower()
-                                                        false_positive_contexts = [
-                                                            'password:', 'password =', 'password">', 'your password',
-                                                            'enter password', 'password must', 'password field',
-                                                            'password input', 'password strength', 'password policy',
-                                                            'example password', 'test password', 'sample password',
-                                                            'placeholder="password"', 'type="password"', '# password',
-                                                            '// password', '* password', 'password requirements'
-                                                        ]
-                                                        if any(fp in content_lower for fp in false_positive_contexts):
-                                                            is_real = False
-
-                                                    # For API keys, validate they look real
-                                                    elif secret_type == 'api_key':
-                                                        for match in matches:
-                                                            if len(match) < 20 or 'xxx' in match.lower() or 'your_api_key' in match.lower() or 'example' in match.lower():
-                                                                is_real = False
-                                                                break
-
-                                                    # Database URLs with localhost/example are not real
-                                                    elif secret_type == 'database_url':
-                                                        for match in matches:
-                                                            if 'localhost' in match or '127.0.0.1' in match or 'example' in match:
-                                                                is_real = False
-                                                                break
-
-                                                    # Cloud storage with many matches is likely documentation
-                                                    elif secret_type in {'s3_bucket', 'azure_storage', 'gcp_bucket'}:
-                                                        if len(matches) > 5:
-                                                            is_real = False
+                                                is_real = self._is_real_secret(secret_type, matches, content)
 
                                                 if is_real:
                                                     repo_finding['secrets_found'].append({
@@ -651,6 +657,12 @@ class ReconAutomation:
                         self.print_error("GitHub token is invalid or expired")
                         break
 
+                    # Mark query as completed and checkpoint
+                    completed_code_queries.add(query)
+                    self.checkpoint('github_secret_scanning', 'completed_code_queries', list(completed_code_queries))
+                    self.checkpoint('github_secret_scanning', 'repositories', github_findings['repositories'])
+                    self.checkpoint('github_secret_scanning', 'total_secrets_found', github_findings['total_secrets_found'])
+
                     time.sleep(2)  # Rate limiting
 
                 except Exception as e:
@@ -658,7 +670,10 @@ class ReconAutomation:
 
             # Search Gists
             self.print_info("Searching gists...")
-            for query in search_queries[:3]:  # Limit gist queries
+            for query in search_queries[:3]:
+                if query in completed_gist_queries:
+                    continue
+
                 try:
                     url = f"https://api.github.com/search/code?q={query}+in:file+language:text&per_page=5"
                     response = self.session.get(url, headers=headers, timeout=15)
@@ -675,13 +690,20 @@ class ReconAutomation:
                                 github_findings['gists'].append(gist_finding)
                                 self.print_success(f"Found gist: {gist_finding['gist_id']}")
 
+                    completed_gist_queries.add(query)
+                    self.checkpoint('github_secret_scanning', 'completed_gist_queries', list(completed_gist_queries))
+                    self.checkpoint('github_secret_scanning', 'gists', github_findings['gists'])
+
                     time.sleep(2)
                 except Exception as e:
                     self.print_error(f"Error searching gists: {e}")
 
             # Search Issues
             self.print_info("Searching issues...")
-            for query in search_queries[:3]:  # Limit issue queries
+            for query in search_queries[:3]:
+                if query in completed_issue_queries:
+                    continue
+
                 try:
                     url = f"https://api.github.com/search/issues?q={query}+in:body&per_page=10"
                     response = self.session.get(url, headers=headers, timeout=15)
@@ -697,17 +719,7 @@ class ReconAutomation:
                             for secret_type, pattern in sensitive_patterns.items():
                                 matches = re.findall(pattern, body, re.IGNORECASE)
                                 if matches:
-                                    # Same validation logic as code search
-                                    is_real = True
-                                    high_confidence = {'aws_access_key', 'private_key', 'jwt_token', 'slack_token', 'google_api'}
-
-                                    if secret_type not in high_confidence:
-                                        if secret_type == 'password':
-                                            body_lower = body.lower()
-                                            if any(fp in body_lower for fp in ['password:', 'your password', 'example password']):
-                                                is_real = False
-                                        elif secret_type in {'s3_bucket', 'azure_storage', 'gcp_bucket'} and len(matches) > 5:
-                                            is_real = False
+                                    is_real = self._is_real_secret(secret_type, matches, body)
 
                                     if is_real:
                                         secrets_found.append({
@@ -740,6 +752,10 @@ class ReconAutomation:
                                 except Exception as e:
                                     self.print_error(f"  Failed to save issue: {e}")
 
+                    completed_issue_queries.add(query)
+                    self.checkpoint('github_secret_scanning', 'completed_issue_queries', list(completed_issue_queries))
+                    self.checkpoint('github_secret_scanning', 'issues', github_findings['issues'])
+
                     time.sleep(2)
                 except Exception as e:
                     self.print_error(f"Error searching issues: {e}")
@@ -757,87 +773,94 @@ class ReconAutomation:
                 self.print_warning(f"\n[!] Downloaded files with secrets to: {github_download_dir}")
 
     def linkedin_enumeration(self):
-                """LinkedIn intelligence gathering using authenticated session"""
-                self.print_section("LinkedIn Information Gathering")
+            """LinkedIn intelligence gathering using authenticated session with checkpoint support"""
+            self.print_section("LinkedIn Information Gathering")
 
-                linkedin_intel = {
-                    'company_info': {},
-                    'employees': [],
-                    'email_patterns': {},
-                    'titles': {},
-                    'departments': set()
-                }
+            # Get resume data if available
+            resume_data = self.get_resume_data('linkedin_enumeration')
+            progress = resume_data.get('progress', {})
 
-                # Check if LinkedIn cookies are configured
-                if not self.config.get('linkedin_cookies'):
-                    self.print_warning("No LinkedIn session cookies provided.")
-                    self.print_info("LinkedIn requires fresh session cookies for each run.")
-                    self.print_info("To enable LinkedIn enumeration:")
-                    self.print_info("  1. Open LinkedIn in your browser and log in")
-                    self.print_info("  2. Open Developer Tools (F12) -> Network tab")
-                    self.print_info("  3. Click any request to linkedin.com")
-                    self.print_info("  4. Copy the FULL 'Cookie:' header value from Request Headers")
-                    self.print_info("  5. Paste the entire cookie string when prompted")
-                    self.print_info("Skipping LinkedIn enumeration...")
-                    return
+            linkedin_intel = {
+                'company_info': progress.get('company_info', {}),
+                'employees': progress.get('employees', []),
+                'email_patterns': progress.get('email_patterns', {}),
+                'titles': progress.get('titles', {}),
+                'departments': set(progress.get('departments', []))
+            }
 
-                search_term = self.client_name
-                self.print_info(f"Searching LinkedIn for: {search_term}")
+            # Check if LinkedIn cookies are configured
+            if not self.config.get('linkedin_cookies'):
+                self.print_warning("No LinkedIn session cookies provided.")
+                self.print_info("LinkedIn requires fresh session cookies for each run.")
+                self.print_info("To enable LinkedIn enumeration:")
+                self.print_info("  1. Open LinkedIn in your browser and log in")
+                self.print_info("  2. Open Developer Tools (F12) -> Network tab")
+                self.print_info("  3. Click any request to linkedin.com")
+                self.print_info("  4. Copy the FULL 'Cookie:' header value from Request Headers")
+                self.print_info("  5. Paste the entire cookie string when prompted")
+                self.print_info("Skipping LinkedIn enumeration...")
+                return
 
-                # Get max results from args or default
-                max_employee_results = getattr(self.args, 'linkedin_max_results', 100) if hasattr(self, 'args') else 100
-                max_company_results = 50
+            search_term = self.client_name
+            self.print_info(f"Searching LinkedIn for: {search_term}")
 
-                self.print_info(f"Max employee results: {max_employee_results}")
+            # Get max results from args or default
+            max_employee_results = getattr(self.args, 'linkedin_max_results', 100) if hasattr(self, 'args') else 100
+            max_company_results = 50
 
-                # Set up authenticated session with all cookies
-                linkedin_session = requests.Session()
+            self.print_info(f"Max employee results: {max_employee_results}")
 
-                # Parse the cookie string and set all cookies
-                cookie_string = self.config['linkedin_cookies']
-                for cookie in cookie_string.split('; '):
-                    if '=' in cookie:
-                        name, value = cookie.split('=', 1)
-                        linkedin_session.cookies.set(name, value, domain='.linkedin.com')
+            # Set up authenticated session with all cookies
+            linkedin_session = requests.Session()
 
-                # Extract CSRF token from JSESSIONID
-                jsessionid = linkedin_session.cookies.get('JSESSIONID', '').strip('"')
-                if not jsessionid:
-                    self.print_error("JSESSIONID not found in cookies")
-                    return
+            # Parse the cookie string and set all cookies
+            cookie_string = self.config['linkedin_cookies']
+            for cookie in cookie_string.split('; '):
+                if '=' in cookie:
+                    name, value = cookie.split('=', 1)
+                    linkedin_session.cookies.set(name, value, domain='.linkedin.com')
 
-                self.print_success(f"Using CSRF token: {jsessionid[:30]}...")
-                self.print_info(f"Loaded {len(linkedin_session.cookies)} cookies")
+            # Extract CSRF token from JSESSIONID
+            jsessionid = linkedin_session.cookies.get('JSESSIONID', '').strip('"')
+            if not jsessionid:
+                self.print_error("JSESSIONID not found in cookies")
+                return
 
-                # API headers matching browser exactly
-                api_headers = {
-                    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
-                    'Accept': 'application/vnd.linkedin.normalized+json+2.1',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                    'sec-ch-ua': '"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
-                    'sec-ch-ua-mobile': '?0',
-                    'sec-ch-ua-platform': '"Linux"',
-                    'Sec-Fetch-Site': 'same-origin',
-                    'Sec-Fetch-Mode': 'cors',
-                    'Sec-Fetch-Dest': 'empty',
-                    'Referer': 'https://www.linkedin.com/search/results/companies/',
-                    'X-Li-Lang': 'en_US',
-                    'X-Li-Page-Instance': 'urn:li:page:d_flagship3_search_srp_companies;' + str(int(time.time() * 1000)),
-                    'X-Li-Track': '{"clientVersion":"1.13.9101","mpVersion":"1.13.9101","osName":"web","timezoneOffset":-6,"timezone":"America/Chicago","deviceFormFactor":"DESKTOP","mpName":"voyager-web","displayDensity":1}',
-                    'X-Restli-Protocol-Version': '2.0.0',
-                    'Csrf-Token': jsessionid,
-                }
+            self.print_success(f"Using CSRF token: {jsessionid[:30]}...")
+            self.print_info(f"Loaded {len(linkedin_session.cookies)} cookies")
 
-                encoded_term = search_term.replace(' ', '%20').replace(',', '%2C')
+            # API headers matching browser exactly
+            api_headers = {
+                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
+                'Accept': 'application/vnd.linkedin.normalized+json+2.1',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'sec-ch-ua': '"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"Linux"',
+                'Sec-Fetch-Site': 'same-origin',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Dest': 'empty',
+                'Referer': 'https://www.linkedin.com/search/results/companies/',
+                'X-Li-Lang': 'en_US',
+                'X-Li-Page-Instance': 'urn:li:page:d_flagship3_search_srp_companies;' + str(int(time.time() * 1000)),
+                'X-Li-Track': '{"clientVersion":"1.13.9101","mpVersion":"1.13.9101","osName":"web","timezoneOffset":-6,"timezone":"America/Chicago","deviceFormFactor":"DESKTOP","mpName":"voyager-web","displayDensity":1}',
+                'X-Restli-Protocol-Version': '2.0.0',
+                'Csrf-Token': jsessionid,
+            }
 
-                # =====================================================================
-                # SEARCH 1: Find companies (with pagination)
-                # =====================================================================
+            encoded_term = search_term.replace(' ', '%20').replace(',', '%2C')
+            page_size = 10
+
+            # =====================================================================
+            # SEARCH 1: Find companies (with pagination) - check checkpoint
+            # =====================================================================
+            all_companies = linkedin_intel['company_info'].get('companies', [])
+            company_search_complete = progress.get('company_search_complete', False)
+
+            if not company_search_complete:
                 self.print_info(f"\n[1/2] Searching for companies: {search_term}")
 
-                all_companies = []
-                start = 0
-                page_size = 10
+                start = progress.get('company_search_start', 0)
 
                 while start < max_company_results:
                     company_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(keywords:{encoded_term},flagshipSearchIntent:SEARCH_SRP,queryParameters:(resultType:List(COMPANIES)),includeFiltersInResponse:false)&start={start}"
@@ -928,271 +951,296 @@ class ReconAutomation:
                             break
 
                         start += page_size
+
+                        # Checkpoint after each page
+                        self.checkpoint('linkedin_enumeration', 'company_search_start', start)
+                        self.checkpoint('linkedin_enumeration', 'company_info', {'companies': all_companies})
+
                         time.sleep(5)
 
                     except Exception as e:
                         self.print_error(f"Error fetching companies: {e}")
                         break
 
-                if all_companies:
-                    self.print_success(f"Found {len(all_companies)} total companies:")
-                    for company in all_companies:
-                        self.print_info(f"  - {company['name']}")
+                # Mark company search as complete
+                self.checkpoint('linkedin_enumeration', 'company_search_complete', True)
+
+            if all_companies:
+                self.print_success(f"Found {len(all_companies)} total companies:")
+                for company in all_companies:
+                    self.print_info(f"  - {company['name']}")
+                    if company.get('url'):
+                        self.print_info(f"    {company['url']}")
+
+                # Company selection if more than one found and not resuming with selection
+                selected_companies = progress.get('selected_companies')
+
+                if selected_companies is None and len(all_companies) > 1:
+                    print("\n" + "="*80)
+                    print("COMPANY SELECTION")
+                    print("="*80)
+                    print("Multiple companies found. Select target companies:")
+                    print("  [a] All companies")
+                    print("  [#] Single company by number")
+                    print("  [#,#,#] Multiple companies by numbers (comma-separated)")
+                    print()
+
+                    for idx, company in enumerate(all_companies, 1):
+                        print(f"  [{idx}] {company['name']}")
                         if company.get('url'):
-                            self.print_info(f"    {company['url']}")
+                            print(f"      {company['url']}")
 
-                    # Company selection if more than one found
-                    if len(all_companies) > 1:
-                        print("\n" + "="*80)
-                        print("COMPANY SELECTION")
-                        print("="*80)
-                        print("Multiple companies found. Select target companies:")
-                        print("  [a] All companies")
-                        print("  [#] Single company by number")
-                        print("  [#,#,#] Multiple companies by numbers (comma-separated)")
-                        print()
+                    print()
+                    selection = input("Enter selection (or press Enter for all): ").strip().lower()
 
-                        for idx, company in enumerate(all_companies, 1):
-                            print(f"  [{idx}] {company['name']}")
-                            if company.get('url'):
-                                print(f"      {company['url']}")
-
-                        print()
-                        selection = input("Enter selection (or press Enter for all): ").strip().lower()
-
-                        if selection == '' or selection == 'a':
-                            selected_companies = all_companies
-                            self.print_info("Using all companies")
-                        else:
-                            try:
-                                indices = [int(x.strip()) for x in selection.split(',')]
-                                selected_companies = [all_companies[i-1] for i in indices if 0 < i <= len(all_companies)]
-                                if not selected_companies:
-                                    self.print_warning("Invalid selection, using all companies")
-                                    selected_companies = all_companies
-                                else:
-                                    self.print_success(f"Selected {len(selected_companies)} company/companies:")
-                                    for comp in selected_companies:
-                                        self.print_info(f"  - {comp['name']}")
-                            except (ValueError, IndexError):
+                    if selection == '' or selection == 'a':
+                        selected_companies = all_companies
+                        self.print_info("Using all companies")
+                    else:
+                        try:
+                            indices = [int(x.strip()) for x in selection.split(',')]
+                            selected_companies = [all_companies[i-1] for i in indices if 0 < i <= len(all_companies)]
+                            if not selected_companies:
                                 self.print_warning("Invalid selection, using all companies")
                                 selected_companies = all_companies
+                            else:
+                                self.print_success(f"Selected {len(selected_companies)} company/companies:")
+                                for comp in selected_companies:
+                                    self.print_info(f"  - {comp['name']}")
+                        except (ValueError, IndexError):
+                            self.print_warning("Invalid selection, using all companies")
+                            selected_companies = all_companies
 
-                        all_companies = selected_companies
-                        print("="*80)
+                    # Save selection to checkpoint
+                    self.checkpoint('linkedin_enumeration', 'selected_companies', selected_companies)
+                    print("="*80)
+                elif selected_companies is None:
+                    selected_companies = all_companies
 
-                    linkedin_intel['company_info'] = {'companies': all_companies}
-                else:
-                    self.print_warning("No companies found")
+                all_companies = selected_companies
+                linkedin_intel['company_info'] = {'companies': all_companies}
+            else:
+                self.print_warning("No companies found")
 
-                time.sleep(2)
+            time.sleep(2)
 
-                # =====================================================================
-                # SEARCH 2: Find people at each selected company
-                # =====================================================================
-                all_employees = []
+            # =====================================================================
+            # SEARCH 2: Find people at each selected company
+            # =====================================================================
+            all_employees = linkedin_intel.get('employees', [])
+            searched_companies = set(progress.get('searched_companies', []))
 
-                # Search for employees at each selected company
-                companies_to_search = all_companies if all_companies else [{'name': search_term, 'slug': ''}]
+            companies_to_search = all_companies if all_companies else [{'name': search_term, 'slug': ''}]
 
-                for company_idx, company in enumerate(companies_to_search, 1):
-                    company_name = company['name']
-                    company_encoded = company_name.replace(' ', '%20').replace(',', '%2C')
+            for company_idx, company in enumerate(companies_to_search, 1):
+                company_name = company['name']
 
-                    self.print_info(f"\n[2/2] Searching for people at: {company_name} ({company_idx}/{len(companies_to_search)})")
+                if company_name in searched_companies:
+                    self.print_info(f"Skipping {company_name} (already searched)")
+                    continue
 
-                    start = 0
-                    company_employees = []
-                    max_per_company = max_employee_results // len(companies_to_search) if len(companies_to_search) > 1 else max_employee_results
+                company_encoded = company_name.replace(' ', '%20').replace(',', '%2C')
 
-                    while start < max_per_company:
-                        people_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(keywords:{company_encoded},flagshipSearchIntent:SEARCH_SRP,queryParameters:(resultType:List(PEOPLE)),includeFiltersInResponse:false)&start={start}"
+                self.print_info(f"\n[2/2] Searching for people at: {company_name} ({company_idx}/{len(companies_to_search)})")
 
-                        try:
-                            response = linkedin_session.get(people_search_url, headers=api_headers, timeout=15)
+                start = 0
+                company_employees = []
+                max_per_company = max_employee_results // len(companies_to_search) if len(companies_to_search) > 1 else max_employee_results
 
-                            if response.status_code != 200:
-                                self.print_warning(f"API returned status {response.status_code}")
-                                break
+                while start < max_per_company:
+                    people_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(keywords:{company_encoded},flagshipSearchIntent:SEARCH_SRP,queryParameters:(resultType:List(PEOPLE)),includeFiltersInResponse:false)&start={start}"
 
-                            data = response.json()
-                            included = data.get('included', [])
+                    try:
+                        response = linkedin_session.get(people_search_url, headers=api_headers, timeout=15)
 
-                            if not included:
-                                break
-
-                            page_employees = []
-
-                            # First pass: build map of profiles
-                            profile_map = {}
-                            for item in included:
-                                item_type = item.get('$type', '')
-                                entity_urn = item.get('entityUrn', '')
-
-                                if 'Profile' in item_type or 'Member' in item_type or 'MiniProfile' in item_type:
-                                    first_name = item.get('firstName', '')
-                                    last_name = item.get('lastName', '')
-                                    headline = item.get('headline', '') or item.get('occupation', '')
-                                    public_id = item.get('publicIdentifier', '')
-
-                                    if first_name and last_name:
-                                        profile_map[entity_urn] = {
-                                            'name': f"{first_name} {last_name}",
-                                            'first_name': first_name,
-                                            'last_name': last_name,
-                                            'title': headline or 'Unknown',
-                                            'profile_url': f"https://www.linkedin.com/in/{public_id}" if public_id else '',
-                                            'public_id': public_id,
-                                            'company': company_name
-                                        }
-
-                            # Second pass: extract from search results
-                            for item in included:
-                                title = item.get('title', {})
-                                if isinstance(title, dict):
-                                    text = title.get('text', '')
-                                    if text and ' ' in text and len(text) > 4 and len(text) < 60:
-                                        navigation = item.get('navigationUrl', '') or ''
-                                        if '/in/' in navigation:
-                                            public_id = navigation.split('/in/')[-1].split('/')[0].split('?')[0]
-
-                                            headline = ''
-                                            primary_subtitle = item.get('primarySubtitle', {})
-                                            if isinstance(primary_subtitle, dict):
-                                                headline = primary_subtitle.get('text', '')
-
-                                            parts = text.split()
-                                            if len(parts) >= 2:
-                                                emp = {
-                                                    'name': text,
-                                                    'first_name': parts[0],
-                                                    'last_name': ' '.join(parts[1:]),
-                                                    'title': headline or 'Unknown',
-                                                    'profile_url': f"https://www.linkedin.com/in/{public_id}",
-                                                    'public_id': public_id,
-                                                    'company': company_name
-                                                }
-                                                if not any(e['public_id'] == public_id for e in page_employees if e.get('public_id')):
-                                                    page_employees.append(emp)
-
-                            # Add from profile map
-                            for urn, profile in profile_map.items():
-                                if profile['public_id'] and not any(e.get('public_id') == profile['public_id'] for e in page_employees):
-                                    page_employees.append(profile)
-
-                            # Regex fallback
-                            if not page_employees:
-                                text = json.dumps(data)
-                                name_matches = re.findall(r'"firstName":\s*"([^"]+)"[^}]*"lastName":\s*"([^"]+)"', text)
-                                public_id_matches = re.findall(r'"publicIdentifier":\s*"([^"]+)"', text)
-                                headline_matches = re.findall(r'"headline":\s*"([^"]+)"', text)
-
-                                for i, (first, last) in enumerate(name_matches):
-                                    public_id = public_id_matches[i] if i < len(public_id_matches) else ''
-                                    headline = headline_matches[i] if i < len(headline_matches) else 'Unknown'
-
-                                    if public_id and not any(e.get('public_id') == public_id for e in page_employees):
-                                        page_employees.append({
-                                            'name': f"{first} {last}",
-                                            'first_name': first,
-                                            'last_name': last,
-                                            'title': headline,
-                                            'profile_url': f"https://www.linkedin.com/in/{public_id}" if public_id else '',
-                                            'public_id': public_id,
-                                            'company': company_name
-                                        })
-
-                            new_count = 0
-                            for emp in page_employees:
-                                if not any(e.get('public_id') == emp.get('public_id') for e in company_employees if emp.get('public_id')):
-                                    company_employees.append(emp)
-                                    new_count += 1
-
-                            self.print_info(f"  Page {start // page_size + 1}: Found {new_count} new employees (total: {len(company_employees)})")
-
-                            if new_count == 0:
-                                break
-
-                            start += page_size
-                            time.sleep(5)
-
-                        except Exception as e:
-                            self.print_error(f"Error fetching people: {e}")
+                        if response.status_code != 200:
+                            self.print_warning(f"API returned status {response.status_code}")
                             break
 
-                    # Add company employees to all_employees (avoid duplicates by public_id)
-                    for emp in company_employees:
-                        if not any(e.get('public_id') == emp.get('public_id') for e in all_employees if emp.get('public_id')):
-                            all_employees.append(emp)
+                        data = response.json()
+                        included = data.get('included', [])
 
-                    if len(companies_to_search) > 1:
-                        time.sleep(3)
+                        if not included:
+                            break
 
-                self.print_success(f"Found {len(all_employees)} total employees")
+                        page_employees = []
 
-                # =====================================================================
-                # Process and store results
-                # =====================================================================
-                if all_employees:
-                    for emp in all_employees:
-                        if emp.get('first_name') and emp.get('last_name'):
-                            emails = self.results.get('email_addresses', [])
-                            if emails:
-                                sample = emails[0]
-                                local = sample.split('@')[0]
-                                if '.' in local:
-                                    emp['possible_email'] = f"{emp['first_name'].lower()}.{emp['last_name'].lower()}@{self.domain}"
-                                else:
-                                    emp['possible_email'] = f"{emp['first_name'].lower()}{emp['last_name'].lower()}@{self.domain}"
+                        # First pass: build map of profiles
+                        profile_map = {}
+                        for item in included:
+                            item_type = item.get('$type', '')
+                            entity_urn = item.get('entityUrn', '')
 
-                        linkedin_intel['employees'].append(emp)
+                            if 'Profile' in item_type or 'Member' in item_type or 'MiniProfile' in item_type:
+                                first_name = item.get('firstName', '')
+                                last_name = item.get('lastName', '')
+                                headline = item.get('headline', '') or item.get('occupation', '')
+                                public_id = item.get('publicIdentifier', '')
 
-                        if emp.get('title') and emp['title'] != 'Unknown':
-                            title_lower = emp['title'].lower()
-                            linkedin_intel['titles'][emp['title']] = linkedin_intel['titles'].get(emp['title'], 0) + 1
+                                if first_name and last_name:
+                                    profile_map[entity_urn] = {
+                                        'name': f"{first_name} {last_name}",
+                                        'first_name': first_name,
+                                        'last_name': last_name,
+                                        'title': headline or 'Unknown',
+                                        'profile_url': f"https://www.linkedin.com/in/{public_id}" if public_id else '',
+                                        'public_id': public_id,
+                                        'company': company_name
+                                    }
 
-                            dept_keywords = {
-                                'engineering': ['engineer', 'developer', 'architect', 'devops'],
-                                'security': ['security', 'infosec', 'cybersecurity', 'ciso'],
-                                'it': ['it ', 'sysadmin', 'infrastructure', 'network'],
-                                'management': ['manager', 'director', 'vp', 'chief', 'ceo', 'cto'],
-                                'sales': ['sales', 'account executive', 'business development'],
-                                'marketing': ['marketing', 'communications'],
-                                'hr': ['human resources', 'recruiter', 'talent'],
-                                'finance': ['finance', 'accounting', 'tax', 'audit']
-                            }
+                        # Second pass: extract from search results
+                        for item in included:
+                            title = item.get('title', {})
+                            if isinstance(title, dict):
+                                text = title.get('text', '')
+                                if text and ' ' in text and len(text) > 4 and len(text) < 60:
+                                    navigation = item.get('navigationUrl', '') or ''
+                                    if '/in/' in navigation:
+                                        public_id = navigation.split('/in/')[-1].split('/')[0].split('?')[0]
 
-                            for dept, keywords in dept_keywords.items():
-                                if any(kw in title_lower for kw in keywords):
-                                    linkedin_intel['departments'].add(dept)
+                                        headline = ''
+                                        primary_subtitle = item.get('primarySubtitle', {})
+                                        if isinstance(primary_subtitle, dict):
+                                            headline = primary_subtitle.get('text', '')
 
-                    self.print_info("\nEmployees found:")
-                    for emp in linkedin_intel['employees']:
-                        company_info = f" @ {emp['company']}" if emp.get('company') else ""
-                        title_info = f" - {emp['title']}" if emp.get('title') and emp['title'] != 'Unknown' else ""
-                        email_info = f" ({emp.get('possible_email', '')})" if emp.get('possible_email') else ""
-                        self.print_success(f"  {emp['name']}{title_info}{company_info}{email_info}")
-                        if emp.get('profile_url'):
-                            self.print_info(f"    {emp['profile_url']}")
-                else:
-                    self.print_warning("No employees found")
+                                        parts = text.split()
+                                        if len(parts) >= 2:
+                                            emp = {
+                                                'name': text,
+                                                'first_name': parts[0],
+                                                'last_name': ' '.join(parts[1:]),
+                                                'title': headline or 'Unknown',
+                                                'profile_url': f"https://www.linkedin.com/in/{public_id}",
+                                                'public_id': public_id,
+                                                'company': company_name
+                                            }
+                                            if not any(e['public_id'] == public_id for e in page_employees if e.get('public_id')):
+                                                page_employees.append(emp)
 
-                # Store results
-                linkedin_intel['departments'] = list(linkedin_intel['departments'])
-                self.results['linkedin_intel'] = linkedin_intel
+                        # Add from profile map
+                        for urn, profile in profile_map.items():
+                            if profile['public_id'] and not any(e.get('public_id') == profile['public_id'] for e in page_employees):
+                                page_employees.append(profile)
 
-                # Summary
-                self.print_info(f"\nLinkedIn Summary:")
-                if linkedin_intel.get('company_info', {}).get('companies'):
-                    self.print_info(f"  Companies: {len(linkedin_intel['company_info']['companies'])}")
-                self.print_info(f"  Employees: {len(linkedin_intel['employees'])}")
-                self.print_info(f"  Departments: {', '.join(linkedin_intel['departments']) if linkedin_intel['departments'] else 'None'}")
+                        # Regex fallback
+                        if not page_employees:
+                            text = json.dumps(data)
+                            name_matches = re.findall(r'"firstName":\s*"([^"]+)"[^}]*"lastName":\s*"([^"]+)"', text)
+                            public_id_matches = re.findall(r'"publicIdentifier":\s*"([^"]+)"', text)
+                            headline_matches = re.findall(r'"headline":\s*"([^"]+)"', text)
 
-                if linkedin_intel['titles']:
-                    self.print_info(f"  Top titles:")
-                    sorted_titles = sorted(linkedin_intel['titles'].items(), key=lambda x: x[1], reverse=True)[:10]
-                    for title, count in sorted_titles:
-                        self.print_info(f"    - {title} ({count})")
+                            for i, (first, last) in enumerate(name_matches):
+                                public_id = public_id_matches[i] if i < len(public_id_matches) else ''
+                                headline = headline_matches[i] if i < len(headline_matches) else 'Unknown'
+
+                                if public_id and not any(e.get('public_id') == public_id for e in page_employees):
+                                    page_employees.append({
+                                        'name': f"{first} {last}",
+                                        'first_name': first,
+                                        'last_name': last,
+                                        'title': headline,
+                                        'profile_url': f"https://www.linkedin.com/in/{public_id}" if public_id else '',
+                                        'public_id': public_id,
+                                        'company': company_name
+                                    })
+
+                        new_count = 0
+                        for emp in page_employees:
+                            if not any(e.get('public_id') == emp.get('public_id') for e in company_employees if emp.get('public_id')):
+                                company_employees.append(emp)
+                                new_count += 1
+
+                        self.print_info(f"  Page {start // page_size + 1}: Found {new_count} new employees (total: {len(company_employees)})")
+
+                        if new_count == 0:
+                            break
+
+                        start += page_size
+                        time.sleep(5)
+
+                    except Exception as e:
+                        self.print_error(f"Error fetching people: {e}")
+                        break
+
+                # Add company employees to all_employees (avoid duplicates by public_id)
+                for emp in company_employees:
+                    if not any(e.get('public_id') == emp.get('public_id') for e in all_employees if emp.get('public_id')):
+                        all_employees.append(emp)
+
+                # Mark company as searched and checkpoint
+                searched_companies.add(company_name)
+                self.checkpoint('linkedin_enumeration', 'searched_companies', list(searched_companies))
+                self.checkpoint('linkedin_enumeration', 'employees', all_employees)
+
+                if len(companies_to_search) > 1:
+                    time.sleep(3)
+
+            self.print_success(f"Found {len(all_employees)} total employees")
+
+            # =====================================================================
+            # Process and store results
+            # =====================================================================
+            if all_employees:
+                for emp in all_employees:
+                    if emp.get('first_name') and emp.get('last_name'):
+                        emails = self.results.get('email_addresses', [])
+                        if emails:
+                            sample = emails[0]
+                            local = sample.split('@')[0]
+                            if '.' in local:
+                                emp['possible_email'] = f"{emp['first_name'].lower()}.{emp['last_name'].lower()}@{self.domain}"
+                            else:
+                                emp['possible_email'] = f"{emp['first_name'].lower()}{emp['last_name'].lower()}@{self.domain}"
+
+                    linkedin_intel['employees'].append(emp) if emp not in linkedin_intel['employees'] else None
+
+                    if emp.get('title') and emp['title'] != 'Unknown':
+                        title_lower = emp['title'].lower()
+                        linkedin_intel['titles'][emp['title']] = linkedin_intel['titles'].get(emp['title'], 0) + 1
+
+                        dept_keywords = {
+                            'engineering': ['engineer', 'developer', 'architect', 'devops'],
+                            'security': ['security', 'infosec', 'cybersecurity', 'ciso'],
+                            'it': ['it ', 'sysadmin', 'infrastructure', 'network'],
+                            'management': ['manager', 'director', 'vp', 'chief', 'ceo', 'cto'],
+                            'sales': ['sales', 'account executive', 'business development'],
+                            'marketing': ['marketing', 'communications'],
+                            'hr': ['human resources', 'recruiter', 'talent'],
+                            'finance': ['finance', 'accounting', 'tax', 'audit']
+                        }
+
+                        for dept, keywords in dept_keywords.items():
+                            if any(kw in title_lower for kw in keywords):
+                                linkedin_intel['departments'].add(dept)
+
+                self.print_info("\nEmployees found:")
+                for emp in linkedin_intel['employees']:
+                    company_info = f" @ {emp['company']}" if emp.get('company') else ""
+                    title_info = f" - {emp['title']}" if emp.get('title') and emp['title'] != 'Unknown' else ""
+                    email_info = f" ({emp.get('possible_email', '')})" if emp.get('possible_email') else ""
+                    self.print_success(f"  {emp['name']}{title_info}{company_info}{email_info}")
+                    if emp.get('profile_url'):
+                        self.print_info(f"    {emp['profile_url']}")
+            else:
+                self.print_warning("No employees found")
+
+            # Store results
+            linkedin_intel['departments'] = list(linkedin_intel['departments'])
+            linkedin_intel['employees'] = all_employees
+            self.results['linkedin_intel'] = linkedin_intel
+
+            # Summary
+            self.print_info(f"\nLinkedIn Summary:")
+            if linkedin_intel.get('company_info', {}).get('companies'):
+                self.print_info(f"  Companies: {len(linkedin_intel['company_info']['companies'])}")
+            self.print_info(f"  Employees: {len(linkedin_intel['employees'])}")
+            self.print_info(f"  Departments: {', '.join(linkedin_intel['departments']) if linkedin_intel['departments'] else 'None'}")
+
+            if linkedin_intel['titles']:
+                self.print_info(f"  Top titles:")
+                sorted_titles = sorted(linkedin_intel['titles'].items(), key=lambda x: x[1], reverse=True)[:10]
+                for title, count in sorted_titles:
+                    self.print_info(f"    - {title} ({count})")
 
     def run_linkedin_only(self):
             """Run only LinkedIn enumeration for testing"""
@@ -1509,31 +1557,101 @@ class ReconAutomation:
             return False
 
     def dns_enumeration(self):
-            """Perform DNS enumeration to discover subdomains"""
+            """Perform DNS enumeration to discover subdomains with checkpoint support"""
             self.print_section("DNS ENUMERATION")
 
+            # Get resume data if available
+            resume_data = self.get_resume_data('dns_enumeration')
+            progress = resume_data.get('progress', {})
+
             subdomains = set()
+            ct_domains = set()
+            brute_domains = set()
+
+            # Restore previously discovered subdomains if resuming
+            if progress.get('ct_logs', {}).get('status') == 'complete':
+                ct_domains = set(progress['ct_logs'].get('domains', []))
+                self.print_info(f"Restored {len(ct_domains)} CT log domains from checkpoint")
+                subdomains.update(ct_domains)
+
+            if progress.get('bruteforce', {}).get('status') == 'complete':
+                brute_domains = set(progress['bruteforce'].get('domains', []))
+                self.print_info(f"Restored {len(brute_domains)} bruteforce domains from checkpoint")
+                subdomains.update(brute_domains)
 
             # Method 1: Certificate Transparency Logs
-            self.print_info("Checking Certificate Transparency logs...")
-            ct_domains = self._check_certificate_transparency()
-            subdomains.update(ct_domains)
-            self.print_success(f"Found {len(ct_domains)} domains from CT logs")
+            if progress.get('ct_logs', {}).get('status') != 'complete':
+                self.print_info("Checking Certificate Transparency logs...")
+                ct_domains = set(self._check_certificate_transparency())
+                subdomains.update(ct_domains)
+                self.print_success(f"Found {len(ct_domains)} domains from CT logs")
+
+                # Checkpoint CT log results
+                self.checkpoint('dns_enumeration', 'ct_logs', {
+                    'status': 'complete',
+                    'domains': list(ct_domains),
+                    'count': len(ct_domains)
+                })
 
             # Method 2: DNS brute force with common names
-            self.print_info("Performing DNS brute force...")
-            brute_domains = self._dns_bruteforce()
-            subdomains.update(brute_domains)
-            self.print_success(f"Found {len(brute_domains)} domains from brute force")
+            if progress.get('bruteforce', {}).get('status') != 'complete':
+                self.print_info("Performing DNS brute force...")
+                brute_domains = set(self._dns_bruteforce())
+                subdomains.update(brute_domains)
+                self.print_success(f"Found {len(brute_domains)} domains from brute force")
 
-            # Resolve all discovered subdomains
+                # Checkpoint bruteforce results
+                self.checkpoint('dns_enumeration', 'bruteforce', {
+                    'status': 'complete',
+                    'domains': list(brute_domains),
+                    'count': len(brute_domains)
+                })
+
+            # Resolve all discovered subdomains with checkpointing
             self.print_info("Resolving discovered subdomains...")
+
+            # Get already resolved subdomains from checkpoint
             resolved = {}
-            for subdomain in sorted(subdomains):
-                ips = self._resolve_domain(subdomain)
-                if ips:
-                    resolved[subdomain] = ips
-                    self.print_success(f"{subdomain} -> {', '.join(ips)}")
+            resolution_progress = progress.get('resolution', {})
+            if resolution_progress.get('resolved'):
+                resolved = resolution_progress['resolved']
+                self.print_info(f"Restored {len(resolved)} resolved subdomains from checkpoint")
+
+            # Determine which subdomains still need resolution
+            subdomains_to_resolve = sorted(subdomains - set(resolved.keys()))
+            total_to_resolve = len(subdomains_to_resolve)
+
+            if total_to_resolve > 0:
+                self.print_info(f"Resolving {total_to_resolve} remaining subdomains...")
+
+                checkpoint_interval = 50  # Checkpoint every 50 resolutions
+                completed_since_checkpoint = 0
+
+                for i, subdomain in enumerate(subdomains_to_resolve):
+                    ips = self._resolve_domain(subdomain)
+                    if ips:
+                        resolved[subdomain] = ips
+                        self.print_success(f"[{len(resolved)}/{len(subdomains)}] {subdomain} -> {', '.join(ips)}")
+
+                    completed_since_checkpoint += 1
+
+                    # Checkpoint periodically
+                    if completed_since_checkpoint >= checkpoint_interval:
+                        self.checkpoint('dns_enumeration', 'resolution', {
+                            'resolved': resolved,
+                            'completed': len(resolved),
+                            'total': len(subdomains),
+                            'last_processed': subdomain
+                        })
+                        completed_since_checkpoint = 0
+
+                # Final checkpoint for resolution
+                self.checkpoint('dns_enumeration', 'resolution', {
+                    'resolved': resolved,
+                    'completed': len(resolved),
+                    'total': len(subdomains),
+                    'status': 'complete'
+                })
 
             self.results['dns_enumeration'] = {
                 'total_discovered': len(subdomains),
@@ -1977,10 +2095,19 @@ class ReconAutomation:
             return []
 
     def technology_stack_identification(self):
-            """Identify technology stack of web services"""
+            """Identify technology stack of web services with checkpoint support"""
             self.print_section("TECHNOLOGY STACK IDENTIFICATION")
 
+            # Get resume data if available
+            resume_data = self.get_resume_data('technology_stack')
+            progress = resume_data.get('progress', {})
+
             tech_stack = {}
+
+            # Restore previously analyzed hosts from checkpoint
+            if progress.get('analyzed_hosts'):
+                tech_stack = progress['analyzed_hosts']
+                self.print_info(f"Restored {len(tech_stack)} analyzed hosts from checkpoint")
 
             # Get resolved domains from DNS enumeration
             resolved_domains = self.results.get('dns_enumeration', {}).get('resolved', {})
@@ -1989,7 +2116,7 @@ class ReconAutomation:
                 self.print_warning("No resolved domains available for tech stack identification")
                 return
 
-            # Analyze ALL resolved domains, not just first 5
+            # Build target list
             targets = [self.domain] if self.domain not in resolved_domains else []
             targets.extend(list(resolved_domains.keys()))
 
@@ -2001,19 +2128,34 @@ class ReconAutomation:
                     seen.add(t)
                     unique_targets.append(t)
 
-            self.print_info(f"Analyzing {len(unique_targets)} targets for technology stack...")
+            # Determine which targets still need analysis
+            targets_to_analyze = [t for t in unique_targets if t not in tech_stack]
+
+            if not targets_to_analyze:
+                self.print_info(f"All {len(unique_targets)} targets already analyzed")
+                self.results['technology_stack'] = tech_stack
+                return
+
+            self.print_info(f"Analyzing {len(targets_to_analyze)} targets for technology stack...")
+            self.print_info(f"({len(tech_stack)} already complete from checkpoint)")
+
+            checkpoint_interval = 25  # Checkpoint every 25 hosts
+            completed_since_checkpoint = 0
 
             # Use threading for faster scanning
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
                 future_to_target = {
                     executor.submit(self._identify_technologies, target): target
-                    for target in unique_targets
+                    for target in targets_to_analyze
                 }
 
-                completed = 0
+                completed = len(tech_stack)
+                total = len(unique_targets)
+
                 for future in concurrent.futures.as_completed(future_to_target):
                     target = future_to_target[future]
                     completed += 1
+                    completed_since_checkpoint += 1
 
                     try:
                         tech_info = future.result()
@@ -2021,7 +2163,7 @@ class ReconAutomation:
                             tech_stack[target] = tech_info
 
                             # Print findings
-                            self.print_info(f"[{completed}/{len(unique_targets)}] {target}")
+                            self.print_info(f"[{completed}/{total}] {target}")
                             if tech_info.get('server'):
                                 self.print_success(f"  Server: {tech_info['server']}")
                             if tech_info.get('powered_by'):
@@ -2029,9 +2171,22 @@ class ReconAutomation:
                             if tech_info.get('detected_technologies'):
                                 self.print_info(f"  Technologies: {', '.join(tech_info['detected_technologies'])}")
                         else:
-                            self.print_info(f"[{completed}/{len(unique_targets)}] {target} - No response")
+                            self.print_info(f"[{completed}/{total}] {target} - No response")
+
+                        # Checkpoint periodically
+                        if completed_since_checkpoint >= checkpoint_interval:
+                            self.checkpoint('technology_stack', 'analyzed_hosts', tech_stack)
+                            self.checkpoint('technology_stack', 'progress_count', {
+                                'completed': completed,
+                                'total': total
+                            })
+                            completed_since_checkpoint = 0
+
                     except Exception as e:
-                        self.print_warning(f"[{completed}/{len(unique_targets)}] {target} - Error: {e}")
+                        self.print_warning(f"[{completed}/{total}] {target} - Error: {e}")
+
+            # Final checkpoint
+            self.checkpoint('technology_stack', 'analyzed_hosts', tech_stack)
 
             self.results['technology_stack'] = tech_stack
             self.print_success(f"\nTechnology stack identified for {len(tech_stack)} targets")
@@ -2400,10 +2555,14 @@ class ReconAutomation:
             return True
 
     def s3_bucket_enumeration(self):
-            """Perform S3 bucket enumeration"""
+            """Perform S3 bucket enumeration with checkpoint support"""
             self.print_section("S3 BUCKET ENUMERATION")
 
-            # Get base domain - if 3+ parts, drop first (e.g., www.redcellsecurity.org -> redcellsecurity.org)
+            # Get resume data if available
+            resume_data = self.get_resume_data('s3_bucket_enumeration')
+            progress = resume_data.get('progress', {})
+
+            # Get base domain
             domain_parts = self.domain.split('.')
             if len(domain_parts) > 2:
                 base_domain = '.'.join(domain_parts[1:])
@@ -2427,8 +2586,7 @@ class ReconAutomation:
 
             # Add variations from discovered subdomains
             resolved = self.results.get('dns_enumeration', {}).get('resolved', {})
-            for subdomain in list(resolved.keys())[:20]:  # Limit to top 20
-                # Extract subdomain part
+            for subdomain in list(resolved.keys())[:20]:
                 if subdomain.endswith(base_domain):
                     sub_part = subdomain.replace(f".{base_domain}", "").replace(f"{base_domain}", "")
                     if sub_part and '.' not in sub_part:
@@ -2447,19 +2605,35 @@ class ReconAutomation:
             bucket_candidates = [b.lower().strip() for b in bucket_candidates
                                 if b and len(b) < 64 and b.replace('-', '').replace('.', '').isalnum()]
 
-            self.print_info(f"Testing {len(bucket_candidates)} potential bucket names...")
+            # Restore previously checked buckets from checkpoint
+            checked_buckets = set(progress.get('checked_buckets', []))
+            found_buckets = progress.get('found_buckets', [])
 
-            found_buckets = []
+            if checked_buckets:
+                self.print_info(f"Restored {len(checked_buckets)} checked buckets from checkpoint")
+                self.print_info(f"Found {len(found_buckets)} buckets so far")
+
+            # Determine which buckets still need checking
+            buckets_to_check = [b for b in bucket_candidates if b not in checked_buckets]
+
+            self.print_info(f"Testing {len(buckets_to_check)} potential bucket names...")
+            self.print_info(f"({len(checked_buckets)} already checked from checkpoint)")
+
+            checkpoint_interval = 20  # Checkpoint every 20 buckets
+            completed_since_checkpoint = 0
 
             # Check each bucket
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
                 future_to_bucket = {
                     executor.submit(self._check_s3_bucket, bucket): bucket
-                    for bucket in bucket_candidates
+                    for bucket in buckets_to_check
                 }
 
                 for future in concurrent.futures.as_completed(future_to_bucket):
                     bucket_name = future_to_bucket[future]
+                    checked_buckets.add(bucket_name)
+                    completed_since_checkpoint += 1
+
                     try:
                         result = future.result()
                         if result:
@@ -2474,15 +2648,35 @@ class ReconAutomation:
                     except Exception as e:
                         pass
 
-            # Analyze accessible buckets AFTER discovery completes
+                    # Checkpoint periodically
+                    if completed_since_checkpoint >= checkpoint_interval:
+                        self.checkpoint('s3_bucket_enumeration', 'checked_buckets', list(checked_buckets))
+                        self.checkpoint('s3_bucket_enumeration', 'found_buckets', found_buckets)
+                        completed_since_checkpoint = 0
+
+            # Final checkpoint before analysis
+            self.checkpoint('s3_bucket_enumeration', 'checked_buckets', list(checked_buckets))
+            self.checkpoint('s3_bucket_enumeration', 'found_buckets', found_buckets)
+
+            # Analyze accessible buckets
+            analyzed_buckets = set(progress.get('analyzed_buckets', []))
+
             self.print_info(f"\nAnalyzing {len(found_buckets)} discovered buckets...")
             for bucket in found_buckets:
+                bucket_name = bucket.get('bucket', 'unknown')
+
+                if bucket_name in analyzed_buckets:
+                    self.print_info(f"Skipping {bucket_name} (already analyzed)")
+                    continue
+
                 if bucket['status'] in ['Public Read', 'Redirect']:
-                    self.print_info(f"\n[*] Analyzing contents of {bucket['bucket']}...")
+                    self.print_info(f"\n[*] Analyzing contents of {bucket_name}...")
                     try:
                         self._analyze_s3_bucket_contents(bucket)
+                        analyzed_buckets.add(bucket_name)
+                        self.checkpoint('s3_bucket_enumeration', 'analyzed_buckets', list(analyzed_buckets))
                     except Exception as e:
-                        self.print_error(f"Analysis failed for {bucket['bucket']}: {e}")
+                        self.print_error(f"Analysis failed for {bucket_name}: {e}")
                         import traceback
                         traceback.print_exc()
 
@@ -2728,10 +2922,14 @@ class ReconAutomation:
                 traceback.print_exc()
 
     def azure_storage_enumeration(self):
-            """Enumerate Azure Blob Storage containers"""
+            """Enumerate Azure Blob Storage containers with checkpoint support"""
             self.print_section("AZURE STORAGE ENUMERATION")
 
-            # Get base domain - if 3+ parts, drop first (e.g., www.redcellsecurity.org -> redcellsecurity.org)
+            # Get resume data if available
+            resume_data = self.get_resume_data('azure_storage_enumeration')
+            progress = resume_data.get('progress', {})
+
+            # Get base domain
             domain_parts = self.domain.split('.')
             if len(domain_parts) > 2:
                 base_domain = '.'.join(domain_parts[1:])
@@ -2774,19 +2972,35 @@ class ReconAutomation:
             ]
             storage_candidates = list(set(storage_candidates))
 
-            self.print_info(f"Testing {len(storage_candidates)} potential Azure storage account names...")
+            # Restore previously checked storage accounts from checkpoint
+            checked_accounts = set(progress.get('checked_accounts', []))
+            found_storage = progress.get('found_storage', [])
 
-            found_storage = []
+            if checked_accounts:
+                self.print_info(f"Restored {len(checked_accounts)} checked accounts from checkpoint")
+                self.print_info(f"Found {len(found_storage)} storage accounts so far")
+
+            # Determine which accounts still need checking
+            accounts_to_check = [a for a in storage_candidates if a not in checked_accounts]
+
+            self.print_info(f"Testing {len(accounts_to_check)} potential Azure storage account names...")
+            self.print_info(f"({len(checked_accounts)} already checked from checkpoint)")
+
+            checkpoint_interval = 20
+            completed_since_checkpoint = 0
 
             # Check each storage account
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
                 future_to_storage = {
                     executor.submit(self._check_azure_storage, account): account
-                    for account in storage_candidates
+                    for account in accounts_to_check
                 }
 
                 for future in concurrent.futures.as_completed(future_to_storage):
                     account_name = future_to_storage[future]
+                    checked_accounts.add(account_name)
+                    completed_since_checkpoint += 1
+
                     try:
                         result = future.result()
                         if result:
@@ -2798,6 +3012,16 @@ class ReconAutomation:
                                 self.print_success(f"EXISTS (Private): {account_name}")
                     except Exception as e:
                         pass
+
+                    # Checkpoint periodically
+                    if completed_since_checkpoint >= checkpoint_interval:
+                        self.checkpoint('azure_storage_enumeration', 'checked_accounts', list(checked_accounts))
+                        self.checkpoint('azure_storage_enumeration', 'found_storage', found_storage)
+                        completed_since_checkpoint = 0
+
+            # Final checkpoint before analysis
+            self.checkpoint('azure_storage_enumeration', 'checked_accounts', list(checked_accounts))
+            self.checkpoint('azure_storage_enumeration', 'found_storage', found_storage)
 
             # Summary FIRST
             self.results['azure_storage'] = {
@@ -2815,15 +3039,25 @@ class ReconAutomation:
                 self.print_success("No Azure storage accounts found")
 
             # Analyze accessible storage accounts AFTER summary
+            analyzed_accounts = set(progress.get('analyzed_accounts', []))
             public_storage = [s for s in found_storage if s['status'] == 'Public Read']
+
             if public_storage:
                 self.print_info(f"\n[*] Analyzing {len(public_storage)} publicly accessible storage accounts...")
                 for storage in public_storage:
-                    self.print_info(f"\n[*] Analyzing contents of {storage['account']}...")
+                    account_name = storage.get('account', 'unknown')
+
+                    if account_name in analyzed_accounts:
+                        self.print_info(f"Skipping {account_name} (already analyzed)")
+                        continue
+
+                    self.print_info(f"\n[*] Analyzing contents of {account_name}...")
                     try:
                         self._analyze_azure_storage_contents(storage)
+                        analyzed_accounts.add(account_name)
+                        self.checkpoint('azure_storage_enumeration', 'analyzed_accounts', list(analyzed_accounts))
                     except Exception as e:
-                        self.print_error(f"Analysis failed for {storage['account']}: {e}")
+                        self.print_error(f"Analysis failed for {account_name}: {e}")
                         import traceback
                         traceback.print_exc()
 
@@ -2974,10 +3208,14 @@ class ReconAutomation:
                 traceback.print_exc()
 
     def gcp_storage_enumeration(self):
-            """Enumerate Google Cloud Platform (GCP) Storage buckets"""
+            """Enumerate Google Cloud Platform (GCP) Storage buckets with checkpoint support"""
             self.print_section("GCP STORAGE ENUMERATION")
 
-            # Get base domain - if 3+ parts, drop first (e.g., www.redcellsecurity.org -> redcellsecurity.org)
+            # Get resume data if available
+            resume_data = self.get_resume_data('gcp_storage_enumeration')
+            progress = resume_data.get('progress', {})
+
+            # Get base domain
             domain_parts = self.domain.split('.')
             if len(domain_parts) > 2:
                 base_domain = '.'.join(domain_parts[1:])
@@ -3026,19 +3264,35 @@ class ReconAutomation:
             ]
             bucket_candidates = list(set(bucket_candidates))
 
-            self.print_info(f"Testing {len(bucket_candidates)} potential GCP bucket names...")
+            # Restore previously checked buckets from checkpoint
+            checked_buckets = set(progress.get('checked_buckets', []))
+            found_buckets = progress.get('found_buckets', [])
 
-            found_buckets = []
+            if checked_buckets:
+                self.print_info(f"Restored {len(checked_buckets)} checked buckets from checkpoint")
+                self.print_info(f"Found {len(found_buckets)} buckets so far")
+
+            # Determine which buckets still need checking
+            buckets_to_check = [b for b in bucket_candidates if b not in checked_buckets]
+
+            self.print_info(f"Testing {len(buckets_to_check)} potential GCP bucket names...")
+            self.print_info(f"({len(checked_buckets)} already checked from checkpoint)")
+
+            checkpoint_interval = 20
+            completed_since_checkpoint = 0
 
             # Check each bucket
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
                 future_to_bucket = {
                     executor.submit(self._check_gcp_bucket, bucket): bucket
-                    for bucket in bucket_candidates
+                    for bucket in buckets_to_check
                 }
 
                 for future in concurrent.futures.as_completed(future_to_bucket):
                     bucket_name = future_to_bucket[future]
+                    checked_buckets.add(bucket_name)
+                    completed_since_checkpoint += 1
+
                     try:
                         result = future.result()
                         if result:
@@ -3050,6 +3304,16 @@ class ReconAutomation:
                                 self.print_success(f"EXISTS (Private): {bucket_name}")
                     except Exception as e:
                         pass
+
+                    # Checkpoint periodically
+                    if completed_since_checkpoint >= checkpoint_interval:
+                        self.checkpoint('gcp_storage_enumeration', 'checked_buckets', list(checked_buckets))
+                        self.checkpoint('gcp_storage_enumeration', 'found_buckets', found_buckets)
+                        completed_since_checkpoint = 0
+
+            # Final checkpoint before analysis
+            self.checkpoint('gcp_storage_enumeration', 'checked_buckets', list(checked_buckets))
+            self.checkpoint('gcp_storage_enumeration', 'found_buckets', found_buckets)
 
             # Summary FIRST
             self.results['gcp_storage'] = {
@@ -3067,15 +3331,25 @@ class ReconAutomation:
                 self.print_success("No GCP storage buckets found")
 
             # Analyze accessible buckets AFTER summary
+            analyzed_buckets = set(progress.get('analyzed_buckets', []))
             public_buckets = [b for b in found_buckets if b['status'] == 'Public Read']
+
             if public_buckets:
                 self.print_info(f"\n[*] Analyzing {len(public_buckets)} publicly accessible buckets...")
                 for bucket in public_buckets:
-                    self.print_info(f"\n[*] Analyzing contents of {bucket['bucket']}...")
+                    bucket_name = bucket.get('bucket', 'unknown')
+
+                    if bucket_name in analyzed_buckets:
+                        self.print_info(f"Skipping {bucket_name} (already analyzed)")
+                        continue
+
+                    self.print_info(f"\n[*] Analyzing contents of {bucket_name}...")
                     try:
                         self._analyze_gcp_bucket_contents(bucket)
+                        analyzed_buckets.add(bucket_name)
+                        self.checkpoint('gcp_storage_enumeration', 'analyzed_buckets', list(analyzed_buckets))
                     except Exception as e:
-                        self.print_error(f"Analysis failed for {bucket['bucket']}: {e}")
+                        self.print_error(f"Analysis failed for {bucket_name}: {e}")
                         import traceback
                         traceback.print_exc()
 
@@ -4027,63 +4301,532 @@ class ReconAutomation:
                     f.write("\n")
 
     def run_all(self):
-            """Run all reconnaissance modules"""
+            """Run all reconnaissance modules with state tracking"""
             self.print_banner()
 
-            # Prompt for API keys at startup
-            self.prompt_for_api_keys()
+            # Prompt for API keys at startup (only if not resuming with keys already set)
+            if not self.state['session'].get('api_keys_prompted'):
+                self.prompt_for_api_keys()
+                self.state['session']['api_keys_prompted'] = True
+                self.save_state()
 
             try:
                 # Phase 1: Basic reconnaissance
-                self.scope_validation()
-                self.dns_enumeration()
-                self.technology_stack_identification()
+                if self.should_run_module('scope_validation'):
+                    self.mark_module_status('scope_validation', 'in_progress')
+                    try:
+                        self.scope_validation()
+                        self.mark_module_status('scope_validation', 'complete')
+                    except Exception as e:
+                        self.mark_module_status('scope_validation', 'failed', str(e))
+                        self.print_error(f"scope_validation failed: {e}")
+
+                if self.should_run_module('dns_enumeration'):
+                    self.mark_module_status('dns_enumeration', 'in_progress')
+                    try:
+                        self.dns_enumeration()
+                        self.mark_module_status('dns_enumeration', 'complete')
+                    except Exception as e:
+                        self.mark_module_status('dns_enumeration', 'failed', str(e))
+                        self.print_error(f"dns_enumeration failed: {e}")
+
+                if self.should_run_module('technology_stack'):
+                    self.mark_module_status('technology_stack', 'in_progress')
+                    try:
+                        self.technology_stack_identification()
+                        self.mark_module_status('technology_stack', 'complete')
+                    except Exception as e:
+                        self.mark_module_status('technology_stack', 'failed', str(e))
+                        self.print_error(f"technology_stack failed: {e}")
 
                 # Phase 2: OSINT and intelligence gathering
-                # LinkedIn enumeration - runs if cookies were provided
-                if self.config.get('linkedin_cookies'):
-                    self.linkedin_enumeration()
-                else:
-                    self.print_info("Skipping LinkedIn enumeration (no cookies provided)")
+                if self.should_run_module('linkedin_enumeration'):
+                    if self.config.get('linkedin_cookies'):
+                        self.mark_module_status('linkedin_enumeration', 'in_progress')
+                        try:
+                            self.linkedin_enumeration()
+                            self.mark_module_status('linkedin_enumeration', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('linkedin_enumeration', 'failed', str(e))
+                            self.print_error(f"linkedin_enumeration failed: {e}")
+                    else:
+                        self.print_info("Skipping LinkedIn enumeration (no cookies provided)")
+                        self.mark_module_status('linkedin_enumeration', 'skipped')
 
-                self.email_harvesting()
+                if self.should_run_module('email_harvesting'):
+                    self.mark_module_status('email_harvesting', 'in_progress')
+                    try:
+                        self.email_harvesting()
+                        self.mark_module_status('email_harvesting', 'complete')
+                    except Exception as e:
+                        self.mark_module_status('email_harvesting', 'failed', str(e))
+                        self.print_error(f"email_harvesting failed: {e}")
 
-                if not self.args.skip_breach_check:
-                    self.breach_database_check()
+                if self.should_run_module('breach_database_check'):
+                    if not self.args.skip_breach_check:
+                        self.mark_module_status('breach_database_check', 'in_progress')
+                        try:
+                            self.breach_database_check()
+                            self.mark_module_status('breach_database_check', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('breach_database_check', 'failed', str(e))
+                            self.print_error(f"breach_database_check failed: {e}")
+                    else:
+                        self.mark_module_status('breach_database_check', 'skipped')
 
                 # Phase 3: Advanced enumeration
-                if not self.args.skip_github:
-                    self.github_secret_scanning()
+                if self.should_run_module('github_secret_scanning'):
+                    if not self.args.skip_github:
+                        self.mark_module_status('github_secret_scanning', 'in_progress')
+                        try:
+                            self.github_secret_scanning()
+                            self.mark_module_status('github_secret_scanning', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('github_secret_scanning', 'failed', str(e))
+                            self.print_error(f"github_secret_scanning failed: {e}")
+                    else:
+                        self.mark_module_status('github_secret_scanning', 'skipped')
 
-                if not self.args.skip_asn:
-                    self.asn_enumeration()
+                if self.should_run_module('asn_enumeration'):
+                    if not self.args.skip_asn:
+                        self.mark_module_status('asn_enumeration', 'in_progress')
+                        try:
+                            self.asn_enumeration()
+                            self.mark_module_status('asn_enumeration', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('asn_enumeration', 'failed', str(e))
+                            self.print_error(f"asn_enumeration failed: {e}")
+                    else:
+                        self.mark_module_status('asn_enumeration', 'skipped')
 
-                if not self.args.skip_subdomain_takeover:
-                    self.subdomain_takeover_detection()
+                if self.should_run_module('subdomain_takeover_detection'):
+                    if not self.args.skip_subdomain_takeover:
+                        self.mark_module_status('subdomain_takeover_detection', 'in_progress')
+                        try:
+                            self.subdomain_takeover_detection()
+                            self.mark_module_status('subdomain_takeover_detection', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('subdomain_takeover_detection', 'failed', str(e))
+                            self.print_error(f"subdomain_takeover_detection failed: {e}")
+                    else:
+                        self.mark_module_status('subdomain_takeover_detection', 'skipped')
 
                 # Phase 4: Cloud storage enumeration
-                if not self.args.skip_s3:
-                    self.s3_bucket_enumeration()
+                if self.should_run_module('s3_bucket_enumeration'):
+                    if not self.args.skip_s3:
+                        self.mark_module_status('s3_bucket_enumeration', 'in_progress')
+                        try:
+                            self.s3_bucket_enumeration()
+                            self.mark_module_status('s3_bucket_enumeration', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('s3_bucket_enumeration', 'failed', str(e))
+                            self.print_error(f"s3_bucket_enumeration failed: {e}")
+                    else:
+                        self.mark_module_status('s3_bucket_enumeration', 'skipped')
 
-                if not self.args.skip_azure:
-                    self.azure_storage_enumeration()
+                if self.should_run_module('azure_storage_enumeration'):
+                    if not self.args.skip_azure:
+                        self.mark_module_status('azure_storage_enumeration', 'in_progress')
+                        try:
+                            self.azure_storage_enumeration()
+                            self.mark_module_status('azure_storage_enumeration', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('azure_storage_enumeration', 'failed', str(e))
+                            self.print_error(f"azure_storage_enumeration failed: {e}")
+                    else:
+                        self.mark_module_status('azure_storage_enumeration', 'skipped')
 
-                if not self.args.skip_gcp:
-                    self.gcp_storage_enumeration()
+                if self.should_run_module('gcp_storage_enumeration'):
+                    if not self.args.skip_gcp:
+                        self.mark_module_status('gcp_storage_enumeration', 'in_progress')
+                        try:
+                            self.gcp_storage_enumeration()
+                            self.mark_module_status('gcp_storage_enumeration', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('gcp_storage_enumeration', 'failed', str(e))
+                            self.print_error(f"gcp_storage_enumeration failed: {e}")
+                    else:
+                        self.mark_module_status('gcp_storage_enumeration', 'skipped')
 
-                # Phase 5: Generate reports
+                # Phase 5: Network enumeration (if IP ranges provided)
+                if self.should_run_module('network_enumeration'):
+                    if self.ip_ranges and not self.args.skip_scan:
+                        self.mark_module_status('network_enumeration', 'in_progress')
+                        try:
+                            self.network_enumeration()
+                            self.mark_module_status('network_enumeration', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('network_enumeration', 'failed', str(e))
+                            self.print_error(f"network_enumeration failed: {e}")
+                    else:
+                        self.mark_module_status('network_enumeration', 'skipped')
+
+                # Phase 6: Generate reports
                 self.generate_report()
+
+                # Mark session as complete
+                self.state['session']['completed'] = True
+                self.state['session']['completed_at'] = datetime.now().isoformat()
+                self.save_state()
 
                 self.print_section("RECONNAISSANCE COMPLETE")
                 self.print_success(f"All results saved to: {self.output_dir}")
 
+                # Show summary of module statuses
+                self._print_final_summary()
+
             except KeyboardInterrupt:
-                self.print_warning("\nReconnaissance interrupted by user")
-                self.print_info("Partial results may be available in output directory")
+                # Signal handler will take care of saving state
+                pass
             except Exception as e:
                 self.print_error(f"Error during reconnaissance: {e}")
                 import traceback
                 traceback.print_exc()
+                self.save_state()
+
+    def _print_final_summary(self):
+        """Print summary of all module statuses"""
+        print(f"\n{Colors.HEADER}Module Summary:{Colors.ENDC}")
+
+        for module_name, module_state in self.state['modules'].items():
+            status = module_state['status']
+            display_name = module_name.replace('_', ' ').title()
+
+            if status == 'complete':
+                duration = ""
+                if module_state.get('started_at') and module_state.get('completed_at'):
+                    try:
+                        start = datetime.fromisoformat(module_state['started_at'])
+                        end = datetime.fromisoformat(module_state['completed_at'])
+                        secs = (end - start).total_seconds()
+                        if secs >= 60:
+                            duration = f" ({secs/60:.1f}m)"
+                        else:
+                            duration = f" ({secs:.0f}s)"
+                    except:
+                        pass
+                print(f"  {Colors.OKGREEN}✓{Colors.ENDC} {display_name}{duration}")
+            elif status == 'skipped':
+                print(f"  {Colors.OKCYAN}○{Colors.ENDC} {display_name} (skipped)")
+            elif status == 'failed':
+                error = module_state.get('error', 'Unknown error')
+                print(f"  {Colors.FAIL}✗{Colors.ENDC} {display_name} - {error[:50]}")
+            elif status == 'in_progress':
+                print(f"  {Colors.WARNING}⋯{Colors.ENDC} {display_name} (incomplete)")
+            else:
+                print(f"  {Colors.OKCYAN}○{Colors.ENDC} {display_name} (not run)")
+
+    # =========================================================================
+    # STATE MANAGEMENT METHODS
+    # =========================================================================
+
+    def init_state(self):
+        """Initialize state tracking structure"""
+        self.state = {
+            'version': '1.0',
+            'target': {
+                'domain': self.domain,
+                'client': self.client_name,
+                'ip_ranges': self.ip_ranges,
+                'config_hash': self._generate_config_hash()
+            },
+            'session': {
+                'started_at': datetime.now().isoformat(),
+                'last_updated': datetime.now().isoformat(),
+                'interrupted': False,
+                'completed': False
+            },
+            'modules': {
+                'scope_validation': {'status': 'pending', 'progress': {}},
+                'dns_enumeration': {'status': 'pending', 'progress': {}},
+                'technology_stack': {'status': 'pending', 'progress': {}},
+                'linkedin_enumeration': {'status': 'pending', 'progress': {}},
+                'email_harvesting': {'status': 'pending', 'progress': {}},
+                'breach_database_check': {'status': 'pending', 'progress': {}},
+                'github_secret_scanning': {'status': 'pending', 'progress': {}},
+                'asn_enumeration': {'status': 'pending', 'progress': {}},
+                'subdomain_takeover_detection': {'status': 'pending', 'progress': {}},
+                's3_bucket_enumeration': {'status': 'pending', 'progress': {}},
+                'azure_storage_enumeration': {'status': 'pending', 'progress': {}},
+                'gcp_storage_enumeration': {'status': 'pending', 'progress': {}},
+                'network_enumeration': {'status': 'pending', 'progress': {}},
+            },
+            'results': {}
+        }
+        self.state_file = self.output_dir / 'recon_state.json'
+        self._shutdown_in_progress = False
+
+    def _generate_config_hash(self) -> str:
+        """Generate hash of target configuration for change detection"""
+        config_str = f"{self.domain}|{self.client_name}|{','.join(sorted(self.ip_ranges))}"
+        return hashlib.sha256(config_str.encode()).hexdigest()[:16]
+
+    def setup_signal_handlers(self):
+        """Register signal handlers for graceful shutdown"""
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        atexit.register(self._atexit_handler)
+
+    def _signal_handler(self, signum, frame):
+        """Handle SIGINT/SIGTERM for graceful shutdown"""
+        if self._shutdown_in_progress:
+            self.print_error("\nForced exit - state may be incomplete")
+            sys.exit(1)
+
+        self._shutdown_in_progress = True
+        self.print_warning("\n\nInterrupt received - saving state before exit...")
+
+        # Mark session as interrupted
+        self.state['session']['interrupted'] = True
+        self.state['session']['last_updated'] = datetime.now().isoformat()
+
+        # Find any in_progress modules and preserve their state
+        for module_name, module_state in self.state['modules'].items():
+            if module_state['status'] == 'in_progress':
+                self.print_info(f"Module '{module_name}' was in progress - state preserved")
+
+        # Save current results to state
+        self.state['results'] = self.results
+
+        # Save state file
+        self.save_state()
+
+        self.print_success(f"State saved to: {self.state_file}")
+        self.print_info("Run the same command with --resume to continue")
+        sys.exit(0)
+
+    def _atexit_handler(self):
+        """Handle normal exit - save state if not already saved"""
+        if not self._shutdown_in_progress and hasattr(self, 'state'):
+            self.state['session']['last_updated'] = datetime.now().isoformat()
+            self.state['results'] = self.results
+            self.save_state()
+
+    def load_state(self) -> bool:
+        """Load existing state file. Returns True if valid state was loaded."""
+        if not self.state_file.exists():
+            return False
+
+        try:
+            with open(self.state_file, 'r') as f:
+                loaded_state = json.load(f)
+
+            # Validate version
+            if loaded_state.get('version') != '1.0':
+                self.print_warning(f"State file version mismatch")
+                return False
+
+            # Validate target matches
+            loaded_target = loaded_state.get('target', {})
+            if (loaded_target.get('domain') != self.domain or
+                loaded_target.get('client') != self.client_name):
+                self.print_warning("State file is for a different target")
+                return False
+
+            # Load the state
+            self.state = loaded_state
+
+            # Restore results
+            self.results = loaded_state.get('results', self.results)
+
+            return True
+
+        except json.JSONDecodeError as e:
+            self.print_error(f"State file is corrupted: {e}")
+            return False
+        except Exception as e:
+            self.print_error(f"Error loading state file: {e}")
+            return False
+
+    def save_state(self):
+        """Atomically save current state to file"""
+        try:
+            # Update timestamp
+            self.state['session']['last_updated'] = datetime.now().isoformat()
+
+            # Sync results to state
+            self.state['results'] = self.results
+
+            # Write to temp file first
+            temp_file = self.state_file.with_suffix('.json.tmp')
+
+            with open(temp_file, 'w') as f:
+                json.dump(self.state, f, indent=2, default=str)
+
+            # Atomic rename
+            temp_file.replace(self.state_file)
+
+        except Exception as e:
+            self.print_error(f"Failed to save state: {e}")
+
+    def checkpoint(self, module: str, subtask: str = None, progress_data: Dict = None):
+        """Save checkpoint during long-running operations"""
+        if module not in self.state['modules']:
+            return
+
+        module_state = self.state['modules'][module]
+
+        if subtask and progress_data:
+            if 'progress' not in module_state:
+                module_state['progress'] = {}
+            module_state['progress'][subtask] = progress_data
+
+        # Save state
+        self.save_state()
+
+    def get_module_status(self, module: str) -> str:
+        """Get status of a module: pending, in_progress, complete, skipped, failed"""
+        if module not in self.state['modules']:
+            return 'pending'
+        return self.state['modules'][module].get('status', 'pending')
+
+    def get_module_progress(self, module: str, subtask: str = None) -> Optional[Dict]:
+        """Get progress data for a module/subtask"""
+        if module not in self.state['modules']:
+            return None
+
+        module_state = self.state['modules'][module]
+        progress = module_state.get('progress', {})
+
+        if subtask:
+            return progress.get(subtask)
+        return progress
+
+    def mark_module_status(self, module: str, status: str, error_msg: str = None):
+        """Update module status"""
+        if module not in self.state['modules']:
+            self.state['modules'][module] = {'status': status, 'progress': {}}
+        else:
+            self.state['modules'][module]['status'] = status
+
+        if status == 'in_progress':
+            self.state['modules'][module]['started_at'] = datetime.now().isoformat()
+        elif status == 'complete':
+            self.state['modules'][module]['completed_at'] = datetime.now().isoformat()
+        elif status == 'failed' and error_msg:
+            self.state['modules'][module]['error'] = error_msg
+
+        self.save_state()
+
+    def prompt_resume(self) -> bool:
+        """Interactive prompt when existing state is detected. Returns True to resume."""
+        if self.auto_resume:
+            self.print_info("Auto-resume enabled - continuing from last checkpoint")
+            return True
+
+        # Calculate module stats
+        complete_count = sum(1 for m in self.state['modules'].values() if m['status'] == 'complete')
+        in_progress_count = sum(1 for m in self.state['modules'].values() if m['status'] == 'in_progress')
+        pending_count = sum(1 for m in self.state['modules'].values() if m['status'] == 'pending')
+        total_count = len(self.state['modules'])
+
+        # Find in-progress module for resume point
+        in_progress_module = None
+        for name, state in self.state['modules'].items():
+            if state['status'] == 'in_progress':
+                in_progress_module = name
+                break
+
+        print(f"\n{'='*80}")
+        print(f"{Colors.HEADER}    PREVIOUS SCAN DETECTED{Colors.ENDC}")
+        print(f"{'='*80}")
+        print(f"    Target: {self.state['target']['domain']} ({self.state['target']['client']})")
+        print(f"    Started: {self.state['session']['started_at']}")
+        print(f"    Last activity: {self.state['session']['last_updated']}")
+
+        if self.state['session'].get('interrupted'):
+            print(f"    {Colors.WARNING}Status: Interrupted{Colors.ENDC}")
+
+        print(f"\n    Module Status ({complete_count}/{total_count} complete):")
+
+        for module_name, module_state in self.state['modules'].items():
+            status = module_state['status']
+            display_name = module_name.replace('_', ' ').title()
+
+            if status == 'complete':
+                print(f"      {Colors.OKGREEN}✓{Colors.ENDC} {display_name}")
+            elif status == 'in_progress':
+                progress = module_state.get('progress', {})
+                progress_info = ""
+                if progress:
+                    # Show most relevant progress info
+                    for subtask, data in progress.items():
+                        if isinstance(data, dict) and 'completed' in data:
+                            progress_info = f" ({data['completed']}/{data.get('total', '?')} {subtask})"
+                            break
+                print(f"      {Colors.WARNING}⋯{Colors.ENDC} {display_name}{progress_info}")
+            elif status == 'skipped':
+                print(f"      {Colors.OKCYAN}○{Colors.ENDC} {display_name} (skipped)")
+            elif status == 'failed':
+                print(f"      {Colors.FAIL}✗{Colors.ENDC} {display_name} (failed)")
+            else:
+                print(f"      {Colors.OKCYAN}○{Colors.ENDC} {display_name}")
+
+        print(f"\n    Options:")
+        if in_progress_module:
+            display_name = in_progress_module.replace('_', ' ').title()
+            print(f"      [R] Resume from {display_name} (recommended)")
+        else:
+            print(f"      [R] Resume from next pending module")
+        print(f"      [S] Start fresh (backup existing results)")
+        print(f"      [Q] Quit")
+
+        print()
+        choice = input(f"    Choice [R]: ").strip().upper()
+
+        if choice == 'Q':
+            self.print_info("Exiting without changes")
+            sys.exit(0)
+        elif choice == 'S':
+            self._backup_and_reset_state()
+            return False
+        else:
+            # Default to resume
+            return True
+
+    def _backup_and_reset_state(self):
+        """Backup existing state and results, then reset for fresh start"""
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+        # Backup state file
+        if self.state_file.exists():
+            backup_state = self.state_file.with_name(f'recon_state_backup_{timestamp}.json')
+            shutil.copy(self.state_file, backup_state)
+            self.print_success(f"State backed up to: {backup_state}")
+
+        # Backup any existing results files
+        for result_file in self.output_dir.glob('recon_results_*.json'):
+            backup_name = result_file.with_name(f'backup_{timestamp}_{result_file.name}')
+            shutil.move(result_file, backup_name)
+            self.print_info(f"Results backed up: {backup_name}")
+
+        # Reset state
+        self.init_state()
+        self.print_info("Starting fresh scan")
+
+    def should_run_module(self, module: str) -> bool:
+        """Determine if a module should run based on state and skip flags"""
+        status = self.get_module_status(module)
+
+        # Already complete - skip
+        if status == 'complete':
+            self.print_info(f"Skipping {module} (already complete)")
+            return False
+
+        # Already skipped - stay skipped
+        if status == 'skipped':
+            return False
+
+        return True
+
+    def get_resume_data(self, module: str) -> Dict:
+        """Get data needed to resume a module from checkpoint"""
+        module_state = self.state['modules'].get(module, {})
+        return {
+            'status': module_state.get('status', 'pending'),
+            'progress': module_state.get('progress', {}),
+            'results': self.results
+        }
 
 def main():
     parser = argparse.ArgumentParser(
@@ -4106,6 +4849,9 @@ Examples:
   Custom output directory:
     python3 quick_recon.py -d example.com -i 192.168.1.0/24 -o /tmp/recon -c "Acme Corp"
 
+  Resume interrupted scan:
+    python3 quick_recon.py -d example.com -c "Acme Corp" -o ./existing_output --resume
+
   Skip specific modules:
     python3 quick_recon.py -d example.com -i 192.168.1.0/24 -c "Acme Corp" --skip-s3 --skip-scan
 
@@ -4126,6 +4872,9 @@ Examples:
     parser.add_argument('-f', '--file', help='File containing IP ranges (one CIDR per line)')
     parser.add_argument('-c', '--client', required=True, help='Client name for reporting')
     parser.add_argument('-o', '--output', help='Output directory (default: ./<client_name>_recon)')
+
+    # Resume flag
+    parser.add_argument('--resume', action='store_true', help='Automatically resume from last checkpoint without prompting')
 
     # Module control flags
     parser.add_argument('--skip-breach-check', action='store_true', help='Skip breach database checking')
@@ -4195,7 +4944,8 @@ Examples:
             domain=args.domain,
             ip_ranges=[],
             output_dir=args.output,
-            client_name=args.client
+            client_name=args.client,
+            auto_resume=args.resume
         )
 
         # LinkedIn has its own run method with cookie prompting
@@ -4295,12 +5045,17 @@ Examples:
     # Show output directory
     print(f"{Colors.OKCYAN}[i] Output directory: {args.output}{Colors.ENDC}")
 
+    # Show resume status
+    if args.resume:
+        print(f"{Colors.OKCYAN}[i] Auto-resume enabled - will continue from last checkpoint if available{Colors.ENDC}")
+
     # Create recon automation instance
     recon = ReconAutomation(
         domain=args.domain,
         ip_ranges=unique_ranges,
         output_dir=args.output,
-        client_name=args.client
+        client_name=args.client,
+        auto_resume=args.resume
     )
 
     # Store args reference for run_all method
