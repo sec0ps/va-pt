@@ -2446,132 +2446,132 @@ class ReconAutomation:
             else:
                 self.print_warning(f"No emails found for target domain ({self.domain})")
 
-    def _google_dork_emails(self) -> List[str]:
-            """Search Google for emails using dorking"""
-            emails = []
-            email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+def _google_dork_emails(self) -> List[str]:
+        """Search Google for emails using dorking"""
+        emails = []
+        email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
 
-            dork_queries = [
-                f'site:{self.domain} "@{self.domain}"',
-                f'"@{self.domain}" filetype:pdf',
-                f'"@{self.domain}" filetype:doc OR filetype:docx',
-                f'"@{self.domain}" filetype:xls OR filetype:xlsx',
-                f'"{self.domain}" email contact',
-            ]
+        dork_queries = [
+            f'site:{self.domain} "@{self.domain}"',
+            f'"@{self.domain}" filetype:pdf',
+            f'"@{self.domain}" filetype:doc OR filetype:docx',
+            f'"@{self.domain}" filetype:xls OR filetype:xlsx',
+            f'"{self.domain}" email contact',
+        ]
 
-            for query in dork_queries:
-                try:
-                    search_url = f"https://www.google.com/search?q={requests.utils.quote(query)}&num=50"
-                    headers = {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                    }
+        for query in dork_queries:
+            try:
+                search_url = f"https://www.google.com/search?q={requests.utils.quote(query)}&num=50"
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                }
 
-                    response = self.session.get(search_url, headers=headers, timeout=10)
+                response = self.session.get(search_url, headers=headers, timeout=10)
 
-                    if response.status_code == 200:
-                        found = re.findall(email_pattern, response.text)
-                        emails.extend(found)
+                if response.status_code == 200:
+                    found = re.findall(email_pattern, response.text)
+                    emails.extend(found)
 
-                    time.sleep(2)
+                time.sleep(2)
 
-                except Exception as e:
-                    self.print_warning(f"Google dork failed for query: {e}")
+            except Exception as e:
+                self.print_warning(f"Google dork failed for query: {e}")
 
-            return list(set(emails))
+        return list(set(emails))
 
-        def _search_pgp_servers(self) -> List[str]:
-            """Search PGP key servers for emails"""
-            emails = []
-            email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+    def _search_pgp_servers(self) -> List[str]:
+        """Search PGP key servers for emails"""
+        emails = []
+        email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
 
-            pgp_servers = [
-                f"https://keys.openpgp.org/search?q={self.domain}",
-                f"https://keyserver.ubuntu.com/pks/lookup?search={self.domain}&op=index",
-            ]
+        pgp_servers = [
+            f"https://keys.openpgp.org/search?q={self.domain}",
+            f"https://keyserver.ubuntu.com/pks/lookup?search={self.domain}&op=index",
+        ]
 
-            for server_url in pgp_servers:
-                try:
-                    response = self.session.get(server_url, timeout=10)
+        for server_url in pgp_servers:
+            try:
+                response = self.session.get(server_url, timeout=10)
 
-                    if response.status_code == 200:
-                        found = re.findall(email_pattern, response.text)
-                        emails.extend(found)
+                if response.status_code == 200:
+                    found = re.findall(email_pattern, response.text)
+                    emails.extend(found)
 
-                    time.sleep(1)
+                time.sleep(1)
 
-                except:
-                    pass
+            except:
+                pass
 
-            return list(set(emails))
+        return list(set(emails))
 
-        def _detect_email_pattern(self, emails: List[str]) -> Optional[Dict[str, Any]]:
-            """Detect the email naming pattern from collected emails"""
-            if not emails:
-                return None
+    def _detect_email_pattern(self, emails: List[str]) -> Optional[Dict[str, Any]]:
+        """Detect the email naming pattern from collected emails"""
+        if not emails:
+            return None
 
-            patterns = {
-                'firstname.lastname': 0,
-                'firstnamelastname': 0,
-                'firstname_lastname': 0,
-                'firstname': 0,
-                'flastname': 0,
-                'firstl': 0,
-                'lastname.firstname': 0,
-                'other': 0
-            }
+        patterns = {
+            'firstname.lastname': 0,
+            'firstnamelastname': 0,
+            'firstname_lastname': 0,
+            'firstname': 0,
+            'flastname': 0,
+            'firstl': 0,
+            'lastname.firstname': 0,
+            'other': 0
+        }
 
-            examples = {k: [] for k in patterns.keys()}
+        examples = {k: [] for k in patterns.keys()}
 
-            for email in emails:
-                local = email.split('@')[0].lower()
+        for email in emails:
+            local = email.split('@')[0].lower()
 
-                if local in ['info', 'contact', 'support', 'admin', 'sales', 'hr', 'jobs', 'careers', 'press', 'media', 'marketing']:
-                    continue
+            if local in ['info', 'contact', 'support', 'admin', 'sales', 'hr', 'jobs', 'careers', 'press', 'media', 'marketing']:
+                continue
 
-                if '.' in local and len(local.split('.')) == 2:
-                    parts = local.split('.')
-                    if parts[0].isalpha() and parts[1].isalpha():
-                        if len(parts[0]) > 1 and len(parts[1]) > 1:
-                            patterns['firstname.lastname'] += 1
-                            examples['firstname.lastname'].append(email)
-                        elif len(parts[0]) == 1:
-                            patterns['flastname'] += 1
-                            examples['flastname'].append(email)
-                elif '_' in local and len(local.split('_')) == 2:
-                    patterns['firstname_lastname'] += 1
-                    examples['firstname_lastname'].append(email)
-                elif local.isalpha() and len(local) > 2:
-                    if len(local) > 10:
-                        patterns['firstnamelastname'] += 1
-                        examples['firstnamelastname'].append(email)
-                    elif len(local) < 6:
-                        patterns['firstname'] += 1
-                        examples['firstname'].append(email)
-                    else:
-                        patterns['other'] += 1
-                        examples['other'].append(email)
+            if '.' in local and len(local.split('.')) == 2:
+                parts = local.split('.')
+                if parts[0].isalpha() and parts[1].isalpha():
+                    if len(parts[0]) > 1 and len(parts[1]) > 1:
+                        patterns['firstname.lastname'] += 1
+                        examples['firstname.lastname'].append(email)
+                    elif len(parts[0]) == 1:
+                        patterns['flastname'] += 1
+                        examples['flastname'].append(email)
+            elif '_' in local and len(local.split('_')) == 2:
+                patterns['firstname_lastname'] += 1
+                examples['firstname_lastname'].append(email)
+            elif local.isalpha() and len(local) > 2:
+                if len(local) > 10:
+                    patterns['firstnamelastname'] += 1
+                    examples['firstnamelastname'].append(email)
+                elif len(local) < 6:
+                    patterns['firstname'] += 1
+                    examples['firstname'].append(email)
                 else:
                     patterns['other'] += 1
                     examples['other'].append(email)
+            else:
+                patterns['other'] += 1
+                examples['other'].append(email)
 
-            total = sum(patterns.values())
-            if total == 0:
-                return None
+        total = sum(patterns.values())
+        if total == 0:
+            return None
 
-            best_pattern = max(patterns.items(), key=lambda x: x[1])
+        best_pattern = max(patterns.items(), key=lambda x: x[1])
 
-            if best_pattern[1] == 0:
-                return None
+        if best_pattern[1] == 0:
+            return None
 
-            confidence = int((best_pattern[1] / total) * 100)
+        confidence = int((best_pattern[1] / total) * 100)
 
-            return {
-                'pattern': best_pattern[0],
-                'confidence': confidence,
-                'count': best_pattern[1],
-                'total_analyzed': total,
-                'examples': examples[best_pattern[0]][:5]
-            }
+        return {
+            'pattern': best_pattern[0],
+            'confidence': confidence,
+            'count': best_pattern[1],
+            'total_analyzed': total,
+            'examples': examples[best_pattern[0]][:5]
+        }
 
     def _run_theharvester(self) -> List[str]:
             """Run theHarvester tool"""
