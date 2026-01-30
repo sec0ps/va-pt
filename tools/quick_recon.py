@@ -351,50 +351,103 @@ class ReconAutomation:
             return (True, 'UNKNOWN: Unknown file type')
 
     def scope_validation(self):
-            """Perform scope validation including WHOIS and DNS verification"""
-            self.print_section("SCOPE VALIDATION")
+                """Perform scope validation including WHOIS and DNS verification"""
+                self.print_section("SCOPE VALIDATION")
 
-            # WHOIS lookup for IP ranges (skip if none provided)
-            whois_results = {}
+                # =====================================================================
+                # Domain WHOIS lookup
+                # =====================================================================
+                self.print_info(f"Performing domain WHOIS lookup for {self.domain}...")
 
-            if self.ip_ranges:
-                self.print_info("Performing WHOIS lookups for IP ranges...")
-                for ip_range in self.ip_ranges:
-                    try:
-                        # Extract first IP from range for WHOIS lookup
-                        if '/' in ip_range:
-                            ip = str(ipaddress.ip_network(ip_range, strict=False).network_address)
-                        else:
-                            ip = ip_range
+                domain_whois = {}
 
-                        output = self.run_command(['whois', ip])
-                        if output:
-                            whois_results[ip_range] = self._parse_whois(output)
-                            org = whois_results[ip_range].get('org', 'Unknown')
-                            self.print_success(f"{ip_range} - Organization: {org}")
-                    except Exception as e:
-                        self.print_error(f"WHOIS failed for {ip_range}: {e}")
-            else:
-                self.print_info("Skipping WHOIS lookups (no IP ranges provided)")
+                try:
+                    output = self.run_command(['whois', self.domain], timeout=30)
+                    if output:
+                        domain_whois = self._parse_whois(output, whois_type='domain')
 
-            self.results['scope_validation']['whois'] = whois_results
+                        if domain_whois.get('privacy_protected'):
+                            self.print_warning("Domain uses privacy protection - contact info may be masked")
 
-            # DNS verification for domain
-            self.print_info(f"Verifying DNS records for {self.domain}...")
-            dns_records = self._get_dns_records(self.domain)
-            self.results['scope_validation']['dns_verification'] = dns_records
+                        # Display found organizations
+                        for org in domain_whois.get('organizations', []):
+                            self.print_success(f"  Organization: {org}")
 
-            if dns_records.get('A'):
-                self.print_success(f"Domain resolves to: {', '.join(dns_records['A'])}")
+                        # Display found emails
+                        for email in domain_whois.get('emails', []):
+                            self.print_success(f"  Email: {email}")
 
-                # Check if resolved IPs are in scope (only if IP ranges provided)
+                        # Display found phones
+                        for phone in domain_whois.get('phones', []):
+                            self.print_success(f"  Phone: {phone}")
+
+                        # Display found addresses
+                        for addr in domain_whois.get('addresses', []):
+                            self.print_success(f"  Address ({addr['source']}): {addr['street']}, {addr['city']}, {addr['state']} {addr['postal_code']}, {addr['country']}")
+
+                        # Display name servers
+                        if domain_whois.get('name_servers'):
+                            self.print_info(f"  Name Servers: {', '.join(domain_whois['name_servers'])}")
+
+                        if not any([domain_whois.get('emails'), domain_whois.get('addresses'), domain_whois.get('phones')]):
+                            self.print_warning("No usable contact information found (likely privacy protected)")
+
+                except Exception as e:
+                    self.print_error(f"Domain WHOIS failed: {e}")
+
+                self.results['scope_validation']['domain_whois'] = domain_whois
+
+                # Add discovered emails to main email list
+                if domain_whois.get('emails'):
+                    existing_emails = self.results.get('email_addresses', [])
+                    for email in domain_whois['emails']:
+                        if email not in existing_emails:
+                            existing_emails.append(email)
+                    self.results['email_addresses'] = existing_emails
+
+                # =====================================================================
+                # IP WHOIS lookups (if IP ranges provided)
+                # =====================================================================
+                whois_results = {}
+
                 if self.ip_ranges:
-                    for ip in dns_records['A']:
-                        in_scope = self._is_ip_in_scope(ip)
-                        if in_scope:
-                            self.print_success(f"✓ {ip} is within authorized scope")
-                        else:
-                            self.print_warning(f"✗ {ip} is NOT in provided scope ranges")
+                    self.print_info("\nPerforming WHOIS lookups for IP ranges...")
+                    for ip_range in self.ip_ranges:
+                        try:
+                            if '/' in ip_range:
+                                ip = str(ipaddress.ip_network(ip_range, strict=False).network_address)
+                            else:
+                                ip = ip_range
+
+                            output = self.run_command(['whois', ip])
+                            if output:
+                                whois_results[ip_range] = self._parse_whois(output, whois_type='ip')
+                                org = whois_results[ip_range].get('org', 'Unknown')
+                                self.print_success(f"{ip_range} - Organization: {org}")
+                        except Exception as e:
+                            self.print_error(f"WHOIS failed for {ip_range}: {e}")
+                else:
+                    self.print_info("\nSkipping IP WHOIS lookups (no IP ranges provided)")
+
+                self.results['scope_validation']['whois'] = whois_results
+
+                # =====================================================================
+                # DNS verification
+                # =====================================================================
+                self.print_info(f"\nVerifying DNS records for {self.domain}...")
+                dns_records = self._get_dns_records(self.domain)
+                self.results['scope_validation']['dns_verification'] = dns_records
+
+                if dns_records.get('A'):
+                    self.print_success(f"Domain resolves to: {', '.join(dns_records['A'])}")
+
+                    if self.ip_ranges:
+                        for ip in dns_records['A']:
+                            in_scope = self._is_ip_in_scope(ip)
+                            if in_scope:
+                                self.print_success(f"✓ {ip} is within authorized scope")
+                            else:
+                                self.print_warning(f"✗ {ip} is NOT in provided scope ranges")
 
     def load_config(self) -> Dict[str, str]:
         """Load configuration from file"""
@@ -1371,22 +1424,130 @@ class ReconAutomation:
                 import traceback
                 traceback.print_exc()
 
-    def _parse_whois(self, whois_output: str) -> Dict[str, str]:
-        """Parse WHOIS output"""
-        result = {}
-        patterns = {
-            'org': r'(?:OrgName|org-name|organization):\s*(.+)',
-            'netrange': r'(?:NetRange|inetnum):\s*(.+)',
-            'country': r'(?:Country):\s*(.+)',
-            'created': r'(?:created|RegDate):\s*(.+)'
-        }
+    def _parse_whois(self, whois_output: str, whois_type: str = 'ip') -> Dict[str, Any]:
+            """Parse WHOIS output for IP or domain lookups"""
+            result = {}
 
-        for key, pattern in patterns.items():
-            match = re.search(pattern, whois_output, re.IGNORECASE)
-            if match:
-                result[key] = match.group(1).strip()
+            if whois_type == 'ip':
+                patterns = {
+                    'org': r'(?:OrgName|org-name|organization):\s*(.+)',
+                    'netrange': r'(?:NetRange|inetnum):\s*(.+)',
+                    'country': r'(?:Country):\s*(.+)',
+                    'created': r'(?:created|RegDate):\s*(.+)'
+                }
 
-        return result
+                for key, pattern in patterns.items():
+                    match = re.search(pattern, whois_output, re.IGNORECASE)
+                    if match:
+                        result[key] = match.group(1).strip()
+
+            elif whois_type == 'domain':
+                # Privacy detection keywords
+                privacy_keywords = [
+                    'privacy', 'redacted', 'protected', 'proxy', 'guard', 'withheld',
+                    'whoisguard', 'contactprivacy', 'domainsbyproxy', 'perfect privacy',
+                    'domains by proxy', 'private registration', 'data protected',
+                    'not disclosed', 'identity protect', 'anonymize', 'whoisprivacy'
+                ]
+
+                privacy_email_domains = [
+                    'privateregistration', 'privacyprotect', 'whoisprivacy',
+                    'contactprivacy', 'domainsbyproxy', 'whoisguard', 'anonymize'
+                ]
+
+                whois_lower = whois_output.lower()
+                result['privacy_protected'] = any(kw in whois_lower for kw in privacy_keywords)
+
+                # Collected valid contact info
+                result['emails'] = []
+                result['addresses'] = []
+                result['phones'] = []
+                result['organizations'] = []
+
+                for contact_type in ['Registrant', 'Admin', 'Tech']:
+                    # Organization/Name
+                    org_match = re.search(rf'{contact_type}\s*Organization:\s*(.+)', whois_output, re.IGNORECASE)
+                    name_match = re.search(rf'{contact_type}\s*Name:\s*(.+)', whois_output, re.IGNORECASE)
+
+                    org_or_name = ''
+                    if org_match:
+                        org_or_name = org_match.group(1).strip()
+                    elif name_match:
+                        org_or_name = name_match.group(1).strip()
+
+                    # Skip if privacy service
+                    if org_or_name and not any(kw in org_or_name.lower() for kw in privacy_keywords):
+                        if org_or_name not in result['organizations']:
+                            result['organizations'].append(org_or_name)
+
+                    # Email
+                    email_match = re.search(rf'{contact_type}\s*Email:\s*([^\s]+@[^\s]+)', whois_output, re.IGNORECASE)
+                    if email_match:
+                        email = email_match.group(1).strip().lower()
+                        local_part = email.split('@')[0]
+
+                        # Filter privacy proxy emails (random strings or privacy domains)
+                        is_random = re.match(r'^[a-z0-9]{8,}$', local_part) and not re.search(r'[aeiou]{2,}', local_part)
+                        is_privacy_domain = any(pd in email for pd in privacy_email_domains)
+
+                        if not is_random and not is_privacy_domain and email not in result['emails']:
+                            result['emails'].append(email)
+
+                    # Phone
+                    phone_match = re.search(rf'{contact_type}\s*Phone:\s*(\+?[\d\.\-\s]+)', whois_output, re.IGNORECASE)
+                    if phone_match:
+                        phone = phone_match.group(1).strip()
+                        if phone and len(phone) > 5 and phone not in result['phones']:
+                            result['phones'].append(phone)
+
+                    # Address
+                    street_match = re.search(rf'{contact_type}\s*Street:\s*(.+)', whois_output, re.IGNORECASE)
+                    city_match = re.search(rf'{contact_type}\s*City:\s*(.+)', whois_output, re.IGNORECASE)
+                    state_match = re.search(rf'{contact_type}\s*State/Province:\s*(.+)', whois_output, re.IGNORECASE)
+                    postal_match = re.search(rf'{contact_type}\s*Postal\s*Code:\s*(.+)', whois_output, re.IGNORECASE)
+                    country_match = re.search(rf'{contact_type}\s*Country:\s*(.+)', whois_output, re.IGNORECASE)
+
+                    if street_match and city_match:
+                        street = street_match.group(1).strip()
+                        city = city_match.group(1).strip()
+
+                        # Filter privacy service addresses
+                        privacy_addr_patterns = ['po box', 'p.o. box', 'care of', 'c/o', 'network solutions']
+                        combined = f"{street} {city}".lower()
+
+                        if not any(p in combined for p in privacy_addr_patterns) and not any(kw in combined for kw in privacy_keywords):
+                            address = {
+                                'street': street,
+                                'city': city,
+                                'state': state_match.group(1).strip() if state_match else '',
+                                'postal_code': postal_match.group(1).strip() if postal_match else '',
+                                'country': country_match.group(1).strip() if country_match else '',
+                                'source': contact_type.lower()
+                            }
+
+                            # Dedupe by street+city
+                            addr_key = f"{street}|{city}".lower()
+                            if not any(f"{a['street']}|{a['city']}".lower() == addr_key for a in result['addresses']):
+                                result['addresses'].append(address)
+
+                # Domain metadata
+                domain_match = re.search(r'Domain\s*Name:\s*(\S+)', whois_output, re.IGNORECASE)
+                if domain_match:
+                    result['domain_name'] = domain_match.group(1).strip()
+
+                created_match = re.search(r'Creation\s*Date:\s*(.+)', whois_output, re.IGNORECASE)
+                if created_match:
+                    result['created'] = created_match.group(1).strip()
+
+                expires_match = re.search(r'(?:Expir.*Date|Registrar Registration Expiration Date):\s*(.+)', whois_output, re.IGNORECASE)
+                if expires_match:
+                    result['expires'] = expires_match.group(1).strip()
+
+                ns_matches = re.findall(r'Name\s*Server:\s*(\S+)', whois_output, re.IGNORECASE)
+                if ns_matches:
+                    result['name_servers'] = [ns.lower() for ns in ns_matches]
+
+            return result
 
     def _get_dns_records(self, domain: str) -> Dict[str, List[str]]:
         """Get DNS records for domain"""
@@ -4053,12 +4214,67 @@ class ReconAutomation:
 
                     # Scope Validation
                     f.write(f"## Scope Validation\n\n")
+
+                    # Domain WHOIS
+                    domain_whois = self.results.get('scope_validation', {}).get('domain_whois', {})
+                    if domain_whois:
+                        f.write(f"### Domain Registration ({self.domain})\n\n")
+
+                        if domain_whois.get('privacy_protected'):
+                            f.write(f"**Note:** Domain uses privacy protection\n\n")
+
+                        if domain_whois.get('organizations'):
+                            f.write(f"**Organizations:**\n")
+                            for org in domain_whois['organizations']:
+                                f.write(f"- {org}\n")
+                            f.write(f"\n")
+
+                        if domain_whois.get('emails'):
+                            f.write(f"**Contact Emails:**\n")
+                            for email in domain_whois['emails']:
+                                f.write(f"- {email}\n")
+                            f.write(f"\n")
+
+                        if domain_whois.get('phones'):
+                            f.write(f"**Contact Phones:**\n")
+                            for phone in domain_whois['phones']:
+                                f.write(f"- {phone}\n")
+                            f.write(f"\n")
+
+                        if domain_whois.get('addresses'):
+                            f.write(f"**Physical Addresses:**\n")
+                            for addr in domain_whois['addresses']:
+                                addr_str = f"{addr['street']}, {addr['city']}"
+                                if addr.get('state'):
+                                    addr_str += f", {addr['state']}"
+                                if addr.get('postal_code'):
+                                    addr_str += f" {addr['postal_code']}"
+                                if addr.get('country'):
+                                    addr_str += f", {addr['country']}"
+                                f.write(f"- {addr_str} ({addr.get('source', 'registrant')})\n")
+                            f.write(f"\n")
+
+                        if domain_whois.get('name_servers'):
+                            f.write(f"**Name Servers:**\n")
+                            for ns in domain_whois['name_servers']:
+                                f.write(f"- {ns}\n")
+                            f.write(f"\n")
+
+                        if domain_whois.get('created'):
+                            f.write(f"**Created:** {domain_whois['created']}\n")
+                        if domain_whois.get('expires'):
+                            f.write(f"**Expires:** {domain_whois['expires']}\n")
+                        f.write(f"\n")
+
+                    # IP Range WHOIS
                     whois = self.results.get('scope_validation', {}).get('whois', {})
-                    for ip_range, info in whois.items():
-                        f.write(f"### {ip_range}\n")
-                        f.write(f"- **Organization:** {info.get('org', 'N/A')}\n")
-                        f.write(f"- **Net Range:** {info.get('netrange', 'N/A')}\n")
-                        f.write(f"- **Country:** {info.get('country', 'N/A')}\n\n")
+                    if whois:
+                        f.write(f"### IP Range Ownership\n\n")
+                        for ip_range, info in whois.items():
+                            f.write(f"#### {ip_range}\n")
+                            f.write(f"- **Organization:** {info.get('org', 'N/A')}\n")
+                            f.write(f"- **Net Range:** {info.get('netrange', 'N/A')}\n")
+                            f.write(f"- **Country:** {info.get('country', 'N/A')}\n\n")
 
                     # DNS Enumeration
                     f.write(f"## DNS Enumeration\n\n")
@@ -4144,7 +4360,6 @@ class ReconAutomation:
                     f.write(f"## LinkedIn Intelligence\n\n")
                     linkedin = self.results.get('linkedin_intel', {})
 
-                    # New format with companies and employees
                     companies = linkedin.get('company_info', {}).get('companies', [])
                     employees = linkedin.get('employees', [])
 
@@ -4182,28 +4397,6 @@ class ReconAutomation:
                         for title, count in sorted_titles:
                             f.write(f"- {title} ({count})\n")
                         f.write(f"\n")
-
-                    # Legacy support for old format
-                    google_results = linkedin.get('google_dork_results', [])
-                    inferred = linkedin.get('inferred_employees', [])
-
-                    if google_results or inferred:
-                        f.write(f"### Legacy Data\n\n")
-                        f.write(f"**Profiles Found (Google):** {len(google_results)}\n")
-                        f.write(f"**Employees Inferred:** {len(inferred)}\n\n")
-
-                        if linkedin.get('email_patterns'):
-                            pattern = linkedin['email_patterns'].get('likely_pattern', 'Unknown')
-                            confidence = linkedin['email_patterns'].get('confidence', 0)
-                            f.write(f"**Email Pattern:** {pattern} ({confidence:.0f}% confidence)\n\n")
-
-                        if inferred:
-                            f.write(f"#### Inferred Employees (Sample)\n\n")
-                            for emp in inferred[:10]:
-                                f.write(f"- {emp['name']} ({emp['email']})\n")
-                            if len(inferred) > 10:
-                                f.write(f"- ... and {len(inferred) - 10} more\n")
-                            f.write(f"\n")
 
                     # Email Addresses
                     f.write(f"## Email Addresses\n\n")
@@ -4344,250 +4537,235 @@ class ReconAutomation:
                         f.write(f"No GCP storage buckets found.\n\n")
 
     def _generate_report_template(self, filepath: Path):
-            """Generate report template with findings"""
-            with open(filepath, 'w') as f:
-                f.write(f"# Report Template Content - {self.client_name}\n\n")
+                """Generate report template with findings"""
+                with open(filepath, 'w') as f:
+                    f.write(f"# Report Template Content - {self.client_name}\n\n")
 
-                # Ownership Verification
-                f.write("### Ownership Verification\n")
-                whois = self.results.get('scope_validation', {}).get('whois', {})
-                for ip_range, info in whois.items():
-                    org = info.get('org', 'Unknown')
-                    f.write(f"• {ip_range} - Confirmed owned by {org}\n")
-                f.write("\n")
+                    # Domain Registration Info
+                    f.write("## Target Information\n\n")
+                    domain_whois = self.results.get('scope_validation', {}).get('domain_whois', {})
 
-                # DNS Enumeration Section
-                f.write("## Reconnaissance and OSINT\n\n")
-                f.write("### Finding the External Footprint\n\n")
+                    if domain_whois:
+                        if domain_whois.get('organizations'):
+                            f.write(f"**Registered Organization:** {domain_whois['organizations'][0]}\n\n")
 
-                dns = self.results.get('dns_enumeration', {})
-                total = dns.get('total_discovered', 0)
-                resolved = dns.get('resolved', {})
+                        if domain_whois.get('addresses'):
+                            addr = domain_whois['addresses'][0]
+                            addr_str = f"{addr['street']}, {addr['city']}"
+                            if addr.get('state'):
+                                addr_str += f", {addr['state']}"
+                            if addr.get('postal_code'):
+                                addr_str += f" {addr['postal_code']}"
+                            if addr.get('country'):
+                                addr_str += f", {addr['country']}"
+                            f.write(f"**Physical Location:** {addr_str}\n\n")
 
-                f.write(f"DNS enumeration revealed {total} subdomains. This mapped out what was reachable from the internet.\n\n")
+                        if domain_whois.get('phones'):
+                            f.write(f"**Contact Phone:** {domain_whois['phones'][0]}\n\n")
 
-                if resolved:
-                    f.write("Key subdomains identified:\n")
-                    for subdomain in sorted(resolved.keys())[:10]:  # Top 10
-                        ips = resolved[subdomain]
-                        f.write(f"• {subdomain} ({', '.join(ips)})\n")
-                    f.write("\n")
-
-                # Subdomain Takeover
-                takeovers = self.results.get('subdomain_takeovers', [])
-                if takeovers:
-                    f.write("### Subdomain Takeover Vulnerabilities\n\n")
-                    f.write(f"Analysis identified {len(takeovers)} subdomain(s) potentially vulnerable to takeover attacks:\n\n")
-                    for vuln in takeovers:
-                        f.write(f"• {vuln['subdomain']} - Points to unclaimed {vuln['service']} resource\n")
-                    f.write("\n")
-                    f.write("Subdomain takeover allows attackers to host malicious content on the organization's domain, ")
-                    f.write("enabling phishing campaigns, malware distribution, or reputation damage. These subdomains should be ")
-                    f.write("either claimed by the organization or removed from DNS records.\n\n")
-
-                # Technology Stack Section
-                f.write("### Understanding the Technology Stack\n\n")
-                tech = self.results.get('technology_stack', {})
-
-                if tech:
-                    f.write("Public sources and SSL certificates revealed the organization uses:\n")
-                    all_tech = set()
-                    all_servers = set()
-
-                    for domain, info in tech.items():
-                        if info.get('server'):
-                            all_servers.add(info['server'])
-                        if info.get('detected_technologies'):
-                            all_tech.update(info['detected_technologies'])
-
-                    if all_servers:
-                        f.write(f"• Web Servers: {', '.join(all_servers)}\n")
-                    if all_tech:
-                        f.write(f"• Technologies: {', '.join(all_tech)}\n")
-                    f.write("\n")
-
-                # LinkedIn Intelligence
-                f.write("### Employee Enumeration via LinkedIn\n\n")
-                linkedin = self.results.get('linkedin_intel', {})
-
-                google_results = linkedin.get('google_dork_results', [])
-                inferred = linkedin.get('inferred_employees', [])
-
-                total_employees = len(google_results) + len(inferred)
-
-                if total_employees > 0:
-                    f.write(f"LinkedIn reconnaissance identified {total_employees} employee accounts associated with the organization.\n\n")
-
-                    if linkedin.get('email_patterns'):
-                        pattern = linkedin['email_patterns'].get('likely_pattern', 'Unknown')
-                        confidence = linkedin['email_patterns'].get('confidence', 0)
-                        f.write(f"Email pattern analysis suggests the organization uses: {pattern} ({confidence:.0f}% confidence)\n\n")
-
-                    f.write("This intelligence enables targeted phishing campaigns and password spraying attacks against valid accounts. ")
-                    f.write("The identified email pattern can be used to generate username lists for authentication testing.\n\n")
-                else:
-                    f.write("Limited employee information was gathered through public LinkedIn sources.\n\n")
-
-                # Email Addresses Section
-                f.write("### Identifying Valid User Accounts\n\n")
-                emails = self.results.get('email_addresses', [])
-
-                if emails:
-                    f.write(f"Public sources revealed {len(emails)} employee email addresses following the format ")
-
-                    # Infer email format
-                    if emails:
-                        example = emails[0]
-                        local_part = example.split('@')[0]
-                        if '.' in local_part:
-                            f.write("firstname.lastname@domain.com\n")
-                        else:
-                            f.write("firstnamelastname@domain.com\n")
-
-                    f.write("\nSample email addresses identified:\n")
-                    for email in emails[:5]:  # First 5
-                        f.write(f"• {email}\n")
-                    f.write("\n")
-
-                # Breach Data Section
-                f.write("### Searching for Compromised Credentials\n\n")
-                breaches = self.results.get('breach_data', {})
-
-                if breaches:
-                    f.write(f"Breach databases were checked for client email addresses. {len(breaches)} accounts were found with exposed passwords:\n\n")
-                    for email, breach_list in list(breaches.items())[:5]:  # First 5
-                        f.write(f"• {email} - Found in: {', '.join(breach_list[:3])}\n")
-                    f.write("\n")
-                    f.write("These credentials became immediate testing priorities as users frequently reuse passwords across work and personal accounts.\n\n")
-                else:
-                    f.write("No exposed credentials were found in available breach databases.\n\n")
-
-                # GitHub Secret Scanning
-                f.write("### GitHub Secret Exposure\n\n")
-                github = self.results.get('github_secrets', {})
-
-                if github.get('total_secrets_found', 0) > 0:
-                    repos = github.get('repositories', [])
-                    issues = github.get('issues', [])
-                    commits = github.get('commits', [])
-
-                    f.write(f"GitHub scanning identified {github['total_secrets_found']} potential secrets across {len(repos)} repositories, ")
-                    f.write(f"{len(issues)} issues, and {len(commits)} commits.\n\n")
-
-                    if repos:
-                        f.write("Repositories containing sensitive data:\n")
-                        for repo in repos[:5]:
-                            f.write(f"• {repo['repository']}/{repo['file_path']}\n")
+                    # Ownership Verification
+                    f.write("### Ownership Verification\n\n")
+                    whois = self.results.get('scope_validation', {}).get('whois', {})
+                    if whois:
+                        for ip_range, info in whois.items():
+                            org = info.get('org', 'Unknown')
+                            f.write(f"• {ip_range} - Confirmed owned by {org}\n")
                         f.write("\n")
-
-                    f.write("Exposed secrets in public repositories represent critical security vulnerabilities, potentially providing ")
-                    f.write("direct access to infrastructure, databases, and third-party services.\n\n")
-                else:
-                    f.write("No secrets were discovered in public GitHub repositories associated with the organization.\n\n")
-
-                # ASN Enumeration
-                f.write("### Network Infrastructure (ASN Enumeration)\n\n")
-                asn_data = self.results.get('asn_data', {})
-
-                asns = asn_data.get('asn_numbers', [])
-                ip_ranges = asn_data.get('ip_ranges', [])
-
-                if asns:
-                    f.write(f"ASN enumeration identified {len(asns)} autonomous system(s) associated with the organization:\n\n")
-                    for asn in asns:
-                        f.write(f"• AS{asn['asn']} - {asn['owner']}\n")
-                    f.write("\n")
-
-                if ip_ranges:
-                    in_scope = [r for r in ip_ranges if r.get('in_scope') or r.get('contains_discovered_ips')]
-                    out_scope = [r for r in ip_ranges if not r.get('in_scope') and not r.get('contains_discovered_ips')]
-
-                    f.write(f"Total IP ranges discovered: {len(ip_ranges)}\n")
-                    f.write(f"• Ranges within authorized scope: {len(in_scope)}\n")
-                    f.write(f"• Ranges outside authorized scope: {len(out_scope)}\n\n")
-
-                    if out_scope:
-                        f.write("Additional IP ranges were identified that belong to the organization but fall outside the authorized testing scope. ")
-                        f.write("These ranges were documented but not tested.\n\n")
-
-                # Cloud Storage Enumeration Section
-                f.write("### Cloud Storage Enumeration\n\n")
-
-                s3 = self.results.get('s3_buckets', {})
-                azure = self.results.get('azure_storage', {})
-                gcp = self.results.get('gcp_storage', {})
-
-                found_s3 = s3.get('found', [])
-                found_azure = azure.get('found', [])
-                found_gcp = gcp.get('found', [])
-
-                total_cloud = len(found_s3) + len(found_azure) + len(found_gcp)
-
-                if total_cloud > 0:
-                    public_s3 = [b for b in found_s3 if b['status'] == 'Public Read']
-                    public_azure = [s for s in found_azure if s['status'] == 'Public Read']
-                    public_gcp = [b for b in found_gcp if b['status'] == 'Public Read']
-                    total_public = len(public_s3) + len(public_azure) + len(public_gcp)
-
-                    f.write(f"Cloud storage enumeration discovered {total_cloud} storage resource(s):\n")
-                    f.write(f"• AWS S3: {len(found_s3)} ({len(public_s3)} public)\n")
-                    f.write(f"• Azure Storage: {len(found_azure)} ({len(public_azure)} public)\n")
-                    f.write(f"• GCP Storage: {len(found_gcp)} ({len(public_gcp)} public)\n\n")
-
-                    if total_public > 0:
-                        f.write(f"**{total_public} publicly accessible cloud storage resource(s) identified:**\n\n")
-
-                        for bucket in public_s3:
-                            f.write(f"• AWS S3: {bucket['bucket']}\n")
-                            f.write(f"  URL: {bucket['url']}\n")
-                            if bucket.get('file_count'):
-                                f.write(f"  Contents: {bucket['file_count']} files\n")
-                            f.write("\n")
-
-                        for storage in public_azure:
-                            f.write(f"• Azure: {storage['account']}/{storage['container']}\n")
-                            f.write(f"  URL: {storage['url']}\n")
-                            if storage.get('file_count'):
-                                f.write(f"  Contents: {storage['file_count']} files\n")
-                            f.write("\n")
-
-                        for bucket in public_gcp:
-                            f.write(f"• GCP: {bucket['bucket']}\n")
-                            f.write(f"  URL: {bucket['url']}\n")
-                            if bucket.get('file_count'):
-                                f.write(f"  Contents: {bucket['file_count']} files\n")
-                            f.write("\n")
-
-                        f.write("Public cloud storage represents a critical data exposure risk. Unauthenticated access allows ")
-                        f.write("any internet user to view, and potentially download, sensitive organizational data.\n\n")
                     else:
-                        f.write("While cloud storage resources were discovered, all were properly configured with private access controls.\n\n")
-                else:
-                    f.write("No cloud storage resources were discovered during enumeration.\n\n")
+                        f.write("No IP ranges provided for ownership verification.\n\n")
 
-                # Network Enumeration Section
-                f.write("## Enumeration and Mapping\n\n")
-                scan = self.results.get('network_scan', {})
+                    # DNS Enumeration Section
+                    f.write("## Reconnaissance and OSINT\n\n")
+                    f.write("### Finding the External Footprint\n\n")
 
-                if scan:
-                    total_hosts = len(scan)
-                    total_ports = sum(len(ports) for ports in scan.values())
+                    dns = self.results.get('dns_enumeration', {})
+                    total = dns.get('total_discovered', 0)
+                    resolved = dns.get('resolved', {})
 
-                    f.write(f"Network scanning revealed {total_hosts} live hosts with {total_ports} open ports.\n\n")
+                    f.write(f"DNS enumeration revealed {total} subdomains. This mapped out what was reachable from the internet.\n\n")
 
-                    # Categorize services
-                    interesting_services = []
-                    for host, ports in scan.items():
-                        for port_num, port_info in ports.items():
-                            service = port_info.get('service', 'unknown')
-                            if any(keyword in service.lower() for keyword in ['vpn', 'ssh', 'rdp', 'http', 'ftp', 'smtp']):
-                                interesting_services.append(f"{host}:{port_num} ({service})")
-
-                    if interesting_services:
-                        f.write("Most promising targets for further investigation:\n")
-                        for service in interesting_services[:10]:  # Top 10
-                            f.write(f"• {service}\n")
+                    if resolved:
+                        f.write("Key subdomains identified:\n")
+                        for subdomain in sorted(resolved.keys())[:10]:
+                            ips = resolved[subdomain]
+                            f.write(f"• {subdomain} ({', '.join(ips)})\n")
                         f.write("\n")
+
+                    # Subdomain Takeover
+                    takeovers = self.results.get('subdomain_takeovers', [])
+                    if takeovers:
+                        f.write("### Subdomain Takeover Vulnerabilities\n\n")
+                        f.write(f"Analysis identified {len(takeovers)} subdomain(s) potentially vulnerable to takeover attacks:\n\n")
+                        for vuln in takeovers:
+                            f.write(f"• {vuln['subdomain']} - Points to unclaimed {vuln['service']} resource\n")
+                        f.write("\n")
+                        f.write("Subdomain takeover allows attackers to host malicious content on the organization's domain, ")
+                        f.write("enabling phishing campaigns, malware distribution, or reputation damage. These subdomains should be ")
+                        f.write("either claimed by the organization or removed from DNS records.\n\n")
+
+                    # Technology Stack Section
+                    f.write("### Understanding the Technology Stack\n\n")
+                    tech = self.results.get('technology_stack', {})
+
+                    if tech:
+                        f.write("Public sources and SSL certificates revealed the organization uses:\n")
+                        all_tech = set()
+                        all_servers = set()
+
+                        for domain, info in tech.items():
+                            if info.get('server'):
+                                all_servers.add(info['server'])
+                            if info.get('detected_technologies'):
+                                all_tech.update(info['detected_technologies'])
+
+                        if all_servers:
+                            f.write(f"• Web Servers: {', '.join(all_servers)}\n")
+                        if all_tech:
+                            f.write(f"• Technologies: {', '.join(all_tech)}\n")
+                        f.write("\n")
+
+                    # LinkedIn Intelligence
+                    f.write("### Employee Enumeration via LinkedIn\n\n")
+                    linkedin = self.results.get('linkedin_intel', {})
+
+                    employees = linkedin.get('employees', [])
+
+                    if employees:
+                        f.write(f"LinkedIn reconnaissance identified {len(employees)} employee accounts associated with the organization.\n\n")
+                        f.write("This intelligence enables targeted phishing campaigns and password spraying attacks against valid accounts.\n\n")
+                    else:
+                        f.write("Limited employee information was gathered through public LinkedIn sources.\n\n")
+
+                    # Email Addresses Section
+                    f.write("### Identifying Valid User Accounts\n\n")
+                    emails = self.results.get('email_addresses', [])
+
+                    if emails:
+                        f.write(f"Public sources revealed {len(emails)} email addresses:\n\n")
+                        for email in emails[:10]:
+                            f.write(f"• {email}\n")
+                        if len(emails) > 10:
+                            f.write(f"• ... and {len(emails) - 10} more\n")
+                        f.write("\n")
+                    else:
+                        f.write("No email addresses were discovered through passive reconnaissance.\n\n")
+
+                    # Breach Data Section
+                    f.write("### Searching for Compromised Credentials\n\n")
+                    breaches = self.results.get('breach_data', {})
+
+                    if breaches:
+                        f.write(f"Breach databases were checked for client email addresses. {len(breaches)} accounts were found with exposed passwords:\n\n")
+                        for email, breach_list in list(breaches.items())[:5]:
+                            f.write(f"• {email} - Found in: {', '.join(breach_list[:3])}\n")
+                        f.write("\n")
+                        f.write("These credentials became immediate testing priorities as users frequently reuse passwords across work and personal accounts.\n\n")
+                    else:
+                        f.write("No exposed credentials were found in available breach databases.\n\n")
+
+                    # GitHub Secret Scanning
+                    f.write("### GitHub Secret Exposure\n\n")
+                    github = self.results.get('github_secrets', {})
+
+                    if github.get('total_secrets_found', 0) > 0:
+                        repos = github.get('repositories', [])
+                        issues = github.get('issues', [])
+                        commits = github.get('commits', [])
+
+                        f.write(f"GitHub scanning identified {github['total_secrets_found']} potential secrets across {len(repos)} repositories, ")
+                        f.write(f"{len(issues)} issues, and {len(commits)} commits.\n\n")
+
+                        if repos:
+                            f.write("Repositories containing sensitive data:\n")
+                            for repo in repos[:5]:
+                                f.write(f"• {repo['repository']}/{repo['file_path']}\n")
+                            f.write("\n")
+
+                        f.write("Exposed secrets in public repositories represent critical security vulnerabilities, potentially providing ")
+                        f.write("direct access to infrastructure, databases, and third-party services.\n\n")
+                    else:
+                        f.write("No secrets were discovered in public GitHub repositories associated with the organization.\n\n")
+
+                    # ASN Enumeration
+                    f.write("### Network Infrastructure (ASN Enumeration)\n\n")
+                    asn_data = self.results.get('asn_data', {})
+
+                    asns = asn_data.get('asn_numbers', [])
+                    ip_ranges = asn_data.get('ip_ranges', [])
+
+                    if asns:
+                        f.write(f"ASN enumeration identified {len(asns)} autonomous system(s) associated with the organization:\n\n")
+                        for asn in asns:
+                            f.write(f"• AS{asn['asn']} - {asn['owner']}\n")
+                        f.write("\n")
+
+                    if ip_ranges:
+                        in_scope = [r for r in ip_ranges if r.get('in_scope') or r.get('contains_discovered_ips')]
+                        out_scope = [r for r in ip_ranges if not r.get('in_scope') and not r.get('contains_discovered_ips')]
+
+                        f.write(f"Total IP ranges discovered: {len(ip_ranges)}\n")
+                        f.write(f"• Ranges within authorized scope: {len(in_scope)}\n")
+                        f.write(f"• Ranges outside authorized scope: {len(out_scope)}\n\n")
+
+                        if out_scope:
+                            f.write("Additional IP ranges were identified that belong to the organization but fall outside the authorized testing scope. ")
+                            f.write("These ranges were documented but not tested.\n\n")
+
+                    # Cloud Storage Enumeration Section
+                    f.write("### Cloud Storage Enumeration\n\n")
+
+                    s3 = self.results.get('s3_buckets', {})
+                    azure = self.results.get('azure_storage', {})
+                    gcp = self.results.get('gcp_storage', {})
+
+                    found_s3 = s3.get('found', [])
+                    found_azure = azure.get('found', [])
+                    found_gcp = gcp.get('found', [])
+
+                    total_cloud = len(found_s3) + len(found_azure) + len(found_gcp)
+
+                    if total_cloud > 0:
+                        public_s3 = [b for b in found_s3 if b['status'] == 'Public Read']
+                        public_azure = [s for s in found_azure if s['status'] == 'Public Read']
+                        public_gcp = [b for b in found_gcp if b['status'] == 'Public Read']
+                        total_public = len(public_s3) + len(public_azure) + len(public_gcp)
+
+                        f.write(f"Cloud storage enumeration discovered {total_cloud} storage resource(s):\n")
+                        f.write(f"• AWS S3: {len(found_s3)} ({len(public_s3)} public)\n")
+                        f.write(f"• Azure Storage: {len(found_azure)} ({len(public_azure)} public)\n")
+                        f.write(f"• GCP Storage: {len(found_gcp)} ({len(public_gcp)} public)\n\n")
+
+                        if total_public > 0:
+                            f.write(f"**{total_public} publicly accessible cloud storage resource(s) identified.**\n\n")
+                            f.write("Public cloud storage represents a critical data exposure risk. Unauthenticated access allows ")
+                            f.write("any internet user to view, and potentially download, sensitive organizational data.\n\n")
+                        else:
+                            f.write("While cloud storage resources were discovered, all were properly configured with private access controls.\n\n")
+                    else:
+                        f.write("No cloud storage resources were discovered during enumeration.\n\n")
+
+                    # Network Enumeration Section
+                    f.write("## Enumeration and Mapping\n\n")
+                    scan = self.results.get('network_scan', {})
+
+                    if scan:
+                        total_hosts = len(scan)
+                        total_ports = sum(len(ports) for ports in scan.values())
+
+                        f.write(f"Network scanning revealed {total_hosts} live hosts with {total_ports} open ports.\n\n")
+
+                        interesting_services = []
+                        for host, ports in scan.items():
+                            for port_num, port_info in ports.items():
+                                service = port_info.get('service', 'unknown')
+                                if any(keyword in service.lower() for keyword in ['vpn', 'ssh', 'rdp', 'http', 'ftp', 'smtp']):
+                                    interesting_services.append(f"{host}:{port_num} ({service})")
+
+                        if interesting_services:
+                            f.write("Most promising targets for further investigation:\n")
+                            for service in interesting_services[:10]:
+                                f.write(f"• {service}\n")
+                            f.write("\n")
 
     def run_all(self):
             """Run all reconnaissance modules with state tracking"""
