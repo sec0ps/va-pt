@@ -2860,7 +2860,7 @@ class ReconAutomation:
             self.print_success(f"Found {len(web_emails)} emails from web scraping")
 
             # Method 3: Google dorking
-            self.print_info("Searching Google for emails...")
+            self.print_info("Searching search engines for emails...")
             google_emails = self._google_dork_emails()
             for email in google_emails:
                 emails.add(email)
@@ -2927,90 +2927,134 @@ class ReconAutomation:
                 self.print_warning(f"No emails found for target domain ({self.domain})")
 
     def _google_dork_emails(self) -> List[str]:
-            """Search for emails using multiple search engines"""
-            emails = []
-            email_pattern = re.compile(
-                r'\b[A-Za-z0-9._%+-]+@' + re.escape(self.domain) + r'\b',
-                re.IGNORECASE
-            )
+                """Search for emails using multiple search engines"""
+                emails = []
 
-            target = self.domain
+                # More restrictive pattern - exclude URL-like prefixes
+                def extract_emails(text, target_domain):
+                    """Extract emails while filtering out URL contamination"""
+                    # First try mailto: links (most reliable)
+                    mailto = re.findall(r'mailto:([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})', text)
 
-            # Queries to run
-            queries = [
-                f'"@{target}"',
-                f'site:{target} "@{target}"',
-                f'"@{target}" filetype:pdf',
-                f'"@{target}" contact email',
-            ]
+                    # Then general pattern with cleanup
+                    raw_pattern = r'[A-Za-z0-9._%+-]+@' + re.escape(target_domain)
+                    raw_matches = re.findall(raw_pattern, text, re.IGNORECASE)
 
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5',
-            }
+                    valid_emails = list(mailto)
+                    for email in raw_matches:
+                        local_part = email.split('@')[0].lower()
 
-            # Try Bing (more scrape-friendly than Google)
-            self.print_info("Searching Bing for emails...")
-            for query in queries:
-                try:
-                    url = f"https://www.bing.com/search?q={requests.utils.quote(query)}&count=50"
-                    response = self.session.get(url, headers=headers, timeout=15)
+                        # Skip if local part looks like URL remnant
+                        if local_part.startswith('www.'):
+                            continue
+                        if re.search(r'\.(com|org|net|edu|gov|io|co|uk)$', local_part):
+                            continue
+                        if len(local_part) > 64:
+                            continue
 
-                    if response.status_code == 200:
-                        found = email_pattern.findall(response.text)
-                        if found:
-                            self.print_info(f"  Bing query found {len(found)} matches")
-                        emails.extend(found)
+                        valid_emails.append(email)
 
-                    time.sleep(2)
+                    return valid_emails
 
-                except Exception as e:
-                    self.print_warning(f"Bing search failed: {e}")
+                target = self.domain
 
-            # Try DuckDuckGo HTML version
-            self.print_info("Searching DuckDuckGo for emails...")
-            for query in queries[:2]:  # DDG is stricter, use fewer queries
-                try:
-                    url = f"https://html.duckduckgo.com/html/?q={requests.utils.quote(query)}"
-                    response = self.session.get(url, headers=headers, timeout=15)
+                # Queries to run
+                queries = [
+                    f'"@{target}"',
+                    f'site:{target} "@{target}"',
+                    f'"@{target}" filetype:pdf',
+                    f'"@{target}" contact email',
+                ]
 
-                    if response.status_code == 200:
-                        found = email_pattern.findall(response.text)
-                        if found:
-                            self.print_info(f"  DuckDuckGo query found {len(found)} matches")
-                        emails.extend(found)
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5',
+                }
 
-                    time.sleep(3)
+                # Try Google (may be blocked, but worth trying)
+                self.print_info("  Trying Google...")
+                for query in queries[:2]:
+                    try:
+                        url = f"https://www.google.com/search?q={requests.utils.quote(query)}&num=50"
+                        response = self.session.get(url, headers=headers, timeout=15)
 
-                except Exception as e:
-                    self.print_warning(f"DuckDuckGo search failed: {e}")
+                        if response.status_code == 200:
+                            found = extract_emails(response.text, target)
+                            if found:
+                                self.print_info(f"    Google found {len(found)} matches")
+                            emails.extend(found)
+                        elif response.status_code == 429:
+                            self.print_warning("    Google rate limited/blocked")
+                            break
 
-            # Try Yahoo
-            self.print_info("Searching Yahoo for emails...")
-            for query in queries[:2]:
-                try:
-                    url = f"https://search.yahoo.com/search?p={requests.utils.quote(query)}&n=50"
-                    response = self.session.get(url, headers=headers, timeout=15)
+                        time.sleep(3)
 
-                    if response.status_code == 200:
-                        found = email_pattern.findall(response.text)
-                        if found:
-                            self.print_info(f"  Yahoo query found {len(found)} matches")
-                        emails.extend(found)
+                    except Exception as e:
+                        self.print_warning(f"    Google search failed: {e}")
+                        break
 
-                    time.sleep(2)
+                # Try Bing
+                self.print_info("  Trying Bing...")
+                for query in queries:
+                    try:
+                        url = f"https://www.bing.com/search?q={requests.utils.quote(query)}&count=50"
+                        response = self.session.get(url, headers=headers, timeout=15)
 
-                except Exception as e:
-                    self.print_warning(f"Yahoo search failed: {e}")
+                        if response.status_code == 200:
+                            found = extract_emails(response.text, target)
+                            if found:
+                                self.print_info(f"    Bing found {len(found)} matches")
+                            emails.extend(found)
 
-            # Deduplicate and filter
-            unique_emails = list(set(emails))
+                        time.sleep(2)
 
-            # Filter to only target domain
-            filtered = [e for e in unique_emails if e.lower().endswith(f'@{target.lower()}')]
+                    except Exception as e:
+                        self.print_warning(f"    Bing search failed: {e}")
 
-            return filtered
+                # Try DuckDuckGo HTML version
+                self.print_info("  Trying DuckDuckGo...")
+                for query in queries[:2]:
+                    try:
+                        url = f"https://html.duckduckgo.com/html/?q={requests.utils.quote(query)}"
+                        response = self.session.get(url, headers=headers, timeout=15)
+
+                        if response.status_code == 200:
+                            found = extract_emails(response.text, target)
+                            if found:
+                                self.print_info(f"    DuckDuckGo found {len(found)} matches")
+                            emails.extend(found)
+
+                        time.sleep(3)
+
+                    except Exception as e:
+                        self.print_warning(f"    DuckDuckGo search failed: {e}")
+
+                # Try Yahoo
+                self.print_info("  Trying Yahoo...")
+                for query in queries[:2]:
+                    try:
+                        url = f"https://search.yahoo.com/search?p={requests.utils.quote(query)}&n=50"
+                        response = self.session.get(url, headers=headers, timeout=15)
+
+                        if response.status_code == 200:
+                            found = extract_emails(response.text, target)
+                            if found:
+                                self.print_info(f"    Yahoo found {len(found)} matches")
+                            emails.extend(found)
+
+                        time.sleep(2)
+
+                    except Exception as e:
+                        self.print_warning(f"    Yahoo search failed: {e}")
+
+                # Deduplicate and filter
+                unique_emails = list(set(e.lower() for e in emails))
+
+                # Filter to only target domain
+                filtered = [e for e in unique_emails if e.endswith(f'@{target.lower()}')]
+
+                return filtered
 
     def _search_pgp_servers(self) -> List[str]:
         """Search PGP key servers for emails"""
@@ -3232,7 +3276,10 @@ class ReconAutomation:
     def _scrape_emails_from_web(self) -> List[str]:
             """Crawl company website to discover email addresses"""
             emails = set()
-            email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+
+            # More restrictive email pattern - local part cannot start with www. or contain .org, .com etc before @
+            # This prevents matching URLs that run into emails
+            email_pattern = r'(?<![A-Za-z0-9./_-])([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})(?![A-Za-z0-9])'
 
             visited = set()
             to_visit = []
@@ -3291,10 +3338,10 @@ class ReconAutomation:
                     pages_crawled += 1
                     html = response.text
 
-                    # Extract emails
+                    # Extract emails - use findall with groups
                     found_emails = re.findall(email_pattern, html)
 
-                    # mailto: links
+                    # Also extract from mailto: links (most reliable)
                     mailto_matches = re.findall(r'mailto:([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})', html)
                     found_emails.extend(mailto_matches)
 
@@ -3304,9 +3351,26 @@ class ReconAutomation:
                         found_emails.append(f"{parts[0]}@{parts[1]}.{parts[2]}")
 
                     for email in found_emails:
-                        email_lower = email.lower()
-                        if not any(x in email_lower for x in ['example.com', 'domain.com', 'test.com', '.png', '.jpg', '.gif', 'wixpress']):
-                            emails.add(email_lower)
+                        email_lower = email.lower().strip()
+
+                        # Skip if local part looks like a URL (contains .com, .org, .net, etc before @)
+                        local_part = email_lower.split('@')[0]
+                        if re.search(r'\.(com|org|net|edu|gov|io|co|uk|de|fr|es|it|ru|cn|jp|au|ca|br|in|mx)$', local_part):
+                            continue
+
+                        # Skip if starts with www.
+                        if local_part.startswith('www.'):
+                            continue
+
+                        # Skip if local part is too long (likely garbage)
+                        if len(local_part) > 64:
+                            continue
+
+                        # Skip common false positives
+                        if any(x in email_lower for x in ['example.com', 'domain.com', 'test.com', '.png', '.jpg', '.gif', 'wixpress', 'sentry.io']):
+                            continue
+
+                        emails.add(email_lower)
 
                     # Discover internal links
                     if depth < max_depth:
