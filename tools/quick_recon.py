@@ -1135,8 +1135,7 @@ class ReconAutomation:
 
                     linkedin_intel = {
                         'company_info': progress.get('company_info', {}),
-                        'employees': progress.get('employees', []),
-                        'titles': progress.get('titles', {})
+                        'employees': progress.get('employees', [])
                     }
 
                     # Check if LinkedIn cookies are configured
@@ -1648,9 +1647,6 @@ class ReconAutomation:
                             if emp not in linkedin_intel['employees']:
                                 linkedin_intel['employees'].append(emp)
 
-                            if emp.get('title') and emp['title'] != 'Unknown':
-                                linkedin_intel['titles'][emp['title']] = linkedin_intel['titles'].get(emp['title'], 0) + 1
-
                         self.print_info("\nEmployees found:")
                         for emp in linkedin_intel['employees']:
                             title_info = f" - {emp['title']}" if emp.get('title') and emp['title'] != 'Unknown' else ""
@@ -1669,12 +1665,6 @@ class ReconAutomation:
                     if linkedin_intel.get('company_info', {}).get('companies'):
                         self.print_info(f"  Companies: {len(linkedin_intel['company_info']['companies'])}")
                     self.print_info(f"  Employees: {len(linkedin_intel['employees'])}")
-
-                    if linkedin_intel['titles']:
-                        self.print_info(f"  Top titles:")
-                        sorted_titles = sorted(linkedin_intel['titles'].items(), key=lambda x: x[1], reverse=True)[:10]
-                        for title, count in sorted_titles:
-                            self.print_info(f"    - {title} ({count})")
 
     def run_linkedin_only(self):
             """Run only LinkedIn enumeration for testing"""
