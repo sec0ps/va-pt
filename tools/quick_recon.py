@@ -1028,6 +1028,13 @@ class ReconAutomation:
 
                                 page_companies = []
 
+                                # Extract all company IDs from response for lookup
+                                all_company_ids = {}  # slug -> company_id
+                                raw_text = json.dumps(data)
+
+                                # Find all entityUrn patterns with company IDs
+                                urn_matches = re.findall(r'urn:li:(?:fsd_)?company:(\d+)', raw_text)
+
                                 # First pass: build a map of entity URNs to company data
                                 company_map = {}
                                 for item in included:
@@ -1044,6 +1051,8 @@ class ReconAutomation:
                                             match = re.search(r'company:(\d+)', entity_urn)
                                             if match:
                                                 company_id = match.group(1)
+                                                if universal_name:
+                                                    all_company_ids[universal_name] = company_id
 
                                         if name and entity_urn:
                                             company_map[entity_urn] = {
@@ -1064,12 +1073,15 @@ class ReconAutomation:
                                             if '/company/' in navigation:
                                                 slug = navigation.split('/company/')[-1].split('/')[0].split('?')[0]
 
-                                                # Try to find company_id from company_map by matching slug
-                                                company_id = ''
-                                                for urn, comp in company_map.items():
-                                                    if comp['slug'] == slug:
-                                                        company_id = comp.get('company_id', '')
-                                                        break
+                                                # Look up company_id from our collected data
+                                                company_id = all_company_ids.get(slug, '')
+
+                                                # Also check company_map by slug
+                                                if not company_id:
+                                                    for urn, comp in company_map.items():
+                                                        if comp.get('slug') == slug and comp.get('company_id'):
+                                                            company_id = comp['company_id']
+                                                            break
 
                                                 if not any(c['slug'] == slug for c in page_companies):
                                                     page_companies.append({
@@ -1081,25 +1093,25 @@ class ReconAutomation:
 
                                     tracking = item.get('trackingUrn', '')
                                     if 'company:' in tracking:
-                                        company_id = tracking.split('company:')[-1].split(',')[0].split(')')[0]
-                                        for urn, comp in company_map.items():
-                                            if company_id in urn and not any(c['slug'] == comp['slug'] for c in page_companies):
-                                                page_companies.append(comp)
+                                        match = re.search(r'company:(\d+)', tracking)
+                                        if match:
+                                            company_id = match.group(1)
+                                            for urn, comp in company_map.items():
+                                                if comp.get('company_id') == company_id and not any(c['slug'] == comp['slug'] for c in page_companies):
+                                                    page_companies.append(comp)
 
                                 for urn, comp in company_map.items():
                                     if not any(c['slug'] == comp['slug'] for c in page_companies) and comp['slug']:
                                         page_companies.append(comp)
 
                                 if not page_companies:
-                                    text = json.dumps(data)
-                                    slug_matches = re.findall(r'"universalName":\s*"([^"]+)"', text)
-                                    name_matches = re.findall(r'"name":\s*"([^"]{3,60})"', text)
-                                    id_matches = re.findall(r'company:(\d+)', text)
+                                    slug_matches = re.findall(r'"universalName":\s*"([^"]+)"', raw_text)
+                                    name_matches = re.findall(r'"name":\s*"([^"]{3,60})"', raw_text)
 
                                     for i, slug in enumerate(slug_matches):
                                         if slug and not any(c['slug'] == slug for c in page_companies):
                                             name = name_matches[i] if i < len(name_matches) else slug
-                                            company_id = id_matches[i] if i < len(id_matches) else ''
+                                            company_id = all_company_ids.get(slug, '')
                                             page_companies.append({
                                                 'name': name,
                                                 'slug': slug,
@@ -1218,6 +1230,7 @@ class ReconAutomation:
                     for company_idx, company in enumerate(companies_to_search, 1):
                         company_name = company['name']
                         company_id = company.get('company_id', '')
+                        company_slug = company.get('slug', '')
 
                         if company_name in searched_companies:
                             self.print_info(f"Skipping {company_name} (already searched)")
@@ -1225,22 +1238,58 @@ class ReconAutomation:
 
                         self.print_info(f"\n[2/2] Searching for employees at: {company_name} ({company_idx}/{len(companies_to_search)})")
 
+                        # If no company_id, look it up via company page
+                        if not company_id and company_slug:
+                            self.print_info(f"  Looking up company ID for {company_slug}...")
+                            try:
+                                company_lookup_url = f"https://www.linkedin.com/voyager/api/organization/companies?decorationId=com.linkedin.voyager.deco.organization.web.WebFullCompanyMain-21&q=universalName&universalName={company_slug}"
+                                lookup_response = linkedin_session.get(company_lookup_url, headers=api_headers, timeout=15)
+
+                                if lookup_response.status_code == 200:
+                                    lookup_data = lookup_response.json()
+                                    # Extract company ID from response
+                                    elements = lookup_data.get('elements', [])
+                                    if elements:
+                                        entity_urn = elements[0].get('entityUrn', '')
+                                        match = re.search(r'company:(\d+)', entity_urn)
+                                        if match:
+                                            company_id = match.group(1)
+                                            company['company_id'] = company_id
+                                            self.print_success(f"  Found company ID: {company_id}")
+
+                                    # Also try from raw response
+                                    if not company_id:
+                                        raw_text = json.dumps(lookup_data)
+                                        match = re.search(r'"companyId":\s*(\d+)', raw_text)
+                                        if match:
+                                            company_id = match.group(1)
+                                            company['company_id'] = company_id
+                                            self.print_success(f"  Found company ID: {company_id}")
+                                        else:
+                                            match = re.search(r'urn:li:(?:fsd_)?company:(\d+)', raw_text)
+                                            if match:
+                                                company_id = match.group(1)
+                                                company['company_id'] = company_id
+                                                self.print_success(f"  Found company ID: {company_id}")
+
+                                time.sleep(2)
+                            except Exception as e:
+                                self.print_warning(f"  Company lookup failed: {e}")
+
                         if company_id:
                             self.print_info(f"  Using company ID filter: {company_id}")
                         else:
-                            self.print_warning(f"  No company ID found, using keyword search (less accurate)")
+                            self.print_error(f"  Could not find company ID - skipping (keyword search is too inaccurate)")
+                            searched_companies.add(company_name)
+                            continue
 
                         start = 0
                         company_employees = []
                         max_per_company = max_employee_results // len(companies_to_search) if len(companies_to_search) > 1 else max_employee_results
 
                         while start < max_per_company:
-                            # Use currentCompany filter if we have company_id
-                            if company_id:
-                                people_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(flagshipSearchIntent:SEARCH_SRP,queryParameters:(currentCompany:List({company_id}),resultType:List(PEOPLE)),includeFiltersInResponse:false)&start={start}"
-                            else:
-                                company_encoded = company_name.replace(' ', '%20').replace(',', '%2C')
-                                people_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(keywords:{company_encoded},flagshipSearchIntent:SEARCH_SRP,queryParameters:(resultType:List(PEOPLE)),includeFiltersInResponse:false)&start={start}"
+                            # Use currentCompany filter with company_id
+                            people_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(flagshipSearchIntent:SEARCH_SRP,queryParameters:(currentCompany:List({company_id}),resultType:List(PEOPLE)),includeFiltersInResponse:false)&start={start}"
 
                             try:
                                 response = linkedin_session.get(people_search_url, headers=api_headers, timeout=15)
