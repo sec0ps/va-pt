@@ -476,8 +476,18 @@ class ReconAutomation:
     def save_config(self):
                 """Save configuration to file"""
                 try:
+                    # Ensure we're saving all keys including linkedin_cookies
+                    config_to_save = {
+                        'github_token': self.config.get('github_token', ''),
+                        'shodan_api_key': self.config.get('shodan_api_key', ''),
+                        'censys_api_id': self.config.get('censys_api_id', ''),
+                        'censys_api_secret': self.config.get('censys_api_secret', ''),
+                        'hibp_api_key': self.config.get('hibp_api_key', ''),
+                        'linkedin_cookies': self.config.get('linkedin_cookies', '')
+                    }
+
                     with open(self.config_file, 'w') as f:
-                        json.dump(self.config, f, indent=2)
+                        json.dump(config_to_save, f, indent=2)
                     self.print_success(f"Configuration saved to {self.config_file}")
                 except Exception as e:
                     self.print_error(f"Error saving config: {e}")
