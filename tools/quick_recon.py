@@ -570,6 +570,120 @@ class ReconAutomation:
 
             print("="*80 + "\n")
 
+    def _validate_api_token(self, service: str) -> bool:
+            """Validate API token for a service. Returns True if valid, False if invalid/skipped."""
+
+            if service == 'github':
+                token = self.config.get('github_token', '')
+                if not token:
+                    return False
+
+                try:
+                    response = requests.get(
+                        'https://api.github.com/user',
+                        headers={'Authorization': f'token {token}'},
+                        timeout=10
+                    )
+
+                    if response.status_code == 200:
+                        return True
+                    elif response.status_code in [401, 403]:
+                        self.print_error("GitHub token is invalid or expired")
+                    else:
+                        self.print_warning(f"GitHub API returned status {response.status_code}")
+                        return True  # Might be rate limited, try anyway
+
+                except Exception as e:
+                    self.print_warning(f"Could not validate GitHub token: {e}")
+                    return True  # Network issue, try anyway
+
+            elif service == 'shodan':
+                key = self.config.get('shodan_api_key', '')
+                if not key:
+                    return False
+
+                try:
+                    response = requests.get(
+                        f'https://api.shodan.io/api-info?key={key}',
+                        timeout=10
+                    )
+
+                    if response.status_code == 200:
+                        return True
+                    elif response.status_code in [401, 403]:
+                        self.print_error("Shodan API key is invalid or expired")
+                    else:
+                        self.print_warning(f"Shodan API returned status {response.status_code}")
+                        return True
+
+                except Exception as e:
+                    self.print_warning(f"Could not validate Shodan key: {e}")
+                    return True
+
+            elif service == 'hibp':
+                key = self.config.get('hibp_api_key', '')
+                if not key:
+                    return False
+
+                try:
+                    response = requests.get(
+                        'https://haveibeenpwned.com/api/v3/subscription/status',
+                        headers={'hibp-api-key': key},
+                        timeout=10
+                    )
+
+                    if response.status_code == 200:
+                        return True
+                    elif response.status_code in [401, 403]:
+                        self.print_error("HIBP API key is invalid or expired")
+                    else:
+                        return True
+
+                except Exception as e:
+                    self.print_warning(f"Could not validate HIBP key: {e}")
+                    return True
+
+            return False
+
+    def _handle_invalid_token(self, service: str) -> bool:
+        """Handle invalid token - prompt for new one or skip. Returns True if valid token available."""
+
+        service_config = {
+            'github': {'key': 'github_token', 'name': 'GitHub Personal Access Token'},
+            'shodan': {'key': 'shodan_api_key', 'name': 'Shodan API Key'},
+            'hibp': {'key': 'hibp_api_key', 'name': 'HIBP API Key'}
+        }
+
+        config = service_config.get(service)
+        if not config:
+            return False
+
+        print(f"\n[!] {config['name']} is invalid or expired.")
+        print(f"    [n] Enter new {config['name']}")
+        print(f"    [s] Skip {service} scanning")
+
+        choice = input("    Selection [n/s]: ").strip().lower()
+
+        if choice == 'n':
+            new_token = input(f"    Enter new {config['name']}: ").strip()
+            if new_token:
+                self.config[config['key']] = new_token
+                # Re-validate
+                if self._validate_api_token(service):
+                    self.print_success(f"{config['name']} validated successfully")
+                    return True
+                else:
+                    self.print_error(f"New {config['name']} is also invalid")
+                    self.config[config['key']] = ''
+                    return False
+            else:
+                self.config[config['key']] = ''
+                return False
+        else:
+            self.print_info(f"Skipping {service} scanning")
+            self.config[config['key']] = ''
+            return False
+
     def post_dns_whois_lookup(self):
             """Perform WHOIS lookups on IPs discovered from DNS enumeration"""
             self.print_section("POST-DNS WHOIS LOOKUP")
@@ -665,262 +779,287 @@ class ReconAutomation:
             self.print_success(f"\nWHOIS lookup complete: {len(whois_results)} IPs across {len(org_summary)} organizations")
 
     def github_secret_scanning(self):
-            """Search GitHub for leaked credentials and secrets with checkpoint support"""
-            self.print_section("GITHUB SECRET SCANNING")
+                """Search GitHub for leaked credentials and secrets with checkpoint support"""
+                self.print_section("GITHUB SECRET SCANNING")
 
-            if not self.config.get('github_token'):
-                self.print_warning("No GitHub token configured. Skipping GitHub scanning.")
-                self.print_info("Run with a configured token for enhanced secret detection")
-                return
+                if not self.config.get('github_token'):
+                    self.print_warning("No GitHub token configured. Skipping GitHub scanning.")
+                    self.print_info("Run with a configured token for enhanced secret detection")
+                    return
 
-            # Get resume data if available
-            resume_data = self.get_resume_data('github_secret_scanning')
-            progress = resume_data.get('progress', {})
+                # Validate token before proceeding
+                if not self._validate_api_token('github'):
+                    if not self._handle_invalid_token('github'):
+                        return
 
-            github_findings = {
-                'repositories': progress.get('repositories', []),
-                'gists': progress.get('gists', []),
-                'issues': progress.get('issues', []),
-                'commits': progress.get('commits', []),
-                'total_secrets_found': progress.get('total_secrets_found', 0)
-            }
+                # Get resume data if available
+                resume_data = self.get_resume_data('github_secret_scanning')
+                progress = resume_data.get('progress', {})
 
-            # Track which queries have been completed
-            completed_code_queries = set(progress.get('completed_code_queries', []))
-            completed_gist_queries = set(progress.get('completed_gist_queries', []))
-            completed_issue_queries = set(progress.get('completed_issue_queries', []))
+                github_findings = {
+                    'repositories': progress.get('repositories', []),
+                    'gists': progress.get('gists', []),
+                    'issues': progress.get('issues', []),
+                    'commits': progress.get('commits', []),
+                    'total_secrets_found': progress.get('total_secrets_found', 0)
+                }
 
-            headers = {
-                'Authorization': f"token {self.config['github_token']}",
-                'Accept': 'application/vnd.github.v3+json'
-            }
+                # Track which queries have been completed
+                completed_code_queries = set(progress.get('completed_code_queries', []))
+                completed_gist_queries = set(progress.get('completed_gist_queries', []))
+                completed_issue_queries = set(progress.get('completed_issue_queries', []))
 
-            # Define search queries
-            search_queries = [
-                f'"{self.domain}"',
-                f'"{self.domain.replace(".", " ")}"',
-                f'"{self.domain.split(".")[0]}"',
-                f'{self.domain} password',
-                f'{self.domain} api_key',
-                f'{self.domain} secret',
-                f'{self.domain} credentials',
-                f'{self.domain} aws_access_key',
-                f'{self.domain} private_key'
-            ]
+                headers = {
+                    'Authorization': f"token {self.config['github_token']}",
+                    'Accept': 'application/vnd.github.v3+json'
+                }
 
-            # Sensitive patterns to look for
-            sensitive_patterns = {
-                'aws_access_key': r'AKIA[0-9A-Z]{16}',
-                'aws_secret_key': r'aws_secret_access_key.*?["\']([^"\']{40})["\']',
-                'private_key': r'-----BEGIN (RSA|DSA|EC|OPENSSH) PRIVATE KEY-----',
-                'api_key': r'api[_-]?key.*?["\']([a-zA-Z0-9_\-]{20,})["\']',
-                'password': r'password.*?["\']([^"\']{8,})["\']',
-                'database_url': r'(postgresql|mysql|mongodb)://[^\s]+',
-                'jwt_token': r'eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*',
-                'slack_token': r'xox[baprs]-[0-9]{10,12}-[0-9]{10,12}-[a-zA-Z0-9]{24,32}',
-                'google_api': r'AIza[0-9A-Za-z\\-_]{35}',
-                's3_bucket': r'[a-z0-9.-]+\.s3\.amazonaws\.com',
-                'azure_storage': r'[a-z0-9]+\.blob\.core\.windows\.net',
-                'gcp_bucket': r'[a-z0-9._-]+\.storage\.googleapis\.com'
-            }
+                # Define search queries
+                search_queries = [
+                    f'"{self.domain}"',
+                    f'"{self.domain.replace(".", " ")}"',
+                    f'"{self.domain.split(".")[0]}"',
+                    f'{self.domain} password',
+                    f'{self.domain} api_key',
+                    f'{self.domain} secret',
+                    f'{self.domain} credentials',
+                    f'{self.domain} aws_access_key',
+                    f'{self.domain} private_key'
+                ]
 
-            # Create GitHub downloads directory
-            github_download_dir = self.output_dir / 'github_secrets'
-            github_download_dir.mkdir(parents=True, exist_ok=True)
+                # Sensitive patterns to look for
+                sensitive_patterns = {
+                    'aws_access_key': r'AKIA[0-9A-Z]{16}',
+                    'aws_secret_key': r'aws_secret_access_key.*?["\']([^"\']{40})["\']',
+                    'private_key': r'-----BEGIN (RSA|DSA|EC|OPENSSH) PRIVATE KEY-----',
+                    'api_key': r'api[_-]?key.*?["\']([a-zA-Z0-9_\-]{20,})["\']',
+                    'password': r'password.*?["\']([^"\']{8,})["\']',
+                    'database_url': r'(postgresql|mysql|mongodb)://[^\s]+',
+                    'jwt_token': r'eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*',
+                    'slack_token': r'xox[baprs]-[0-9]{10,12}-[0-9]{10,12}-[a-zA-Z0-9]{24,32}',
+                    'google_api': r'AIza[0-9A-Za-z\\-_]{35}',
+                    's3_bucket': r'[a-z0-9.-]+\.s3\.amazonaws\.com',
+                    'azure_storage': r'[a-z0-9]+\.blob\.core\.windows\.net',
+                    'gcp_bucket': r'[a-z0-9._-]+\.storage\.googleapis\.com'
+                }
 
-            if completed_code_queries or completed_gist_queries or completed_issue_queries:
-                self.print_info(f"Resuming from checkpoint:")
-                self.print_info(f"  Code queries completed: {len(completed_code_queries)}/{len(search_queries)}")
-                self.print_info(f"  Gist queries completed: {len(completed_gist_queries)}/3")
-                self.print_info(f"  Issue queries completed: {len(completed_issue_queries)}/3")
+                # Create GitHub downloads directory
+                github_download_dir = self.output_dir / 'github_secrets'
+                github_download_dir.mkdir(parents=True, exist_ok=True)
 
-            self.print_info(f"Searching GitHub with {len(search_queries)} queries...")
+                if completed_code_queries or completed_gist_queries or completed_issue_queries:
+                    self.print_info(f"Resuming from checkpoint:")
+                    self.print_info(f"  Code queries completed: {len(completed_code_queries)}/{len(search_queries)}")
+                    self.print_info(f"  Gist queries completed: {len(completed_gist_queries)}/3")
+                    self.print_info(f"  Issue queries completed: {len(completed_issue_queries)}/3")
 
-            # Search Code
-            self.print_info("Searching code repositories...")
-            for query in search_queries:
-                if query in completed_code_queries:
-                    continue
+                self.print_info(f"Searching GitHub with {len(search_queries)} queries...")
 
-                try:
-                    url = f"https://api.github.com/search/code?q={query}&per_page=10"
-                    response = self.session.get(url, headers=headers, timeout=15)
+                # Track if we hit auth errors
+                auth_failed = False
 
-                    if response.status_code == 200:
-                        data = response.json()
+                # Search Code
+                self.print_info("Searching code repositories...")
+                for query in search_queries:
+                    if query in completed_code_queries:
+                        continue
 
-                        for item in data.get('items', []):
-                            repo_finding = {
-                                'repository': item.get('repository', {}).get('full_name'),
-                                'file_path': item.get('path'),
-                                'html_url': item.get('html_url'),
-                                'secrets_found': []
-                            }
-
-                            # Get file content
-                            try:
-                                content_url = item.get('url')
-                                if content_url:
-                                    content_resp = self.session.get(content_url, headers=headers, timeout=10)
-                                    if content_resp.status_code == 200:
-                                        content_data = content_resp.json()
-                                        content = base64.b64decode(content_data.get('content', '')).decode('utf-8', errors='ignore')
-
-                                        # Check for sensitive patterns with validation
-                                        for secret_type, pattern in sensitive_patterns.items():
-                                            matches = re.findall(pattern, content, re.IGNORECASE)
-                                            if matches:
-                                                is_real = self._is_real_secret(secret_type, matches, content)
-
-                                                if is_real:
-                                                    repo_finding['secrets_found'].append({
-                                                        'type': secret_type,
-                                                        'count': len(matches)
-                                                    })
-                                                    github_findings['total_secrets_found'] += len(matches)
-
-                                        if repo_finding['secrets_found']:
-                                            github_findings['repositories'].append(repo_finding)
-                                            self.print_warning(f"Secrets found in: {repo_finding['repository']}/{repo_finding['file_path']}")
-                                            for secret in repo_finding['secrets_found']:
-                                                self.print_info(f"  - {secret['type']}: {secret['count']} match(es)")
-
-                                            # Download the file with secrets
-                                            safe_repo_name = repo_finding['repository'].replace('/', '_')
-                                            safe_file_name = repo_finding['file_path'].replace('/', '_')
-                                            output_file = github_download_dir / f"{safe_repo_name}_{safe_file_name}"
-
-                                            try:
-                                                with open(output_file, 'w', encoding='utf-8') as f:
-                                                    f.write(content)
-                                                self.print_success(f"  Downloaded to: {output_file}")
-                                            except Exception as e:
-                                                self.print_error(f"  Failed to save file: {e}")
-
-                            except Exception as e:
-                                self.print_error(f"Error fetching content: {e}")
-
-                    elif response.status_code == 403:
-                        self.print_warning("GitHub API rate limit reached. Waiting 60 seconds...")
-                        time.sleep(60)
-                    elif response.status_code == 401:
-                        self.print_error("GitHub token is invalid or expired")
+                    if auth_failed:
                         break
 
-                    # Mark query as completed and checkpoint
-                    completed_code_queries.add(query)
-                    self.checkpoint('github_secret_scanning', 'completed_code_queries', list(completed_code_queries))
-                    self.checkpoint('github_secret_scanning', 'repositories', github_findings['repositories'])
-                    self.checkpoint('github_secret_scanning', 'total_secrets_found', github_findings['total_secrets_found'])
+                    try:
+                        url = f"https://api.github.com/search/code?q={query}&per_page=10"
+                        response = self.session.get(url, headers=headers, timeout=15)
 
-                    time.sleep(2)  # Rate limiting
+                        if response.status_code == 200:
+                            data = response.json()
 
-                except Exception as e:
-                    self.print_error(f"Error searching code: {e}")
-
-            # Search Gists
-            self.print_info("Searching gists...")
-            for query in search_queries[:3]:
-                if query in completed_gist_queries:
-                    continue
-
-                try:
-                    url = f"https://api.github.com/search/code?q={query}+in:file+language:text&per_page=5"
-                    response = self.session.get(url, headers=headers, timeout=15)
-
-                    if response.status_code == 200:
-                        data = response.json()
-                        for item in data.get('items', []):
-                            if 'gist' in item.get('html_url', ''):
-                                gist_finding = {
-                                    'gist_id': item.get('html_url'),
-                                    'file': item.get('path'),
+                            for item in data.get('items', []):
+                                repo_finding = {
+                                    'repository': item.get('repository', {}).get('full_name'),
+                                    'file_path': item.get('path'),
+                                    'html_url': item.get('html_url'),
                                     'secrets_found': []
                                 }
-                                github_findings['gists'].append(gist_finding)
-                                self.print_success(f"Found gist: {gist_finding['gist_id']}")
 
-                    completed_gist_queries.add(query)
-                    self.checkpoint('github_secret_scanning', 'completed_gist_queries', list(completed_gist_queries))
-                    self.checkpoint('github_secret_scanning', 'gists', github_findings['gists'])
-
-                    time.sleep(2)
-                except Exception as e:
-                    self.print_error(f"Error searching gists: {e}")
-
-            # Search Issues
-            self.print_info("Searching issues...")
-            for query in search_queries[:3]:
-                if query in completed_issue_queries:
-                    continue
-
-                try:
-                    url = f"https://api.github.com/search/issues?q={query}+in:body&per_page=10"
-                    response = self.session.get(url, headers=headers, timeout=15)
-
-                    if response.status_code == 200:
-                        data = response.json()
-
-                        for item in data.get('items', []):
-                            body = item.get('body', '')
-
-                            # Check for sensitive patterns in issue body with validation
-                            secrets_found = []
-                            for secret_type, pattern in sensitive_patterns.items():
-                                matches = re.findall(pattern, body, re.IGNORECASE)
-                                if matches:
-                                    is_real = self._is_real_secret(secret_type, matches, body)
-
-                                    if is_real:
-                                        secrets_found.append({
-                                            'type': secret_type,
-                                            'count': len(matches)
-                                        })
-                                        github_findings['total_secrets_found'] += len(matches)
-
-                            if secrets_found:
-                                issue_finding = {
-                                    'title': item.get('title'),
-                                    'html_url': item.get('html_url'),
-                                    'state': item.get('state'),
-                                    'secrets_found': secrets_found
-                                }
-                                github_findings['issues'].append(issue_finding)
-                                self.print_warning(f"Secrets in issue: {issue_finding['title']}")
-                                self.print_info(f"  URL: {issue_finding['html_url']}")
-
-                                # Save issue body
-                                safe_title = re.sub(r'[^\w\s-]', '', issue_finding['title'])[:50]
-                                output_file = github_download_dir / f"issue_{safe_title}.txt"
+                                # Get file content
                                 try:
-                                    with open(output_file, 'w', encoding='utf-8') as f:
-                                        f.write(f"Title: {issue_finding['title']}\n")
-                                        f.write(f"URL: {issue_finding['html_url']}\n")
-                                        f.write(f"State: {issue_finding['state']}\n\n")
-                                        f.write(body)
-                                    self.print_success(f"  Saved to: {output_file}")
+                                    content_url = item.get('url')
+                                    if content_url:
+                                        content_resp = self.session.get(content_url, headers=headers, timeout=10)
+                                        if content_resp.status_code == 200:
+                                            content_data = content_resp.json()
+                                            content = base64.b64decode(content_data.get('content', '')).decode('utf-8', errors='ignore')
+
+                                            # Check for sensitive patterns with validation
+                                            for secret_type, pattern in sensitive_patterns.items():
+                                                matches = re.findall(pattern, content, re.IGNORECASE)
+                                                if matches:
+                                                    is_real = self._is_real_secret(secret_type, matches, content)
+
+                                                    if is_real:
+                                                        repo_finding['secrets_found'].append({
+                                                            'type': secret_type,
+                                                            'count': len(matches)
+                                                        })
+                                                        github_findings['total_secrets_found'] += len(matches)
+
+                                            if repo_finding['secrets_found']:
+                                                github_findings['repositories'].append(repo_finding)
+                                                self.print_warning(f"Secrets found in: {repo_finding['repository']}/{repo_finding['file_path']}")
+                                                for secret in repo_finding['secrets_found']:
+                                                    self.print_info(f"  - {secret['type']}: {secret['count']} match(es)")
+
+                                                # Download the file with secrets
+                                                safe_repo_name = repo_finding['repository'].replace('/', '_')
+                                                safe_file_name = repo_finding['file_path'].replace('/', '_')
+                                                output_file = github_download_dir / f"{safe_repo_name}_{safe_file_name}"
+
+                                                try:
+                                                    with open(output_file, 'w', encoding='utf-8') as f:
+                                                        f.write(content)
+                                                    self.print_success(f"  Downloaded to: {output_file}")
+                                                except Exception as e:
+                                                    self.print_error(f"  Failed to save file: {e}")
+
                                 except Exception as e:
-                                    self.print_error(f"  Failed to save issue: {e}")
+                                    self.print_error(f"Error fetching content: {e}")
 
-                    completed_issue_queries.add(query)
-                    self.checkpoint('github_secret_scanning', 'completed_issue_queries', list(completed_issue_queries))
-                    self.checkpoint('github_secret_scanning', 'issues', github_findings['issues'])
+                        elif response.status_code == 403:
+                            self.print_warning("GitHub API rate limit reached. Waiting 60 seconds...")
+                            time.sleep(60)
+                        elif response.status_code == 401:
+                            self.print_error("GitHub token is invalid or expired")
+                            if not self._handle_invalid_token('github'):
+                                auth_failed = True
+                                break
+                            # Update headers with new token
+                            headers['Authorization'] = f"token {self.config['github_token']}"
 
-                    time.sleep(2)
-                except Exception as e:
-                    self.print_error(f"Error searching issues: {e}")
+                        # Mark query as completed and checkpoint
+                        completed_code_queries.add(query)
+                        self.checkpoint('github_secret_scanning', 'completed_code_queries', list(completed_code_queries))
+                        self.checkpoint('github_secret_scanning', 'repositories', github_findings['repositories'])
+                        self.checkpoint('github_secret_scanning', 'total_secrets_found', github_findings['total_secrets_found'])
 
-            # Store results
-            self.results['github_secrets'] = github_findings
+                        time.sleep(2)  # Rate limiting
 
-            # Summary
-            self.print_info("\nGitHub Secret Scanning Summary:")
-            self.print_info(f"  Repositories with secrets: {len(github_findings['repositories'])}")
-            self.print_info(f"  Issues with secrets: {len(github_findings['issues'])}")
-            self.print_info(f"  Total secrets found: {github_findings['total_secrets_found']}")
+                    except Exception as e:
+                        self.print_error(f"Error searching code: {e}")
 
-            if github_findings['total_secrets_found'] > 0:
-                self.print_warning(f"\n[!] Downloaded files with secrets to: {github_download_dir}")
+                # Search Gists
+                if not auth_failed:
+                    self.print_info("Searching gists...")
+                    for query in search_queries[:3]:
+                        if query in completed_gist_queries:
+                            continue
+
+                        try:
+                            url = f"https://api.github.com/search/code?q={query}+in:file+language:text&per_page=5"
+                            response = self.session.get(url, headers=headers, timeout=15)
+
+                            if response.status_code == 200:
+                                data = response.json()
+                                for item in data.get('items', []):
+                                    if 'gist' in item.get('html_url', ''):
+                                        gist_finding = {
+                                            'gist_id': item.get('html_url'),
+                                            'file': item.get('path'),
+                                            'secrets_found': []
+                                        }
+                                        github_findings['gists'].append(gist_finding)
+                                        self.print_success(f"Found gist: {gist_finding['gist_id']}")
+
+                            elif response.status_code == 401:
+                                self.print_error("GitHub token expired during gist search")
+                                break
+
+                            completed_gist_queries.add(query)
+                            self.checkpoint('github_secret_scanning', 'completed_gist_queries', list(completed_gist_queries))
+                            self.checkpoint('github_secret_scanning', 'gists', github_findings['gists'])
+
+                            time.sleep(2)
+                        except Exception as e:
+                            self.print_error(f"Error searching gists: {e}")
+
+                # Search Issues
+                if not auth_failed:
+                    self.print_info("Searching issues...")
+                    for query in search_queries[:3]:
+                        if query in completed_issue_queries:
+                            continue
+
+                        try:
+                            url = f"https://api.github.com/search/issues?q={query}+in:body&per_page=10"
+                            response = self.session.get(url, headers=headers, timeout=15)
+
+                            if response.status_code == 200:
+                                data = response.json()
+
+                                for item in data.get('items', []):
+                                    body = item.get('body', '')
+
+                                    # Check for sensitive patterns in issue body with validation
+                                    secrets_found = []
+                                    for secret_type, pattern in sensitive_patterns.items():
+                                        matches = re.findall(pattern, body, re.IGNORECASE)
+                                        if matches:
+                                            is_real = self._is_real_secret(secret_type, matches, body)
+
+                                            if is_real:
+                                                secrets_found.append({
+                                                    'type': secret_type,
+                                                    'count': len(matches)
+                                                })
+                                                github_findings['total_secrets_found'] += len(matches)
+
+                                    if secrets_found:
+                                        issue_finding = {
+                                            'title': item.get('title'),
+                                            'html_url': item.get('html_url'),
+                                            'state': item.get('state'),
+                                            'secrets_found': secrets_found
+                                        }
+                                        github_findings['issues'].append(issue_finding)
+                                        self.print_warning(f"Secrets in issue: {issue_finding['title']}")
+                                        self.print_info(f"  URL: {issue_finding['html_url']}")
+
+                                        # Save issue body
+                                        safe_title = re.sub(r'[^\w\s-]', '', issue_finding['title'])[:50]
+                                        output_file = github_download_dir / f"issue_{safe_title}.txt"
+                                        try:
+                                            with open(output_file, 'w', encoding='utf-8') as f:
+                                                f.write(f"Title: {issue_finding['title']}\n")
+                                                f.write(f"URL: {issue_finding['html_url']}\n")
+                                                f.write(f"State: {issue_finding['state']}\n\n")
+                                                f.write(body)
+                                            self.print_success(f"  Saved to: {output_file}")
+                                        except Exception as e:
+                                            self.print_error(f"  Failed to save issue: {e}")
+
+                            elif response.status_code == 401:
+                                self.print_error("GitHub token expired during issue search")
+                                break
+
+                            completed_issue_queries.add(query)
+                            self.checkpoint('github_secret_scanning', 'completed_issue_queries', list(completed_issue_queries))
+                            self.checkpoint('github_secret_scanning', 'issues', github_findings['issues'])
+
+                            time.sleep(2)
+                        except Exception as e:
+                            self.print_error(f"Error searching issues: {e}")
+
+                # Store results
+                self.results['github_secrets'] = github_findings
+
+                # Summary
+                self.print_info("\nGitHub Secret Scanning Summary:")
+                self.print_info(f"  Repositories with secrets: {len(github_findings['repositories'])}")
+                self.print_info(f"  Issues with secrets: {len(github_findings['issues'])}")
+                self.print_info(f"  Total secrets found: {github_findings['total_secrets_found']}")
+
+                if github_findings['total_secrets_found'] > 0:
+                    self.print_warning(f"\n[!] Downloaded files with secrets to: {github_download_dir}")
 
     def linkedin_enumeration(self):
                     """LinkedIn intelligence gathering using authenticated session with checkpoint support"""
@@ -4327,37 +4466,41 @@ class ReconAutomation:
                 self.print_success("No compromised credentials found in breach databases")
 
     def _check_hibp(self, email: str) -> List[str]:
-            """Check email against Have I Been Pwned API"""
-            breaches = []
-            try:
-                url = f"https://haveibeenpwned.com/api/v3/breachedaccount/{email}"
-                headers = {
-                    'User-Agent': 'Penetration-Testing-Reconnaissance-Tool',
-                    'hibp-api-key': self.config.get('hibp_api_key', '')  # Optional API key
-                }
-                response = requests.get(url, headers=headers, timeout=10)
+                """Check email against Have I Been Pwned API"""
+                breaches = []
 
-                if response.status_code == 200:
-                    data = response.json()
-                    breaches = [breach['Name'] for breach in data]
-                elif response.status_code == 404:
-                    # No breaches found (good news)
-                    pass
-                elif response.status_code == 401:
-                    # API key required or invalid
-                    if not self.config.get('hibp_api_key'):
-                        self.print_warning("HIBP API requires a key for reliable access. Get one at https://haveibeenpwned.com/API/Key")
-                        self.print_info("Continuing with limited/public API access...")
-                    else:
-                        self.print_warning("HIBP API key is invalid")
-                elif response.status_code == 429:
-                    self.print_warning(f"HIBP rate limit hit for {email}")
-                else:
-                    self.print_warning(f"HIBP API returned status {response.status_code} for {email}")
-            except Exception as e:
-                self.print_warning(f"HIBP check failed for {email}: {e}")
+                # Skip if we already know the key is invalid (set to empty after failed validation)
+                if self.config.get('_hibp_validated') == False:
+                    return breaches
 
-            return breaches
+                try:
+                    url = f"https://haveibeenpwned.com/api/v3/breachedaccount/{email}"
+                    headers = {
+                        'User-Agent': 'Penetration-Testing-Reconnaissance-Tool',
+                        'hibp-api-key': self.config.get('hibp_api_key', '')
+                    }
+                    response = requests.get(url, headers=headers, timeout=10)
+
+                    if response.status_code == 200:
+                        data = response.json()
+                        breaches = [breach['Name'] for breach in data]
+                    elif response.status_code == 404:
+                        pass  # No breaches found
+                    elif response.status_code == 401:
+                        if self.config.get('hibp_api_key'):
+                            # Key provided but invalid
+                            if not self._handle_invalid_token('hibp'):
+                                self.config['_hibp_validated'] = False
+                        else:
+                            self.print_warning("HIBP API requires a key. Get one at https://haveibeenpwned.com/API/Key")
+                            self.config['_hibp_validated'] = False
+                    elif response.status_code == 429:
+                        self.print_warning(f"HIBP rate limit hit for {email}")
+                        time.sleep(2)
+                except Exception as e:
+                    self.print_warning(f"HIBP check failed for {email}: {e}")
+
+                return breaches
 
     def network_enumeration(self):
             """Perform network scanning on in-scope IP ranges"""
