@@ -450,128 +450,145 @@ class ReconAutomation:
                                 self.print_warning(f"✗ {ip} is NOT in provided scope ranges")
 
     def load_config(self) -> Dict[str, str]:
-        """Load configuration from file"""
-        default_config = {
-            'github_token': '',
-            'shodan_api_key': '',
-            'censys_api_id': '',
-            'censys_api_secret': ''
-        }
+            """Load configuration from file"""
+            default_config = {
+                'github_token': '',
+                'shodan_api_key': '',
+                'censys_api_id': '',
+                'censys_api_secret': '',
+                'hibp_api_key': '',
+                'linkedin_cookies': ''
+            }
 
-        if self.config_file.exists():
-            try:
-                with open(self.config_file, 'r') as f:
-                    loaded_config = json.load(f)
-                    # Merge with defaults in case new keys were added
-                    default_config.update(loaded_config)
+            if self.config_file.exists():
+                try:
+                    with open(self.config_file, 'r') as f:
+                        loaded_config = json.load(f)
+                        # Merge with defaults in case new keys were added
+                        default_config.update(loaded_config)
+                        return default_config
+                except Exception as e:
+                    self.print_warning(f"Error loading config: {e}")
                     return default_config
-            except Exception as e:
-                self.print_warning(f"Error loading config: {e}")
-                return default_config
 
-        return default_config
+            return default_config
 
     def save_config(self):
-            """Save configuration to file (excludes temporary credentials)"""
-            try:
-                # Create a copy without temporary credentials
-                config_to_save = self.config.copy()
-
-                # Remove temporary credentials that shouldn't be saved
-                config_to_save.pop('linkedin_cookie', None)
-                config_to_save.pop('linkedin_cookies', None)
-
-                with open(self.config_file, 'w') as f:
-                    json.dump(config_to_save, f, indent=2)
-                self.print_success(f"Configuration saved to {self.config_file}")
-            except Exception as e:
-                self.print_error(f"Error saving config: {e}")
+                """Save configuration to file"""
+                try:
+                    with open(self.config_file, 'w') as f:
+                        json.dump(self.config, f, indent=2)
+                    self.print_success(f"Configuration saved to {self.config_file}")
+                except Exception as e:
+                    self.print_error(f"Error saving config: {e}")
 
     def prompt_for_api_keys(self):
-            """Prompt user for API keys if not already configured"""
-            print("\n" + "="*80)
-            print("API KEY CONFIGURATION")
-            print("="*80)
-            print("Some modules require API keys/tokens for enhanced functionality.")
-            print("Press Enter to skip any key you don't have or want to configure later.")
-            print("")
+                """Prompt user for API keys if not already configured"""
+                print("\n" + "="*80)
+                print("API KEY CONFIGURATION")
+                print("="*80)
+                print("Some modules require API keys/tokens for enhanced functionality.")
+                print("Press Enter to skip any key you don't have or want to configure later.")
+                print("")
 
-            updated = False
+                updated = False
 
-            # GitHub Token
-            if not self.config.get('github_token'):
-                print("[*] GitHub Token (for secret scanning in repos/gists/issues)")
-                print("    Generate at: https://github.com/settings/tokens")
-                print("    Required scopes: public_repo (read:org optional)")
-                token = input("    Enter GitHub token (or press Enter to skip): ").strip()
-                if token:
-                    self.config['github_token'] = token
-                    updated = True
-                    self.print_success("GitHub token configured")
+                # GitHub Token
+                if not self.config.get('github_token'):
+                    print("[*] GitHub Token (for secret scanning in repos/gists/issues)")
+                    print("    Generate at: https://github.com/settings/tokens")
+                    print("    Required scopes: public_repo (read:org optional)")
+                    token = input("    Enter GitHub token (or press Enter to skip): ").strip()
+                    if token:
+                        self.config['github_token'] = token
+                        updated = True
+                        self.print_success("GitHub token configured")
+                    else:
+                        self.print_info("Skipping GitHub token - secret scanning will be limited")
                 else:
-                    self.print_info("Skipping GitHub token - secret scanning will be limited")
-            else:
-                self.print_success("GitHub token already configured")
+                    # Validate existing token
+                    self.print_info("Validating existing GitHub token...")
+                    if self._validate_api_token('github'):
+                        self.print_success("GitHub token is valid")
+                    else:
+                        if self._handle_invalid_token('github'):
+                            updated = True
 
-            print("")
+                print("")
 
-            # LinkedIn Cookies - ALWAYS prompt (not saved, expires after use)
-            print("="*80)
-            print("LINKEDIN COOKIES REQUIRED")
-            print("="*80)
-            print("[*] LinkedIn Session Cookies (for employee enumeration)")
-            print("    Note: Requires FULL cookie string from browser")
-            print("    1. Open LinkedIn in your browser and log in")
-            print("    2. Open Developer Tools (F12) -> Network tab")
-            print("    3. Refresh the page, click any linkedin.com request")
-            print("    4. In Request Headers, find 'Cookie:' and copy the ENTIRE value")
-            print("    5. Paste the full cookie string below (will NOT be saved)")
-            cookies = input("    Enter full LinkedIn cookie string (or press Enter to skip): ").strip()
-            if cookies:
-                self.config['linkedin_cookies'] = cookies
-                # NOTE: Do NOT save to config file - it's temporary
-                self.print_success("LinkedIn cookies configured for this session only")
-            else:
-                self.print_info("Skipping LinkedIn cookies - employee enumeration will be skipped")
+                # LinkedIn Cookies
+                print("="*80)
+                print("LINKEDIN CONFIGURATION")
+                print("="*80)
 
-            print("")
-
-            # HIBP API Key (optional but recommended)
-            if not self.config.get('hibp_api_key'):
-                print("[*] Have I Been Pwned API Key (optional - for breach checking)")
-                print("    Get key at: https://haveibeenpwned.com/API/Key")
-                print("    Cost: $3.50/month for full API access")
-                key = input("    Enter HIBP API key (or press Enter to skip): ").strip()
-                if key:
-                    self.config['hibp_api_key'] = key
-                    updated = True
-                    self.print_success("HIBP API key configured")
+                if not self.config.get('linkedin_cookies'):
+                    print("[*] LinkedIn Session Cookies (for employee enumeration)")
+                    print("    1. Open LinkedIn in your browser and log in")
+                    print("    2. Open Developer Tools (F12) -> Network tab")
+                    print("    3. Refresh the page, click any linkedin.com request")
+                    print("    4. In Request Headers, find 'Cookie:' and copy the ENTIRE value")
+                    cookies = input("    Enter full LinkedIn cookie string (or press Enter to skip): ").strip()
+                    if cookies:
+                        self.config['linkedin_cookies'] = cookies
+                        # Validate the cookies
+                        self.print_info("Validating LinkedIn cookies...")
+                        if self._validate_api_token('linkedin'):
+                            self.print_success("LinkedIn cookies validated and saved")
+                            updated = True
+                        else:
+                            self.print_error("LinkedIn cookies are invalid")
+                            self.config['linkedin_cookies'] = ''
+                    else:
+                        self.print_info("Skipping LinkedIn - employee enumeration will be skipped")
                 else:
-                    self.print_info("Skipping HIBP API key - breach checking will use free tier (limited)")
-            else:
-                self.print_success("HIBP API key already configured")
+                    # Validate existing cookies
+                    self.print_info("Validating existing LinkedIn cookies...")
+                    if self._validate_api_token('linkedin'):
+                        self.print_success("LinkedIn cookies are valid")
+                    else:
+                        if self._handle_invalid_token('linkedin'):
+                            updated = True
 
-            print("")
+                print("")
 
-            # Optional: Shodan (for future use)
-            if not self.config.get('shodan_api_key'):
-                print("[*] Shodan API Key (optional - for enhanced service discovery)")
-                print("    Register at: https://account.shodan.io/register")
-                key = input("    Enter Shodan API key (or press Enter to skip): ").strip()
-                if key:
-                    self.config['shodan_api_key'] = key
-                    updated = True
-                    self.print_success("Shodan API key configured")
-            else:
-                self.print_success("Shodan API key already configured")
+                # HIBP API Key
+                if not self.config.get('hibp_api_key'):
+                    print("[*] HIBP API Key (for breach data - optional but recommended)")
+                    print("    Get a key at: https://haveibeenpwned.com/API/Key")
+                    key = input("    Enter HIBP API key (or press Enter to skip): ").strip()
+                    if key:
+                        self.config['hibp_api_key'] = key
+                        updated = True
+                        self.print_success("HIBP API key configured")
+                    else:
+                        self.print_info("Skipping HIBP API key - breach checks may be limited")
+                else:
+                    self.print_success("HIBP API key already configured")
 
-            if updated:
-                self.save_config()
+                print("")
 
-            print("="*80 + "\n")
+                # Shodan API Key
+                if not self.config.get('shodan_api_key'):
+                    print("[*] Shodan API Key (for infrastructure reconnaissance - optional)")
+                    print("    Register at: https://account.shodan.io/register")
+                    key = input("    Enter Shodan API key (or press Enter to skip): ").strip()
+                    if key:
+                        self.config['shodan_api_key'] = key
+                        updated = True
+                        self.print_success("Shodan API key configured")
+                    else:
+                        self.print_info("Skipping Shodan API key")
+                else:
+                    self.print_success("Shodan API key already configured")
+
+                print("="*80 + "\n")
+
+                # Save if anything was updated
+                if updated:
+                    self.save_config()
 
     def _validate_api_token(self, service: str) -> bool:
-            """Validate API token for a service. Returns True if valid, False if invalid/skipped."""
+            """Validate API token for a service. Returns True if valid, False if invalid."""
 
             if service == 'github':
                 token = self.config.get('github_token', '')
@@ -588,13 +605,11 @@ class ReconAutomation:
                     if response.status_code == 200:
                         return True
                     elif response.status_code in [401, 403]:
-                        self.print_error("GitHub token is invalid or expired")
+                        return False
                     else:
-                        self.print_warning(f"GitHub API returned status {response.status_code}")
                         return True  # Might be rate limited, try anyway
 
-                except Exception as e:
-                    self.print_warning(f"Could not validate GitHub token: {e}")
+                except Exception:
                     return True  # Network issue, try anyway
 
             elif service == 'shodan':
@@ -611,13 +626,11 @@ class ReconAutomation:
                     if response.status_code == 200:
                         return True
                     elif response.status_code in [401, 403]:
-                        self.print_error("Shodan API key is invalid or expired")
+                        return False
                     else:
-                        self.print_warning(f"Shodan API returned status {response.status_code}")
                         return True
 
-                except Exception as e:
-                    self.print_warning(f"Could not validate Shodan key: {e}")
+                except Exception:
                     return True
 
             elif service == 'hibp':
@@ -635,54 +648,105 @@ class ReconAutomation:
                     if response.status_code == 200:
                         return True
                     elif response.status_code in [401, 403]:
-                        self.print_error("HIBP API key is invalid or expired")
+                        return False
                     else:
                         return True
 
-                except Exception as e:
-                    self.print_warning(f"Could not validate HIBP key: {e}")
+                except Exception:
                     return True
+
+            elif service == 'linkedin':
+                cookies = self.config.get('linkedin_cookies', '')
+                if not cookies:
+                    return False
+
+                try:
+                    # Set up session with cookies
+                    session = requests.Session()
+                    for cookie in cookies.split('; '):
+                        if '=' in cookie:
+                            name, value = cookie.split('=', 1)
+                            session.cookies.set(name, value, domain='.linkedin.com')
+
+                    # Extract CSRF token
+                    jsessionid = session.cookies.get('JSESSIONID', '').strip('"')
+                    if not jsessionid:
+                        return False
+
+                    # Test with a simple API call
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
+                        'Accept': 'application/vnd.linkedin.normalized+json+2.1',
+                        'Csrf-Token': jsessionid,
+                        'X-Restli-Protocol-Version': '2.0.0',
+                    }
+
+                    response = session.get(
+                        'https://www.linkedin.com/voyager/api/me',
+                        headers=headers,
+                        timeout=10
+                    )
+
+                    if response.status_code == 200:
+                        return True
+                    elif response.status_code in [401, 403]:
+                        return False
+                    else:
+                        return True  # Might be temporary issue
+
+                except Exception:
+                    return True  # Network issue, try anyway
 
             return False
 
     def _handle_invalid_token(self, service: str) -> bool:
-        """Handle invalid token - prompt for new one or skip. Returns True if valid token available."""
+            """Handle invalid token - prompt for new one or skip. Returns True if valid token now available."""
 
-        service_config = {
-            'github': {'key': 'github_token', 'name': 'GitHub Personal Access Token'},
-            'shodan': {'key': 'shodan_api_key', 'name': 'Shodan API Key'},
-            'hibp': {'key': 'hibp_api_key', 'name': 'HIBP API Key'}
-        }
+            service_config = {
+                'github': {'key': 'github_token', 'name': 'GitHub Personal Access Token', 'url': 'https://github.com/settings/tokens'},
+                'shodan': {'key': 'shodan_api_key', 'name': 'Shodan API Key', 'url': 'https://account.shodan.io'},
+                'hibp': {'key': 'hibp_api_key', 'name': 'HIBP API Key', 'url': 'https://haveibeenpwned.com/API/Key'},
+                'linkedin': {'key': 'linkedin_cookies', 'name': 'LinkedIn Cookies', 'url': None}
+            }
 
-        config = service_config.get(service)
-        if not config:
-            return False
+            config = service_config.get(service)
+            if not config:
+                return False
 
-        print(f"\n[!] {config['name']} is invalid or expired.")
-        print(f"    [n] Enter new {config['name']}")
-        print(f"    [s] Skip {service} scanning")
+            self.print_error(f"{config['name']} is invalid or expired")
+            print(f"\n    [n] Enter new {config['name']}")
+            print(f"    [s] Skip {service} scanning")
+            if config['url']:
+                print(f"    Get a key at: {config['url']}")
 
-        choice = input("    Selection [n/s]: ").strip().lower()
+            if service == 'linkedin':
+                print(f"\n    To get LinkedIn cookies:")
+                print(f"    1. Open LinkedIn in your browser and log in")
+                print(f"    2. Open Developer Tools (F12) -> Network tab")
+                print(f"    3. Refresh the page, click any linkedin.com request")
+                print(f"    4. In Request Headers, find 'Cookie:' and copy the ENTIRE value")
 
-        if choice == 'n':
-            new_token = input(f"    Enter new {config['name']}: ").strip()
-            if new_token:
-                self.config[config['key']] = new_token
-                # Re-validate
-                if self._validate_api_token(service):
-                    self.print_success(f"{config['name']} validated successfully")
-                    return True
+            choice = input("\n    Selection [n/s]: ").strip().lower()
+
+            if choice == 'n':
+                new_token = input(f"    Enter new {config['name']}: ").strip()
+                if new_token:
+                    self.config[config['key']] = new_token
+                    if self._validate_api_token(service):
+                        self.print_success(f"{config['name']} validated successfully")
+                        self.save_config()  # Save the new valid token
+                        return True
+                    else:
+                        self.print_error(f"New {config['name']} is also invalid")
+                        self.config[config['key']] = ''
+                        return False
                 else:
-                    self.print_error(f"New {config['name']} is also invalid")
                     self.config[config['key']] = ''
                     return False
             else:
+                self.print_info(f"Skipping {service} scanning")
                 self.config[config['key']] = ''
                 return False
-        else:
-            self.print_info(f"Skipping {service} scanning")
-            self.config[config['key']] = ''
-            return False
 
     def post_dns_whois_lookup(self):
             """Perform WHOIS lookups on IPs discovered from DNS enumeration"""
@@ -1077,16 +1141,38 @@ class ReconAutomation:
 
                     # Check if LinkedIn cookies are configured
                     if not self.config.get('linkedin_cookies'):
-                        self.print_warning("No LinkedIn session cookies provided.")
-                        self.print_info("LinkedIn requires fresh session cookies for each run.")
-                        self.print_info("To enable LinkedIn enumeration:")
-                        self.print_info("  1. Open LinkedIn in your browser and log in")
-                        self.print_info("  2. Open Developer Tools (F12) -> Network tab")
-                        self.print_info("  3. Click any request to linkedin.com")
-                        self.print_info("  4. Copy the FULL 'Cookie:' header value from Request Headers")
-                        self.print_info("  5. Paste the entire cookie string when prompted")
-                        self.print_info("Skipping LinkedIn enumeration...")
-                        return
+                        self.print_warning("No LinkedIn cookies configured.")
+                        print("\n    [n] Enter LinkedIn cookies now")
+                        print("    [s] Skip LinkedIn enumeration")
+                        choice = input("\n    Selection [n/s]: ").strip().lower()
+
+                        if choice == 'n':
+                            print("\n    To get LinkedIn cookies:")
+                            print("    1. Open LinkedIn in your browser and log in")
+                            print("    2. Open Developer Tools (F12) -> Network tab")
+                            print("    3. Refresh the page, click any linkedin.com request")
+                            print("    4. In Request Headers, find 'Cookie:' and copy the ENTIRE value")
+                            cookies = input("\n    Enter full LinkedIn cookie string: ").strip()
+                            if cookies:
+                                self.config['linkedin_cookies'] = cookies
+                                if self._validate_api_token('linkedin'):
+                                    self.print_success("LinkedIn cookies validated and saved")
+                                    self.save_config()
+                                else:
+                                    self.print_error("LinkedIn cookies are invalid")
+                                    self.config['linkedin_cookies'] = ''
+                                    return
+                            else:
+                                self.print_info("Skipping LinkedIn enumeration")
+                                return
+                        else:
+                            self.print_info("Skipping LinkedIn enumeration")
+                            return
+
+                    # Validate existing cookies
+                    if not self._validate_api_token('linkedin'):
+                        if not self._handle_invalid_token('linkedin'):
+                            return
 
                     search_term = self.client_name
                     self.print_info(f"Searching LinkedIn for: {search_term}")
@@ -1170,9 +1256,6 @@ class ReconAutomation:
                                 # Extract all company IDs from response for lookup
                                 all_company_ids = {}  # slug -> company_id
                                 raw_text = json.dumps(data)
-
-                                # Find all entityUrn patterns with company IDs
-                                urn_matches = re.findall(r'urn:li:(?:fsd_)?company:(\d+)', raw_text)
 
                                 # First pass: build a map of entity URNs to company data
                                 company_map = {}
