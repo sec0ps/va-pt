@@ -488,6 +488,10 @@ class ReconAutomation:
 
                     with open(self.config_file, 'w') as f:
                         json.dump(config_to_save, f, indent=2)
+
+                    # Secure the config file - owner read/write only
+                    self.config_file.chmod(0o600)
+
                     self.print_success(f"Configuration saved to {self.config_file}")
                 except Exception as e:
                     self.print_error(f"Error saving config: {e}")
