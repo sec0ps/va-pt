@@ -3042,35 +3042,118 @@ class ReconAutomation:
         return None
 
     def _scrape_emails_from_web(self) -> List[str]:
-        """Scrape emails from company website"""
-        emails = []
-        email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+            """Crawl company website to discover email addresses"""
+            emails = set()
+            email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
 
-        try:
-            # Try to get the main page
+            visited = set()
+            to_visit = []
+            max_pages = 100
+            max_depth = 3
+
+            # Determine base URL
+            base_url = None
             for protocol in ['https', 'http']:
                 try:
-                    url = f"{protocol}://{self.domain}"
-                    response = requests.get(url, timeout=10, verify=False)
-                    emails.extend(re.findall(email_pattern, response.text))
-
-                    # Try common pages
-                    common_pages = ['/contact', '/about', '/team', '/staff']
-                    for page in common_pages:
-                        try:
-                            page_url = f"{url}{page}"
-                            response = requests.get(page_url, timeout=5, verify=False)
-                            emails.extend(re.findall(email_pattern, response.text))
-                        except:
-                            pass
-
-                    break
+                    test_url = f"{protocol}://{self.domain}"
+                    response = requests.get(test_url, timeout=10, verify=False, allow_redirects=True)
+                    if response.status_code == 200:
+                        base_url = f"{protocol}://{self.domain}"
+                        break
                 except:
                     continue
-        except Exception as e:
-            self.print_warning(f"Web scraping failed: {e}")
 
-        return list(set(emails))
+            if not base_url:
+                self.print_warning(f"Could not connect to {self.domain}")
+                return list(emails)
+
+            # Start at homepage
+            to_visit.append((base_url, 0))
+
+            self.print_info(f"  Crawling {self.domain} (max {max_pages} pages, depth {max_depth})")
+
+            pages_crawled = 0
+
+            while to_visit and pages_crawled < max_pages:
+                url, depth = to_visit.pop(0)
+
+                # Normalize URL
+                url = url.split('#')[0].split('?')[0].rstrip('/')
+
+                if url in visited:
+                    continue
+
+                # Only crawl same domain
+                if self.domain not in url:
+                    continue
+
+                visited.add(url)
+
+                try:
+                    response = requests.get(url, timeout=8, verify=False, allow_redirects=True,
+                                        headers={'User-Agent': 'Mozilla/5.0 (compatible; reconnaissance tool)'})
+
+                    if response.status_code != 200:
+                        continue
+
+                    content_type = response.headers.get('Content-Type', '')
+                    if 'text/html' not in content_type:
+                        continue
+
+                    pages_crawled += 1
+                    html = response.text
+
+                    # Extract emails
+                    found_emails = re.findall(email_pattern, html)
+
+                    # mailto: links
+                    mailto_matches = re.findall(r'mailto:([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})', html)
+                    found_emails.extend(mailto_matches)
+
+                    # Obfuscated: user [at] domain [dot] com
+                    obfuscated = re.findall(r'([A-Za-z0-9._%+-]+)\s*[\[\(]?\s*(?:at|AT)\s*[\]\)]?\s*([A-Za-z0-9.-]+)\s*[\[\(]?\s*(?:dot|DOT)\s*[\]\)]?\s*([A-Za-z]{2,})', html)
+                    for parts in obfuscated:
+                        found_emails.append(f"{parts[0]}@{parts[1]}.{parts[2]}")
+
+                    for email in found_emails:
+                        email_lower = email.lower()
+                        if not any(x in email_lower for x in ['example.com', 'domain.com', 'test.com', '.png', '.jpg', '.gif', 'wixpress']):
+                            emails.add(email_lower)
+
+                    # Discover internal links
+                    if depth < max_depth:
+                        links = re.findall(r'href=["\']([^"\']+)["\']', html)
+
+                        for link in links:
+                            # Skip static assets and non-pages
+                            if any(link.lower().endswith(ext) for ext in ['.pdf', '.jpg', '.jpeg', '.png', '.gif', '.css', '.js', '.ico', '.svg', '.woff', '.woff2', '.ttf', '.mp4', '.mp3', '.zip']):
+                                continue
+                            if link.startswith(('mailto:', 'tel:', 'javascript:', '#')):
+                                continue
+
+                            # Build absolute URL
+                            if link.startswith('http'):
+                                abs_url = link
+                            elif link.startswith('//'):
+                                abs_url = f"https:{link}"
+                            elif link.startswith('/'):
+                                abs_url = f"{base_url}{link}"
+                            else:
+                                abs_url = f"{base_url}/{link}"
+
+                            # Queue if same domain and not visited
+                            abs_url = abs_url.split('#')[0].split('?')[0].rstrip('/')
+                            if self.domain in abs_url and abs_url not in visited:
+                                to_visit.append((abs_url, depth + 1))
+
+                    time.sleep(0.3)
+
+                except:
+                    continue
+
+            self.print_info(f"  Crawled {pages_crawled} pages, found {len(emails)} unique emails")
+
+            return list(emails)
 
     def _is_real_secret(self, secret_type: str, matches: list, content: str) -> bool:
             """Determine if detected pattern is likely a real secret vs false positive"""
