@@ -933,8 +933,7 @@ class ReconAutomation:
                     linkedin_intel = {
                         'company_info': progress.get('company_info', {}),
                         'employees': progress.get('employees', []),
-                        'titles': progress.get('titles', {}),
-                        'departments': set(progress.get('departments', []))
+                        'titles': progress.get('titles', {})
                     }
 
                     # Check if LinkedIn cookies are configured
@@ -1001,7 +1000,7 @@ class ReconAutomation:
                     page_size = 10
 
                     # =====================================================================
-                    # SEARCH 1: Find companies (with pagination) - check checkpoint
+                    # SEARCH 1: Find companies (with pagination)
                     # =====================================================================
                     all_companies = linkedin_intel['company_info'].get('companies', [])
                     company_search_complete = progress.get('company_search_complete', False)
@@ -1039,12 +1038,20 @@ class ReconAutomation:
                                         name = item.get('name', '')
                                         universal_name = item.get('universalName', '')
 
+                                        # Extract numeric company ID from entity_urn
+                                        company_id = ''
+                                        if entity_urn:
+                                            match = re.search(r'company:(\d+)', entity_urn)
+                                            if match:
+                                                company_id = match.group(1)
+
                                         if name and entity_urn:
                                             company_map[entity_urn] = {
                                                 'name': name,
                                                 'slug': universal_name,
                                                 'url': f"https://www.linkedin.com/company/{universal_name}" if universal_name else '',
-                                                'entity_urn': entity_urn
+                                                'entity_urn': entity_urn,
+                                                'company_id': company_id
                                             }
 
                                 # Second pass: extract from search results
@@ -1056,18 +1063,27 @@ class ReconAutomation:
                                             navigation = item.get('navigationUrl', '') or ''
                                             if '/company/' in navigation:
                                                 slug = navigation.split('/company/')[-1].split('/')[0].split('?')[0]
+
+                                                # Try to find company_id from company_map by matching slug
+                                                company_id = ''
+                                                for urn, comp in company_map.items():
+                                                    if comp['slug'] == slug:
+                                                        company_id = comp.get('company_id', '')
+                                                        break
+
                                                 if not any(c['slug'] == slug for c in page_companies):
                                                     page_companies.append({
                                                         'name': text,
                                                         'slug': slug,
-                                                        'url': f"https://www.linkedin.com/company/{slug}"
+                                                        'url': f"https://www.linkedin.com/company/{slug}",
+                                                        'company_id': company_id
                                                     })
 
                                     tracking = item.get('trackingUrn', '')
                                     if 'company:' in tracking:
-                                        company_id = tracking.split('company:')[-1]
+                                        company_id = tracking.split('company:')[-1].split(',')[0].split(')')[0]
                                         for urn, comp in company_map.items():
-                                            if company_id in urn and comp not in page_companies:
+                                            if company_id in urn and not any(c['slug'] == comp['slug'] for c in page_companies):
                                                 page_companies.append(comp)
 
                                 for urn, comp in company_map.items():
@@ -1078,14 +1094,17 @@ class ReconAutomation:
                                     text = json.dumps(data)
                                     slug_matches = re.findall(r'"universalName":\s*"([^"]+)"', text)
                                     name_matches = re.findall(r'"name":\s*"([^"]{3,60})"', text)
+                                    id_matches = re.findall(r'company:(\d+)', text)
 
                                     for i, slug in enumerate(slug_matches):
                                         if slug and not any(c['slug'] == slug for c in page_companies):
                                             name = name_matches[i] if i < len(name_matches) else slug
+                                            company_id = id_matches[i] if i < len(id_matches) else ''
                                             page_companies.append({
                                                 'name': name,
                                                 'slug': slug,
-                                                'url': f"https://www.linkedin.com/company/{slug}"
+                                                'url': f"https://www.linkedin.com/company/{slug}",
+                                                'company_id': company_id
                                             })
 
                                 new_count = 0
@@ -1184,30 +1203,44 @@ class ReconAutomation:
                     time.sleep(2)
 
                     # =====================================================================
-                    # SEARCH 2: Find people at each selected company
+                    # SEARCH 2: Find people at each selected company (using company ID filter)
                     # =====================================================================
                     all_employees = linkedin_intel.get('employees', [])
                     searched_companies = set(progress.get('searched_companies', []))
 
-                    companies_to_search = all_companies if all_companies else [{'name': search_term, 'slug': ''}]
+                    companies_to_search = all_companies if all_companies else []
+
+                    if not companies_to_search:
+                        self.print_warning("No companies to search for employees")
+                        self.results['linkedin_intel'] = linkedin_intel
+                        return
 
                     for company_idx, company in enumerate(companies_to_search, 1):
                         company_name = company['name']
+                        company_id = company.get('company_id', '')
 
                         if company_name in searched_companies:
                             self.print_info(f"Skipping {company_name} (already searched)")
                             continue
 
-                        company_encoded = company_name.replace(' ', '%20').replace(',', '%2C')
+                        self.print_info(f"\n[2/2] Searching for employees at: {company_name} ({company_idx}/{len(companies_to_search)})")
 
-                        self.print_info(f"\n[2/2] Searching for people at: {company_name} ({company_idx}/{len(companies_to_search)})")
+                        if company_id:
+                            self.print_info(f"  Using company ID filter: {company_id}")
+                        else:
+                            self.print_warning(f"  No company ID found, using keyword search (less accurate)")
 
                         start = 0
                         company_employees = []
                         max_per_company = max_employee_results // len(companies_to_search) if len(companies_to_search) > 1 else max_employee_results
 
                         while start < max_per_company:
-                            people_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(keywords:{company_encoded},flagshipSearchIntent:SEARCH_SRP,queryParameters:(resultType:List(PEOPLE)),includeFiltersInResponse:false)&start={start}"
+                            # Use currentCompany filter if we have company_id
+                            if company_id:
+                                people_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(flagshipSearchIntent:SEARCH_SRP,queryParameters:(currentCompany:List({company_id}),resultType:List(PEOPLE)),includeFiltersInResponse:false)&start={start}"
+                            else:
+                                company_encoded = company_name.replace(' ', '%20').replace(',', '%2C')
+                                people_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(keywords:{company_encoded},flagshipSearchIntent:SEARCH_SRP,queryParameters:(resultType:List(PEOPLE)),includeFiltersInResponse:false)&start={start}"
 
                             try:
                                 response = linkedin_session.get(people_search_url, headers=api_headers, timeout=15)
@@ -1337,43 +1370,26 @@ class ReconAutomation:
                     self.print_success(f"Found {len(all_employees)} total employees")
 
                     # =====================================================================
-                    # Process and store results (NO EMAIL GUESSING)
+                    # Process and store results
                     # =====================================================================
                     if all_employees:
                         for emp in all_employees:
-                            linkedin_intel['employees'].append(emp) if emp not in linkedin_intel['employees'] else None
+                            if emp not in linkedin_intel['employees']:
+                                linkedin_intel['employees'].append(emp)
 
                             if emp.get('title') and emp['title'] != 'Unknown':
-                                title_lower = emp['title'].lower()
                                 linkedin_intel['titles'][emp['title']] = linkedin_intel['titles'].get(emp['title'], 0) + 1
-
-                                dept_keywords = {
-                                    'engineering': ['engineer', 'developer', 'architect', 'devops'],
-                                    'security': ['security', 'infosec', 'cybersecurity', 'ciso'],
-                                    'it': ['it ', 'sysadmin', 'infrastructure', 'network'],
-                                    'management': ['manager', 'director', 'vp', 'chief', 'ceo', 'cto'],
-                                    'sales': ['sales', 'account executive', 'business development'],
-                                    'marketing': ['marketing', 'communications'],
-                                    'hr': ['human resources', 'recruiter', 'talent'],
-                                    'finance': ['finance', 'accounting', 'tax', 'audit']
-                                }
-
-                                for dept, keywords in dept_keywords.items():
-                                    if any(kw in title_lower for kw in keywords):
-                                        linkedin_intel['departments'].add(dept)
 
                         self.print_info("\nEmployees found:")
                         for emp in linkedin_intel['employees']:
-                            company_info = f" @ {emp['company']}" if emp.get('company') else ""
                             title_info = f" - {emp['title']}" if emp.get('title') and emp['title'] != 'Unknown' else ""
-                            self.print_success(f"  {emp['name']}{title_info}{company_info}")
+                            self.print_success(f"  {emp['name']}{title_info}")
                             if emp.get('profile_url'):
                                 self.print_info(f"    {emp['profile_url']}")
                     else:
                         self.print_warning("No employees found")
 
                     # Store results
-                    linkedin_intel['departments'] = list(linkedin_intel['departments'])
                     linkedin_intel['employees'] = all_employees
                     self.results['linkedin_intel'] = linkedin_intel
 
@@ -1382,7 +1398,6 @@ class ReconAutomation:
                     if linkedin_intel.get('company_info', {}).get('companies'):
                         self.print_info(f"  Companies: {len(linkedin_intel['company_info']['companies'])}")
                     self.print_info(f"  Employees: {len(linkedin_intel['employees'])}")
-                    self.print_info(f"  Departments: {', '.join(linkedin_intel['departments']) if linkedin_intel['departments'] else 'None'}")
 
                     if linkedin_intel['titles']:
                         self.print_info(f"  Top titles:")
