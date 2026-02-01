@@ -2343,181 +2343,296 @@ class ReconAutomation:
                     self.print_info(f"WHOIS lookups completed: {len(whois_results)} IPs across {len(org_summary)} organizations")
 
     def subdomain_takeover_detection(self):
-            """Check for subdomain takeover vulnerabilities with validation"""
-            self.print_section("SUBDOMAIN TAKEOVER DETECTION")
+                """Check for subdomain takeover vulnerabilities with validation"""
+                self.print_section("SUBDOMAIN TAKEOVER DETECTION")
 
-            # Fingerprints for various services that can be taken over
-            takeover_fingerprints = {
-                'github': {
-                    'cname': ['github.io', 'github.map.fastly.net'],
-                    'response': ['There isn\'t a GitHub Pages site here', 'For root URLs (like http://example.com/) you must provide an index.html file'],
-                    'service': 'GitHub Pages',
-                    'validation_url': '/.well-known/security.txt'  # Should 404 if unclaimed
-                },
-                'aws_s3': {
-                    'cname': ['s3.amazonaws.com', 's3-website', 's3.dualstack'],
-                    'response': ['NoSuchBucket', 'The specified bucket does not exist'],
-                    'service': 'AWS S3',
-                    'validation_url': None
-                },
-                'azure': {
-                    'cname': ['azurewebsites.net', 'cloudapp.net', 'cloudapp.azure.com', 'trafficmanager.net', 'blob.core.windows.net'],
-                    'response': ['404 Web Site not found', 'Error 404', 'The resource you are looking for has been removed'],
-                    'service': 'Microsoft Azure',
-                    'validation_url': None
-                },
-                'heroku': {
-                    'cname': ['herokuapp.com'],
-                    'response': ['No such app', 'There\'s nothing here', 'herokucdn.com/error-pages/no-such-app.html'],
-                    'service': 'Heroku',
-                    'validation_url': None
-                },
-                'bitbucket': {
-                    'cname': ['bitbucket.io'],
-                    'response': ['Repository not found'],
-                    'service': 'Bitbucket',
-                    'validation_url': None
-                },
-                'cloudfront': {
-                    'cname': ['cloudfront.net'],
-                    'response': ['Bad request', 'ERROR: The request could not be satisfied'],
-                    'service': 'AWS CloudFront',
-                    'validation_url': None
-                },
-            }
+                # Fingerprints for various services that can be taken over
+                takeover_fingerprints = {
+                    'github': {
+                        'cname': ['github.io', 'github.map.fastly.net'],
+                        'response': ['There isn\'t a GitHub Pages site here', 'For root URLs (like http://example.com/) you must provide an index.html file'],
+                        'service': 'GitHub Pages',
+                        'validation_url': '/.well-known/security.txt'
+                    },
+                    'aws_s3': {
+                        'cname': ['s3.amazonaws.com', 's3-website', 's3.dualstack'],
+                        'response': ['NoSuchBucket', 'The specified bucket does not exist'],
+                        'service': 'AWS S3',
+                        'validation_url': None
+                    },
+                    'azure': {
+                        'cname': ['azurewebsites.net', 'cloudapp.net', 'cloudapp.azure.com', 'trafficmanager.net', 'blob.core.windows.net'],
+                        'response': ['404 Web Site not found', 'Error 404', 'The resource you are looking for has been removed'],
+                        'service': 'Microsoft Azure',
+                        'validation_url': None
+                    },
+                    'heroku': {
+                        'cname': ['herokuapp.com'],
+                        'response': ['No such app', 'There\'s nothing here', 'herokucdn.com/error-pages/no-such-app.html'],
+                        'service': 'Heroku',
+                        'validation_url': None
+                    },
+                    'bitbucket': {
+                        'cname': ['bitbucket.io'],
+                        'response': ['Repository not found'],
+                        'service': 'Bitbucket',
+                        'validation_url': None
+                    },
+                    'cloudfront': {
+                        'cname': ['cloudfront.net'],
+                        'response': ['Bad request', 'ERROR: The request could not be satisfied'],
+                        'service': 'AWS CloudFront',
+                        'validation_url': None
+                    },
+                    'shopify': {
+                        'cname': ['myshopify.com'],
+                        'response': ['Sorry, this shop is currently unavailable', 'Only one step left'],
+                        'service': 'Shopify',
+                        'validation_url': None
+                    },
+                    'fastly': {
+                        'cname': ['fastly.net'],
+                        'response': ['Fastly error: unknown domain'],
+                        'service': 'Fastly',
+                        'validation_url': None
+                    },
+                    'pantheon': {
+                        'cname': ['pantheonsite.io'],
+                        'response': ['404 error unknown site', 'The gods are wise'],
+                        'service': 'Pantheon',
+                        'validation_url': None
+                    },
+                    'tumblr': {
+                        'cname': ['domains.tumblr.com'],
+                        'response': ['There\'s nothing here', 'Whatever you were looking for doesn\'t currently exist'],
+                        'service': 'Tumblr',
+                        'validation_url': None
+                    },
+                }
 
-            vulnerable_subdomains = []
+                # Get resume data
+                resume_data = self.get_resume_data('subdomain_takeover_detection')
+                progress = resume_data.get('progress', {})
 
-            # Get all resolved subdomains
-            resolved_subdomains = self.results.get('dns_enumeration', {}).get('resolved', {})
+                vulnerable_subdomains = progress.get('vulnerable_subdomains', [])
+                checked_subdomains = set(progress.get('checked_subdomains', []))
 
-            if not resolved_subdomains:
-                self.print_warning("No subdomains to check. Run DNS enumeration first.")
-                return
+                # Get all resolved subdomains
+                resolved_subdomains = self.results.get('dns_enumeration', {}).get('resolved', {})
 
-            self.print_info(f"Checking {len(resolved_subdomains)} subdomains for takeover vulnerabilities...")
+                if not resolved_subdomains:
+                    self.print_warning("No subdomains to check. Run DNS enumeration first.")
+                    return
 
-            for subdomain, ips in resolved_subdomains.items():
-                try:
-                    # Get CNAME records
-                    cname_records = []
-                    try:
-                        resolver = dns.resolver.Resolver()
+                # Filter out already checked
+                subdomains_to_check = {k: v for k, v in resolved_subdomains.items() if k not in checked_subdomains}
+                total = len(resolved_subdomains)
+                already_done = len(checked_subdomains)
+                remaining = len(subdomains_to_check)
+
+                if already_done > 0:
+                    self.print_info(f"Resuming: {already_done}/{total} already checked, {remaining} remaining")
+
+                if remaining == 0:
+                    self.print_info("All subdomains already checked")
+                    self.results['subdomain_takeover'] = vulnerable_subdomains
+                    return
+
+                self.print_info(f"Checking {remaining} subdomains for takeover vulnerabilities...")
+
+                def validate_takeover(subdomain: str, cname: str, fingerprint: dict) -> dict:
+                    """Validate if a subdomain takeover is actually exploitable"""
+                    result = {
+                        'is_vulnerable': False,
+                        'confidence': 'LOW',
+                        'evidence': [],
+                        'subdomain': subdomain,
+                        'cname': cname,
+                        'service': fingerprint['service']
+                    }
+
+                    response_patterns = fingerprint['response']
+                    validation_url = fingerprint.get('validation_url')
+
+                    for protocol in ['https', 'http']:
                         try:
-                            answers = resolver.resolve(subdomain, 'CNAME')
-                        except AttributeError:
-                            answers = resolver.query(subdomain, 'CNAME')
+                            url = f"{protocol}://{subdomain}"
+                            response = requests.get(url, timeout=5, allow_redirects=True, verify=False,
+                                                headers={'User-Agent': 'Mozilla/5.0'})
 
-                        for rdata in answers:
-                            cname_records.append(str(rdata.target).rstrip('.'))
-                    except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
-                        pass
-                    except Exception as e:
-                        continue
+                            response_text = response.text.lower()
+                            status_code = response.status_code
 
-                    # Check if CNAME points to a potentially vulnerable service
-                    vulnerable = False
-                    service_name = None
-                    fingerprint_matched = None
-                    confidence = "LOW"
+                            # Check for specific error patterns
+                            pattern_matches = 0
+                            for pattern in response_patterns:
+                                if pattern.lower() in response_text:
+                                    pattern_matches += 1
+                                    result['evidence'].append(f"Pattern matched: {pattern}")
 
-                    for cname in cname_records:
-                        for service, fingerprint in takeover_fingerprints.items():
-                            # Check if CNAME matches known patterns
-                            if any(pattern in cname.lower() for pattern in fingerprint['cname']):
-                                # CNAME points to a potentially vulnerable service
-                                # Now validate with multiple checks
-                                validation_result = self._validate_subdomain_takeover(
-                                    subdomain,
-                                    cname,
-                                    fingerprint['response'],
-                                    fingerprint.get('validation_url')
-                                )
+                            # Must match at least one pattern
+                            if pattern_matches == 0:
+                                continue
 
-                                if validation_result['is_vulnerable']:
-                                    vulnerable = True
-                                    service_name = fingerprint['service']
-                                    fingerprint_matched = service
-                                    confidence = validation_result['confidence']
-                                    break
+                            # Validation scoring
+                            validation_score = 0
 
-                        if vulnerable:
-                            break
+                            # Check 1: CNAME points to service (HIGH confidence indicator)
+                            if cname:
+                                validation_score += 2
+                                result['evidence'].append(f"CNAME: {cname}")
 
-                    # Even without CNAME, check HTTP responses for known patterns (but lower confidence)
-                    if not vulnerable and not cname_records:
-                        for service, fingerprint in takeover_fingerprints.items():
-                            validation_result = self._validate_subdomain_takeover(
-                                subdomain,
-                                None,
-                                fingerprint['response'],
-                                fingerprint.get('validation_url')
-                            )
+                            # Check 2: 404 status code
+                            if status_code == 404:
+                                validation_score += 1
+                                result['evidence'].append(f"Status: 404")
 
-                            if validation_result['is_vulnerable']:
-                                vulnerable = True
-                                service_name = fingerprint['service']
-                                fingerprint_matched = service
-                                confidence = "LOW"  # No CNAME = lower confidence
+                            # Check 3: Response size (real sites are usually larger)
+                            if len(response.content) < 5000:
+                                validation_score += 1
+                                result['evidence'].append(f"Small response: {len(response.content)} bytes")
+
+                            # Check 4: No active content (no scripts, forms)
+                            if '<script' not in response_text and '<form' not in response_text:
+                                validation_score += 1
+                                result['evidence'].append("No active content")
+
+                            # Check 5: Service-specific validation
+                            if validation_url:
+                                try:
+                                    val_response = requests.get(f"{url}{validation_url}", timeout=3, verify=False,
+                                                            headers={'User-Agent': 'Mozilla/5.0'})
+                                    if val_response.status_code == 404:
+                                        validation_score += 2
+                                        result['evidence'].append(f"Validation URL 404: {validation_url}")
+                                except:
+                                    pass
+
+                            # Determine confidence based on validation score
+                            if validation_score >= 5:
+                                result['confidence'] = 'HIGH'
+                                result['is_vulnerable'] = True
+                            elif validation_score >= 3:
+                                result['confidence'] = 'MEDIUM'
+                                result['is_vulnerable'] = True
+                            elif validation_score >= 2 and pattern_matches > 0:
+                                result['confidence'] = 'LOW'
+                                result['is_vulnerable'] = True
+
+                            if result['is_vulnerable']:
                                 break
 
-                    if vulnerable:
-                        vuln_info = {
-                            'subdomain': subdomain,
-                            'cname': cname_records,
-                            'service': service_name,
-                            'fingerprint': fingerprint_matched,
-                            'ips': ips,
-                            'confidence': confidence
-                        }
-                        vulnerable_subdomains.append(vuln_info)
+                        except requests.exceptions.ConnectionError:
+                            # Connection refused with valid CNAME = potential takeover
+                            if cname:
+                                result['is_vulnerable'] = True
+                                result['confidence'] = 'MEDIUM'
+                                result['evidence'].append("Connection refused but CNAME exists")
+                            break
+                        except:
+                            continue
 
-                        if confidence == "HIGH":
-                            self.print_warning(f"HIGH CONFIDENCE TAKEOVER: {subdomain}")
-                        elif confidence == "MEDIUM":
-                            self.print_warning(f"POSSIBLE TAKEOVER: {subdomain}")
-                        else:
-                            self.print_info(f"LOW CONFIDENCE: {subdomain}")
+                    return result
 
-                        self.print_info(f"  Service: {service_name}")
-                        if cname_records:
-                            self.print_info(f"  CNAME: {', '.join(cname_records)}")
-                        self.print_info(f"  Confidence: {confidence}")
+                def check_single_subdomain(subdomain_data):
+                    """Check a single subdomain - runs in thread"""
+                    subdomain, ips = subdomain_data
+                    result = {'subdomain': subdomain, 'vulnerable': False, 'details': None}
 
-                    time.sleep(0.5)  # Rate limiting
+                    try:
+                        # Get CNAME records with short timeout
+                        cname_records = []
+                        try:
+                            resolver = dns.resolver.Resolver()
+                            resolver.timeout = 3
+                            resolver.lifetime = 3
+                            try:
+                                answers = resolver.resolve(subdomain, 'CNAME')
+                            except AttributeError:
+                                answers = resolver.query(subdomain, 'CNAME')
 
-                except Exception as e:
-                    self.print_error(f"Error checking {subdomain}: {e}")
+                            for rdata in answers:
+                                cname_records.append(str(rdata.target).rstrip('.'))
+                        except:
+                            pass
 
-            # Store results
-            self.results['subdomain_takeovers'] = vulnerable_subdomains
+                        # Check if CNAME points to a potentially vulnerable service
+                        for cname in cname_records:
+                            for service, fingerprint in takeover_fingerprints.items():
+                                if any(pattern in cname.lower() for pattern in fingerprint['cname']):
+                                    # Full validation
+                                    validation = validate_takeover(subdomain, cname, fingerprint)
 
-            # Summary with confidence breakdown
-            high_confidence = [v for v in vulnerable_subdomains if v['confidence'] == 'HIGH']
-            medium_confidence = [v for v in vulnerable_subdomains if v['confidence'] == 'MEDIUM']
-            low_confidence = [v for v in vulnerable_subdomains if v['confidence'] == 'LOW']
+                                    if validation['is_vulnerable']:
+                                        result['vulnerable'] = True
+                                        result['details'] = {
+                                            'subdomain': subdomain,
+                                            'cname': cname,
+                                            'service': validation['service'],
+                                            'confidence': validation['confidence'],
+                                            'evidence': validation['evidence']
+                                        }
+                                        return result
+                    except:
+                        pass
 
-            self.print_info(f"\nSubdomain Takeover Detection Summary:")
-            self.print_info(f"  Subdomains checked: {len(resolved_subdomains)}")
-            self.print_info(f"  High confidence vulnerabilities: {len(high_confidence)}")
-            self.print_info(f"  Medium confidence vulnerabilities: {len(medium_confidence)}")
-            self.print_info(f"  Low confidence (needs verification): {len(low_confidence)}")
+                    return result
 
-            if high_confidence:
-                self.print_warning(f"\n[!] HIGH CONFIDENCE subdomain takeovers found:")
-                for vuln in high_confidence:
-                    self.print_warning(f"  - {vuln['subdomain']} ({vuln['service']})")
-                    self.print_info(f"    Action: Attempt to claim this resource immediately")
+                # Process in parallel with progress indicator
+                completed = 0
+                subdomain_list = list(subdomains_to_check.items())
 
-            if medium_confidence:
-                self.print_info(f"\n[!] MEDIUM CONFIDENCE potential takeovers:")
-                for vuln in medium_confidence:
-                    self.print_info(f"  - {vuln['subdomain']} ({vuln['service']})")
+                with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                    futures = {executor.submit(check_single_subdomain, sd): sd[0] for sd in subdomain_list}
 
-            if low_confidence:
-                self.print_info(f"\n[!] LOW CONFIDENCE (manual verification recommended):")
-                for vuln in low_confidence[:5]:  # Only show first 5
-                    self.print_info(f"  - {vuln['subdomain']} ({vuln['service']})")
+                    for future in concurrent.futures.as_completed(futures):
+                        completed += 1
+                        subdomain = futures[future]
+
+                        # Progress indicator
+                        pct = int((completed + already_done) / total * 100)
+                        bar_len = 30
+                        filled = int(bar_len * (completed + already_done) / total)
+                        bar = '█' * filled + '░' * (bar_len - filled)
+                        print(f"\r[{bar}] {pct}% ({completed + already_done}/{total})", end='', flush=True)
+
+                        try:
+                            result = future.result()
+                            checked_subdomains.add(subdomain)
+
+                            if result['vulnerable']:
+                                vulnerable_subdomains.append(result['details'])
+                                print()  # newline before alert
+                                self.print_warning(f"VULNERABLE [{result['details']['confidence']}]: {result['details']['subdomain']}")
+                                self.print_info(f"  CNAME: {result['details']['cname']}")
+                                self.print_info(f"  Service: {result['details']['service']}")
+                                for evidence in result['details']['evidence'][:3]:  # Show top 3 evidence items
+                                    self.print_info(f"  → {evidence}")
+
+                            # Checkpoint every 20 subdomains
+                            if completed % 20 == 0:
+                                self.checkpoint('subdomain_takeover_detection', 'checked_subdomains', list(checked_subdomains))
+                                self.checkpoint('subdomain_takeover_detection', 'vulnerable_subdomains', vulnerable_subdomains)
+                        except:
+                            checked_subdomains.add(subdomain)
+
+                # Final newline after progress bar
+                print()
+
+                # Final checkpoint
+                self.checkpoint('subdomain_takeover_detection', 'checked_subdomains', list(checked_subdomains))
+                self.checkpoint('subdomain_takeover_detection', 'vulnerable_subdomains', vulnerable_subdomains)
+
+                # Store results
+                self.results['subdomain_takeover'] = vulnerable_subdomains
+
+                # Summary
+                if vulnerable_subdomains:
+                    self.print_warning(f"\nFound {len(vulnerable_subdomains)} potentially vulnerable subdomains:")
+                    for vuln in vulnerable_subdomains:
+                        self.print_info(f"  [{vuln['confidence']}] {vuln['subdomain']} ({vuln['service']})")
+                else:
+                    self.print_success("\nNo subdomain takeover vulnerabilities detected")
 
     def _validate_subdomain_takeover(self, subdomain: str, cname: str, response_patterns: List[str], validation_url: str = None) -> Dict[str, Any]:
         """Validate if a subdomain takeover is actually exploitable"""
