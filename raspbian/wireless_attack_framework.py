@@ -7,7 +7,7 @@
 # Email: keith@redcellsecurity.org
 # Website: www.redcellsecurity.org
 #
-# Copyright (c) 2025 Keith Pachulski. All rights reserved.
+# Copyright (c) 2026 Keith Pachulski. All rights reserved.
 #
 # License: This software is licensed under the MIT License.
 #
@@ -575,6 +575,14 @@ class ScanEngine:
         Blocks until the user confirms a selection or quits.
         Returns a list of selected target dicts.
         """
+        # ESCDELAY controls how long ncurses waits after receiving ESC to
+        # decide if it's a standalone ESC or the start of an arrow key
+        # sequence (ESC [ A etc). Default is 1000ms on many systems.
+        # With timeout(50) getch() returns before ESCDELAY expires, so
+        # arrow keys never get assembled into KEY_UP/KEY_DOWN.
+        # Setting it to 25ms fixes this without affecting normal ESC use.
+        os.environ.setdefault('ESCDELAY', '25')
+
         self._start_airodump()
         try:
             return curses.wrapper(self._curses_main)
