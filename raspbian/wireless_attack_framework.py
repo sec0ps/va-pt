@@ -7,7 +7,7 @@
 # Email: keith@redcellsecurity.org
 # Website: www.redcellsecurity.org
 #
-# Copyright (c) 2026 Keith Pachulski. All rights reserved.
+# Copyright (c) 2025 Keith Pachulski. All rights reserved.
 #
 # License: This software is licensed under the MIT License.
 #
@@ -26,7 +26,6 @@ import re
 import json
 import time
 import glob
-import curses
 import tempfile
 import threading
 import http.server
@@ -385,7 +384,6 @@ class InterfaceManager:
 class ScanEngine:
 
     SIGNAL_HISTORY_LEN = 5   # readings for rolling average
-    SELECT_TIMEOUT     = 0.05 # seconds - input poll interval (50ms)
     PARSE_INTERVAL     = 2.0  # seconds - minimum time between CSV parses
 
     def __init__(self, monitor_interface: str, temp_dir: Path,
@@ -420,6 +418,7 @@ class ScanEngine:
         ]
         self._airodump_proc = subprocess.Popen(
             cmd,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -566,205 +565,130 @@ class ScanEngine:
         return self.networks, self.clients_by_bssid
 
     # ------------------------------------------------------------------
-    # Curses display - single-threaded select() event loop
+    # Live display - plain terminal, number-entry selection
+    # No curses. No arrow keys. No escape sequences.
+    # Background thread refreshes the table every DISPLAY_INTERVAL seconds.
+    # Main thread blocks on input() waiting for the user to type a selection.
     # ------------------------------------------------------------------
 
-    def run_display(self) -> list[dict]:
-        """
-        Launch airodump and the curses UI.
-        Blocks until the user confirms a selection or quits.
-        Returns a list of selected target dicts.
-        """
-        # ESCDELAY controls how long ncurses waits after receiving ESC to
-        # decide if it's a standalone ESC or the start of an arrow key
-        # sequence (ESC [ A etc). Default is 1000ms on many systems.
-        # With timeout(50) getch() returns before ESCDELAY expires, so
-        # arrow keys never get assembled into KEY_UP/KEY_DOWN.
-        # Setting it to 25ms fixes this without affecting normal ESC use.
-        os.environ.setdefault('ESCDELAY', '25')
 
+    def run_display(self) -> list[dict]:
+        """Launch airodump, wait for first data, run selection loop."""
         self._start_airodump()
         try:
-            return curses.wrapper(self._curses_main)
+            return self._run_number_select()
         finally:
             self._stop_airodump()
 
-    def _draw_screen(self, stdscr, networks, clients,
-                     cursor_pos, selected_indices):
-        """Redraw the full screen. Called only when state has changed."""
-        height, width = stdscr.getmaxyx()
+    def _print_table(self, networks, clients, selected: set):
+        """Print scan table - no escape codes, no screen clear, plain text."""
+        print("")
+        print("=" * 78)
+        band = "[2.4+5GHz]" if self.supports_5ghz else "[2.4GHz]"
+        print(f"  RCS Wireless Attack Framework  {band}")
+        print("=" * 78)
+        print(f"  {'#':<4}  {'BSSID':<17}  {'ESSID':<20}  {'CH':>3}  {'PWR':>4}  {'ENC':<6}  CLI")
+        print(f"  {'-'*70}")
 
-        # Reserve 3 rows at top (title + header + divider)
-        # Reserve 3 rows at bottom (status + help + spare)
-        table_rows = max(1, height - 6)
+        if not networks:
+            print("  (scanning - no networks yet)")
+        else:
+            for i, net in enumerate(networks, 1):
+                mark  = "*" if (i - 1) in selected else " "
+                essid = net["essid"][:19]
+                ch    = net["channel"].strip()[:3]
+                enc   = net["privacy"][:5]
+                cli   = len(clients.get(net["bssid"], []))
+                print(f" {mark} {i:<4}  {net['bssid']:<17}  {essid:<20}  "
+                      f"{ch:>3}  {net['avg_power']:>4}  {enc:<6}  {cli}")
 
-        stdscr.erase()
+        print("=" * 78)
+        sel = ", ".join(str(i+1) for i in sorted(selected)) or "none"
+        print(f"  Networks: {len(networks)}   Selected: {sel}")
+        print("  Enter: number  1,3,5  1-4  | A=all  C=clear  D=done  R=rescan  Q=quit")
+        print("=" * 78)
+        sys.stdout.flush()
 
-        # ---- Title bar ----
-        band  = "[2.4GHz + 5GHz]" if self.supports_5ghz else "[2.4GHz]"
-        title = f" RCS Wireless Attack Framework - Live Scan  {band} "
-        stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
-        stdscr.addstr(0, 0, title[:width - 1])
-        stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)
-
-        # ---- Column header ----
-        hdr = (f"{'#':<4}{'BSSID':<19}{'ESSID':<26}"
-               f"{'CH':<5}{'PWR':<7}{'ENC':<11}{'CLI'}")
-        stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
-        stdscr.addstr(1, 0, hdr[:width - 1])
-        stdscr.addstr(2, 0, ('─' * min(width - 1, 78)))
-        stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)
-
-        # ---- Scrolling viewport ----
-        # Keep cursor centred in the viewport
-        half       = table_rows // 2
-        view_start = max(0, min(cursor_pos - half,
-                                len(networks) - table_rows))
-        view_start = max(0, view_start)
-
-        for row in range(table_rows):
-            net_idx = view_start + row
-            y       = 3 + row
-            if y >= height - 3 or net_idx >= len(networks):
-                break
-
-            net          = networks[net_idx]
-            client_count = len(clients.get(net['bssid'], []))
-            marker       = '*' if net_idx in selected_indices else ' '
-
-            line = (
-                f"{marker}{net_idx + 1:<3}"
-                f"{net['bssid']:<19}"
-                f"{net['essid'][:25]:<26}"
-                f"{net['channel']:<5}"
-                f"{net['avg_power']:<7}"
-                f"{net['privacy']:<11}"
-                f"{client_count}"
-            )
-
-            if net_idx == cursor_pos:
-                attr = curses.color_pair(2) | curses.A_BOLD | curses.A_REVERSE
-            elif net_idx in selected_indices:
-                attr = curses.color_pair(3) | curses.A_BOLD
+    def _parse_selection_input(self, raw: str, max_idx: int) -> set:
+        """Parse '1', '1,3', '1-4' into 0-based index set."""
+        indices = set()
+        for part in raw.replace(" ", "").split(","):
+            if "-" in part:
+                try:
+                    lo, hi = part.split("-", 1)
+                    for n in range(int(lo), int(hi) + 1):
+                        if 1 <= n <= max_idx:
+                            indices.add(n - 1)
+                except ValueError:
+                    pass
             else:
-                attr = curses.color_pair(5)
+                try:
+                    n = int(part)
+                    if 1 <= n <= max_idx:
+                        indices.add(n - 1)
+                except ValueError:
+                    pass
+        return indices
 
-            try:
-                stdscr.attron(attr)
-                stdscr.addstr(y, 0, line[:width - 1])
-                stdscr.attroff(attr)
-            except curses.error:
-                pass  # addstr at last cell on some terminals
+    def _run_number_select(self) -> list[dict]:
+        """Simple loop: print table, read input, process, repeat."""
+        selected: set[int] = set()
 
-        # ---- Status bar ----
-        total_clients = sum(len(v) for v in clients.values())
-        status = (f" Networks: {len(networks)}"
-                  f"  Clients: {total_clients}"
-                  f"  Selected: {len(selected_indices)}"
-                  f"  Row {cursor_pos + 1}/{max(1, len(networks))} ")
-        sy = height - 3
-        if 0 <= sy < height:
-            stdscr.attron(curses.color_pair(4) | curses.A_BOLD)
-            stdscr.addstr(sy, 0, status[:width - 1])
-            stdscr.attroff(curses.color_pair(4) | curses.A_BOLD)
-
-        # ---- Help line ----
-        help_line = (" UP/DOWN: move  SPACE: select  ENTER: confirm"
-                     "  A: all  C: clear  Q: quit")
-        hy = height - 2
-        if 0 <= hy < height:
-            stdscr.attron(curses.color_pair(1))
-            stdscr.addstr(hy, 0, help_line[:width - 1])
-            stdscr.attroff(curses.color_pair(1))
-
-        stdscr.refresh()
-
-    def _curses_main(self, stdscr) -> list[dict]:
-        curses.curs_set(0)
-        curses.start_color()
-        curses.use_default_colors()
-        stdscr.keypad(True)
-        # timeout(50): getch() returns -1 after 50ms if no key pressed.
-        # This is the correct curses-native non-blocking pattern.
-        # select() on sys.stdin does NOT work when curses owns the terminal
-        # in raw mode - it blocks indefinitely regardless of keypresses.
-        stdscr.timeout(50)
-
-        curses.init_pair(1, curses.COLOR_GREEN,  -1)
-        curses.init_pair(2, curses.COLOR_CYAN,   -1)
-        curses.init_pair(3, curses.COLOR_YELLOW, -1)
-        curses.init_pair(4, curses.COLOR_BLACK,  curses.COLOR_GREEN)
-        curses.init_pair(5, curses.COLOR_WHITE,  -1)
-
-        selected_indices: set[int] = set()
-        cursor_pos  = 0
-        need_redraw = True
-        networks:   list[dict] = []
-        clients:    dict       = {}
+        print("\n  Waiting 6s for airodump to initialize...")
+        sys.stdout.flush()
+        time.sleep(6)
+        self._last_parse_time = 0.0
 
         while True:
-            # getch() either returns a key immediately or -1 after 50ms
-            key = stdscr.getch()
+            self._parse_if_stale()
+            nets, clis = self.get_snapshot()
+            nets = [n for n in nets if n["essid"] != "[Hidden]"]
+            self.networks         = nets
+            self.clients_by_bssid = clis
 
-            if key == -1:
-                # No keypress - use this idle tick to check for new CSV data
-                old_count = len(networks)
-                self._parse_if_stale()
-                networks, clients = self.get_snapshot()
-                # Filter hidden networks until they decloak
-                networks = [n for n in networks if n['essid'] != '[Hidden]']
-                if len(networks) != old_count:
-                    need_redraw = True
-                if networks:
-                    cursor_pos = min(cursor_pos, len(networks) - 1)
-                else:
-                    cursor_pos = 0
-            else:
-                # Key arrived - handle it immediately, no CSV check this tick
-                prev_cursor = cursor_pos
+            self._print_table(nets, clis, selected)
 
-                if key == curses.KEY_UP:
-                    cursor_pos = max(0, cursor_pos - 1)
-                elif key == curses.KEY_DOWN:
-                    if networks:
-                        cursor_pos = min(len(networks) - 1, cursor_pos + 1)
-                elif key == curses.KEY_PPAGE:
-                    cursor_pos = max(0, cursor_pos - 10)
-                elif key == curses.KEY_NPAGE:
-                    if networks:
-                        cursor_pos = min(len(networks) - 1, cursor_pos + 10)
-                elif key == curses.KEY_HOME:
-                    cursor_pos = 0
-                elif key == curses.KEY_END:
-                    cursor_pos = max(0, len(networks) - 1)
-                elif key == ord(' '):
-                    if cursor_pos < len(networks):
-                        if cursor_pos in selected_indices:
-                            selected_indices.discard(cursor_pos)
-                        else:
-                            selected_indices.add(cursor_pos)
-                elif key in (curses.KEY_ENTER, ord('\n'), ord('\r')):
-                    if selected_indices:
-                        return [networks[i] for i in sorted(selected_indices)
-                                if i < len(networks)]
-                    elif cursor_pos < len(networks):
-                        return [networks[cursor_pos]]
-                elif key in (ord('a'), ord('A')):
-                    selected_indices = set(range(len(networks)))
-                elif key in (ord('c'), ord('C')):
-                    selected_indices.clear()
-                elif key in (ord('q'), ord('Q')):
+            sys.stdout.write("> ")
+            sys.stdout.flush()
+
+            try:
+                raw = sys.stdin.readline()
+                if raw == "":          # EOF
                     return []
+                raw = raw.strip()
+            except KeyboardInterrupt:
+                return []
 
-                if cursor_pos != prev_cursor or key in (
-                    ord(' '), ord('a'), ord('A'), ord('c'), ord('C')
-                ):
-                    need_redraw = True
+            if not raw:
+                self._last_parse_time = 0.0
+                continue
 
-            if need_redraw:
-                self._draw_screen(stdscr, networks, clients,
-                                  cursor_pos, selected_indices)
-                need_redraw = False
+            cmd = raw.upper()
+
+            if cmd == "Q":
+                return []
+            elif cmd == "D":
+                if selected:
+                    return [nets[i] for i in sorted(selected) if i < len(nets)]
+                print("  No targets selected.")
+                sys.stdout.flush()
+            elif cmd == "A":
+                selected = set(range(len(nets)))
+            elif cmd == "C":
+                selected.clear()
+            elif cmd == "R":
+                self._last_parse_time = 0.0
+            else:
+                hits = self._parse_selection_input(raw, len(nets))
+                if hits:
+                    for idx in hits:
+                        if idx in selected:
+                            selected.discard(idx)
+                        else:
+                            selected.add(idx)
+                else:
+                    print(f"  Invalid: '{raw}'  (valid 1-{len(nets)})")
+                    sys.stdout.flush()
 
 
 # =============================================================================
@@ -1338,7 +1262,7 @@ class WirelessAttackFramework:
                 # Capture and deauth truly concurrent - no interruption
                 print("\nStarting capture + deauth concurrently...")
                 proc = subprocess.Popen(
-                    cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
                 )
                 self.registry.register('handshake_capture', proc)
                 time.sleep(3)
@@ -1364,7 +1288,7 @@ class WirelessAttackFramework:
                 # Single interface: start capture, pause briefly to deauth
                 print("\nStarting capture, deauth in 5s...")
                 proc = subprocess.Popen(
-                    cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
                 )
                 self.registry.register('handshake_capture', proc)
                 time.sleep(5)
@@ -1450,6 +1374,7 @@ class WirelessAttackFramework:
 
         cap_proc = subprocess.Popen(
             cap_cmd,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -1838,7 +1763,7 @@ class WirelessAttackFramework:
                 '-c', target.get('channel', '6').strip(),
                 mon
             ]
-            ab_proc = subprocess.Popen(ab_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            ab_proc = subprocess.Popen(ab_cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.registry.register('rogue_ap', ab_proc)
             processes.append(('airbase-ng', ab_proc))
             time.sleep(3)
@@ -1850,7 +1775,7 @@ class WirelessAttackFramework:
             # Start dnsmasq
             print("Starting DHCP/DNS server...")
             dm_cmd = ['sudo', dnsmasq, '-C', str(dnsmasq_conf), '--no-daemon']
-            dm_proc = subprocess.Popen(dm_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            dm_proc = subprocess.Popen(dm_cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.registry.register('dnsmasq', dm_proc)
             processes.append(('dnsmasq', dm_proc))
             time.sleep(1)
