@@ -7,7 +7,7 @@
 # Email: keith@redcellsecurity.org
 # Website: www.redcellsecurity.org
 #
-# Copyright (c) 2026 Keith Pachulski. All rights reserved.
+# Copyright (c) 2025 Keith Pachulski. All rights reserved.
 #
 # License: This software is licensed under the MIT License.
 #
@@ -573,15 +573,46 @@ class ScanEngine:
 
 
     def run_display(self) -> list[dict]:
-        """Launch airodump, wait for first data, run selection loop."""
+        """Timed scan then number-entry selection."""
         self._start_airodump()
         try:
             return self._run_number_select()
         finally:
             self._stop_airodump()
 
+    def _timed_scan(self, duration: int):
+        """
+        Run for duration seconds parsing the CSV on each tick.
+        Prints a live countdown so the user knows something is happening.
+        Ctrl+C exits early with whatever was captured.
+        """
+        print(f"\n  Scanning for {duration}s  (Ctrl+C to stop early)\n")
+        start = time.monotonic()
+        try:
+            while True:
+                elapsed   = time.monotonic() - start
+                remaining = duration - int(elapsed)
+                if remaining <= 0:
+                    break
+                # Force parse on every tick to accumulate all airodump data
+                self._last_parse_time = 0.0
+                self._parse_if_stale()
+                nets, _ = self.get_snapshot()
+                visible = nets
+                sys.stdout.write(
+                    f"\r  [{remaining:>3}s]  Networks: {len(visible)}    "
+                )
+                sys.stdout.flush()
+                time.sleep(1)
+        except KeyboardInterrupt:
+            pass
+        # Final parse to catch anything written in the last second
+        self._last_parse_time = 0.0
+        self._parse_if_stale()
+        print("\n")
+
     def _print_table(self, networks, clients, selected: set):
-        """Print scan table - no escape codes, no screen clear, plain text."""
+        """Print scan table - plain text, fixed 78-char width."""
         print("")
         print("=" * 78)
         band = "[2.4+5GHz]" if self.supports_5ghz else "[2.4GHz]"
@@ -591,11 +622,13 @@ class ScanEngine:
         print(f"  {'-'*70}")
 
         if not networks:
-            print("  (scanning - no networks yet)")
+            print("  (no networks found - try R to rescan)")
         else:
             for i, net in enumerate(networks, 1):
                 mark  = "*" if (i - 1) in selected else " "
                 essid = net["essid"][:19]
+                if net["essid"] == "[Hidden]":
+                    essid = "<hidden>"
                 ch    = net["channel"].strip()[:3]
                 enc   = net["privacy"][:5]
                 cli   = len(clients.get(net["bssid"], []))
@@ -605,7 +638,7 @@ class ScanEngine:
         print("=" * 78)
         sel = ", ".join(str(i+1) for i in sorted(selected)) or "none"
         print(f"  Networks: {len(networks)}   Selected: {sel}")
-        print("  Enter: number  1,3,5  1-4  | A=all  C=clear  D=done  R=rescan  Q=quit")
+        print("  Select: number  1,3,5  1-4  |  A=all  C=clear  D=done  R=rescan  Q=quit")
         print("=" * 78)
         sys.stdout.flush()
 
@@ -631,18 +664,26 @@ class ScanEngine:
         return indices
 
     def _run_number_select(self) -> list[dict]:
-        """Simple loop: print table, read input, process, repeat."""
+        """Ask scan duration → timed scan → print table → input loop."""
         selected: set[int] = set()
 
-        print("\n  Waiting 6s for airodump to initialize...")
+        # Ask scan duration before starting
+        print("\n  Scan duration in seconds (Enter for default 30, max 300): ", end="")
         sys.stdout.flush()
-        time.sleep(6)
-        self._last_parse_time = 0.0
+        try:
+            raw_dur = sys.stdin.readline().strip()
+        except KeyboardInterrupt:
+            return []
+        try:
+            duration = max(5, min(300, int(raw_dur))) if raw_dur else 30
+        except ValueError:
+            duration = 30
 
+        self._timed_scan(duration)
+
+        # Selection loop - no background threads, no async, just input()
         while True:
-            self._parse_if_stale()
             nets, clis = self.get_snapshot()
-            nets = [n for n in nets if n["essid"] != "[Hidden]"]
             self.networks         = nets
             self.clients_by_bssid = clis
 
@@ -653,14 +694,13 @@ class ScanEngine:
 
             try:
                 raw = sys.stdin.readline()
-                if raw == "":          # EOF
+                if raw == "":      # EOF / pipe closed
                     return []
                 raw = raw.strip()
             except KeyboardInterrupt:
                 return []
 
             if not raw:
-                self._last_parse_time = 0.0
                 continue
 
             cmd = raw.upper()
@@ -677,7 +717,19 @@ class ScanEngine:
             elif cmd == "C":
                 selected.clear()
             elif cmd == "R":
-                self._last_parse_time = 0.0
+                # Fresh rescan - ask duration, clear old selection
+                print("\n  Scan duration in seconds (Enter for default 30): ", end="")
+                sys.stdout.flush()
+                try:
+                    raw_dur = sys.stdin.readline().strip()
+                except KeyboardInterrupt:
+                    return []
+                try:
+                    duration = max(5, min(300, int(raw_dur))) if raw_dur else 30
+                except ValueError:
+                    duration = 30
+                selected.clear()
+                self._timed_scan(duration)
             else:
                 hits = self._parse_selection_input(raw, len(nets))
                 if hits:
