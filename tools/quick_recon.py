@@ -1214,7 +1214,7 @@ class ReconAutomation:
                         self.print_success(f"Using CSRF token: {jsessionid[:30]}...")
                         self.print_info(f"Loaded {len(linkedin_session.cookies)} cookies")
 
-                        # API headers matching browser exactly
+                        # API headers for Voyager calls (people search)
                         api_headers = {
                             'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
                             'Accept': 'application/vnd.linkedin.normalized+json+2.1',
@@ -1233,11 +1233,27 @@ class ReconAutomation:
                             'Csrf-Token': jsessionid,
                         }
 
+                        # HTML headers for page scraping (company search)
+                        html_headers = {
+                            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                            'Accept-Language': 'en-US,en;q=0.9',
+                            'sec-ch-ua': '"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
+                            'sec-ch-ua-mobile': '?0',
+                            'sec-ch-ua-platform': '"Linux"',
+                            'Sec-Fetch-Dest': 'document',
+                            'Sec-Fetch-Mode': 'navigate',
+                            'Sec-Fetch-Site': 'same-origin',
+                            'Sec-Fetch-User': '?1',
+                            'Upgrade-Insecure-Requests': '1',
+                            'Referer': 'https://www.linkedin.com/feed/',
+                        }
+
                         encoded_term = search_term.replace(' ', '%20').replace(',', '%2C')
                         page_size = 10
 
                         # =====================================================================
-                        # SEARCH 1: Find companies via typeahead API
+                        # SEARCH 1: Find companies via HTML search page scraping
                         # =====================================================================
                         all_companies = linkedin_intel['company_info'].get('companies', [])
                         company_search_complete = progress.get('company_search_complete', False)
@@ -1245,69 +1261,136 @@ class ReconAutomation:
                         if not company_search_complete:
                             self.print_info(f"\n[1/2] Searching for companies: {search_term}")
 
-                            typeahead_url = f"https://www.linkedin.com/voyager/api/typeahead/hitsV2?keywords={encoded_term}&q=type&type=COMPANY"
+                            search_url = f"https://www.linkedin.com/search/results/companies/?keywords={encoded_term}&origin=SWITCH_SEARCH_VERTICAL"
 
                             try:
-                                response = linkedin_session.get(typeahead_url, headers=api_headers, timeout=15)
+                                response = linkedin_session.get(search_url, headers=html_headers, timeout=20, allow_redirects=True)
+
+                                # Detect auth challenges / session problems via final URL
+                                final_url = response.url.lower()
+                                auth_markers = ['/checkpoint/', '/uas/login', '/authwall', '/login/', '/signup']
+                                if any(marker in final_url for marker in auth_markers):
+                                    self.print_error(f"Session challenged or expired")
+                                    self.print_error(f"  Final URL: {response.url}")
+                                    self.print_error(f"  Your cookies may be invalid or LinkedIn requires re-authentication")
+                                    return
 
                                 if response.status_code != 200:
-                                    self.print_warning(f"Typeahead API returned status {response.status_code}")
-                                else:
-                                    data = response.json()
-                                    elements = data.get('elements', [])
+                                    self.print_warning(f"Search page returned status {response.status_code}")
+                                    return
 
-                                    self.print_info(f"  Typeahead returned {len(elements)} results")
+                                html_body = response.text
 
-                                    for element in elements:
-                                        # Extract company name
-                                        text_obj = element.get('text', {})
-                                        name = text_obj.get('text', '') if isinstance(text_obj, dict) else ''
+                                # Detect login/authwall in body content (some challenges don't redirect)
+                                body_lower_head = html_body[:5000].lower()
+                                if '<title>sign up' in body_lower_head or '<title>linkedin login' in body_lower_head:
+                                    self.print_error("Received login page instead of search results")
+                                    self.print_error("  Cookies are likely expired - please re-export from browser")
+                                    return
 
+                                self.print_info(f"  Received {len(html_body)} bytes of HTML")
+
+                                # Extract embedded Voyager JSON from <code id="bpr-guid-*"> tags
+                                # (excluding 'datalet-bpr-guid-*' which contains only request metadata)
+                                code_pattern = re.compile(
+                                    r'<code[^>]*\sid="(?!datalet-)bpr-guid-\d+"[^>]*>(.*?)</code>',
+                                    re.DOTALL
+                                )
+                                code_blocks = code_pattern.findall(html_body)
+
+                                self.print_info(f"  Found {len(code_blocks)} embedded JSON blocks")
+
+                                companies_by_id = {}  # company_id -> company dict
+
+                                for block in code_blocks:
+                                    # LinkedIn HTML-escapes the JSON content inside <code> tags
+                                    decoded = html.unescape(block).strip()
+
+                                    # Strip HTML comment wrappers if present
+                                    if decoded.startswith('<!--'):
+                                        decoded = decoded[4:]
+                                    if decoded.endswith('-->'):
+                                        decoded = decoded[:-3]
+                                    decoded = decoded.strip()
+
+                                    if not decoded or not decoded.startswith('{'):
+                                        continue
+
+                                    try:
+                                        data = json.loads(decoded)
+                                    except json.JSONDecodeError:
+                                        continue
+
+                                    # Walk 'included' array looking for Company/Organization entries
+                                    included = data.get('included', [])
+                                    if not isinstance(included, list):
+                                        continue
+
+                                    for item in included:
+                                        if not isinstance(item, dict):
+                                            continue
+
+                                        item_type = item.get('$type', '') or item.get('_type', '')
+
+                                        # Match company-like types (covers MiniCompany, Company, EntityResultViewModel containing companies)
+                                        is_company_type = any(marker in item_type for marker in [
+                                            'Company', 'Organization'
+                                        ])
+
+                                        if not is_company_type:
+                                            continue
+
+                                        entity_urn = item.get('entityUrn', '') or item.get('objectUrn', '')
+                                        if not entity_urn:
+                                            continue
+
+                                        # Extract numeric company ID from URN
+                                        urn_match = re.search(r'company:(\d+)', entity_urn)
+                                        if not urn_match:
+                                            continue
+                                        company_id = urn_match.group(1)
+
+                                        # Extract name - field varies by entity type
+                                        name = item.get('name', '')
+                                        if not name:
+                                            # Some entries nest name in title/text
+                                            title = item.get('title', {})
+                                            if isinstance(title, dict):
+                                                name = title.get('text', '')
                                         if not name:
                                             continue
 
-                                        # Extract company ID and slug from hitInfo
-                                        hit_info = element.get('hitInfo', {})
-                                        company_data = hit_info.get('com.linkedin.voyager.typeahead.TypeaheadCompany', {})
-
-                                        object_urn = company_data.get('objectUrn', '')
-                                        company_id = ''
-                                        if object_urn:
-                                            urn_match = re.search(r'company:(\d+)', object_urn)
-                                            if urn_match:
-                                                company_id = urn_match.group(1)
-
-                                        # Extract slug from miniCompany if available
-                                        slug = ''
-                                        image = company_data.get('image', {})
-                                        if isinstance(image, dict):
-                                            attributes = image.get('attributes', [])
-                                            if attributes and isinstance(attributes, list):
-                                                mini_company = attributes[0].get('miniCompany', {}) if isinstance(attributes[0], dict) else {}
-                                                slug = mini_company.get('universalName', '')
-
-                                        # Fallback: extract slug from navigationUrl
+                                        # Extract slug
+                                        slug = item.get('universalName', '')
                                         if not slug:
-                                            nav_url = element.get('navigationUrl', '') or ''
+                                            # Try navigationUrl as fallback
+                                            nav_url = item.get('navigationUrl', '') or ''
                                             if '/company/' in nav_url:
                                                 slug = nav_url.split('/company/')[-1].split('/')[0].split('?')[0]
 
-                                        # Must have at least a company ID to be useful for people search
-                                        if not company_id:
-                                            self.print_info(f"  Skipping '{name}' - no company ID in response")
-                                            continue
+                                        # Dedupe by company_id, prefer entries with both name and slug
+                                        existing = companies_by_id.get(company_id)
+                                        if existing and existing.get('slug') and not slug:
+                                            continue  # keep existing with slug
 
-                                        # Dedupe by company_id
-                                        if not any(c.get('company_id') == company_id for c in all_companies):
-                                            all_companies.append({
-                                                'name': name,
-                                                'slug': slug,
-                                                'url': f"https://www.linkedin.com/company/{slug}" if slug else f"https://www.linkedin.com/company/{company_id}",
-                                                'company_id': company_id
-                                            })
+                                        companies_by_id[company_id] = {
+                                            'name': name,
+                                            'slug': slug,
+                                            'url': f"https://www.linkedin.com/company/{slug}" if slug else f"https://www.linkedin.com/company/{company_id}",
+                                            'company_id': company_id
+                                        }
+
+                                # Merge parsed companies into all_companies
+                                for company_id, company in companies_by_id.items():
+                                    if not any(c.get('company_id') == company_id for c in all_companies):
+                                        all_companies.append(company)
+
+                                self.print_info(f"  Extracted {len(companies_by_id)} unique companies from HTML")
 
                             except Exception as e:
-                                self.print_error(f"Error fetching companies via typeahead: {e}")
+                                self.print_error(f"Error scraping company search page: {e}")
+                                import traceback
+                                traceback.print_exc()
 
                             # Mark company search as complete
                             self.checkpoint('linkedin_enumeration', 'company_search_complete', True)
