@@ -55,6 +55,7 @@ import base64
 import signal
 import hashlib
 import atexit
+import html
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
