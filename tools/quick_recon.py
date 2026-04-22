@@ -3869,14 +3869,78 @@ class ReconAutomation:
             self.print_info(f"Fetching bucket listing from: {bucket_url}")
 
             try:
-                response = self.session.get(bucket_url, timeout=10, verify=False)
-                self.print_info(f"Response status: {response.status_code}")
+                # Build list of URLs to try: original, then regional variants if we get a redirect/region hint
+                urls_to_try = [bucket_url]
+                response = None
+                content = None
 
-                if response.status_code != 200:
+                for attempt_url in urls_to_try:
+                    # Use a fresh request (no session keep-alive) to avoid stale connections
+                    # against S3 regional endpoints that have closed the socket
+                    req_headers = {
+                        'User-Agent': self.session.headers.get('User-Agent', 'Mozilla/5.0'),
+                        'Connection': 'close'
+                    }
+
+                    last_err = None
+                    for retry in range(3):
+                        try:
+                            response = requests.get(attempt_url, timeout=15, verify=False,
+                                                    headers=req_headers, allow_redirects=False)
+                            last_err = None
+                            break
+                        except (requests.exceptions.ConnectionError,
+                                requests.exceptions.ChunkedEncodingError) as e:
+                            last_err = e
+                            self.print_info(f"  Retry {retry+1}/3 after connection error: {type(e).__name__}")
+                            time.sleep(2 ** retry)
+
+                    if last_err:
+                        self.print_warning(f"Connection failed after 3 retries: {last_err}")
+                        return
+
+                    self.print_info(f"Response status: {response.status_code} for {attempt_url}")
+
+                    # Handle AWS regional redirect (301 with x-amz-bucket-region header)
+                    if response.status_code == 301:
+                        region = response.headers.get('x-amz-bucket-region')
+                        location = response.headers.get('Location')
+
+                        if region and not any(region in u for u in urls_to_try):
+                            regional_url = f"https://{bucket_name}.s3.{region}.amazonaws.com/"
+                            self.print_info(f"  Bucket in region {region}, retrying: {regional_url}")
+                            urls_to_try.append(regional_url)
+                            continue
+                        elif location and location not in urls_to_try:
+                            self.print_info(f"  Following redirect: {location}")
+                            urls_to_try.append(location)
+                            continue
+                        else:
+                            self.print_warning("Redirect loop or no region header, giving up")
+                            return
+
+                    # Handle PermanentRedirect body (some responses embed region in XML instead of header)
+                    if response.status_code == 400 and 'PermanentRedirect' in response.text:
+                        endpoint_match = re.search(r'<Endpoint>([^<]+)</Endpoint>', response.text)
+                        if endpoint_match:
+                            new_endpoint = endpoint_match.group(1)
+                            new_url = f"https://{new_endpoint}/"
+                            if new_url not in urls_to_try:
+                                self.print_info(f"  PermanentRedirect to: {new_url}")
+                                urls_to_try.append(new_url)
+                                continue
+
+                    if response.status_code == 200:
+                        content = response.text
+                        break
+
                     self.print_warning(f"Cannot list bucket contents (status {response.status_code})")
                     return
 
-                content = response.text
+                if not content:
+                    self.print_warning("No content retrieved after all attempts")
+                    return
+
                 self.print_info(f"Response length: {len(content)} bytes")
 
                 files = []
