@@ -2764,86 +2764,156 @@ class ReconAutomation:
         return False
 
     def _check_certificate_transparency(self) -> List[str]:
-            """Check certificate transparency logs for subdomains"""
-            domains = []
-            target = self.domain.lower()
+                """Check certificate transparency logs for subdomains"""
+                domains = set()
+                target = self.domain.lower()
 
-            self.print_info(f"Querying crt.sh for {self.domain}...")
+                def in_scope(name: str) -> bool:
+                    name = name.strip().lower()
+                    if not name or '*' in name:
+                        return False
+                    return name == target or name.endswith(f'.{target}')
 
-            try:
-                # Try crt.sh with proper timeout and headers
-                url = f"https://crt.sh/?q=%.{self.domain}&output=json"
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                }
+                # =================================================================
+                # Source 1: crt.sh with retries on 502/503/504
+                # =================================================================
+                self.print_info(f"Querying crt.sh for {self.domain}...")
 
-                response = requests.get(url, timeout=30, headers=headers)
+                crtsh_max_retries = 3
+                crtsh_success = False
 
-                self.print_info(f"crt.sh response status: {response.status_code}")
-
-                if response.status_code == 200:
+                for attempt in range(crtsh_max_retries):
                     try:
-                        data = response.json()
-                        self.print_info(f"crt.sh returned {len(data)} certificate entries")
+                        url = f"https://crt.sh/?q=%.{self.domain}&output=json"
+                        headers = {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                        }
 
-                        for entry in data:
-                            name = entry.get('name_value', '')
-                            # Handle multiple domains in one cert
-                            for domain in name.split('\n'):
-                                domain = domain.strip().lower()
-                                # Skip wildcards and empty entries, only include in-scope domains
-                                if domain and '*' not in domain:
-                                    if domain == target or domain.endswith(f'.{target}'):
-                                        domains.append(domain)
+                        response = requests.get(url, timeout=30, headers=headers)
+                        self.print_info(f"crt.sh response status: {response.status_code} (attempt {attempt+1}/{crtsh_max_retries})")
 
-                        # Remove duplicates
-                        domains = list(set(domains))
-                        self.print_success(f"Extracted {len(domains)} unique in-scope domains from certificates")
+                        if response.status_code == 200:
+                            try:
+                                data = response.json()
+                                self.print_info(f"crt.sh returned {len(data)} certificate entries")
 
-                    except json.JSONDecodeError as e:
-                        self.print_error(f"Failed to parse crt.sh JSON response: {e}")
-                        self.print_info(f"Response preview: {response.text[:500]}")
-                else:
-                    self.print_warning(f"crt.sh returned status {response.status_code}")
-                    self.print_info(f"Response: {response.text[:200]}")
+                                for entry in data:
+                                    name = entry.get('name_value', '')
+                                    for d in name.split('\n'):
+                                        if in_scope(d):
+                                            domains.add(d.strip().lower())
 
-            except requests.exceptions.Timeout:
-                self.print_error("crt.sh request timed out after 30 seconds")
-            except requests.exceptions.ConnectionError as e:
-                self.print_error(f"Connection error to crt.sh: {e}")
-            except Exception as e:
-                self.print_error(f"CT log check failed: {e}")
-                import traceback
-                traceback.print_exc()
+                                self.print_success(f"crt.sh: extracted {len(domains)} unique in-scope domains")
+                                crtsh_success = True
+                                break
 
-            # Try alternative CT log source if crt.sh failed
-            if not domains:
-                self.print_info("Trying alternative CT source (certspotter)...")
-                try:
-                    url = f"https://api.certspotter.com/v1/issuances?domain={self.domain}&include_subdomains=true&expand=dns_names"
-                    response = requests.get(url, timeout=30)
+                            except json.JSONDecodeError as e:
+                                self.print_error(f"Failed to parse crt.sh JSON response: {e}")
+                                self.print_info(f"Response preview: {response.text[:200]}")
+                                break
 
-                    if response.status_code == 200:
-                        data = response.json()
-                        self.print_info(f"certspotter returned {len(data)} entries")
+                        elif response.status_code in (502, 503, 504):
+                            if attempt < crtsh_max_retries - 1:
+                                backoff = 5 * (attempt + 1)
+                                self.print_warning(f"crt.sh returned {response.status_code}, retrying in {backoff}s...")
+                                time.sleep(backoff)
+                                continue
+                            else:
+                                self.print_warning(f"crt.sh persistently returning {response.status_code}, falling back to other sources")
+                                break
 
-                        for entry in data:
-                            dns_names = entry.get('dns_names', [])
-                            for name in dns_names:
-                                name = name.strip().lower()
-                                if name and '*' not in name:
-                                    if name == target or name.endswith(f'.{target}'):
-                                        domains.append(name)
+                        else:
+                            self.print_warning(f"crt.sh returned status {response.status_code}")
+                            self.print_info(f"Response: {response.text[:200]}")
+                            break
 
-                        domains = list(set(domains))
-                        self.print_success(f"Extracted {len(domains)} unique in-scope domains from certspotter")
-                    else:
-                        self.print_warning(f"certspotter returned status {response.status_code}")
+                    except requests.exceptions.Timeout:
+                        if attempt < crtsh_max_retries - 1:
+                            self.print_warning(f"crt.sh timeout (attempt {attempt+1}/{crtsh_max_retries}), retrying...")
+                            time.sleep(5)
+                            continue
+                        else:
+                            self.print_error("crt.sh timed out after all retries")
+                            break
 
-                except Exception as e:
-                    self.print_error(f"certspotter check failed: {e}")
+                    except requests.exceptions.ConnectionError as e:
+                        if attempt < crtsh_max_retries - 1:
+                            self.print_warning(f"crt.sh connection error, retrying...")
+                            time.sleep(5)
+                            continue
+                        else:
+                            self.print_error(f"Connection error to crt.sh: {e}")
+                            break
 
-            return list(set(domains))
+                    except Exception as e:
+                        self.print_error(f"crt.sh check failed: {e}")
+                        break
+
+                # =================================================================
+                # Source 2: certspotter (always run if crt.sh did not succeed)
+                # =================================================================
+                if not crtsh_success:
+                    self.print_info("Trying certspotter...")
+                    try:
+                        url = f"https://api.certspotter.com/v1/issuances?domain={self.domain}&include_subdomains=true&expand=dns_names"
+                        response = requests.get(url, timeout=30,
+                                                headers={'User-Agent': 'Mozilla/5.0'})
+
+                        if response.status_code == 200:
+                            data = response.json()
+                            before = len(domains)
+                            for entry in data:
+                                for name in entry.get('dns_names', []):
+                                    if in_scope(name):
+                                        domains.add(name.strip().lower())
+                            added = len(domains) - before
+                            self.print_success(f"certspotter: added {added} new in-scope domains")
+                        elif response.status_code == 429:
+                            self.print_warning("certspotter rate limited")
+                        else:
+                            self.print_warning(f"certspotter returned status {response.status_code}")
+
+                    except Exception as e:
+                        self.print_error(f"certspotter check failed: {e}")
+
+                # =================================================================
+                # Source 3: HackerTarget hostsearch (free, no key, reliable)
+                # =================================================================
+                if not crtsh_success:
+                    self.print_info("Trying hackertarget hostsearch...")
+                    try:
+                        url = f"https://api.hackertarget.com/hostsearch/?q={self.domain}"
+                        response = requests.get(url, timeout=30,
+                                                headers={'User-Agent': 'Mozilla/5.0'})
+
+                        if response.status_code == 200:
+                            text = response.text or ''
+                            # Rate-limit response is plain text starting with "API count exceeded"
+                            if 'API count exceeded' in text or 'error' in text.lower()[:50]:
+                                self.print_warning(f"hackertarget: {text.strip()[:100]}")
+                            else:
+                                before = len(domains)
+                                for line in text.splitlines():
+                                    # Format: hostname,ip
+                                    parts = line.split(',', 1)
+                                    if parts and in_scope(parts[0]):
+                                        domains.add(parts[0].strip().lower())
+                                added = len(domains) - before
+                                self.print_success(f"hackertarget: added {added} new in-scope domains")
+                        else:
+                            self.print_warning(f"hackertarget returned status {response.status_code}")
+
+                    except Exception as e:
+                        self.print_error(f"hackertarget check failed: {e}")
+
+                # =================================================================
+                # Source 4: Google's CT log search via crt.sh alternate ID format
+                # (only if everything else failed and we have nothing)
+                # =================================================================
+                if not domains:
+                    self.print_warning("All CT sources failed - DNS enumeration will rely on bruteforce only")
+
+                return list(domains)
 
     def _dns_bruteforce(self) -> List[str]:
         """Brute force common subdomain names"""
