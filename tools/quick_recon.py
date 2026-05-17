@@ -3475,58 +3475,207 @@ class ReconAutomation:
             self.print_success(f"\nTechnology stack identified for {len(tech_stack)} targets")
 
     def _identify_technologies(self, domain: str) -> Dict[str, Any]:
-        """Identify technologies for a specific domain"""
-        tech_info = {'headers': {}, 'server': None, 'powered_by': None}
+            """Identify technologies for a specific domain including VPN/remote access appliances"""
+            tech_info = {'headers': {}, 'server': None, 'powered_by': None}
 
-        for protocol in ['https', 'http']:
-            try:
-                url = f"{protocol}://{domain}"
-                response = requests.get(url, timeout=10, verify=False, allow_redirects=True)
-
-                # Extract interesting headers
-                interesting_headers = [
-                    'Server', 'X-Powered-By', 'X-AspNet-Version', 'X-AspNetMvc-Version',
-                    'X-Generator', 'X-Drupal-Cache', 'X-Content-Type-Options',
-                    'X-Frame-Options', 'Strict-Transport-Security'
-                ]
-
-                for header in interesting_headers:
-                    if header in response.headers:
-                        tech_info['headers'][header] = response.headers[header]
-                        if header == 'Server':
-                            tech_info['server'] = response.headers[header]
-                        elif header == 'X-Powered-By':
-                            tech_info['powered_by'] = response.headers[header]
-
-                # Look for technology indicators in HTML
-                html = response.text.lower()
-                indicators = {
-                    'wordpress': 'wp-content',
-                    'drupal': 'drupal',
-                    'joomla': 'joomla',
-                    'sharepoint': 'sharepoint',
-                    'asp.net': '__viewstate',
-                    'php': '.php',
-                    'apache': 'apache',
-                    'nginx': 'nginx'
+            # Appliance fingerprints: keyed by class, each entry has match patterns and optional secondary path
+            appliance_fingerprints = {
+                'F5 BIG-IP': {
+                    'headers': [r'BigIP', r'BIG-IP'],
+                    'cookies': [r'BIGipServer', r'TS[0-9a-f]{8,}', r'F5_ST'],
+                    'html': [r'/my\.policy', r'F5 Networks'],
+                    'version_patterns': [r'BIG-IP[^\d]*(\d+\.\d+\.\d+)', r'TMOS[^\d]*(\d+\.\d+\.\d+)'],
+                    'secondary_path': '/my.policy'
+                },
+                'Citrix Netscaler/ADC': {
+                    'headers': [r'NetScaler', r'Citrix'],
+                    'cookies': [r'NSC_', r'NSC_USER', r'pwcount'],
+                    'html': [r'/vpn/index\.html', r'Citrix Gateway', r'NetScaler Gateway', r'_ctxs_AuthId'],
+                    'version_patterns': [r'NS([\d.]+)', r'NSBuild[^\d]*(\d+)', r'Build[^\d]*(\d+\.\d+)'],
+                    'secondary_path': '/vpn/index.html'
+                },
+                'FortiGate SSLVPN': {
+                    'headers': [r'xxxxxxxx-xxxxx', r'Fortinet'],
+                    'cookies': [r'SVPNCOOKIE', r'FGTServer'],
+                    'html': [r'/remote/login', r'fgt_lang', r'FortiGate', r'sslvpn'],
+                    'version_patterns': [r'FortiGate[^\d]*(\d+\.\d+\.\d+)'],
+                    'secondary_path': '/remote/login'
+                },
+                'GlobalProtect (Palo Alto)': {
+                    'headers': [],
+                    'cookies': [r'PHPSESSID.*paloalto', r'clientVer'],
+                    'html': [r'global-protect', r'GlobalProtect', r'/sslmgr', r'pan-clientver'],
+                    'version_patterns': [r'clientVer[^\d]*(\d+\.\d+\.\d+)', r'GlobalProtect[^\d]*(\d+\.\d+\.\d+)'],
+                    'secondary_path': '/global-protect/login.esp'
+                },
+                'Cisco AnyConnect/ASA': {
+                    'headers': [r'Cisco', r'ASA'],
+                    'cookies': [r'webvpn', r'webvpnLogin', r'webvpnPin'],
+                    'html': [r'/\+CSCOE\+/', r'AnyConnect', r'Cisco Systems', r'webvpn_logo'],
+                    'version_patterns': [r'ASA[^\d]*(\d+\.\d+\(\d+\))', r'AnyConnect[^\d]*(\d+\.\d+\.\d+)'],
+                    'secondary_path': '/+CSCOE+/logon.html'
+                },
+                'Pulse Secure/Ivanti Connect Secure': {
+                    'headers': [r'Pulse', r'Ivanti'],
+                    'cookies': [r'DSID', r'DSLastAccess', r'DSSIGNIN'],
+                    'html': [r'/dana-na/', r'Pulse Secure', r'Ivanti Connect Secure', r'welcome\.cgi'],
+                    'version_patterns': [r'Pulse Secure[^\d]*(\d+\.\d+)', r'(\d+\.\d+R\d+)'],
+                    'secondary_path': '/dana-na/auth/url_default/welcome.cgi'
+                },
+                'SonicWall NetExtender/SMA': {
+                    'headers': [r'SonicWALL', r'SonicOS'],
+                    'cookies': [r'swap', r'sessId'],
+                    'html': [r'SonicWall', r'NetExtender', r'/cgi-bin/welcome', r'sw_logo'],
+                    'version_patterns': [r'SonicOS[^\d]*(\d+\.\d+\.\d+)', r'SMA[^\d]*(\d+\.\d+\.\d+)'],
+                    'secondary_path': '/cgi-bin/welcome'
+                },
+                'Microsoft RD Web Access': {
+                    'headers': [r'Microsoft-IIS', r'Microsoft-HTTPAPI'],
+                    'cookies': [r'TSWAAuthHttpModule'],
+                    'html': [r'/RDWeb/', r'RD Web Access', r'Remote Desktop Services', r'TSWebAccess'],
+                    'version_patterns': [r'Microsoft-IIS/(\d+\.\d+)'],
+                    'secondary_path': '/RDWeb/Pages/en-US/login.aspx'
+                },
+                'Check Point Mobile Access': {
+                    'headers': [r'Check Point'],
+                    'cookies': [r'CPCVPN_SESSION_ID', r'selected_realm'],
+                    'html': [r'/sslvpn/Login/Login', r'Check Point', r'Mobile Access Portal'],
+                    'version_patterns': [r'R\d{2}[\d.]*'],
+                    'secondary_path': '/sslvpn/Login/Login'
                 }
+            }
 
-                detected = []
-                for tech, indicator in indicators.items():
-                    if indicator in html:
-                        detected.append(tech)
+            # Standard tech indicators (existing)
+            indicators = {
+                'wordpress': 'wp-content',
+                'drupal': 'drupal',
+                'joomla': 'joomla',
+                'sharepoint': 'sharepoint',
+                'asp.net': '__viewstate',
+                'php': '.php',
+                'apache': 'apache',
+                'nginx': 'nginx'
+            }
 
-                if detected:
-                    tech_info['detected_technologies'] = detected
+            # Extended interesting headers
+            interesting_headers = [
+                'Server', 'X-Powered-By', 'X-AspNet-Version', 'X-AspNetMvc-Version',
+                'X-Generator', 'X-Drupal-Cache', 'X-Content-Type-Options',
+                'X-Frame-Options', 'Strict-Transport-Security', 'Set-Cookie'
+            ]
 
-                break  # If HTTPS works, no need to try HTTP
+            def match_appliance(response_text: str, response_headers, set_cookie: str) -> Optional[Dict[str, str]]:
+                """Match response against appliance fingerprints. Returns dict with class, version, evidence."""
+                header_blob = ' '.join(f"{k}: {v}" for k, v in response_headers.items())
+                search_text = (response_text or '')[:50000].lower()
+                cookie_blob = (set_cookie or '').lower()
+                header_blob_lower = header_blob.lower()
 
-            except requests.exceptions.SSLError:
-                continue
-            except Exception as e:
-                continue
+                for appliance_class, fp in appliance_fingerprints.items():
+                    score = 0
+                    evidence = []
 
-        return tech_info if tech_info['headers'] or tech_info.get('detected_technologies') else None
+                    for pattern in fp['headers']:
+                        if re.search(pattern, header_blob, re.IGNORECASE):
+                            score += 2
+                            evidence.append(f"header: {pattern}")
+                            break
+
+                    for pattern in fp['cookies']:
+                        if re.search(pattern, cookie_blob, re.IGNORECASE) or re.search(pattern, header_blob, re.IGNORECASE):
+                            score += 2
+                            evidence.append(f"cookie: {pattern}")
+                            break
+
+                    for pattern in fp['html']:
+                        if re.search(pattern, search_text, re.IGNORECASE):
+                            score += 1
+                            evidence.append(f"html: {pattern}")
+
+                    if score >= 2:
+                        version = None
+                        for vpattern in fp['version_patterns']:
+                            match = re.search(vpattern, response_text or '', re.IGNORECASE) or re.search(vpattern, header_blob, re.IGNORECASE)
+                            if match:
+                                version = match.group(1) if match.groups() else match.group(0)
+                                break
+
+                        return {
+                            'class': appliance_class,
+                            'version': version or 'Unknown',
+                            'evidence': evidence[:3],
+                            'secondary_path': fp.get('secondary_path')
+                        }
+
+                return None
+
+            for protocol in ['https', 'http']:
+                try:
+                    url = f"{protocol}://{domain}"
+                    response = requests.get(url, timeout=10, verify=False, allow_redirects=True)
+
+                    # Extract interesting headers
+                    for header in interesting_headers:
+                        if header in response.headers:
+                            tech_info['headers'][header] = response.headers[header]
+                            if header == 'Server':
+                                tech_info['server'] = response.headers[header]
+                            elif header == 'X-Powered-By':
+                                tech_info['powered_by'] = response.headers[header]
+
+                    html = response.text.lower()
+                    detected = []
+                    for tech, indicator in indicators.items():
+                        if indicator in html:
+                            detected.append(tech)
+                    if detected:
+                        tech_info['detected_technologies'] = detected
+
+                    # Appliance fingerprinting against root response
+                    set_cookie = response.headers.get('Set-Cookie', '')
+                    appliance = match_appliance(response.text, response.headers, set_cookie)
+
+                    # Conditional secondary probe: small response, redirect to login-like path, or generic server header
+                    if not appliance:
+                        is_ambiguous = (
+                            len(response.content) < 5000 or
+                            any(x in response.url.lower() for x in ['login', 'logon', 'auth', 'signin', 'sso']) or
+                            response.status_code in [401, 403] or
+                            tech_info.get('server', '').lower() in ['', 'unknown', 'apache', 'nginx', 'microsoft-iis/8.5', 'microsoft-iis/10.0']
+                        )
+
+                        if is_ambiguous:
+                            # Try the most likely appliance paths in priority order
+                            priority_paths = [
+                                '/my.policy', '/vpn/index.html', '/remote/login',
+                                '/dana-na/auth/url_default/welcome.cgi', '/+CSCOE+/logon.html',
+                                '/global-protect/login.esp', '/RDWeb/Pages/en-US/login.aspx',
+                                '/sslvpn/Login/Login', '/cgi-bin/welcome'
+                            ]
+                            for path in priority_paths:
+                                try:
+                                    probe_url = f"{protocol}://{domain}{path}"
+                                    probe_resp = requests.get(probe_url, timeout=8, verify=False, allow_redirects=True)
+                                    if probe_resp.status_code in [200, 302, 401, 403]:
+                                        probe_cookie = probe_resp.headers.get('Set-Cookie', '')
+                                        appliance = match_appliance(probe_resp.text, probe_resp.headers, probe_cookie)
+                                        if appliance:
+                                            appliance['probe_path'] = path
+                                            break
+                                except:
+                                    continue
+
+                    if appliance:
+                        tech_info['vpn_appliance'] = appliance
+
+                    break
+
+                except requests.exceptions.SSLError:
+                    continue
+                except Exception as e:
+                    continue
+
+            return tech_info if tech_info['headers'] or tech_info.get('detected_technologies') or tech_info.get('vpn_appliance') else None
 
     def email_harvesting(self):
             """Harvest email addresses from multiple public sources"""
@@ -5560,7 +5709,7 @@ class ReconAutomation:
                             f.write(f"### External Subdomains ({len(resolved_external)})\n\n")
                             f.write(f"Subdomains resolving to public IP addresses:\n\n")
                             for subdomain, ips in sorted(resolved_external.items()):
-                                f.write(f"- `{subdomain}` → {', '.join(ips)}\n")
+                                f.write(f"- `{subdomain}` -> {', '.join(ips)}\n")
                             f.write(f"\n")
 
                         # Internal resolved subdomains (private IPs) - Information Disclosure
@@ -5575,7 +5724,7 @@ class ReconAutomation:
                             f.write(f"- Craft more convincing phishing attacks\n\n")
                             f.write(f"**Affected Subdomains:**\n\n")
                             for subdomain, ips in sorted(resolved_internal.items()):
-                                f.write(f"- `{subdomain}` → {', '.join(ips)}\n")
+                                f.write(f"- `{subdomain}` -> {', '.join(ips)}\n")
                             f.write(f"\n")
                             f.write(f"**Recommendation:** Remove internal DNS records from public-facing DNS servers ")
                             f.write(f"or implement split-horizon DNS to prevent internal hostname disclosure.\n\n")
@@ -5585,7 +5734,7 @@ class ReconAutomation:
                             f.write(f"### Resolved Subdomains ({len(resolved)})\n\n")
                             f.write(f"Subdomains that successfully resolved to IP addresses:\n\n")
                             for subdomain, ips in sorted(resolved.items()):
-                                f.write(f"- `{subdomain}` → {', '.join(ips)}\n")
+                                f.write(f"- `{subdomain}` -> {', '.join(ips)}\n")
                             f.write(f"\n")
 
                         # Unresolved domains
@@ -5634,6 +5783,24 @@ class ReconAutomation:
                         tech = self.results.get('technology_stack', {})
                         if tech:
                             f.write(f"**Systems Analyzed:** {len(tech)}\n\n")
+
+                            # Surface VPN/remote access appliances first as high-value findings
+                            appliance_hosts = {h: info for h, info in tech.items() if info.get('vpn_appliance')}
+                            if appliance_hosts:
+                                f.write(f"### Remote Access Appliances ({len(appliance_hosts)})\n\n")
+                                for host, info in sorted(appliance_hosts.items()):
+                                    appliance = info['vpn_appliance']
+                                    f.write(f"#### {host}\n")
+                                    f.write(f"- **Appliance Class:** {appliance['class']}\n")
+                                    f.write(f"- **Version:** {appliance['version']}\n")
+                                    if appliance.get('probe_path'):
+                                        f.write(f"- **Detected At:** `{appliance['probe_path']}`\n")
+                                    if appliance.get('evidence'):
+                                        f.write(f"- **Evidence:** {', '.join(appliance['evidence'])}\n")
+                                    f.write(f"\n")
+                                f.write(f"**Note:** Remote access appliance version disclosure supports vulnerability analysis. ")
+                                f.write(f"Recent CVE history on VPN/remote access appliances is heavy. Review current vendor advisories against the identified versions before Phase 3.\n\n")
+
                             for domain, info in sorted(tech.items()):
                                 f.write(f"### {domain}\n")
                                 if info.get('server'):
@@ -5642,6 +5809,8 @@ class ReconAutomation:
                                     f.write(f"- **Powered By:** {info['powered_by']}\n")
                                 if info.get('detected_technologies'):
                                     f.write(f"- **Technologies:** {', '.join(info['detected_technologies'])}\n")
+                                if info.get('vpn_appliance'):
+                                    f.write(f"- **VPN Appliance:** {info['vpn_appliance']['class']} ({info['vpn_appliance']['version']})\n")
                                 if info.get('headers'):
                                     f.write(f"- **Security Headers:**\n")
                                     for header, value in info['headers'].items():
@@ -6023,6 +6192,23 @@ class ReconAutomation:
                             if all_tech:
                                 f.write(f"- Technologies: {', '.join(all_tech)}\n")
                             f.write("\n")
+
+                            # Remote access appliance narrative
+                            appliance_hosts = {h: info for h, info in tech.items() if info.get('vpn_appliance')}
+                            if appliance_hosts:
+                                f.write("### Remote Access Appliance Identification\n\n")
+                                f.write(f"Technology fingerprinting identified {len(appliance_hosts)} remote access appliance(s) ")
+                                f.write("exposed to the internet. These appliances handle VPN, remote desktop, or federated ")
+                                f.write("authentication and represent high-value targets given the heavy CVE history on this class of devices.\n\n")
+
+                                for host, info in sorted(appliance_hosts.items()):
+                                    appliance = info['vpn_appliance']
+                                    version_part = f" version {appliance['version']}" if appliance['version'] != 'Unknown' else ""
+                                    f.write(f"- {host} - {appliance['class']}{version_part}\n")
+                                f.write("\n")
+                                f.write("Identified appliance versions should be cross-referenced against current vendor advisories. ")
+                                f.write("Common high-yield CVE classes on these devices include pre-authentication remote code execution, ")
+                                f.write("authentication bypass, and path traversal vulnerabilities.\n\n")
 
                         # LinkedIn Intelligence
                         f.write("### Employee Enumeration via LinkedIn\n\n")
