@@ -449,6 +449,138 @@ class ReconAutomation:
                             else:
                                 self.print_warning(f"✗ {ip} is NOT in provided scope ranges")
 
+    def m365_tenant_attribution(self):
+                """Identify M365/Azure AD tenant attribution and federation posture"""
+                self.print_section("M365/AZURE AD TENANT ATTRIBUTION")
+
+                # Restore from checkpoint if exists
+                resume_data = self.get_resume_data('m365_tenant')
+                progress = resume_data.get('progress', {})
+
+                m365_data = progress.get('m365_data', {
+                    'is_m365': False,
+                    'tenant_id': '',
+                    'tenant_region': '',
+                    'cloud_instance': '',
+                    'namespace_type': '',
+                    'federation_brand': '',
+                    'auth_url': '',
+                    'federation_host': ''
+                })
+
+                # Skip if already complete from checkpoint
+                if progress.get('complete'):
+                    self.print_info("Restored M365 tenant data from checkpoint")
+                    if m365_data.get('is_m365'):
+                        self.print_success(f"Tenant ID: {m365_data['tenant_id']}")
+                    self.results['m365_tenant'] = m365_data
+                    return
+
+                # Endpoint 1: openid-configuration (domain-only, no username required)
+                self.print_info(f"Querying openid-configuration for {self.domain}...")
+
+                try:
+                    url = f"https://login.microsoftonline.com/{self.domain}/.well-known/openid-configuration"
+                    response = self.session.get(url, timeout=15, verify=False)
+
+                    if response.status_code == 200:
+                        data = response.json()
+                        m365_data['is_m365'] = True
+
+                        # Extract tenant ID from issuer (format: https://sts.windows.net/<tenant-id>/)
+                        issuer = data.get('issuer', '')
+                        match = re.search(r'/([0-9a-f-]{36})/?', issuer)
+                        if match:
+                            m365_data['tenant_id'] = match.group(1)
+                            self.print_success(f"Tenant ID: {m365_data['tenant_id']}")
+
+                        m365_data['tenant_region'] = data.get('tenant_region_scope', '')
+                        m365_data['cloud_instance'] = data.get('cloud_instance_name', '')
+
+                        if m365_data['tenant_region']:
+                            self.print_info(f"Tenant Region: {m365_data['tenant_region']}")
+                        if m365_data['cloud_instance']:
+                            self.print_info(f"Cloud Instance: {m365_data['cloud_instance']}")
+
+                    elif response.status_code == 400:
+                        # Likely AADSTS90002 - tenant not found
+                        body = response.text.lower()
+                        if 'aadsts90002' in body or 'not found' in body:
+                            self.print_info(f"Domain {self.domain} is not an M365 tenant")
+                            m365_data['is_m365'] = False
+                            self.results['m365_tenant'] = m365_data
+                            self.checkpoint('m365_tenant', 'm365_data', m365_data)
+                            self.checkpoint('m365_tenant', 'complete', True)
+                            return
+                        else:
+                            self.print_warning(f"openid-configuration returned 400: {response.text[:200]}")
+                    else:
+                        self.print_warning(f"openid-configuration returned status {response.status_code}")
+
+                except Exception as e:
+                    self.print_error(f"openid-configuration query failed: {e}")
+
+                # Endpoint 2: GetUserRealm (returns federation posture for the domain)
+                self.print_info(f"Querying GetUserRealm for federation posture...")
+
+                try:
+                    url = f"https://login.microsoftonline.com/common/GetUserRealm.srf?login=aaaaaa@{self.domain}"
+                    response = self.session.get(
+                        url,
+                        headers={'Accept': 'application/json'},
+                        timeout=15,
+                        verify=False
+                    )
+
+                    if response.status_code == 200:
+                        data = response.json()
+
+                        m365_data['namespace_type'] = data.get('NameSpaceType', '')
+                        m365_data['federation_brand'] = data.get('FederationBrandName', '')
+                        m365_data['auth_url'] = data.get('AuthURL', '') or ''
+
+                        if not m365_data.get('cloud_instance'):
+                            m365_data['cloud_instance'] = data.get('CloudInstanceName', '')
+
+                        # If federated, extract host for Task 2 (ADFS discovery)
+                        if m365_data['auth_url']:
+                            match = re.search(r'https?://([^/]+)', m365_data['auth_url'])
+                            if match:
+                                m365_data['federation_host'] = match.group(1)
+
+                        if m365_data['namespace_type']:
+                            if m365_data['namespace_type'] == 'Federated':
+                                self.print_warning(f"Namespace Type: Federated (ADFS or 3rd-party IdP)")
+                                if m365_data['federation_host']:
+                                    self.print_success(f"Federation Host: {m365_data['federation_host']}")
+                            elif m365_data['namespace_type'] == 'Managed':
+                                self.print_success(f"Namespace Type: Managed (cloud-native auth)")
+                            else:
+                                self.print_info(f"Namespace Type: {m365_data['namespace_type']}")
+
+                        if m365_data['federation_brand']:
+                            self.print_success(f"Brand: {m365_data['federation_brand']}")
+
+                    else:
+                        self.print_warning(f"GetUserRealm returned status {response.status_code}")
+
+                except Exception as e:
+                    self.print_error(f"GetUserRealm query failed: {e}")
+
+                # Store final results
+                self.results['m365_tenant'] = m365_data
+                self.checkpoint('m365_tenant', 'm365_data', m365_data)
+                self.checkpoint('m365_tenant', 'complete', True)
+
+                # Summary
+                if m365_data['is_m365']:
+                    self.print_info(f"\nM365 Tenant Summary:")
+                    self.print_info(f"  Tenant ID: {m365_data.get('tenant_id', 'Unknown')}")
+                    self.print_info(f"  Namespace: {m365_data.get('namespace_type', 'Unknown')}")
+                    self.print_info(f"  Brand: {m365_data.get('federation_brand', 'Unknown')}")
+                else:
+                    self.print_info("Domain does not appear to be an M365 tenant")
+
     def load_config(self) -> Dict[str, str]:
             """Load configuration from file"""
             default_config = {
@@ -5592,200 +5724,212 @@ class ReconAutomation:
                             f.write("\n")
 
     def run_all(self):
-            """Run all reconnaissance modules with state tracking"""
-            self.print_banner()
+                """Run all reconnaissance modules with state tracking"""
+                self.print_banner()
 
-            # Prompt for API keys at startup (only if not resuming with keys already set)
-            if not self.state['session'].get('api_keys_prompted'):
-                self.prompt_for_api_keys()
-                self.state['session']['api_keys_prompted'] = True
-                self.save_state()
+                # Prompt for API keys at startup (only if not resuming with keys already set)
+                if not self.state['session'].get('api_keys_prompted'):
+                    self.prompt_for_api_keys()
+                    self.state['session']['api_keys_prompted'] = True
+                    self.save_state()
 
-            try:
-                # Phase 1: Basic reconnaissance
-                if self.should_run_module('scope_validation'):
-                    self.mark_module_status('scope_validation', 'in_progress')
-                    try:
-                        self.scope_validation()
-                        self.mark_module_status('scope_validation', 'complete')
-                    except Exception as e:
-                        self.mark_module_status('scope_validation', 'failed', str(e))
-                        self.print_error(f"scope_validation failed: {e}")
-
-                if self.should_run_module('dns_enumeration'):
-                    self.mark_module_status('dns_enumeration', 'in_progress')
-                    try:
-                        self.dns_enumeration()
-                        self.mark_module_status('dns_enumeration', 'complete')
-                    except Exception as e:
-                        self.mark_module_status('dns_enumeration', 'failed', str(e))
-                        self.print_error(f"dns_enumeration failed: {e}")
-
-                # Phase 1.5: Post-DNS WHOIS lookup (when no IP ranges provided)
-                if not self.ip_ranges and self.should_run_module('post_dns_whois'):
-                    self.mark_module_status('post_dns_whois', 'in_progress')
-                    try:
-                        self.post_dns_whois_lookup()
-                        self.mark_module_status('post_dns_whois', 'complete')
-                    except Exception as e:
-                        self.mark_module_status('post_dns_whois', 'failed', str(e))
-                        self.print_error(f"post_dns_whois failed: {e}")
-
-                if self.should_run_module('technology_stack'):
-                    self.mark_module_status('technology_stack', 'in_progress')
-                    try:
-                        self.technology_stack_identification()
-                        self.mark_module_status('technology_stack', 'complete')
-                    except Exception as e:
-                        self.mark_module_status('technology_stack', 'failed', str(e))
-                        self.print_error(f"technology_stack failed: {e}")
-
-                # Phase 2: OSINT and intelligence gathering
-                # Email harvesting MUST run before LinkedIn to detect email format
-                if self.should_run_module('email_harvesting'):
-                    self.mark_module_status('email_harvesting', 'in_progress')
-                    try:
-                        self.email_harvesting()
-                        self.mark_module_status('email_harvesting', 'complete')
-                    except Exception as e:
-                        self.mark_module_status('email_harvesting', 'failed', str(e))
-                        self.print_error(f"email_harvesting failed: {e}")
-
-                # LinkedIn enumeration runs after email harvesting
-                if self.should_run_module('linkedin_enumeration'):
-                    if self.config.get('linkedin_cookies'):
-                        self.mark_module_status('linkedin_enumeration', 'in_progress')
+                try:
+                    # Phase 1: Basic reconnaissance
+                    if self.should_run_module('scope_validation'):
+                        self.mark_module_status('scope_validation', 'in_progress')
                         try:
-                            self.linkedin_enumeration()
-                            self.mark_module_status('linkedin_enumeration', 'complete')
+                            self.scope_validation()
+                            self.mark_module_status('scope_validation', 'complete')
                         except Exception as e:
-                            self.mark_module_status('linkedin_enumeration', 'failed', str(e))
-                            self.print_error(f"linkedin_enumeration failed: {e}")
-                    else:
-                        self.print_info("Skipping LinkedIn enumeration (no cookies provided)")
-                        self.mark_module_status('linkedin_enumeration', 'skipped')
+                            self.mark_module_status('scope_validation', 'failed', str(e))
+                            self.print_error(f"scope_validation failed: {e}")
 
-                if self.should_run_module('breach_database_check'):
-                    if not self.args.skip_breach_check:
-                        self.mark_module_status('breach_database_check', 'in_progress')
+                    if self.should_run_module('m365_tenant'):
+                        if not self.args.skip_m365:
+                            self.mark_module_status('m365_tenant', 'in_progress')
+                            try:
+                                self.m365_tenant_attribution()
+                                self.mark_module_status('m365_tenant', 'complete')
+                            except Exception as e:
+                                self.mark_module_status('m365_tenant', 'failed', str(e))
+                                self.print_error(f"m365_tenant failed: {e}")
+                        else:
+                            self.mark_module_status('m365_tenant', 'skipped')
+
+                    if self.should_run_module('dns_enumeration'):
+                        self.mark_module_status('dns_enumeration', 'in_progress')
                         try:
-                            self.breach_database_check()
-                            self.mark_module_status('breach_database_check', 'complete')
+                            self.dns_enumeration()
+                            self.mark_module_status('dns_enumeration', 'complete')
                         except Exception as e:
-                            self.mark_module_status('breach_database_check', 'failed', str(e))
-                            self.print_error(f"breach_database_check failed: {e}")
-                    else:
-                        self.mark_module_status('breach_database_check', 'skipped')
+                            self.mark_module_status('dns_enumeration', 'failed', str(e))
+                            self.print_error(f"dns_enumeration failed: {e}")
 
-                # Phase 3: Advanced enumeration
-                if self.should_run_module('github_secret_scanning'):
-                    if not self.args.skip_github:
-                        self.mark_module_status('github_secret_scanning', 'in_progress')
+                    # Phase 1.5: Post-DNS WHOIS lookup (when no IP ranges provided)
+                    if not self.ip_ranges and self.should_run_module('post_dns_whois'):
+                        self.mark_module_status('post_dns_whois', 'in_progress')
                         try:
-                            self.github_secret_scanning()
-                            self.mark_module_status('github_secret_scanning', 'complete')
+                            self.post_dns_whois_lookup()
+                            self.mark_module_status('post_dns_whois', 'complete')
                         except Exception as e:
-                            self.mark_module_status('github_secret_scanning', 'failed', str(e))
-                            self.print_error(f"github_secret_scanning failed: {e}")
-                    else:
-                        self.mark_module_status('github_secret_scanning', 'skipped')
+                            self.mark_module_status('post_dns_whois', 'failed', str(e))
+                            self.print_error(f"post_dns_whois failed: {e}")
 
-                if self.should_run_module('asn_enumeration'):
-                    if not self.args.skip_asn:
-                        self.mark_module_status('asn_enumeration', 'in_progress')
+                    if self.should_run_module('technology_stack'):
+                        self.mark_module_status('technology_stack', 'in_progress')
                         try:
-                            self.asn_enumeration()
-                            self.mark_module_status('asn_enumeration', 'complete')
+                            self.technology_stack_identification()
+                            self.mark_module_status('technology_stack', 'complete')
                         except Exception as e:
-                            self.mark_module_status('asn_enumeration', 'failed', str(e))
-                            self.print_error(f"asn_enumeration failed: {e}")
-                    else:
-                        self.mark_module_status('asn_enumeration', 'skipped')
+                            self.mark_module_status('technology_stack', 'failed', str(e))
+                            self.print_error(f"technology_stack failed: {e}")
 
-                if self.should_run_module('subdomain_takeover_detection'):
-                    if not self.args.skip_subdomain_takeover:
-                        self.mark_module_status('subdomain_takeover_detection', 'in_progress')
+                    # Phase 2: OSINT and intelligence gathering
+                    # Email harvesting MUST run before LinkedIn to detect email format
+                    if self.should_run_module('email_harvesting'):
+                        self.mark_module_status('email_harvesting', 'in_progress')
                         try:
-                            self.subdomain_takeover_detection()
-                            self.mark_module_status('subdomain_takeover_detection', 'complete')
+                            self.email_harvesting()
+                            self.mark_module_status('email_harvesting', 'complete')
                         except Exception as e:
-                            self.mark_module_status('subdomain_takeover_detection', 'failed', str(e))
-                            self.print_error(f"subdomain_takeover_detection failed: {e}")
-                    else:
-                        self.mark_module_status('subdomain_takeover_detection', 'skipped')
+                            self.mark_module_status('email_harvesting', 'failed', str(e))
+                            self.print_error(f"email_harvesting failed: {e}")
 
-                # Phase 4: Cloud storage enumeration
-                if self.should_run_module('s3_bucket_enumeration'):
-                    if not self.args.skip_s3:
-                        self.mark_module_status('s3_bucket_enumeration', 'in_progress')
-                        try:
-                            self.s3_bucket_enumeration()
-                            self.mark_module_status('s3_bucket_enumeration', 'complete')
-                        except Exception as e:
-                            self.mark_module_status('s3_bucket_enumeration', 'failed', str(e))
-                            self.print_error(f"s3_bucket_enumeration failed: {e}")
-                    else:
-                        self.mark_module_status('s3_bucket_enumeration', 'skipped')
+                    # LinkedIn enumeration runs after email harvesting
+                    if self.should_run_module('linkedin_enumeration'):
+                        if self.config.get('linkedin_cookies'):
+                            self.mark_module_status('linkedin_enumeration', 'in_progress')
+                            try:
+                                self.linkedin_enumeration()
+                                self.mark_module_status('linkedin_enumeration', 'complete')
+                            except Exception as e:
+                                self.mark_module_status('linkedin_enumeration', 'failed', str(e))
+                                self.print_error(f"linkedin_enumeration failed: {e}")
+                        else:
+                            self.print_info("Skipping LinkedIn enumeration (no cookies provided)")
+                            self.mark_module_status('linkedin_enumeration', 'skipped')
 
-                if self.should_run_module('azure_storage_enumeration'):
-                    if not self.args.skip_azure:
-                        self.mark_module_status('azure_storage_enumeration', 'in_progress')
-                        try:
-                            self.azure_storage_enumeration()
-                            self.mark_module_status('azure_storage_enumeration', 'complete')
-                        except Exception as e:
-                            self.mark_module_status('azure_storage_enumeration', 'failed', str(e))
-                            self.print_error(f"azure_storage_enumeration failed: {e}")
-                    else:
-                        self.mark_module_status('azure_storage_enumeration', 'skipped')
+                    if self.should_run_module('breach_database_check'):
+                        if not self.args.skip_breach_check:
+                            self.mark_module_status('breach_database_check', 'in_progress')
+                            try:
+                                self.breach_database_check()
+                                self.mark_module_status('breach_database_check', 'complete')
+                            except Exception as e:
+                                self.mark_module_status('breach_database_check', 'failed', str(e))
+                                self.print_error(f"breach_database_check failed: {e}")
+                        else:
+                            self.mark_module_status('breach_database_check', 'skipped')
 
-                if self.should_run_module('gcp_storage_enumeration'):
-                    if not self.args.skip_gcp:
-                        self.mark_module_status('gcp_storage_enumeration', 'in_progress')
-                        try:
-                            self.gcp_storage_enumeration()
-                            self.mark_module_status('gcp_storage_enumeration', 'complete')
-                        except Exception as e:
-                            self.mark_module_status('gcp_storage_enumeration', 'failed', str(e))
-                            self.print_error(f"gcp_storage_enumeration failed: {e}")
-                    else:
-                        self.mark_module_status('gcp_storage_enumeration', 'skipped')
+                    # Phase 3: Advanced enumeration
+                    if self.should_run_module('github_secret_scanning'):
+                        if not self.args.skip_github:
+                            self.mark_module_status('github_secret_scanning', 'in_progress')
+                            try:
+                                self.github_secret_scanning()
+                                self.mark_module_status('github_secret_scanning', 'complete')
+                            except Exception as e:
+                                self.mark_module_status('github_secret_scanning', 'failed', str(e))
+                                self.print_error(f"github_secret_scanning failed: {e}")
+                        else:
+                            self.mark_module_status('github_secret_scanning', 'skipped')
 
-                # Phase 5: Network enumeration (if IP ranges provided)
-                if self.should_run_module('network_enumeration'):
-                    if self.ip_ranges and not self.args.skip_scan:
-                        self.mark_module_status('network_enumeration', 'in_progress')
-                        try:
-                            self.network_enumeration()
-                            self.mark_module_status('network_enumeration', 'complete')
-                        except Exception as e:
-                            self.mark_module_status('network_enumeration', 'failed', str(e))
-                            self.print_error(f"network_enumeration failed: {e}")
-                    else:
-                        self.mark_module_status('network_enumeration', 'skipped')
+                    if self.should_run_module('asn_enumeration'):
+                        if not self.args.skip_asn:
+                            self.mark_module_status('asn_enumeration', 'in_progress')
+                            try:
+                                self.asn_enumeration()
+                                self.mark_module_status('asn_enumeration', 'complete')
+                            except Exception as e:
+                                self.mark_module_status('asn_enumeration', 'failed', str(e))
+                                self.print_error(f"asn_enumeration failed: {e}")
+                        else:
+                            self.mark_module_status('asn_enumeration', 'skipped')
 
-                # Phase 6: Generate reports
-                self.generate_report()
+                    if self.should_run_module('subdomain_takeover_detection'):
+                        if not self.args.skip_subdomain_takeover:
+                            self.mark_module_status('subdomain_takeover_detection', 'in_progress')
+                            try:
+                                self.subdomain_takeover_detection()
+                                self.mark_module_status('subdomain_takeover_detection', 'complete')
+                            except Exception as e:
+                                self.mark_module_status('subdomain_takeover_detection', 'failed', str(e))
+                                self.print_error(f"subdomain_takeover_detection failed: {e}")
+                        else:
+                            self.mark_module_status('subdomain_takeover_detection', 'skipped')
 
-                # Mark session as complete
-                self.state['session']['completed'] = True
-                self.state['session']['completed_at'] = datetime.now().isoformat()
-                self.save_state()
+                    # Phase 4: Cloud storage enumeration
+                    if self.should_run_module('s3_bucket_enumeration'):
+                        if not self.args.skip_s3:
+                            self.mark_module_status('s3_bucket_enumeration', 'in_progress')
+                            try:
+                                self.s3_bucket_enumeration()
+                                self.mark_module_status('s3_bucket_enumeration', 'complete')
+                            except Exception as e:
+                                self.mark_module_status('s3_bucket_enumeration', 'failed', str(e))
+                                self.print_error(f"s3_bucket_enumeration failed: {e}")
+                        else:
+                            self.mark_module_status('s3_bucket_enumeration', 'skipped')
 
-                self.print_section("RECONNAISSANCE COMPLETE")
-                self.print_success(f"All results saved to: {self.output_dir}")
+                    if self.should_run_module('azure_storage_enumeration'):
+                        if not self.args.skip_azure:
+                            self.mark_module_status('azure_storage_enumeration', 'in_progress')
+                            try:
+                                self.azure_storage_enumeration()
+                                self.mark_module_status('azure_storage_enumeration', 'complete')
+                            except Exception as e:
+                                self.mark_module_status('azure_storage_enumeration', 'failed', str(e))
+                                self.print_error(f"azure_storage_enumeration failed: {e}")
+                        else:
+                            self.mark_module_status('azure_storage_enumeration', 'skipped')
 
-                # Show summary of module statuses
-                self._print_final_summary()
+                    if self.should_run_module('gcp_storage_enumeration'):
+                        if not self.args.skip_gcp:
+                            self.mark_module_status('gcp_storage_enumeration', 'in_progress')
+                            try:
+                                self.gcp_storage_enumeration()
+                                self.mark_module_status('gcp_storage_enumeration', 'complete')
+                            except Exception as e:
+                                self.mark_module_status('gcp_storage_enumeration', 'failed', str(e))
+                                self.print_error(f"gcp_storage_enumeration failed: {e}")
+                        else:
+                            self.mark_module_status('gcp_storage_enumeration', 'skipped')
 
-            except KeyboardInterrupt:
-                # Signal handler will take care of saving state
-                pass
-            except Exception as e:
-                self.print_error(f"Error during reconnaissance: {e}")
-                import traceback
-                traceback.print_exc()
-                self.save_state()
+                    # Phase 5: Network enumeration (if IP ranges provided)
+                    if self.should_run_module('network_enumeration'):
+                        if self.ip_ranges and not self.args.skip_scan:
+                            self.mark_module_status('network_enumeration', 'in_progress')
+                            try:
+                                self.network_enumeration()
+                                self.mark_module_status('network_enumeration', 'complete')
+                            except Exception as e:
+                                self.mark_module_status('network_enumeration', 'failed', str(e))
+                                self.print_error(f"network_enumeration failed: {e}")
+                        else:
+                            self.mark_module_status('network_enumeration', 'skipped')
+
+                    # Phase 6: Generate reports
+                    self.generate_report()
+
+                    # Mark session as complete
+                    self.state['session']['completed'] = True
+                    self.state['session']['completed_at'] = datetime.now().isoformat()
+                    self.save_state()
+
+                    self.print_section("RECONNAISSANCE COMPLETE")
+                    self.print_success(f"All results saved to: {self.output_dir}")
+
+                    # Show summary of module statuses
+                    self._print_final_summary()
+
+                except KeyboardInterrupt:
+                    # Signal handler will take care of saving state
+                    pass
+                except Exception as e:
+                    self.print_error(f"Error during reconnaissance: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    self.save_state()
 
     def _print_final_summary(self):
         """Print summary of all module statuses"""
@@ -5824,41 +5968,42 @@ class ReconAutomation:
     # =========================================================================
 
     def init_state(self):
-            """Initialize state tracking structure"""
-            self.state = {
-                'version': '1.0',
-                'target': {
-                    'domain': self.domain,
-                    'client': self.client_name,
-                    'ip_ranges': self.ip_ranges,
-                    'config_hash': self._generate_config_hash()
-                },
-                'session': {
-                    'started_at': datetime.now().isoformat(),
-                    'last_updated': datetime.now().isoformat(),
-                    'interrupted': False,
-                    'completed': False
-                },
-                'modules': {
-                    'scope_validation': {'status': 'pending', 'progress': {}},
-                    'dns_enumeration': {'status': 'pending', 'progress': {}},
-                    'post_dns_whois': {'status': 'pending', 'progress': {}},
-                    'technology_stack': {'status': 'pending', 'progress': {}},
-                    'email_harvesting': {'status': 'pending', 'progress': {}},
-                    'linkedin_enumeration': {'status': 'pending', 'progress': {}},
-                    'breach_database_check': {'status': 'pending', 'progress': {}},
-                    'github_secret_scanning': {'status': 'pending', 'progress': {}},
-                    'asn_enumeration': {'status': 'pending', 'progress': {}},
-                    'subdomain_takeover_detection': {'status': 'pending', 'progress': {}},
-                    's3_bucket_enumeration': {'status': 'pending', 'progress': {}},
-                    'azure_storage_enumeration': {'status': 'pending', 'progress': {}},
-                    'gcp_storage_enumeration': {'status': 'pending', 'progress': {}},
-                    'network_enumeration': {'status': 'pending', 'progress': {}},
-                },
-                'results': {}
-            }
-            self.state_file = self.output_dir / 'recon_state.json'
-            self._shutdown_in_progress = False
+                """Initialize state tracking structure"""
+                self.state = {
+                    'version': '1.0',
+                    'target': {
+                        'domain': self.domain,
+                        'client': self.client_name,
+                        'ip_ranges': self.ip_ranges,
+                        'config_hash': self._generate_config_hash()
+                    },
+                    'session': {
+                        'started_at': datetime.now().isoformat(),
+                        'last_updated': datetime.now().isoformat(),
+                        'interrupted': False,
+                        'completed': False
+                    },
+                    'modules': {
+                        'scope_validation': {'status': 'pending', 'progress': {}},
+                        'm365_tenant': {'status': 'pending', 'progress': {}},
+                        'dns_enumeration': {'status': 'pending', 'progress': {}},
+                        'post_dns_whois': {'status': 'pending', 'progress': {}},
+                        'technology_stack': {'status': 'pending', 'progress': {}},
+                        'email_harvesting': {'status': 'pending', 'progress': {}},
+                        'linkedin_enumeration': {'status': 'pending', 'progress': {}},
+                        'breach_database_check': {'status': 'pending', 'progress': {}},
+                        'github_secret_scanning': {'status': 'pending', 'progress': {}},
+                        'asn_enumeration': {'status': 'pending', 'progress': {}},
+                        'subdomain_takeover_detection': {'status': 'pending', 'progress': {}},
+                        's3_bucket_enumeration': {'status': 'pending', 'progress': {}},
+                        'azure_storage_enumeration': {'status': 'pending', 'progress': {}},
+                        'gcp_storage_enumeration': {'status': 'pending', 'progress': {}},
+                        'network_enumeration': {'status': 'pending', 'progress': {}},
+                    },
+                    'results': {}
+                }
+                self.state_file = self.output_dir / 'recon_state.json'
+                self._shutdown_in_progress = False
 
     def _generate_config_hash(self) -> str:
         """Generate hash of target configuration for change detection"""
@@ -6165,6 +6310,7 @@ Examples:
     python3 quick_recon.py -d example.com -c "Acme Corp" --s3-only
     python3 quick_recon.py -d example.com -c "Acme Corp" --dns-only
     python3 quick_recon.py -d example.com -c "Acme Corp" --email-only
+    python3 quick_recon.py -d example.com -c "Acme Corp" --m365-only
 
   Skip all OSINT modules:
     python3 quick_recon.py -d example.com -i 192.168.1.0/24 -c "Acme Corp" --skip-osint
@@ -6189,6 +6335,7 @@ Examples:
     parser.add_argument('--skip-github', action='store_true', help='Skip GitHub secret scanning')
     parser.add_argument('--skip-asn', action='store_true', help='Skip ASN enumeration')
     parser.add_argument('--skip-subdomain-takeover', action='store_true', help='Skip subdomain takeover detection')
+    parser.add_argument('--skip-m365', action='store_true', help='Skip M365/Azure AD tenant attribution')
     parser.add_argument('--skip-osint', action='store_true', help='Skip all OSINT modules (GitHub, LinkedIn)')
     parser.add_argument('--linkedin-max-results', type=int, default=100, help='Maximum LinkedIn employee results to fetch (default: 100)')
 
@@ -6204,6 +6351,7 @@ Examples:
     parser.add_argument('--dns-only', action='store_true', help='Run only DNS enumeration')
     parser.add_argument('--breach-only', action='store_true', help='Run only breach database check')
     parser.add_argument('--techstack-only', action='store_true', help='Run only technology stack identification')
+    parser.add_argument('--m365-only', action='store_true', help='Run only M365 tenant attribution')
 
     args = parser.parse_args()
 
@@ -6231,6 +6379,7 @@ Examples:
         'dns_only': ('DNS enumeration', 'dns_enumeration', 'dns_enumeration'),
         'breach_only': ('Breach database check', 'breach_database_check', 'breach_data'),
         'techstack_only': ('Technology stack identification', 'technology_stack_identification', 'technology_stack'),
+        'm365_only': ('M365 tenant attribution', 'm365_tenant_attribution', 'm365_tenant'),
     }
 
     active_only_mode = None
@@ -6367,7 +6516,6 @@ Examples:
 
     # Run all reconnaissance
     recon.run_all()
-
 
 if __name__ == '__main__':
     main()
