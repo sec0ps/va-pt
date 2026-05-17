@@ -606,6 +606,269 @@ class ReconAutomation:
                 else:
                     self.print_info("Domain does not appear to be an M365 tenant")
 
+    def adfs_endpoint_discovery(self):
+                """Discover and fingerprint ADFS endpoints for federated M365 tenants"""
+                self.print_section("ADFS ENDPOINT DISCOVERY")
+
+                # Restore from checkpoint if exists
+                resume_data = self.get_resume_data('adfs')
+                progress = resume_data.get('progress', {})
+
+                adfs_data = progress.get('adfs_data', {
+                    'hosts_probed': [],
+                    'endpoints_found': {},
+                    'version_info': {},
+                    'federation_metadata': {},
+                    'supported_endpoints': [],
+                    'token_signing_cert': {}
+                })
+
+                # Skip if already complete from checkpoint
+                if progress.get('complete'):
+                    self.print_info("Restored ADFS data from checkpoint")
+                    self.results['adfs'] = adfs_data
+                    return
+
+                # Gate: only run for federated M365 tenants
+                m365 = self.results.get('m365_tenant', {})
+                if not m365.get('is_m365'):
+                    self.print_info("Skipping ADFS discovery (not an M365 tenant)")
+                    self.results['adfs'] = adfs_data
+                    self.checkpoint('adfs', 'complete', True)
+                    return
+
+                if m365.get('namespace_type') != 'Federated':
+                    self.print_info(f"Skipping ADFS discovery (tenant is {m365.get('namespace_type', 'Unknown')}, not Federated)")
+                    self.results['adfs'] = adfs_data
+                    self.checkpoint('adfs', 'complete', True)
+                    return
+
+                # Build target host list
+                target_hosts = set()
+                federation_host = m365.get('federation_host', '')
+                if federation_host:
+                    target_hosts.add(federation_host)
+
+                adfs_guess = f"adfs.{self.domain}"
+                if adfs_guess != federation_host:
+                    target_hosts.add(adfs_guess)
+
+                if not target_hosts:
+                    self.print_warning("No ADFS hosts to probe")
+                    self.results['adfs'] = adfs_data
+                    self.checkpoint('adfs', 'complete', True)
+                    return
+
+                self.print_info(f"Probing {len(target_hosts)} ADFS host(s)")
+
+                # Endpoints to probe per host
+                endpoints = [
+                    ('idpinitiatedsignon', '/adfs/ls/idpinitiatedsignon.aspx'),
+                    ('federation_metadata', '/FederationMetadata/2007-06/FederationMetadata.xml'),
+                    ('ls_base', '/adfs/ls/'),
+                    ('ws_trust_mex', '/adfs/services/trust/mex'),
+                    ('oauth2_authorize', '/adfs/oauth2/authorize')
+                ]
+
+                for host in sorted(target_hosts):
+                    self.print_info(f"\nProbing {host}...")
+
+                    host_results = {
+                        'host': host,
+                        'reachable': False,
+                        'endpoints': {}
+                    }
+
+                    for endpoint_name, path in endpoints:
+                        url = f"https://{host}{path}"
+
+                        try:
+                            response = self.session.get(url, timeout=10, verify=False, allow_redirects=True)
+                            host_results['reachable'] = True
+
+                            endpoint_result = {
+                                'url': url,
+                                'status_code': response.status_code,
+                                'present': response.status_code in [200, 302, 401, 403]
+                            }
+
+                            # Extract data per endpoint type
+                            if endpoint_name == 'idpinitiatedsignon' and response.status_code == 200:
+                                # ADFS version disclosure in page content
+                                content = response.text
+
+                                # Page title
+                                title_match = re.search(r'<title>([^<]+)</title>', content, re.IGNORECASE)
+                                if title_match:
+                                    endpoint_result['page_title'] = title_match.group(1).strip()
+
+                                # Build number in script references
+                                build_match = re.search(r'/adfs/portal/(\d+\.\d+\.\d+\.\d+)/', content)
+                                if build_match:
+                                    endpoint_result['build_number'] = build_match.group(1)
+                                    adfs_data['version_info']['build_number'] = build_match.group(1)
+                                    self.print_success(f"  ADFS Build Number: {build_match.group(1)}")
+
+                                # Copyright year
+                                copyright_match = re.search(r'(?:Copyright|©|&copy;)[^<]*?(\d{4})', content)
+                                if copyright_match:
+                                    endpoint_result['copyright_year'] = copyright_match.group(1)
+
+                                # ADFS version inference from build number
+                                if build_match:
+                                    build = build_match.group(1)
+                                    if build.startswith('6.'):
+                                        adfs_data['version_info']['adfs_version'] = 'ADFS 4.0 (Server 2016)'
+                                    elif build.startswith('10.0.14'):
+                                        adfs_data['version_info']['adfs_version'] = 'ADFS 2019 (Server 2019)'
+                                    elif build.startswith('10.0.17') or build.startswith('10.0.20'):
+                                        adfs_data['version_info']['adfs_version'] = 'ADFS 2022 (Server 2022)'
+
+                                self.print_success(f"  Sign-on page reachable (status 200)")
+
+                            elif endpoint_name == 'federation_metadata' and response.status_code == 200:
+                                # Parse FederationMetadata.xml for endpoints and certs
+                                content = response.text
+
+                                # Entity ID
+                                entity_match = re.search(r'entityID="([^"]+)"', content)
+                                if entity_match:
+                                    endpoint_result['entity_id'] = entity_match.group(1)
+                                    adfs_data['federation_metadata']['entity_id'] = entity_match.group(1)
+                                    self.print_success(f"  Entity ID: {entity_match.group(1)}")
+
+                                # Role descriptors
+                                role_descriptors = re.findall(r'<RoleDescriptor[^>]+xsi:type="[^:]*:([^"]+)"', content)
+                                if role_descriptors:
+                                    endpoint_result['role_descriptors'] = list(set(role_descriptors))
+
+                                # Supported endpoint types
+                                supported = []
+                                if 'SingleSignOnService' in content:
+                                    supported.append('SAML2 SSO')
+                                if 'PassiveRequestorEndpoint' in content:
+                                    supported.append('WS-Federation Passive')
+                                if 'SecurityTokenServiceEndpoint' in content:
+                                    supported.append('WS-Trust STS')
+                                if 'wsFedellingService' in content or 'WSFederation' in content:
+                                    supported.append('WS-Federation')
+
+                                # Extract all binding URLs
+                                binding_urls = re.findall(r'Location="(https://[^"]+)"', content)
+                                if binding_urls:
+                                    endpoint_result['binding_urls'] = list(set(binding_urls))[:20]
+                                    adfs_data['supported_endpoints'] = list(set(binding_urls))[:20]
+
+                                if supported:
+                                    endpoint_result['supported_protocols'] = supported
+                                    self.print_success(f"  Supported: {', '.join(supported)}")
+
+                                # Token signing certificate details
+                                cert_match = re.search(r'<X509Certificate>([^<]+)</X509Certificate>', content)
+                                if cert_match:
+                                    cert_b64 = cert_match.group(1).strip()
+                                    endpoint_result['signing_cert_present'] = True
+                                    adfs_data['token_signing_cert']['present'] = True
+                                    adfs_data['token_signing_cert']['cert_b64_truncated'] = cert_b64[:200]
+
+                                    # Try to decode and extract cert details
+                                    try:
+                                        cert_der = base64.b64decode(cert_b64)
+                                        # Extract validity dates via regex on the decoded cert (ASN.1 parsing without external libs)
+                                        # Look for common cert patterns - this is best-effort
+                                        endpoint_result['signing_cert_size_bytes'] = len(cert_der)
+                                        self.print_success(f"  Token signing cert present ({len(cert_der)} bytes)")
+                                    except Exception:
+                                        pass
+
+                                self.print_success(f"  Federation metadata retrieved")
+
+                            elif endpoint_name == 'ws_trust_mex' and response.status_code == 200:
+                                # WS-Trust MEX endpoint - confirms WS-Trust support
+                                content_type = response.headers.get('Content-Type', '')
+                                if 'xml' in content_type.lower() or '<wsdl' in response.text.lower():
+                                    endpoint_result['ws_trust_supported'] = True
+                                    self.print_success(f"  WS-Trust MEX endpoint active")
+
+                                    # Extract WS-Trust binding URLs
+                                    trust_urls = re.findall(r'address="(https://[^"]*trust[^"]*)"', response.text, re.IGNORECASE)
+                                    if trust_urls:
+                                        endpoint_result['ws_trust_endpoints'] = list(set(trust_urls))
+
+                            elif endpoint_name == 'oauth2_authorize':
+                                # OAuth2 endpoint presence (ADFS 3.0+)
+                                if response.status_code in [200, 302, 400]:
+                                    endpoint_result['oauth2_supported'] = True
+                                    if 'oauth' in response.text.lower() or response.status_code == 302:
+                                        self.print_success(f"  OAuth2 endpoint active (ADFS 3.0+)")
+                                        adfs_data['version_info']['oauth2_supported'] = True
+
+                            elif endpoint_name == 'ls_base':
+                                # Base LS endpoint - status code tells us about presence
+                                if response.status_code in [200, 302, 401, 403]:
+                                    self.print_success(f"  Base /adfs/ls/ endpoint present (status {response.status_code})")
+
+                            # Capture server header if present
+                            if 'Server' in response.headers:
+                                endpoint_result['server_header'] = response.headers['Server']
+
+                            host_results['endpoints'][endpoint_name] = endpoint_result
+
+                        except requests.exceptions.SSLError as e:
+                            host_results['endpoints'][endpoint_name] = {
+                                'url': url,
+                                'error': 'SSL Error',
+                                'present': False
+                            }
+                        except requests.exceptions.ConnectionError:
+                            host_results['endpoints'][endpoint_name] = {
+                                'url': url,
+                                'error': 'Connection refused',
+                                'present': False
+                            }
+                        except requests.exceptions.Timeout:
+                            host_results['endpoints'][endpoint_name] = {
+                                'url': url,
+                                'error': 'Timeout',
+                                'present': False
+                            }
+                        except Exception as e:
+                            host_results['endpoints'][endpoint_name] = {
+                                'url': url,
+                                'error': str(e)[:100],
+                                'present': False
+                            }
+
+                        time.sleep(0.5)
+
+                    if not host_results['reachable']:
+                        self.print_warning(f"  Host {host} not reachable on any endpoint")
+
+                    adfs_data['hosts_probed'].append(host_results)
+                    adfs_data['endpoints_found'][host] = host_results['endpoints']
+
+                    # Checkpoint per host
+                    self.checkpoint('adfs', 'adfs_data', adfs_data)
+
+                # Store final results
+                self.results['adfs'] = adfs_data
+                self.checkpoint('adfs', 'adfs_data', adfs_data)
+                self.checkpoint('adfs', 'complete', True)
+
+                # Summary
+                reachable_hosts = [h for h in adfs_data['hosts_probed'] if h.get('reachable')]
+                self.print_info(f"\nADFS Discovery Summary:")
+                self.print_info(f"  Hosts probed: {len(adfs_data['hosts_probed'])}")
+                self.print_info(f"  Hosts reachable: {len(reachable_hosts)}")
+                if adfs_data['version_info'].get('adfs_version'):
+                    self.print_success(f"  ADFS Version: {adfs_data['version_info']['adfs_version']}")
+                if adfs_data['version_info'].get('build_number'):
+                    self.print_info(f"  Build: {adfs_data['version_info']['build_number']}")
+                if adfs_data['version_info'].get('oauth2_supported'):
+                    self.print_info(f"  OAuth2: Supported")
+                if adfs_data['federation_metadata'].get('entity_id'):
+                    self.print_info(f"  Entity ID: {adfs_data['federation_metadata']['entity_id']}")
+
     def load_config(self) -> Dict[str, str]:
             """Load configuration from file"""
             default_config = {
@@ -5210,6 +5473,58 @@ class ReconAutomation:
                             f.write(f"## M365/Azure AD Tenant Attribution\n\n")
                             f.write(f"Domain does not appear to be associated with an M365/Azure AD tenant.\n\n")
 
+                        # ADFS Endpoint Discovery
+                        adfs = self.results.get('adfs', {})
+                        hosts_probed = adfs.get('hosts_probed', [])
+                        reachable_hosts = [h for h in hosts_probed if h.get('reachable')]
+
+                        if reachable_hosts:
+                            f.write(f"## ADFS Endpoint Discovery\n\n")
+                            f.write(f"**Reachable ADFS Hosts:** {len(reachable_hosts)}\n\n")
+
+                            version_info = adfs.get('version_info', {})
+                            if version_info.get('adfs_version'):
+                                f.write(f"**ADFS Version:** {version_info['adfs_version']}\n\n")
+                            if version_info.get('build_number'):
+                                f.write(f"**Build Number:** {version_info['build_number']}\n\n")
+                            if version_info.get('oauth2_supported'):
+                                f.write(f"**OAuth2 Support:** Yes (ADFS 3.0+)\n\n")
+
+                            fed_metadata = adfs.get('federation_metadata', {})
+                            if fed_metadata.get('entity_id'):
+                                f.write(f"**Entity ID:** `{fed_metadata['entity_id']}`\n\n")
+
+                            for host_data in reachable_hosts:
+                                host = host_data['host']
+                                f.write(f"### {host}\n\n")
+
+                                for endpoint_name, endpoint_data in host_data.get('endpoints', {}).items():
+                                    if endpoint_data.get('present'):
+                                        f.write(f"- **{endpoint_name}:** {endpoint_data.get('url', '')} (status {endpoint_data.get('status_code', 'N/A')})\n")
+                                        if endpoint_data.get('build_number'):
+                                            f.write(f"  - Build: {endpoint_data['build_number']}\n")
+                                        if endpoint_data.get('supported_protocols'):
+                                            f.write(f"  - Protocols: {', '.join(endpoint_data['supported_protocols'])}\n")
+                                        if endpoint_data.get('signing_cert_present'):
+                                            f.write(f"  - Token signing certificate present\n")
+                                        if endpoint_data.get('ws_trust_supported'):
+                                            f.write(f"  - WS-Trust MEX active\n")
+                                        if endpoint_data.get('oauth2_supported'):
+                                            f.write(f"  - OAuth2 endpoint active\n")
+
+                                f.write(f"\n")
+
+                            supported_endpoints = adfs.get('supported_endpoints', [])
+                            if supported_endpoints:
+                                f.write(f"### Federation Endpoints Discovered\n\n")
+                                for url in supported_endpoints[:20]:
+                                    f.write(f"- `{url}`\n")
+                                f.write(f"\n")
+
+                            f.write(f"**Note:** ADFS version disclosure provides input for vulnerability analysis. ")
+                            f.write(f"Recent CVE history on ADFS includes authentication bypass, golden SAML attacks, ")
+                            f.write(f"and pre-auth disclosure issues. Review current advisories against the identified version before Phase 3.\n\n")
+
                         # DNS Enumeration
                         f.write(f"## DNS Enumeration\n\n")
                         dns = self.results.get('dns_enumeration', {})
@@ -5250,7 +5565,7 @@ class ReconAutomation:
 
                         # Internal resolved subdomains (private IPs) - Information Disclosure
                         if resolved_internal:
-                            f.write(f"### Internal Subdomains ({len(resolved_internal)}) ⚠️ INFORMATION DISCLOSURE\n\n")
+                            f.write(f"### Internal Subdomains ({len(resolved_internal)}) - INFORMATION DISCLOSURE\n\n")
                             f.write(f"**Finding:** Internal hostnames exposed in public DNS records.\n\n")
                             f.write(f"**Risk:** These subdomains resolve to private/internal IP addresses (RFC 1918), ")
                             f.write(f"revealing internal network structure to external attackers. This information can be used to:\n\n")
@@ -5549,7 +5864,7 @@ class ReconAutomation:
                         if whois:
                             for ip_range, info in whois.items():
                                 org = info.get('org', 'Unknown')
-                                f.write(f"• {ip_range} - Confirmed owned by {org}\n")
+                                f.write(f"- {ip_range} - Confirmed owned by {org}\n")
                             f.write("\n")
                         else:
                             f.write("No IP ranges provided for ownership verification.\n\n")
@@ -5576,7 +5891,7 @@ class ReconAutomation:
                             f.write("Key external subdomains identified:\n")
                             for subdomain in sorted(display_resolved.keys())[:10]:
                                 ips = display_resolved[subdomain]
-                                f.write(f"• {subdomain} ({', '.join(ips)})\n")
+                                f.write(f"- {subdomain} ({', '.join(ips)})\n")
                             f.write("\n")
 
                         # Internal DNS Information Disclosure
@@ -5586,15 +5901,15 @@ class ReconAutomation:
                             f.write("During DNS enumeration, multiple subdomains were discovered that resolve to private ")
                             f.write("RFC 1918 IP addresses (10.x.x.x, 172.16-31.x.x, 192.168.x.x). This constitutes an ")
                             f.write("information disclosure vulnerability as it reveals:\n\n")
-                            f.write("• Internal network addressing scheme\n")
-                            f.write("• Internal hostname naming conventions\n")
-                            f.write("• Potential internal services and their purposes\n\n")
+                            f.write("- Internal network addressing scheme\n")
+                            f.write("- Internal hostname naming conventions\n")
+                            f.write("- Potential internal services and their purposes\n\n")
                             f.write("**Affected Systems (sample):**\n\n")
                             for subdomain in sorted(resolved_internal.keys())[:15]:
                                 ips = resolved_internal[subdomain]
-                                f.write(f"• {subdomain} → {', '.join(ips)}\n")
+                                f.write(f"- {subdomain} -> {', '.join(ips)}\n")
                             if len(resolved_internal) > 15:
-                                f.write(f"• ... and {len(resolved_internal) - 15} more\n")
+                                f.write(f"- ... and {len(resolved_internal) - 15} more\n")
                             f.write("\n")
                             f.write("**Recommendation:** Implement split-horizon DNS to prevent internal records from being ")
                             f.write("served to external queries, or remove internal records from public DNS zones entirely.\n\n")
@@ -5610,13 +5925,13 @@ class ReconAutomation:
                             f.write(f"tenant. The tenant was attributed through publicly accessible Microsoft authentication ")
                             f.write(f"endpoints which disclose tenant identifiers, brand information, and federation posture.\n\n")
 
-                            f.write(f"• Tenant ID: {m365.get('tenant_id', 'Unknown')}\n")
+                            f.write(f"- Tenant ID: {m365.get('tenant_id', 'Unknown')}\n")
                             if m365.get('tenant_region'):
-                                f.write(f"• Tenant Region: {m365['tenant_region']}\n")
-                            f.write(f"• Federation Brand: {brand}\n")
-                            f.write(f"• Namespace Type: {namespace}\n")
+                                f.write(f"- Tenant Region: {m365['tenant_region']}\n")
+                            f.write(f"- Federation Brand: {brand}\n")
+                            f.write(f"- Namespace Type: {namespace}\n")
                             if m365.get('cloud_instance'):
-                                f.write(f"• Cloud Instance: {m365['cloud_instance']}\n")
+                                f.write(f"- Cloud Instance: {m365['cloud_instance']}\n")
                             f.write("\n")
 
                             if namespace == 'Federated':
@@ -5633,13 +5948,56 @@ class ReconAutomation:
                                 f.write("for password spray attacks, valid-user enumeration, and conditional access ")
                                 f.write("policy assessment.\n\n")
 
+                        # ADFS Endpoint Discovery
+                        adfs = self.results.get('adfs', {})
+                        hosts_probed = adfs.get('hosts_probed', [])
+                        reachable_hosts = [h for h in hosts_probed if h.get('reachable')]
+
+                        if reachable_hosts:
+                            f.write("### ADFS Identity Provider Reconnaissance\n\n")
+                            version_info = adfs.get('version_info', {})
+
+                            f.write(f"ADFS endpoint reconnaissance against the federated identity provider revealed ")
+                            f.write(f"the version, supported authentication protocols, and federation metadata. This ")
+                            f.write(f"information establishes the attack surface for the on-premises identity provider.\n\n")
+
+                            if version_info.get('adfs_version'):
+                                f.write(f"The deployed ADFS version was identified as {version_info['adfs_version']}")
+                                if version_info.get('build_number'):
+                                    f.write(f" (build {version_info['build_number']})")
+                                f.write(". ")
+
+                            protocols = set()
+                            for host_data in reachable_hosts:
+                                for endpoint_data in host_data.get('endpoints', {}).values():
+                                    if endpoint_data.get('supported_protocols'):
+                                        protocols.update(endpoint_data['supported_protocols'])
+                                    if endpoint_data.get('ws_trust_supported'):
+                                        protocols.add('WS-Trust MEX')
+                                    if endpoint_data.get('oauth2_supported'):
+                                        protocols.add('OAuth2')
+
+                            if protocols:
+                                f.write(f"Supported federation protocols include: {', '.join(sorted(protocols))}. ")
+
+                            fed_metadata = adfs.get('federation_metadata', {})
+                            if fed_metadata.get('entity_id'):
+                                f.write(f"The federation entity identifier was disclosed as {fed_metadata['entity_id']}. ")
+
+                            f.write("\n\n")
+                            f.write("ADFS version disclosure provides the input for vulnerability analysis against the ")
+                            f.write("identity provider. The on-premises IdP is a high-value target as compromise can lead ")
+                            f.write("to credential capture, golden SAML attacks, or authentication bypass affecting all ")
+                            f.write("federated cloud services. Current vendor advisories should be reviewed against the ")
+                            f.write("identified version before active testing.\n\n")
+
                         # Subdomain Takeover
                         takeovers = self.results.get('subdomain_takeovers', [])
                         if takeovers:
                             f.write("### Subdomain Takeover Vulnerabilities\n\n")
                             f.write(f"Analysis identified {len(takeovers)} subdomain(s) potentially vulnerable to takeover attacks:\n\n")
                             for vuln in takeovers:
-                                f.write(f"• {vuln['subdomain']} - Points to unclaimed {vuln['service']} resource\n")
+                                f.write(f"- {vuln['subdomain']} - Points to unclaimed {vuln['service']} resource\n")
                             f.write("\n")
                             f.write("Subdomain takeover allows attackers to host malicious content on the organization's domain, ")
                             f.write("enabling phishing campaigns, malware distribution, or reputation damage. These subdomains should be ")
@@ -5661,9 +6019,9 @@ class ReconAutomation:
                                     all_tech.update(info['detected_technologies'])
 
                             if all_servers:
-                                f.write(f"• Web Servers: {', '.join(all_servers)}\n")
+                                f.write(f"- Web Servers: {', '.join(all_servers)}\n")
                             if all_tech:
-                                f.write(f"• Technologies: {', '.join(all_tech)}\n")
+                                f.write(f"- Technologies: {', '.join(all_tech)}\n")
                             f.write("\n")
 
                         # LinkedIn Intelligence
@@ -5684,9 +6042,9 @@ class ReconAutomation:
                         if emails:
                             f.write(f"Public sources revealed {len(emails)} email addresses:\n\n")
                             for email in emails[:10]:
-                                f.write(f"• {email}\n")
+                                f.write(f"- {email}\n")
                             if len(emails) > 10:
-                                f.write(f"• ... and {len(emails) - 10} more\n")
+                                f.write(f"- ... and {len(emails) - 10} more\n")
                             f.write("\n")
                         else:
                             f.write("No email addresses were discovered through passive reconnaissance.\n\n")
@@ -5698,7 +6056,7 @@ class ReconAutomation:
                         if breaches:
                             f.write(f"Breach databases were checked for client email addresses. {len(breaches)} accounts were found with exposed passwords:\n\n")
                             for email, breach_list in list(breaches.items())[:5]:
-                                f.write(f"• {email} - Found in: {', '.join(breach_list[:3])}\n")
+                                f.write(f"- {email} - Found in: {', '.join(breach_list[:3])}\n")
                             f.write("\n")
                             f.write("These credentials became immediate testing priorities as users frequently reuse passwords across work and personal accounts.\n\n")
                         else:
@@ -5719,7 +6077,7 @@ class ReconAutomation:
                             if repos:
                                 f.write("Repositories containing sensitive data:\n")
                                 for repo in repos[:5]:
-                                    f.write(f"• {repo['repository']}/{repo['file_path']}\n")
+                                    f.write(f"- {repo['repository']}/{repo['file_path']}\n")
                                 f.write("\n")
 
                             f.write("Exposed secrets in public repositories represent critical security vulnerabilities, potentially providing ")
@@ -5737,7 +6095,7 @@ class ReconAutomation:
                         if asns:
                             f.write(f"ASN enumeration identified {len(asns)} autonomous system(s) associated with the organization:\n\n")
                             for asn in asns:
-                                f.write(f"• AS{asn['asn']} - {asn['owner']}\n")
+                                f.write(f"- AS{asn['asn']} - {asn['owner']}\n")
                             f.write("\n")
 
                         if ip_ranges:
@@ -5745,8 +6103,8 @@ class ReconAutomation:
                             out_scope = [r for r in ip_ranges if not r.get('in_scope') and not r.get('contains_discovered_ips')]
 
                             f.write(f"Total IP ranges discovered: {len(ip_ranges)}\n")
-                            f.write(f"• Ranges within authorized scope: {len(in_scope)}\n")
-                            f.write(f"• Ranges outside authorized scope: {len(out_scope)}\n\n")
+                            f.write(f"- Ranges within authorized scope: {len(in_scope)}\n")
+                            f.write(f"- Ranges outside authorized scope: {len(out_scope)}\n\n")
 
                             if out_scope:
                                 f.write("Additional IP ranges were identified that belong to the organization but fall outside the authorized testing scope. ")
@@ -5772,9 +6130,9 @@ class ReconAutomation:
                             total_public = len(public_s3) + len(public_azure) + len(public_gcp)
 
                             f.write(f"Cloud storage enumeration discovered {total_cloud} storage resource(s):\n")
-                            f.write(f"• AWS S3: {len(found_s3)} ({len(public_s3)} public)\n")
-                            f.write(f"• Azure Storage: {len(found_azure)} ({len(public_azure)} public)\n")
-                            f.write(f"• GCP Storage: {len(found_gcp)} ({len(public_gcp)} public)\n\n")
+                            f.write(f"- AWS S3: {len(found_s3)} ({len(public_s3)} public)\n")
+                            f.write(f"- Azure Storage: {len(found_azure)} ({len(public_azure)} public)\n")
+                            f.write(f"- GCP Storage: {len(found_gcp)} ({len(public_gcp)} public)\n\n")
 
                             if total_public > 0:
                                 f.write(f"**{total_public} publicly accessible cloud storage resource(s) identified.**\n\n")
@@ -5805,7 +6163,7 @@ class ReconAutomation:
                             if interesting_services:
                                 f.write("Most promising targets for further investigation:\n")
                                 for service in interesting_services[:10]:
-                                    f.write(f"• {service}\n")
+                                    f.write(f"- {service}\n")
                                 f.write("\n")
 
     def run_all(self):
@@ -5840,6 +6198,18 @@ class ReconAutomation:
                                 self.print_error(f"m365_tenant failed: {e}")
                         else:
                             self.mark_module_status('m365_tenant', 'skipped')
+
+                    if self.should_run_module('adfs'):
+                        if not self.args.skip_adfs:
+                            self.mark_module_status('adfs', 'in_progress')
+                            try:
+                                self.adfs_endpoint_discovery()
+                                self.mark_module_status('adfs', 'complete')
+                            except Exception as e:
+                                self.mark_module_status('adfs', 'failed', str(e))
+                                self.print_error(f"adfs failed: {e}")
+                        else:
+                            self.mark_module_status('adfs', 'skipped')
 
                     if self.should_run_module('dns_enumeration'):
                         self.mark_module_status('dns_enumeration', 'in_progress')
@@ -6071,6 +6441,7 @@ class ReconAutomation:
                     'modules': {
                         'scope_validation': {'status': 'pending', 'progress': {}},
                         'm365_tenant': {'status': 'pending', 'progress': {}},
+                        'adfs': {'status': 'pending', 'progress': {}},
                         'dns_enumeration': {'status': 'pending', 'progress': {}},
                         'post_dns_whois': {'status': 'pending', 'progress': {}},
                         'technology_stack': {'status': 'pending', 'progress': {}},
@@ -6396,6 +6767,7 @@ Examples:
     python3 quick_recon.py -d example.com -c "Acme Corp" --dns-only
     python3 quick_recon.py -d example.com -c "Acme Corp" --email-only
     python3 quick_recon.py -d example.com -c "Acme Corp" --m365-only
+    python3 quick_recon.py -d example.com -c "Acme Corp" --adfs-only
 
   Skip all OSINT modules:
     python3 quick_recon.py -d example.com -i 192.168.1.0/24 -c "Acme Corp" --skip-osint
@@ -6421,6 +6793,7 @@ Examples:
     parser.add_argument('--skip-asn', action='store_true', help='Skip ASN enumeration')
     parser.add_argument('--skip-subdomain-takeover', action='store_true', help='Skip subdomain takeover detection')
     parser.add_argument('--skip-m365', action='store_true', help='Skip M365/Azure AD tenant attribution')
+    parser.add_argument('--skip-adfs', action='store_true', help='Skip ADFS endpoint discovery')
     parser.add_argument('--skip-osint', action='store_true', help='Skip all OSINT modules (GitHub, LinkedIn)')
     parser.add_argument('--linkedin-max-results', type=int, default=100, help='Maximum LinkedIn employee results to fetch (default: 100)')
 
@@ -6437,6 +6810,7 @@ Examples:
     parser.add_argument('--breach-only', action='store_true', help='Run only breach database check')
     parser.add_argument('--techstack-only', action='store_true', help='Run only technology stack identification')
     parser.add_argument('--m365-only', action='store_true', help='Run only M365 tenant attribution')
+    parser.add_argument('--adfs-only', action='store_true', help='Run only ADFS endpoint discovery (runs M365 first)')
 
     args = parser.parse_args()
 
@@ -6465,6 +6839,7 @@ Examples:
         'breach_only': ('Breach database check', 'breach_database_check', 'breach_data'),
         'techstack_only': ('Technology stack identification', 'technology_stack_identification', 'technology_stack'),
         'm365_only': ('M365 tenant attribution', 'm365_tenant_attribution', 'm365_tenant'),
+        'adfs_only': ('ADFS endpoint discovery', 'adfs_endpoint_discovery', 'adfs'),
     }
 
     active_only_mode = None
@@ -6514,6 +6889,11 @@ Examples:
         if mode_name == 'breach_only':
             print(f"{Colors.OKCYAN}[i] Running email harvesting first (required for breach check){Colors.ENDC}")
             recon.email_harvesting()
+
+        # ADFS discovery needs M365 attribution first
+        if mode_name == 'adfs_only':
+            print(f"{Colors.OKCYAN}[i] Running M365 tenant attribution first (required for ADFS discovery){Colors.ENDC}")
+            recon.m365_tenant_attribution()
 
         try:
             method = getattr(recon, method_name)
