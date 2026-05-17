@@ -520,52 +520,77 @@ class ReconAutomation:
                 except Exception as e:
                     self.print_error(f"openid-configuration query failed: {e}")
 
-                # Endpoint 2: GetUserRealm (returns federation posture for the domain)
-                self.print_info(f"Querying GetUserRealm for federation posture...")
+                # Endpoint 2: GetUserRealm via modern userrealm API
+                self.print_info(f"Querying userrealm API for federation posture...")
 
-                try:
-                    url = f"https://login.microsoftonline.com/common/GetUserRealm.srf?login=aaaaaa@{self.domain}"
-                    response = self.session.get(
-                        url,
-                        headers={'Accept': 'application/json'},
-                        timeout=15,
-                        verify=False
-                    )
+                realm_endpoints = [
+                    f"https://login.microsoftonline.com/common/userrealm/aaaaaa@{self.domain}?api-version=2.1",
+                    f"https://login.microsoftonline.com/GetUserRealm.srf?login=aaaaaa@{self.domain}",
+                    f"https://login.microsoftonline.com/getuserrealm.srf?login=aaaaaa@{self.domain}&xml=1"
+                ]
 
-                    if response.status_code == 200:
-                        data = response.json()
+                realm_data = None
+                for url in realm_endpoints:
+                    try:
+                        response = self.session.get(
+                            url,
+                            headers={'Accept': 'application/json'},
+                            timeout=15,
+                            verify=False
+                        )
 
-                        m365_data['namespace_type'] = data.get('NameSpaceType', '')
-                        m365_data['federation_brand'] = data.get('FederationBrandName', '')
-                        m365_data['auth_url'] = data.get('AuthURL', '') or ''
+                        if response.status_code == 200:
+                            # XML endpoint returns text/xml, JSON endpoints return application/json
+                            if 'xml' in response.headers.get('Content-Type', '').lower() or response.text.strip().startswith('<'):
+                                # Parse XML response
+                                ns_match = re.search(r'<NameSpaceType>([^<]+)</NameSpaceType>', response.text)
+                                brand_match = re.search(r'<FederationBrandName>([^<]+)</FederationBrandName>', response.text)
+                                auth_match = re.search(r'<AuthURL>([^<]+)</AuthURL>', response.text)
+                                cloud_match = re.search(r'<CloudInstanceName>([^<]+)</CloudInstanceName>', response.text)
 
-                        if not m365_data.get('cloud_instance'):
-                            m365_data['cloud_instance'] = data.get('CloudInstanceName', '')
-
-                        # If federated, extract host for Task 2 (ADFS discovery)
-                        if m365_data['auth_url']:
-                            match = re.search(r'https?://([^/]+)', m365_data['auth_url'])
-                            if match:
-                                m365_data['federation_host'] = match.group(1)
-
-                        if m365_data['namespace_type']:
-                            if m365_data['namespace_type'] == 'Federated':
-                                self.print_warning(f"Namespace Type: Federated (ADFS or 3rd-party IdP)")
-                                if m365_data['federation_host']:
-                                    self.print_success(f"Federation Host: {m365_data['federation_host']}")
-                            elif m365_data['namespace_type'] == 'Managed':
-                                self.print_success(f"Namespace Type: Managed (cloud-native auth)")
+                                realm_data = {
+                                    'NameSpaceType': ns_match.group(1) if ns_match else '',
+                                    'FederationBrandName': brand_match.group(1) if brand_match else '',
+                                    'AuthURL': auth_match.group(1) if auth_match else '',
+                                    'CloudInstanceName': cloud_match.group(1) if cloud_match else ''
+                                }
                             else:
-                                self.print_info(f"Namespace Type: {m365_data['namespace_type']}")
+                                realm_data = response.json()
 
-                        if m365_data['federation_brand']:
-                            self.print_success(f"Brand: {m365_data['federation_brand']}")
+                            if realm_data.get('NameSpaceType'):
+                                break  # Got useful data, stop trying endpoints
 
-                    else:
-                        self.print_warning(f"GetUserRealm returned status {response.status_code}")
+                    except Exception as e:
+                        continue
 
-                except Exception as e:
-                    self.print_error(f"GetUserRealm query failed: {e}")
+                if realm_data:
+                    m365_data['namespace_type'] = realm_data.get('NameSpaceType', '')
+                    m365_data['federation_brand'] = realm_data.get('FederationBrandName', '')
+                    m365_data['auth_url'] = realm_data.get('AuthURL', '') or ''
+
+                    if not m365_data.get('cloud_instance'):
+                        m365_data['cloud_instance'] = realm_data.get('CloudInstanceName', '')
+
+                    # If federated, extract host for Task 2 (ADFS discovery)
+                    if m365_data['auth_url']:
+                        match = re.search(r'https?://([^/]+)', m365_data['auth_url'])
+                        if match:
+                            m365_data['federation_host'] = match.group(1)
+
+                    if m365_data['namespace_type']:
+                        if m365_data['namespace_type'] == 'Federated':
+                            self.print_warning(f"Namespace Type: Federated (ADFS or 3rd-party IdP)")
+                            if m365_data['federation_host']:
+                                self.print_success(f"Federation Host: {m365_data['federation_host']}")
+                        elif m365_data['namespace_type'] == 'Managed':
+                            self.print_success(f"Namespace Type: Managed (cloud-native auth)")
+                        else:
+                            self.print_info(f"Namespace Type: {m365_data['namespace_type']}")
+
+                    if m365_data['federation_brand']:
+                        self.print_success(f"Brand: {m365_data['federation_brand']}")
+                else:
+                    self.print_warning("Could not determine federation posture from any realm endpoint")
 
                 # Store final results
                 self.results['m365_tenant'] = m365_data
@@ -576,8 +601,8 @@ class ReconAutomation:
                 if m365_data['is_m365']:
                     self.print_info(f"\nM365 Tenant Summary:")
                     self.print_info(f"  Tenant ID: {m365_data.get('tenant_id', 'Unknown')}")
-                    self.print_info(f"  Namespace: {m365_data.get('namespace_type', 'Unknown')}")
-                    self.print_info(f"  Brand: {m365_data.get('federation_brand', 'Unknown')}")
+                    self.print_info(f"  Namespace: {m365_data.get('namespace_type') or 'Unknown'}")
+                    self.print_info(f"  Brand: {m365_data.get('federation_brand') or 'Unknown'}")
                 else:
                     self.print_info("Domain does not appear to be an M365 tenant")
 
