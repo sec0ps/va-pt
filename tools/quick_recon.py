@@ -4334,138 +4334,213 @@ class ReconAutomation:
             return None
 
         def _scrape_emails_from_web(self) -> List[str]:
-                """Crawl company website to discover email addresses"""
-                emails = set()
+                    """Crawl company website to discover email addresses with prioritized targeting and early termination"""
+                    emails = set()
 
-                # More restrictive email pattern - local part cannot start with www. or contain .org, .com etc before @
-                # This prevents matching URLs that run into emails
-                email_pattern = r'(?<![A-Za-z0-9./_-])([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})(?![A-Za-z0-9])'
+                    # Determine crawl mode
+                    deep_mode = getattr(self.args, 'deep_crawl', False) if hasattr(self, 'args') else False
 
-                visited = set()
-                to_visit = []
-                max_pages = 100
-                max_depth = 3
+                    if deep_mode:
+                        max_pages = 100
+                        max_depth = 3
+                        per_page_timeout = 8
+                        no_new_emails_limit = 0  # Disable early termination in deep mode
+                        self.print_info("  Deep crawl mode enabled (max 100 pages, depth 3)")
+                    else:
+                        max_pages = 25
+                        max_depth = 2
+                        per_page_timeout = 5
+                        no_new_emails_limit = 8
 
-                # Determine base URL
-                base_url = None
-                for protocol in ['https', 'http']:
+                    # Email pattern with URL contamination guard
+                    email_pattern = r'(?<![A-Za-z0-9./_-])([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})(?![A-Za-z0-9])'
+
+                    # High-yield URL patterns - pages where emails actually live
+                    high_yield_patterns = [
+                        'contact', 'about', 'team', 'staff', 'people', 'directory',
+                        'employees', 'leadership', 'management', 'board', 'officers',
+                        'locations', 'news', 'press', 'media', 'investor', 'careers',
+                        'support', 'help'
+                    ]
+
+                    visited = set()
+                    high_yield_queue = []  # (url, depth) - priority queue
+                    standard_queue = []     # (url, depth)
+
+                    # Determine base URL
+                    base_url = None
+                    for protocol in ['https', 'http']:
+                        try:
+                            test_url = f"{protocol}://{self.domain}"
+                            response = requests.get(test_url, timeout=per_page_timeout, verify=False, allow_redirects=True)
+                            if response.status_code == 200:
+                                base_url = f"{protocol}://{self.domain}"
+                                break
+                        except:
+                            continue
+
+                    if not base_url:
+                        self.print_warning(f"Could not connect to {self.domain}")
+                        return list(emails)
+
+                    # Fast-path: try sitemap.xml to seed high-yield URLs directly
+                    sitemap_seeded = False
                     try:
-                        test_url = f"{protocol}://{self.domain}"
-                        response = requests.get(test_url, timeout=10, verify=False, allow_redirects=True)
-                        if response.status_code == 200:
-                            base_url = f"{protocol}://{self.domain}"
+                        sitemap_url = f"{base_url}/sitemap.xml"
+                        sitemap_resp = requests.get(sitemap_url, timeout=per_page_timeout, verify=False)
+                        if sitemap_resp.status_code == 200 and ('<urlset' in sitemap_resp.text or '<sitemapindex' in sitemap_resp.text):
+                            # Extract URLs from sitemap
+                            sitemap_urls = re.findall(r'<loc>([^<]+)</loc>', sitemap_resp.text)
+                            for sm_url in sitemap_urls:
+                                sm_url = sm_url.strip()
+                                if self.domain in sm_url:
+                                    url_lower = sm_url.lower()
+                                    if any(p in url_lower for p in high_yield_patterns):
+                                        high_yield_queue.append((sm_url, 0))
+                                    else:
+                                        standard_queue.append((sm_url, 0))
+                            if high_yield_queue:
+                                sitemap_seeded = True
+                                self.print_info(f"  Sitemap found - seeded {len(high_yield_queue)} high-yield URLs")
+                    except:
+                        pass
+
+                    # Always start with homepage
+                    high_yield_queue.insert(0, (base_url, 0))
+
+                    self.print_info(f"  Crawling {self.domain} (max {max_pages} pages, depth {max_depth}, prioritized)")
+
+                    pages_crawled = 0
+                    pages_since_new_email = 0
+
+                    while (high_yield_queue or standard_queue) and pages_crawled < max_pages:
+                        # Check for shutdown signal
+                        if getattr(self, '_shutdown_in_progress', False):
+                            self.print_warning("  Shutdown signal received, stopping crawl")
                             break
-                    except:
-                        continue
 
-                if not base_url:
-                    self.print_warning(f"Could not connect to {self.domain}")
+                        # High-yield first, then standard
+                        if high_yield_queue:
+                            url, depth = high_yield_queue.pop(0)
+                        elif standard_queue:
+                            url, depth = standard_queue.pop(0)
+                        else:
+                            break
+
+                        # Normalize URL
+                        url = url.split('#')[0].split('?')[0].rstrip('/')
+
+                        if url in visited:
+                            continue
+
+                        if self.domain not in url:
+                            continue
+
+                        visited.add(url)
+
+                        try:
+                            response = requests.get(url, timeout=per_page_timeout, verify=False, allow_redirects=True,
+                                                headers={'User-Agent': 'Mozilla/5.0 (compatible; reconnaissance tool)'})
+
+                            if response.status_code != 200:
+                                continue
+
+                            content_type = response.headers.get('Content-Type', '')
+                            if 'text/html' not in content_type:
+                                continue
+
+                            pages_crawled += 1
+                            html = response.text
+                            emails_before = len(emails)
+
+                            # Extract emails - use findall with groups
+                            found_emails = re.findall(email_pattern, html)
+
+                            # mailto: links (highest reliability)
+                            mailto_matches = re.findall(r'mailto:([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})', html)
+                            found_emails.extend(mailto_matches)
+
+                            # Obfuscated: user [at] domain [dot] com
+                            obfuscated = re.findall(r'([A-Za-z0-9._%+-]+)\s*[\[\(]?\s*(?:at|AT)\s*[\]\)]?\s*([A-Za-z0-9.-]+)\s*[\[\(]?\s*(?:dot|DOT)\s*[\]\)]?\s*([A-Za-z]{2,})', html)
+                            for parts in obfuscated:
+                                found_emails.append(f"{parts[0]}@{parts[1]}.{parts[2]}")
+
+                            for email in found_emails:
+                                email_lower = email.lower().strip()
+
+                                # Skip if local part looks like a URL (contains .com, .org, .net, etc before @)
+                                local_part = email_lower.split('@')[0]
+                                if re.search(r'\.(com|org|net|edu|gov|io|co|uk|de|fr|es|it|ru|cn|jp|au|ca|br|in|mx)$', local_part):
+                                    continue
+
+                                # Skip if starts with www.
+                                if local_part.startswith('www.'):
+                                    continue
+
+                                # Skip if local part is too long (likely garbage)
+                                if len(local_part) > 64:
+                                    continue
+
+                                # Skip common false positives
+                                if any(x in email_lower for x in ['example.com', 'domain.com', 'test.com', '.png', '.jpg', '.gif', 'wixpress', 'sentry.io']):
+                                    continue
+
+                                emails.add(email_lower)
+
+                            new_this_page = len(emails) - emails_before
+
+                            # Track pages-since-new-email for early termination
+                            if new_this_page == 0:
+                                pages_since_new_email += 1
+                            else:
+                                pages_since_new_email = 0
+
+                            # Early termination
+                            if no_new_emails_limit > 0 and pages_since_new_email >= no_new_emails_limit:
+                                self.print_info(f"  Stopping crawl: no new emails in last {no_new_emails_limit} pages")
+                                break
+
+                            # Discover internal links (only if not already at max depth)
+                            if depth < max_depth:
+                                links = re.findall(r'href=["\']([^"\']+)["\']', html)
+
+                                for link in links:
+                                    # Skip static assets and non-pages
+                                    if any(link.lower().endswith(ext) for ext in ['.pdf', '.jpg', '.jpeg', '.png', '.gif', '.css', '.js', '.ico', '.svg', '.woff', '.woff2', '.ttf', '.mp4', '.mp3', '.zip']):
+                                        continue
+                                    if link.startswith(('mailto:', 'tel:', 'javascript:', '#')):
+                                        continue
+
+                                    # Build absolute URL
+                                    if link.startswith('http'):
+                                        abs_url = link
+                                    elif link.startswith('//'):
+                                        abs_url = f"https:{link}"
+                                    elif link.startswith('/'):
+                                        abs_url = f"{base_url}{link}"
+                                    else:
+                                        abs_url = f"{base_url}/{link}"
+
+                                    abs_url = abs_url.split('#')[0].split('?')[0].rstrip('/')
+
+                                    if self.domain in abs_url and abs_url not in visited:
+                                        # Prioritize based on URL content
+                                        url_lower = abs_url.lower()
+                                        if any(p in url_lower for p in high_yield_patterns):
+                                            if (abs_url, depth + 1) not in high_yield_queue:
+                                                high_yield_queue.append((abs_url, depth + 1))
+                                        else:
+                                            if (abs_url, depth + 1) not in standard_queue:
+                                                standard_queue.append((abs_url, depth + 1))
+
+                            time.sleep(0.3)
+
+                        except:
+                            continue
+
+                    self.print_info(f"  Crawled {pages_crawled} pages, found {len(emails)} unique emails")
+
                     return list(emails)
-
-                # Start at homepage
-                to_visit.append((base_url, 0))
-
-                self.print_info(f"  Crawling {self.domain} (max {max_pages} pages, depth {max_depth})")
-
-                pages_crawled = 0
-
-                while to_visit and pages_crawled < max_pages:
-                    url, depth = to_visit.pop(0)
-
-                    # Normalize URL
-                    url = url.split('#')[0].split('?')[0].rstrip('/')
-
-                    if url in visited:
-                        continue
-
-                    # Only crawl same domain
-                    if self.domain not in url:
-                        continue
-
-                    visited.add(url)
-
-                    try:
-                        response = requests.get(url, timeout=8, verify=False, allow_redirects=True,
-                                            headers={'User-Agent': 'Mozilla/5.0 (compatible; reconnaissance tool)'})
-
-                        if response.status_code != 200:
-                            continue
-
-                        content_type = response.headers.get('Content-Type', '')
-                        if 'text/html' not in content_type:
-                            continue
-
-                        pages_crawled += 1
-                        html = response.text
-
-                        # Extract emails - use findall with groups
-                        found_emails = re.findall(email_pattern, html)
-
-                        # Also extract from mailto: links (most reliable)
-                        mailto_matches = re.findall(r'mailto:([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})', html)
-                        found_emails.extend(mailto_matches)
-
-                        # Obfuscated: user [at] domain [dot] com
-                        obfuscated = re.findall(r'([A-Za-z0-9._%+-]+)\s*[\[\(]?\s*(?:at|AT)\s*[\]\)]?\s*([A-Za-z0-9.-]+)\s*[\[\(]?\s*(?:dot|DOT)\s*[\]\)]?\s*([A-Za-z]{2,})', html)
-                        for parts in obfuscated:
-                            found_emails.append(f"{parts[0]}@{parts[1]}.{parts[2]}")
-
-                        for email in found_emails:
-                            email_lower = email.lower().strip()
-
-                            # Skip if local part looks like a URL (contains .com, .org, .net, etc before @)
-                            local_part = email_lower.split('@')[0]
-                            if re.search(r'\.(com|org|net|edu|gov|io|co|uk|de|fr|es|it|ru|cn|jp|au|ca|br|in|mx)$', local_part):
-                                continue
-
-                            # Skip if starts with www.
-                            if local_part.startswith('www.'):
-                                continue
-
-                            # Skip if local part is too long (likely garbage)
-                            if len(local_part) > 64:
-                                continue
-
-                            # Skip common false positives
-                            if any(x in email_lower for x in ['example.com', 'domain.com', 'test.com', '.png', '.jpg', '.gif', 'wixpress', 'sentry.io']):
-                                continue
-
-                            emails.add(email_lower)
-
-                        # Discover internal links
-                        if depth < max_depth:
-                            links = re.findall(r'href=["\']([^"\']+)["\']', html)
-
-                            for link in links:
-                                # Skip static assets and non-pages
-                                if any(link.lower().endswith(ext) for ext in ['.pdf', '.jpg', '.jpeg', '.png', '.gif', '.css', '.js', '.ico', '.svg', '.woff', '.woff2', '.ttf', '.mp4', '.mp3', '.zip']):
-                                    continue
-                                if link.startswith(('mailto:', 'tel:', 'javascript:', '#')):
-                                    continue
-
-                                # Build absolute URL
-                                if link.startswith('http'):
-                                    abs_url = link
-                                elif link.startswith('//'):
-                                    abs_url = f"https:{link}"
-                                elif link.startswith('/'):
-                                    abs_url = f"{base_url}{link}"
-                                else:
-                                    abs_url = f"{base_url}/{link}"
-
-                                # Queue if same domain and not visited
-                                abs_url = abs_url.split('#')[0].split('?')[0].rstrip('/')
-                                if self.domain in abs_url and abs_url not in visited:
-                                    to_visit.append((abs_url, depth + 1))
-
-                        time.sleep(0.3)
-
-                    except:
-                        continue
-
-                self.print_info(f"  Crawled {pages_crawled} pages, found {len(emails)} unique emails")
-
-                return list(emails)
 
         def _is_real_secret(self, secret_type: str, matches: list, content: str) -> bool:
                 """Determine if detected pattern is likely a real secret vs false positive"""
@@ -6561,32 +6636,32 @@ class ReconAutomation:
                     atexit.register(self._atexit_handler)
 
                 def _signal_handler(self, signum, frame):
-                    """Handle SIGINT/SIGTERM for graceful shutdown"""
-                    if self._shutdown_in_progress:
-                        self.print_error("\nForced exit - state may be incomplete")
-                        sys.exit(1)
+                        """Handle SIGINT/SIGTERM for graceful shutdown"""
+                        if self._shutdown_in_progress:
+                            self.print_error("\nForced exit - state may be incomplete")
+                            sys.exit(1)
 
-                    self._shutdown_in_progress = True
-                    self.print_warning("\n\nInterrupt received - saving state before exit...")
+                        self._shutdown_in_progress = True
+                        self.print_warning("\n\nInterrupt received - saving state before exit...")
 
-                    # Mark session as interrupted
-                    self.state['session']['interrupted'] = True
-                    self.state['session']['last_updated'] = datetime.now().isoformat()
+                        # Mark session as interrupted
+                        self.state['session']['interrupted'] = True
+                        self.state['session']['last_updated'] = datetime.now().isoformat()
 
-                    # Find any in_progress modules and preserve their state
-                    for module_name, module_state in self.state['modules'].items():
-                        if module_state['status'] == 'in_progress':
-                            self.print_info(f"Module '{module_name}' was in progress - state preserved")
+                        # Find any in_progress modules and preserve their state
+                        for module_name, module_state in self.state['modules'].items():
+                            if module_state['status'] == 'in_progress':
+                                self.print_info(f"Module '{module_name}' was in progress - state preserved")
 
-                    # Save current results to state
-                    self.state['results'] = self.results
+                        # Save current results to state
+                        self.state['results'] = self.results
 
-                    # Save state file
-                    self.save_state()
+                        # Save state file
+                        self.save_state()
 
-                    self.print_success(f"State saved to: {self.state_file}")
-                    self.print_info("Run the same command with --resume to continue")
-                    sys.exit(0)
+                        self.print_success(f"State saved to: {self.state_file}")
+                        self.print_info("Run the same command with --resume to continue")
+                        sys.exit(0)
 
                 def _atexit_handler(self):
                     """Handle normal exit - save state if not already saved"""
@@ -7237,6 +7312,13 @@ Examples:
     python3 quick_recon.py -d example.com -c "Acme Corp" --m365-only
     python3 quick_recon.py -d example.com -c "Acme Corp" --adfs-only
 
+  LinkedIn delay modes (avoid rate limits):
+    python3 quick_recon.py -d example.com -c "Acme Corp" --linkedin-only --linkedin-mode paranoid
+    python3 quick_recon.py -d example.com -c "Acme Corp" --linkedin-only --linkedin-mode fast
+
+  Deep email crawl (more thorough but slower):
+    python3 quick_recon.py -d example.com -c "Acme Corp" --email-only --deep-crawl
+
   Skip all OSINT modules:
     python3 quick_recon.py -d example.com -i 192.168.1.0/24 -c "Acme Corp" --skip-osint
         '''
@@ -7264,6 +7346,8 @@ Examples:
     parser.add_argument('--skip-adfs', action='store_true', help='Skip ADFS endpoint discovery')
     parser.add_argument('--skip-osint', action='store_true', help='Skip all OSINT modules (GitHub, LinkedIn)')
     parser.add_argument('--linkedin-max-results', type=int, default=100, help='Maximum LinkedIn employee results to fetch (default: 100)')
+    parser.add_argument('--linkedin-mode', choices=['fast', 'normal', 'paranoid'], default='normal', help='LinkedIn delay mode: fast (testing only, high lockout risk), normal (default, human-like delays), paranoid (slower, for sensitive engagements)')
+    parser.add_argument('--deep-crawl', action='store_true', help='Enable deep email crawl mode (100 pages, depth 3) - slower but more thorough')
 
     # Single module execution flags
     parser.add_argument('--linkedin-only', action='store_true', help='Run only LinkedIn enumeration')
@@ -7328,6 +7412,9 @@ Examples:
             client_name=args.client,
             auto_resume=args.resume
         )
+
+        # Store args reference so modules can access flags like linkedin_mode, deep_crawl
+        recon.args = args
 
         # LinkedIn has its own run method with cookie prompting
         if mode_name == 'linkedin_only':
