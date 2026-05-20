@@ -1891,7 +1891,7 @@ class ReconAutomation:
 
                         # Bail early if rate limited
                         if rate_limit_triggered:
-                            self._linkedin_finalize(linkedin_intel, all_companies, api_call_count, rate_limit_reason)
+                                self._linkedin_finalize(linkedin_intel, all_companies, api_call_count, rate_limit_reason)
                             return
 
                         if all_companies:
