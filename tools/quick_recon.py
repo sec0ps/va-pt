@@ -1561,695 +1561,683 @@ class ReconAutomation:
                     self.print_warning(f"\n[!] Downloaded files with secrets to: {github_download_dir}")
 
     def linkedin_enumeration(self):
-                            """LinkedIn intelligence gathering using authenticated session with checkpoint support and human-like delays"""
-                            self.print_section("LinkedIn Information Gathering")
+                        """LinkedIn intelligence gathering using authenticated session with checkpoint support and human-like delays"""
+                        self.print_section("LinkedIn Information Gathering")
 
-                            # Get resume data if available
-                            resume_data = self.get_resume_data('linkedin_enumeration')
-                            progress = resume_data.get('progress', {})
+                        # Get resume data if available
+                        resume_data = self.get_resume_data('linkedin_enumeration')
+                        progress = resume_data.get('progress', {})
 
-                            linkedin_intel = {
-                                'company_info': progress.get('company_info', {}),
-                                'employees': progress.get('employees', [])
+                        linkedin_intel = {
+                            'company_info': progress.get('company_info', {}),
+                            'employees': progress.get('employees', [])
+                        }
+
+                        # Determine delay mode from args (default: normal)
+                        mode = getattr(self.args, 'linkedin_mode', 'normal') if hasattr(self, 'args') else 'normal'
+
+                        # Delay profiles
+                        delay_profiles = {
+                            'fast': {
+                                'page_min': 4, 'page_max': 7,
+                                'long_pause_min': 0, 'long_pause_max': 0,
+                                'long_pause_prob': 0.0,
+                                'company_break_min': 3, 'company_break_max': 5,
+                                'session_cap': 200
+                            },
+                            'normal': {
+                                'page_min': 7, 'page_max': 17,
+                                'long_pause_min': 30, 'long_pause_max': 60,
+                                'long_pause_prob': 0.18,
+                                'company_break_min': 60, 'company_break_max': 120,
+                                'session_cap': 50
+                            },
+                            'paranoid': {
+                                'page_min': 20, 'page_max': 40,
+                                'long_pause_min': 90, 'long_pause_max': 180,
+                                'long_pause_prob': 0.30,
+                                'company_break_min': 180, 'company_break_max': 300,
+                                'session_cap': 30
                             }
+                        }
+                        profile = delay_profiles.get(mode, delay_profiles['normal'])
+                        self.print_info(f"LinkedIn delay mode: {mode} (session cap: {profile['session_cap']} API calls)")
 
-                            # Determine delay mode from args (default: normal)
-                            mode = getattr(self.args, 'linkedin_mode', 'normal') if hasattr(self, 'args') else 'normal'
+                        # Session-level tracking
+                        api_call_count = 0
+                        rate_limit_triggered = False
+                        rate_limit_reason = ''
+                        last_results_were_empty = False
 
-                            # Delay profiles
-                            delay_profiles = {
-                                'fast': {
-                                    'page_min': 4, 'page_max': 7,
-                                    'long_pause_min': 0, 'long_pause_max': 0,
-                                    'long_pause_prob': 0.0,
-                                    'company_break_min': 3, 'company_break_max': 5,
-                                    'session_cap': 200
-                                },
-                                'normal': {
-                                    'page_min': 7, 'page_max': 17,
-                                    'long_pause_min': 30, 'long_pause_max': 60,
-                                    'long_pause_prob': 0.18,
-                                    'company_break_min': 60, 'company_break_max': 120,
-                                    'session_cap': 50
-                                },
-                                'paranoid': {
-                                    'page_min': 20, 'page_max': 40,
-                                    'long_pause_min': 90, 'long_pause_max': 180,
-                                    'long_pause_prob': 0.30,
-                                    'company_break_min': 180, 'company_break_max': 300,
-                                    'session_cap': 30
-                                }
-                            }
-                            profile = delay_profiles.get(mode, delay_profiles['normal'])
-                            self.print_info(f"LinkedIn delay mode: {mode} (session cap: {profile['session_cap']} API calls)")
+                        # Check if LinkedIn cookies are configured
+                        if not self.config.get('linkedin_cookies'):
+                            self.print_warning("No LinkedIn cookies configured.")
+                            print("\n    [n] Enter LinkedIn cookies now")
+                            print("    [s] Skip LinkedIn enumeration")
+                            choice = input("\n    Selection [n/s]: ").strip().lower()
 
-                            # Session-level tracking
-                            api_call_count = 0
-                            rate_limit_triggered = False
-                            rate_limit_reason = ''
-                            last_results_were_empty = False
-
-                            # Check if LinkedIn cookies are configured
-                            if not self.config.get('linkedin_cookies'):
-                                self.print_warning("No LinkedIn cookies configured.")
-                                print("\n    [n] Enter LinkedIn cookies now")
-                                print("    [s] Skip LinkedIn enumeration")
-                                choice = input("\n    Selection [n/s]: ").strip().lower()
-
-                                if choice == 'n':
-                                    print("\n    To get LinkedIn cookies:")
-                                    print("    1. Open LinkedIn in your browser and log in")
-                                    print("    2. Open Developer Tools (F12) -> Network tab")
-                                    print("    3. Refresh the page, click any linkedin.com request")
-                                    print("    4. In Request Headers, find 'Cookie:' and copy the ENTIRE value")
-                                    cookies = input("\n    Enter full LinkedIn cookie string: ").strip()
-                                    if cookies:
-                                        self.config['linkedin_cookies'] = cookies
-                                        if self._validate_api_token('linkedin'):
-                                            self.print_success("LinkedIn cookies validated and saved")
-                                            self.save_config()
-                                        else:
-                                            self.print_error("LinkedIn cookies are invalid")
-                                            self.config['linkedin_cookies'] = ''
-                                            return
+                            if choice == 'n':
+                                print("\n    To get LinkedIn cookies:")
+                                print("    1. Open LinkedIn in your browser and log in")
+                                print("    2. Open Developer Tools (F12) -> Network tab")
+                                print("    3. Refresh the page, click any linkedin.com request")
+                                print("    4. In Request Headers, find 'Cookie:' and copy the ENTIRE value")
+                                cookies = input("\n    Enter full LinkedIn cookie string: ").strip()
+                                if cookies:
+                                    self.config['linkedin_cookies'] = cookies
+                                    if self._validate_api_token('linkedin'):
+                                        self.print_success("LinkedIn cookies validated and saved")
+                                        self.save_config()
                                     else:
-                                        self.print_info("Skipping LinkedIn enumeration")
+                                        self.print_error("LinkedIn cookies are invalid")
+                                        self.config['linkedin_cookies'] = ''
                                         return
                                 else:
                                     self.print_info("Skipping LinkedIn enumeration")
                                     return
-
-                            # Validate existing cookies
-                            if not self._validate_api_token('linkedin'):
-                                if not self._handle_invalid_token('linkedin'):
-                                    return
-
-                            search_term = self.client_name
-                            self.print_info(f"Searching LinkedIn for: {search_term}")
-
-                            # Get max results from args or default
-                            max_employee_results = getattr(self.args, 'linkedin_max_results', 100) if hasattr(self, 'args') else 100
-                            max_company_results = 50
-
-                            self.print_info(f"Max employee results: {max_employee_results}")
-
-                            # Set up authenticated session with all cookies
-                            linkedin_session = requests.Session()
-
-                            # Parse the cookie string and set all cookies
-                            cookie_string = self.config['linkedin_cookies']
-                            for cookie in cookie_string.split('; '):
-                                if '=' in cookie:
-                                    name, value = cookie.split('=', 1)
-                                    linkedin_session.cookies.set(name, value, domain='.linkedin.com')
-
-                            # Extract CSRF token from JSESSIONID
-                            jsessionid = linkedin_session.cookies.get('JSESSIONID', '').strip('"')
-                            if not jsessionid:
-                                self.print_error("JSESSIONID not found in cookies")
-                                return
-
-                            self.print_success(f"Using CSRF token: {jsessionid[:30]}...")
-                            self.print_info(f"Loaded {len(linkedin_session.cookies)} cookies")
-
-                            # API headers matching browser exactly
-                            api_headers = {
-                                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
-                                'Accept': 'application/vnd.linkedin.normalized+json+2.1',
-                                'Accept-Language': 'en-US,en;q=0.9',
-                                'sec-ch-ua': '"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
-                                'sec-ch-ua-mobile': '?0',
-                                'sec-ch-ua-platform': '"Linux"',
-                                'Sec-Fetch-Site': 'same-origin',
-                                'Sec-Fetch-Mode': 'cors',
-                                'Sec-Fetch-Dest': 'empty',
-                                'Referer': 'https://www.linkedin.com/search/results/companies/',
-                                'X-Li-Lang': 'en_US',
-                                'X-Li-Page-Instance': 'urn:li:page:d_flagship3_search_srp_companies;' + str(int(time.time() * 1000)),
-                                'X-Li-Track': '{"clientVersion":"1.13.9101","mpVersion":"1.13.9101","osName":"web","timezoneOffset":-6,"timezone":"America/Chicago","deviceFormFactor":"DESKTOP","mpName":"voyager-web","displayDensity":1}',
-                                'X-Restli-Protocol-Version': '2.0.0',
-                                'Csrf-Token': jsessionid,
-                            }
-
-                            encoded_term = search_term.replace(' ', '%20').replace(',', '%2C')
-                            page_size = 10
-
-                            # =====================================================================
-                            # SEARCH 1: Find companies (with pagination)
-                            # =====================================================================
-                            all_companies = linkedin_intel['company_info'].get('companies', [])
-                            company_search_complete = progress.get('company_search_complete', False)
-
-                            if not company_search_complete:
-                                self.print_info(f"\n[1/2] Searching for companies: {search_term}")
-
-                                start = progress.get('company_search_start', 0)
-
-                                while start < max_company_results:
-                                    # Check session cap
-                                    if api_call_count >= profile['session_cap']:
-                                        rate_limit_triggered = True
-                                        rate_limit_reason = f"Session cap reached ({profile['session_cap']} API calls)"
-                                        break
-
-                                    # Check shutdown signal
-                                    if getattr(self, '_shutdown_in_progress', False):
-                                        break
-
-                                    company_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(keywords:{encoded_term},flagshipSearchIntent:SEARCH_SRP,queryParameters:(resultType:List(COMPANIES)),includeFiltersInResponse:false)&start={start}"
-
-                                    try:
-                                        response = linkedin_session.get(company_search_url, headers=api_headers, timeout=15)
-                                        api_call_count += 1
-
-                                        # Rate-limit detection
-                                        if response.status_code == 429:
-                                            rate_limit_triggered = True
-                                            rate_limit_reason = "HTTP 429 (Too Many Requests)"
-                                            break
-                                        if response.status_code == 999:
-                                            rate_limit_triggered = True
-                                            rate_limit_reason = "HTTP 999 (LinkedIn anti-bot)"
-                                            break
-                                        if response.status_code in [401, 403]:
-                                            rate_limit_triggered = True
-                                            rate_limit_reason = f"HTTP {response.status_code} (auth invalidated)"
-                                            break
-
-                                        # Detect challenge/login redirect pages
-                                        if 'challenge' in response.url.lower() or 'authwall' in response.url.lower() or 'login' in response.url.lower():
-                                            rate_limit_triggered = True
-                                            rate_limit_reason = f"Redirected to {response.url}"
-                                            break
-
-                                        if response.status_code != 200:
-                                            self.print_warning(f"API returned status {response.status_code}")
-                                            break
-
-                                        data = response.json()
-                                        included = data.get('included', [])
-
-                                        if not included:
-                                            # Two consecutive empty after data = likely soft-limited
-                                            if last_results_were_empty and len(all_companies) > 0:
-                                                rate_limit_triggered = True
-                                                rate_limit_reason = "Consecutive empty results after prior data"
-                                            break
-
-                                        last_results_were_empty = False
-                                        page_companies = []
-
-                                        # Extract all company IDs from response for lookup
-                                        all_company_ids = {}  # slug -> company_id
-                                        raw_text = json.dumps(data)
-
-                                        # First pass: build a map of entity URNs to company data
-                                        company_map = {}
-                                        for item in included:
-                                            item_type = item.get('$type', '')
-                                            entity_urn = item.get('entityUrn', '')
-
-                                            if 'Company' in item_type or 'Organization' in item_type:
-                                                name = item.get('name', '')
-                                                universal_name = item.get('universalName', '')
-
-                                                # Extract numeric company ID from entity_urn
-                                                company_id = ''
-                                                if entity_urn:
-                                                    match = re.search(r'company:(\d+)', entity_urn)
-                                                    if match:
-                                                        company_id = match.group(1)
-                                                        if universal_name:
-                                                            all_company_ids[universal_name] = company_id
-
-                                                if name and entity_urn:
-                                                    company_map[entity_urn] = {
-                                                        'name': name,
-                                                        'slug': universal_name,
-                                                        'url': f"https://www.linkedin.com/company/{universal_name}" if universal_name else '',
-                                                        'entity_urn': entity_urn,
-                                                        'company_id': company_id
-                                                    }
-
-                                        # Second pass: extract from search results
-                                        for item in included:
-                                            title = item.get('title', {})
-                                            if isinstance(title, dict):
-                                                text = title.get('text', '')
-                                                if text and len(text) > 2 and len(text) < 100:
-                                                    navigation = item.get('navigationUrl', '') or ''
-                                                    if '/company/' in navigation:
-                                                        slug = navigation.split('/company/')[-1].split('/')[0].split('?')[0]
-
-                                                        # Look up company_id from our collected data
-                                                        company_id = all_company_ids.get(slug, '')
-
-                                                        # Also check company_map by slug
-                                                        if not company_id:
-                                                            for urn, comp in company_map.items():
-                                                                if comp.get('slug') == slug and comp.get('company_id'):
-                                                                    company_id = comp['company_id']
-                                                                    break
-
-                                                        if not any(c['slug'] == slug for c in page_companies):
-                                                            page_companies.append({
-                                                                'name': text,
-                                                                'slug': slug,
-                                                                'url': f"https://www.linkedin.com/company/{slug}",
-                                                                'company_id': company_id
-                                                            })
-
-                                            tracking = item.get('trackingUrn', '')
-                                            if 'company:' in tracking:
-                                                match = re.search(r'company:(\d+)', tracking)
-                                                if match:
-                                                    company_id = match.group(1)
-                                                    for urn, comp in company_map.items():
-                                                        if comp.get('company_id') == company_id and not any(c['slug'] == comp['slug'] for c in page_companies):
-                                                            page_companies.append(comp)
-
-                                        for urn, comp in company_map.items():
-                                            if not any(c['slug'] == comp['slug'] for c in page_companies) and comp['slug']:
-                                                page_companies.append(comp)
-
-                                        if not page_companies:
-                                            slug_matches = re.findall(r'"universalName":\s*"([^"]+)"', raw_text)
-                                            name_matches = re.findall(r'"name":\s*"([^"]{3,60})"', raw_text)
-
-                                            for i, slug in enumerate(slug_matches):
-                                                if slug and not any(c['slug'] == slug for c in page_companies):
-                                                    name = name_matches[i] if i < len(name_matches) else slug
-                                                    company_id = all_company_ids.get(slug, '')
-                                                    page_companies.append({
-                                                        'name': name,
-                                                        'slug': slug,
-                                                        'url': f"https://www.linkedin.com/company/{slug}",
-                                                        'company_id': company_id
-                                                    })
-
-                                        new_count = 0
-                                        for comp in page_companies:
-                                            if not any(c['slug'] == comp['slug'] and c['name'] == comp['name'] for c in all_companies):
-                                                all_companies.append(comp)
-                                                new_count += 1
-
-                                        self.print_info(f"  Page {start // page_size + 1}: Found {new_count} new companies (API calls: {api_call_count})")
-
-                                        if new_count == 0:
-                                            break
-
-                                        start += page_size
-
-                                        # Checkpoint after each page
-                                        self.checkpoint('linkedin_enumeration', 'company_search_start', start)
-                                        self.checkpoint('linkedin_enumeration', 'company_info', {'companies': all_companies})
-
-                                        # Per-page delay with jitter
-                                        delay = random.uniform(profile['page_min'], profile['page_max'])
-
-                                        # Occasional long pause
-                                        if profile['long_pause_prob'] > 0 and random.random() < profile['long_pause_prob']:
-                                            long_pause = random.uniform(profile['long_pause_min'], profile['long_pause_max'])
-                                            self.print_info(f"  (Long read pause: {long_pause:.0f}s)")
-                                            time.sleep(long_pause)
-                                        else:
-                                            time.sleep(delay)
-
-                                    except Exception as e:
-                                        self.print_error(f"Error fetching companies: {e}")
-                                        break
-
-                                # Mark company search as complete if not rate-limited
-                                if not rate_limit_triggered:
-                                    self.checkpoint('linkedin_enumeration', 'company_search_complete', True)
-
-                                    # Filter to only companies containing the target name
-                                    target_lower = search_term.lower()
-                                    unfiltered_count = len(all_companies)
-                                    all_companies = [c for c in all_companies if target_lower in c['name'].lower()]
-
-                                    if len(all_companies) < unfiltered_count:
-                                        self.print_info(f"Filtered {unfiltered_count} companies to {len(all_companies)} matching '{search_term}'")
-
-                                    self.checkpoint('linkedin_enumeration', 'company_info', {'companies': all_companies})
-
-                            # Bail early if rate limited
-                            if rate_limit_triggered:
-                                self._linkedin_finalize(linkedin_intel, all_companies, api_call_count, rate_limit_reason)
-                                return
-
-                            if all_companies:
-                                self.print_success(f"Found {len(all_companies)} total companies:")
-                                for company in all_companies:
-                                    self.print_info(f"  - {company['name']}")
-                                    if company.get('url'):
-                                        self.print_info(f"    {company['url']}")
-
-                                # Company selection if more than one found and not resuming with selection
-                                selected_companies = progress.get('selected_companies')
-
-                                if selected_companies is None and len(all_companies) > 1:
-                                    print("\n" + "="*80)
-                                    print("COMPANY SELECTION")
-                                    print("="*80)
-                                    print("Multiple companies found. Select target companies:")
-                                    print("  [a] All companies")
-                                    print("  [#] Single company by number")
-                                    print("  [#,#,#] Multiple companies by numbers (comma-separated)")
-                                    print()
-
-                                    for idx, company in enumerate(all_companies, 1):
-                                        print(f"  [{idx}] {company['name']}")
-                                        if company.get('url'):
-                                            print(f"      {company['url']}")
-
-                                    print()
-                                    selection = input("Enter selection (or press Enter for all): ").strip().lower()
-
-                                    if selection == '' or selection == 'a':
-                                        selected_companies = all_companies
-                                        self.print_info("Using all companies")
-                                    else:
-                                        try:
-                                            indices = [int(x.strip()) for x in selection.split(',')]
-                                            selected_companies = [all_companies[i-1] for i in indices if 0 < i <= len(all_companies)]
-                                            if not selected_companies:
-                                                self.print_warning("Invalid selection, using all companies")
-                                                selected_companies = all_companies
-                                            else:
-                                                self.print_success(f"Selected {len(selected_companies)} company/companies:")
-                                                for comp in selected_companies:
-                                                    self.print_info(f"  - {comp['name']}")
-                                        except (ValueError, IndexError):
-                                            self.print_warning("Invalid selection, using all companies")
-                                            selected_companies = all_companies
-
-                                    # Save selection to checkpoint
-                                    self.checkpoint('linkedin_enumeration', 'selected_companies', selected_companies)
-                                    print("="*80)
-                                elif selected_companies is None:
-                                    selected_companies = all_companies
-
-                                all_companies = selected_companies
-                                linkedin_intel['company_info'] = {'companies': all_companies}
                             else:
-                                self.print_warning("No companies found")
-
-                            # Brief pause before employee search starts (simulates "now searching for people")
-                            time.sleep(random.uniform(3, 6))
-
-                            # =====================================================================
-                            # SEARCH 2: Find people at each selected company (using company ID filter)
-                            # =====================================================================
-                            all_employees = linkedin_intel.get('employees', [])
-                            searched_companies = set(progress.get('searched_companies', []))
-
-                            companies_to_search = all_companies if all_companies else []
-
-                            if not companies_to_search:
-                                self.print_warning("No companies to search for employees")
-                                self._linkedin_finalize(linkedin_intel, all_companies, api_call_count, '')
+                                self.print_info("Skipping LinkedIn enumeration")
                                 return
 
-                            for company_idx, company in enumerate(companies_to_search, 1):
-                                # Check session cap before each company
+                        # Validate existing cookies
+                        if not self._validate_api_token('linkedin'):
+                            if not self._handle_invalid_token('linkedin'):
+                                return
+
+                        search_term = self.client_name
+                        self.print_info(f"Searching LinkedIn for: {search_term}")
+
+                        # Get max results from args or default
+                        max_employee_results = getattr(self.args, 'linkedin_max_results', 100) if hasattr(self, 'args') else 100
+                        max_company_results = 50
+
+                        self.print_info(f"Max employee results: {max_employee_results}")
+
+                        # Set up authenticated session with all cookies
+                        linkedin_session = requests.Session()
+
+                        # Parse the cookie string and set all cookies
+                        cookie_string = self.config['linkedin_cookies']
+                        for cookie in cookie_string.split('; '):
+                            if '=' in cookie:
+                                name, value = cookie.split('=', 1)
+                                linkedin_session.cookies.set(name, value, domain='.linkedin.com')
+
+                        # Extract CSRF token from JSESSIONID
+                        jsessionid = linkedin_session.cookies.get('JSESSIONID', '').strip('"')
+                        if not jsessionid:
+                            self.print_error("JSESSIONID not found in cookies")
+                            return
+
+                        self.print_success(f"Using CSRF token: {jsessionid[:30]}...")
+                        self.print_info(f"Loaded {len(linkedin_session.cookies)} cookies")
+
+                        # API headers matching browser exactly
+                        api_headers = {
+                            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
+                            'Accept': 'application/vnd.linkedin.normalized+json+2.1',
+                            'Accept-Language': 'en-US,en;q=0.9',
+                            'sec-ch-ua': '"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
+                            'sec-ch-ua-mobile': '?0',
+                            'sec-ch-ua-platform': '"Linux"',
+                            'Sec-Fetch-Site': 'same-origin',
+                            'Sec-Fetch-Mode': 'cors',
+                            'Sec-Fetch-Dest': 'empty',
+                            'Referer': 'https://www.linkedin.com/search/results/companies/',
+                            'X-Li-Lang': 'en_US',
+                            'X-Li-Page-Instance': 'urn:li:page:d_flagship3_search_srp_companies;' + str(int(time.time() * 1000)),
+                            'X-Li-Track': '{"clientVersion":"1.13.9101","mpVersion":"1.13.9101","osName":"web","timezoneOffset":-6,"timezone":"America/Chicago","deviceFormFactor":"DESKTOP","mpName":"voyager-web","displayDensity":1}',
+                            'X-Restli-Protocol-Version': '2.0.0',
+                            'Csrf-Token': jsessionid,
+                        }
+
+                        encoded_term = search_term.replace(' ', '%20').replace(',', '%2C')
+                        page_size = 10
+
+                        # =====================================================================
+                        # SEARCH 1: Find companies (with pagination)
+                        # =====================================================================
+                        all_companies = linkedin_intel['company_info'].get('companies', [])
+                        company_search_complete = progress.get('company_search_complete', False)
+
+                        if not company_search_complete:
+                            self.print_info(f"\n[1/2] Searching for companies: {search_term}")
+
+                            start = progress.get('company_search_start', 0)
+
+                            while start < max_company_results:
+                                # Check session cap
                                 if api_call_count >= profile['session_cap']:
                                     rate_limit_triggered = True
                                     rate_limit_reason = f"Session cap reached ({profile['session_cap']} API calls)"
                                     break
 
-                                # Check shutdown signal
-                                if getattr(self, '_shutdown_in_progress', False):
-                                    break
+                                company_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(keywords:{encoded_term},flagshipSearchIntent:SEARCH_SRP,queryParameters:(resultType:List(COMPANIES)),includeFiltersInResponse:false)&start={start}"
 
-                                company_name = company['name']
-                                company_id = company.get('company_id', '')
-                                company_slug = company.get('slug', '')
+                                try:
+                                    response = linkedin_session.get(company_search_url, headers=api_headers, timeout=15)
+                                    api_call_count += 1
 
-                                if company_name in searched_companies:
-                                    self.print_info(f"Skipping {company_name} (already searched)")
-                                    continue
+                                    # Rate-limit detection
+                                    if response.status_code == 429:
+                                        rate_limit_triggered = True
+                                        rate_limit_reason = "HTTP 429 (Too Many Requests)"
+                                        break
+                                    if response.status_code == 999:
+                                        rate_limit_triggered = True
+                                        rate_limit_reason = "HTTP 999 (LinkedIn anti-bot)"
+                                        break
+                                    if response.status_code in [401, 403]:
+                                        rate_limit_triggered = True
+                                        rate_limit_reason = f"HTTP {response.status_code} (auth invalidated)"
+                                        break
 
-                                self.print_info(f"\n[2/2] Searching for employees at: {company_name} ({company_idx}/{len(companies_to_search)})")
+                                    # Detect challenge/login redirect pages
+                                    if 'challenge' in response.url.lower() or 'authwall' in response.url.lower() or 'login' in response.url.lower():
+                                        rate_limit_triggered = True
+                                        rate_limit_reason = f"Redirected to {response.url}"
+                                        break
 
-                                # If no company_id, look it up via company page
-                                if not company_id and company_slug:
-                                    self.print_info(f"  Looking up company ID for {company_slug}...")
-                                    try:
-                                        company_lookup_url = f"https://www.linkedin.com/voyager/api/organization/companies?decorationId=com.linkedin.voyager.deco.organization.web.WebFullCompanyMain-21&q=universalName&universalName={company_slug}"
-                                        lookup_response = linkedin_session.get(company_lookup_url, headers=api_headers, timeout=15)
-                                        api_call_count += 1
+                                    if response.status_code != 200:
+                                        self.print_warning(f"API returned status {response.status_code}")
+                                        break
 
-                                        if lookup_response.status_code in [429, 999, 401, 403]:
+                                    data = response.json()
+                                    included = data.get('included', [])
+
+                                    if not included:
+                                        # Two consecutive empty after data = likely soft-limited
+                                        if last_results_were_empty and len(all_companies) > 0:
                                             rate_limit_triggered = True
-                                            rate_limit_reason = f"HTTP {lookup_response.status_code} during company lookup"
-                                            break
+                                            rate_limit_reason = "Consecutive empty results after prior data"
+                                        break
 
-                                        if lookup_response.status_code == 200:
-                                            lookup_data = lookup_response.json()
-                                            elements = lookup_data.get('elements', [])
-                                            if elements:
-                                                entity_urn = elements[0].get('entityUrn', '')
+                                    last_results_were_empty = False
+                                    page_companies = []
+
+                                    # Extract all company IDs from response for lookup
+                                    all_company_ids = {}  # slug -> company_id
+                                    raw_text = json.dumps(data)
+
+                                    # First pass: build a map of entity URNs to company data
+                                    company_map = {}
+                                    for item in included:
+                                        item_type = item.get('$type', '')
+                                        entity_urn = item.get('entityUrn', '')
+
+                                        if 'Company' in item_type or 'Organization' in item_type:
+                                            name = item.get('name', '')
+                                            universal_name = item.get('universalName', '')
+
+                                            # Extract numeric company ID from entity_urn
+                                            company_id = ''
+                                            if entity_urn:
                                                 match = re.search(r'company:(\d+)', entity_urn)
                                                 if match:
                                                     company_id = match.group(1)
-                                                    company['company_id'] = company_id
-                                                    self.print_success(f"  Found company ID: {company_id}")
+                                                    if universal_name:
+                                                        all_company_ids[universal_name] = company_id
 
-                                            if not company_id:
-                                                raw_text = json.dumps(lookup_data)
-                                                match = re.search(r'"companyId":\s*(\d+)', raw_text)
+                                            if name and entity_urn:
+                                                company_map[entity_urn] = {
+                                                    'name': name,
+                                                    'slug': universal_name,
+                                                    'url': f"https://www.linkedin.com/company/{universal_name}" if universal_name else '',
+                                                    'entity_urn': entity_urn,
+                                                    'company_id': company_id
+                                                }
+
+                                    # Second pass: extract from search results
+                                    for item in included:
+                                        title = item.get('title', {})
+                                        if isinstance(title, dict):
+                                            text = title.get('text', '')
+                                            if text and len(text) > 2 and len(text) < 100:
+                                                navigation = item.get('navigationUrl', '') or ''
+                                                if '/company/' in navigation:
+                                                    slug = navigation.split('/company/')[-1].split('/')[0].split('?')[0]
+
+                                                    # Look up company_id from our collected data
+                                                    company_id = all_company_ids.get(slug, '')
+
+                                                    # Also check company_map by slug
+                                                    if not company_id:
+                                                        for urn, comp in company_map.items():
+                                                            if comp.get('slug') == slug and comp.get('company_id'):
+                                                                company_id = comp['company_id']
+                                                                break
+
+                                                    if not any(c['slug'] == slug for c in page_companies):
+                                                        page_companies.append({
+                                                            'name': text,
+                                                            'slug': slug,
+                                                            'url': f"https://www.linkedin.com/company/{slug}",
+                                                            'company_id': company_id
+                                                        })
+
+                                        tracking = item.get('trackingUrn', '')
+                                        if 'company:' in tracking:
+                                            match = re.search(r'company:(\d+)', tracking)
+                                            if match:
+                                                company_id = match.group(1)
+                                                for urn, comp in company_map.items():
+                                                    if comp.get('company_id') == company_id and not any(c['slug'] == comp['slug'] for c in page_companies):
+                                                        page_companies.append(comp)
+
+                                    for urn, comp in company_map.items():
+                                        if not any(c['slug'] == comp['slug'] for c in page_companies) and comp['slug']:
+                                            page_companies.append(comp)
+
+                                    if not page_companies:
+                                        slug_matches = re.findall(r'"universalName":\s*"([^"]+)"', raw_text)
+                                        name_matches = re.findall(r'"name":\s*"([^"]{3,60})"', raw_text)
+
+                                        for i, slug in enumerate(slug_matches):
+                                            if slug and not any(c['slug'] == slug for c in page_companies):
+                                                name = name_matches[i] if i < len(name_matches) else slug
+                                                company_id = all_company_ids.get(slug, '')
+                                                page_companies.append({
+                                                    'name': name,
+                                                    'slug': slug,
+                                                    'url': f"https://www.linkedin.com/company/{slug}",
+                                                    'company_id': company_id
+                                                })
+
+                                    new_count = 0
+                                    for comp in page_companies:
+                                        if not any(c['slug'] == comp['slug'] and c['name'] == comp['name'] for c in all_companies):
+                                            all_companies.append(comp)
+                                            new_count += 1
+
+                                    self.print_info(f"  Page {start // page_size + 1}: Found {new_count} new companies (API calls: {api_call_count})")
+
+                                    if new_count == 0:
+                                        break
+
+                                    start += page_size
+
+                                    # Checkpoint after each page
+                                    self.checkpoint('linkedin_enumeration', 'company_search_start', start)
+                                    self.checkpoint('linkedin_enumeration', 'company_info', {'companies': all_companies})
+
+                                    # Per-page delay with jitter
+                                    delay = random.uniform(profile['page_min'], profile['page_max'])
+
+                                    # Occasional long pause
+                                    if profile['long_pause_prob'] > 0 and random.random() < profile['long_pause_prob']:
+                                        long_pause = random.uniform(profile['long_pause_min'], profile['long_pause_max'])
+                                        self.print_info(f"  (Long read pause: {long_pause:.0f}s)")
+                                        time.sleep(long_pause)
+                                    else:
+                                        time.sleep(delay)
+
+                                except Exception as e:
+                                    self.print_error(f"Error fetching companies: {e}")
+                                    break
+
+                            # Mark company search as complete if not rate-limited
+                            if not rate_limit_triggered:
+                                self.checkpoint('linkedin_enumeration', 'company_search_complete', True)
+
+                                # Filter to only companies containing the target name
+                                target_lower = search_term.lower()
+                                unfiltered_count = len(all_companies)
+                                all_companies = [c for c in all_companies if target_lower in c['name'].lower()]
+
+                                if len(all_companies) < unfiltered_count:
+                                    self.print_info(f"Filtered {unfiltered_count} companies to {len(all_companies)} matching '{search_term}'")
+
+                                self.checkpoint('linkedin_enumeration', 'company_info', {'companies': all_companies})
+
+                        # Bail early if rate limited
+                        if rate_limit_triggered:
+                            self._linkedin_finalize(linkedin_intel, all_companies, api_call_count, rate_limit_reason)
+                            return
+
+                        if all_companies:
+                            self.print_success(f"Found {len(all_companies)} total companies:")
+                            for company in all_companies:
+                                self.print_info(f"  - {company['name']}")
+                                if company.get('url'):
+                                    self.print_info(f"    {company['url']}")
+
+                            # Company selection if more than one found and not resuming with selection
+                            selected_companies = progress.get('selected_companies')
+
+                            if selected_companies is None and len(all_companies) > 1:
+                                print("\n" + "="*80)
+                                print("COMPANY SELECTION")
+                                print("="*80)
+                                print("Multiple companies found. Select target companies:")
+                                print("  [a] All companies")
+                                print("  [#] Single company by number")
+                                print("  [#,#,#] Multiple companies by numbers (comma-separated)")
+                                print()
+
+                                for idx, company in enumerate(all_companies, 1):
+                                    print(f"  [{idx}] {company['name']}")
+                                    if company.get('url'):
+                                        print(f"      {company['url']}")
+
+                                print()
+                                selection = input("Enter selection (or press Enter for all): ").strip().lower()
+
+                                if selection == '' or selection == 'a':
+                                    selected_companies = all_companies
+                                    self.print_info("Using all companies")
+                                else:
+                                    try:
+                                        indices = [int(x.strip()) for x in selection.split(',')]
+                                        selected_companies = [all_companies[i-1] for i in indices if 0 < i <= len(all_companies)]
+                                        if not selected_companies:
+                                            self.print_warning("Invalid selection, using all companies")
+                                            selected_companies = all_companies
+                                        else:
+                                            self.print_success(f"Selected {len(selected_companies)} company/companies:")
+                                            for comp in selected_companies:
+                                                self.print_info(f"  - {comp['name']}")
+                                    except (ValueError, IndexError):
+                                        self.print_warning("Invalid selection, using all companies")
+                                        selected_companies = all_companies
+
+                                # Save selection to checkpoint
+                                self.checkpoint('linkedin_enumeration', 'selected_companies', selected_companies)
+                                print("="*80)
+                            elif selected_companies is None:
+                                selected_companies = all_companies
+
+                            all_companies = selected_companies
+                            linkedin_intel['company_info'] = {'companies': all_companies}
+                        else:
+                            self.print_warning("No companies found")
+
+                        # Brief pause before employee search starts (simulates "now searching for people")
+                        time.sleep(random.uniform(3, 6))
+
+                        # =====================================================================
+                        # SEARCH 2: Find people at each selected company (using company ID filter)
+                        # =====================================================================
+                        all_employees = linkedin_intel.get('employees', [])
+                        searched_companies = set(progress.get('searched_companies', []))
+
+                        companies_to_search = all_companies if all_companies else []
+
+                        if not companies_to_search:
+                            self.print_warning("No companies to search for employees")
+                            self._linkedin_finalize(linkedin_intel, all_companies, api_call_count, '')
+                            return
+
+                        for company_idx, company in enumerate(companies_to_search, 1):
+                            # Check session cap before each company
+                            if api_call_count >= profile['session_cap']:
+                                rate_limit_triggered = True
+                                rate_limit_reason = f"Session cap reached ({profile['session_cap']} API calls)"
+                                break
+
+                            company_name = company['name']
+                            company_id = company.get('company_id', '')
+                            company_slug = company.get('slug', '')
+
+                            if company_name in searched_companies:
+                                self.print_info(f"Skipping {company_name} (already searched)")
+                                continue
+
+                            self.print_info(f"\n[2/2] Searching for employees at: {company_name} ({company_idx}/{len(companies_to_search)})")
+
+                            # If no company_id, look it up via company page
+                            if not company_id and company_slug:
+                                self.print_info(f"  Looking up company ID for {company_slug}...")
+                                try:
+                                    company_lookup_url = f"https://www.linkedin.com/voyager/api/organization/companies?decorationId=com.linkedin.voyager.deco.organization.web.WebFullCompanyMain-21&q=universalName&universalName={company_slug}"
+                                    lookup_response = linkedin_session.get(company_lookup_url, headers=api_headers, timeout=15)
+                                    api_call_count += 1
+
+                                    if lookup_response.status_code in [429, 999, 401, 403]:
+                                        rate_limit_triggered = True
+                                        rate_limit_reason = f"HTTP {lookup_response.status_code} during company lookup"
+                                        break
+
+                                    if lookup_response.status_code == 200:
+                                        lookup_data = lookup_response.json()
+                                        elements = lookup_data.get('elements', [])
+                                        if elements:
+                                            entity_urn = elements[0].get('entityUrn', '')
+                                            match = re.search(r'company:(\d+)', entity_urn)
+                                            if match:
+                                                company_id = match.group(1)
+                                                company['company_id'] = company_id
+                                                self.print_success(f"  Found company ID: {company_id}")
+
+                                        if not company_id:
+                                            raw_text = json.dumps(lookup_data)
+                                            match = re.search(r'"companyId":\s*(\d+)', raw_text)
+                                            if match:
+                                                company_id = match.group(1)
+                                                company['company_id'] = company_id
+                                                self.print_success(f"  Found company ID: {company_id}")
+                                            else:
+                                                match = re.search(r'urn:li:(?:fsd_)?company:(\d+)', raw_text)
                                                 if match:
                                                     company_id = match.group(1)
                                                     company['company_id'] = company_id
                                                     self.print_success(f"  Found company ID: {company_id}")
-                                                else:
-                                                    match = re.search(r'urn:li:(?:fsd_)?company:(\d+)', raw_text)
-                                                    if match:
-                                                        company_id = match.group(1)
-                                                        company['company_id'] = company_id
-                                                        self.print_success(f"  Found company ID: {company_id}")
 
-                                        time.sleep(random.uniform(2, 4))
-                                    except Exception as e:
-                                        self.print_warning(f"  Company lookup failed: {e}")
+                                    time.sleep(random.uniform(2, 4))
+                                except Exception as e:
+                                    self.print_warning(f"  Company lookup failed: {e}")
 
-                                if company_id:
-                                    self.print_info(f"  Using company ID filter: {company_id}")
-                                else:
-                                    self.print_error(f"  Could not find company ID - skipping (keyword search is too inaccurate)")
-                                    searched_companies.add(company_name)
-                                    continue
-
-                                start = 0
-                                company_employees = []
-                                max_per_company = max_employee_results // len(companies_to_search) if len(companies_to_search) > 1 else max_employee_results
-
-                                while start < max_per_company:
-                                    # Check session cap
-                                    if api_call_count >= profile['session_cap']:
-                                        rate_limit_triggered = True
-                                        rate_limit_reason = f"Session cap reached ({profile['session_cap']} API calls)"
-                                        break
-
-                                    # Check shutdown signal
-                                    if getattr(self, '_shutdown_in_progress', False):
-                                        break
-
-                                    people_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(flagshipSearchIntent:SEARCH_SRP,queryParameters:(currentCompany:List({company_id}),resultType:List(PEOPLE)),includeFiltersInResponse:false)&start={start}"
-
-                                    try:
-                                        response = linkedin_session.get(people_search_url, headers=api_headers, timeout=15)
-                                        api_call_count += 1
-
-                                        # Rate-limit detection
-                                        if response.status_code == 429:
-                                            rate_limit_triggered = True
-                                            rate_limit_reason = "HTTP 429 (Too Many Requests)"
-                                            break
-                                        if response.status_code == 999:
-                                            rate_limit_triggered = True
-                                            rate_limit_reason = "HTTP 999 (LinkedIn anti-bot)"
-                                            break
-                                        if response.status_code in [401, 403]:
-                                            rate_limit_triggered = True
-                                            rate_limit_reason = f"HTTP {response.status_code} (auth invalidated)"
-                                            break
-
-                                        # Detect challenge/login redirect pages
-                                        if 'challenge' in response.url.lower() or 'authwall' in response.url.lower() or 'login' in response.url.lower():
-                                            rate_limit_triggered = True
-                                            rate_limit_reason = f"Redirected to {response.url}"
-                                            break
-
-                                        if response.status_code != 200:
-                                            self.print_warning(f"API returned status {response.status_code}")
-                                            break
-
-                                        data = response.json()
-                                        included = data.get('included', [])
-
-                                        if not included:
-                                            if last_results_were_empty and len(company_employees) > 0:
-                                                rate_limit_triggered = True
-                                                rate_limit_reason = "Consecutive empty results after prior data"
-                                            break
-
-                                        last_results_were_empty = False
-                                        page_employees = []
-
-                                        # First pass: build map of profiles
-                                        profile_map = {}
-                                        for item in included:
-                                            item_type = item.get('$type', '')
-                                            entity_urn = item.get('entityUrn', '')
-
-                                            if 'Profile' in item_type or 'Member' in item_type or 'MiniProfile' in item_type:
-                                                first_name = item.get('firstName', '')
-                                                last_name = item.get('lastName', '')
-                                                headline = item.get('headline', '') or item.get('occupation', '')
-                                                public_id = item.get('publicIdentifier', '')
-
-                                                if first_name and last_name:
-                                                    profile_map[entity_urn] = {
-                                                        'name': f"{first_name} {last_name}",
-                                                        'first_name': first_name,
-                                                        'last_name': last_name,
-                                                        'title': headline or 'Unknown',
-                                                        'profile_url': f"https://www.linkedin.com/in/{public_id}" if public_id else '',
-                                                        'public_id': public_id,
-                                                        'company': company_name
-                                                    }
-
-                                        # Second pass: extract from search results
-                                        for item in included:
-                                            title = item.get('title', {})
-                                            if isinstance(title, dict):
-                                                text = title.get('text', '')
-                                                if text and ' ' in text and len(text) > 4 and len(text) < 60:
-                                                    navigation = item.get('navigationUrl', '') or ''
-                                                    if '/in/' in navigation:
-                                                        public_id = navigation.split('/in/')[-1].split('/')[0].split('?')[0]
-
-                                                        headline = ''
-                                                        primary_subtitle = item.get('primarySubtitle', {})
-                                                        if isinstance(primary_subtitle, dict):
-                                                            headline = primary_subtitle.get('text', '')
-
-                                                        parts = text.split()
-                                                        if len(parts) >= 2:
-                                                            emp = {
-                                                                'name': text,
-                                                                'first_name': parts[0],
-                                                                'last_name': ' '.join(parts[1:]),
-                                                                'title': headline or 'Unknown',
-                                                                'profile_url': f"https://www.linkedin.com/in/{public_id}",
-                                                                'public_id': public_id,
-                                                                'company': company_name
-                                                            }
-                                                            if not any(e['public_id'] == public_id for e in page_employees if e.get('public_id')):
-                                                                page_employees.append(emp)
-
-                                        # Add from profile map
-                                        for urn, profile_data in profile_map.items():
-                                            if profile_data['public_id'] and not any(e.get('public_id') == profile_data['public_id'] for e in page_employees):
-                                                page_employees.append(profile_data)
-
-                                        # Regex fallback
-                                        if not page_employees:
-                                            text = json.dumps(data)
-                                            name_matches = re.findall(r'"firstName":\s*"([^"]+)"[^}]*"lastName":\s*"([^"]+)"', text)
-                                            public_id_matches = re.findall(r'"publicIdentifier":\s*"([^"]+)"', text)
-                                            headline_matches = re.findall(r'"headline":\s*"([^"]+)"', text)
-
-                                            for i, (first, last) in enumerate(name_matches):
-                                                public_id = public_id_matches[i] if i < len(public_id_matches) else ''
-                                                headline = headline_matches[i] if i < len(headline_matches) else 'Unknown'
-
-                                                if public_id and not any(e.get('public_id') == public_id for e in page_employees):
-                                                    page_employees.append({
-                                                        'name': f"{first} {last}",
-                                                        'first_name': first,
-                                                        'last_name': last,
-                                                        'title': headline,
-                                                        'profile_url': f"https://www.linkedin.com/in/{public_id}" if public_id else '',
-                                                        'public_id': public_id,
-                                                        'company': company_name
-                                                    })
-
-                                        new_count = 0
-                                        for emp in page_employees:
-                                            if not any(e.get('public_id') == emp.get('public_id') for e in company_employees if emp.get('public_id')):
-                                                company_employees.append(emp)
-                                                new_count += 1
-
-                                        self.print_info(f"  Page {start // page_size + 1}: Found {new_count} new employees (total: {len(company_employees)}, API calls: {api_call_count})")
-
-                                        if new_count == 0:
-                                            break
-
-                                        start += page_size
-
-                                        # Per-page delay with jitter
-                                        delay = random.uniform(profile['page_min'], profile['page_max'])
-
-                                        # Occasional long pause
-                                        if profile['long_pause_prob'] > 0 and random.random() < profile['long_pause_prob']:
-                                            long_pause = random.uniform(profile['long_pause_min'], profile['long_pause_max'])
-                                            self.print_info(f"  (Long read pause: {long_pause:.0f}s)")
-                                            time.sleep(long_pause)
-                                        else:
-                                            time.sleep(delay)
-
-                                    except Exception as e:
-                                        self.print_error(f"Error fetching people: {e}")
-                                        break
-
-                                # Add company employees to all_employees (avoid duplicates by public_id)
-                                for emp in company_employees:
-                                    if not any(e.get('public_id') == emp.get('public_id') for e in all_employees if emp.get('public_id')):
-                                        all_employees.append(emp)
-
-                                # Mark company as searched and checkpoint
+                            if company_id:
+                                self.print_info(f"  Using company ID filter: {company_id}")
+                            else:
+                                self.print_error(f"  Could not find company ID - skipping (keyword search is too inaccurate)")
                                 searched_companies.add(company_name)
-                                self.checkpoint('linkedin_enumeration', 'searched_companies', list(searched_companies))
-                                self.checkpoint('linkedin_enumeration', 'employees', all_employees)
+                                continue
 
-                                # Bail early if rate limited
-                                if rate_limit_triggered:
+                            start = 0
+                            company_employees = []
+                            max_per_company = max_employee_results // len(companies_to_search) if len(companies_to_search) > 1 else max_employee_results
+
+                            while start < max_per_company:
+                                # Check session cap
+                                if api_call_count >= profile['session_cap']:
+                                    rate_limit_triggered = True
+                                    rate_limit_reason = f"Session cap reached ({profile['session_cap']} API calls)"
                                     break
 
-                                # Between-company break (only if more companies remain)
-                                if company_idx < len(companies_to_search):
-                                    company_break = random.uniform(profile['company_break_min'], profile['company_break_max'])
-                                    self.print_info(f"  (Pausing {company_break:.0f}s before next company)")
-                                    time.sleep(company_break)
+                                people_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(flagshipSearchIntent:SEARCH_SRP,queryParameters:(currentCompany:List({company_id}),resultType:List(PEOPLE)),includeFiltersInResponse:false)&start={start}"
 
-                            self.print_success(f"Found {len(all_employees)} total employees")
+                                try:
+                                    response = linkedin_session.get(people_search_url, headers=api_headers, timeout=15)
+                                    api_call_count += 1
 
-                            # =====================================================================
-                            # Process and store results
-                            # =====================================================================
-                            if all_employees:
-                                for emp in all_employees:
-                                    if emp not in linkedin_intel['employees']:
-                                        linkedin_intel['employees'].append(emp)
+                                    # Rate-limit detection
+                                    if response.status_code == 429:
+                                        rate_limit_triggered = True
+                                        rate_limit_reason = "HTTP 429 (Too Many Requests)"
+                                        break
+                                    if response.status_code == 999:
+                                        rate_limit_triggered = True
+                                        rate_limit_reason = "HTTP 999 (LinkedIn anti-bot)"
+                                        break
+                                    if response.status_code in [401, 403]:
+                                        rate_limit_triggered = True
+                                        rate_limit_reason = f"HTTP {response.status_code} (auth invalidated)"
+                                        break
 
-                                self.print_info("\nEmployees found:")
-                                for emp in linkedin_intel['employees']:
-                                    title_info = f" - {emp['title']}" if emp.get('title') and emp['title'] != 'Unknown' else ""
-                                    self.print_success(f"  {emp['name']}{title_info}")
-                                    if emp.get('profile_url'):
-                                        self.print_info(f"    {emp['profile_url']}")
-                            else:
-                                self.print_warning("No employees found")
+                                    # Detect challenge/login redirect pages
+                                    if 'challenge' in response.url.lower() or 'authwall' in response.url.lower() or 'login' in response.url.lower():
+                                        rate_limit_triggered = True
+                                        rate_limit_reason = f"Redirected to {response.url}"
+                                        break
 
-                            # Store results
-                            linkedin_intel['employees'] = all_employees
-                            self.results['linkedin_intel'] = linkedin_intel
+                                    if response.status_code != 200:
+                                        self.print_warning(f"API returned status {response.status_code}")
+                                        break
 
-                            # Finalize with summary
-                            self._linkedin_finalize(linkedin_intel, all_companies, api_call_count, rate_limit_reason if rate_limit_triggered else '')
+                                    data = response.json()
+                                    included = data.get('included', [])
+
+                                    if not included:
+                                        if last_results_were_empty and len(company_employees) > 0:
+                                            rate_limit_triggered = True
+                                            rate_limit_reason = "Consecutive empty results after prior data"
+                                        break
+
+                                    last_results_were_empty = False
+                                    page_employees = []
+
+                                    # First pass: build map of profiles
+                                    profile_map = {}
+                                    for item in included:
+                                        item_type = item.get('$type', '')
+                                        entity_urn = item.get('entityUrn', '')
+
+                                        if 'Profile' in item_type or 'Member' in item_type or 'MiniProfile' in item_type:
+                                            first_name = item.get('firstName', '')
+                                            last_name = item.get('lastName', '')
+                                            headline = item.get('headline', '') or item.get('occupation', '')
+                                            public_id = item.get('publicIdentifier', '')
+
+                                            if first_name and last_name:
+                                                profile_map[entity_urn] = {
+                                                    'name': f"{first_name} {last_name}",
+                                                    'first_name': first_name,
+                                                    'last_name': last_name,
+                                                    'title': headline or 'Unknown',
+                                                    'profile_url': f"https://www.linkedin.com/in/{public_id}" if public_id else '',
+                                                    'public_id': public_id,
+                                                    'company': company_name
+                                                }
+
+                                    # Second pass: extract from search results
+                                    for item in included:
+                                        title = item.get('title', {})
+                                        if isinstance(title, dict):
+                                            text = title.get('text', '')
+                                            if text and ' ' in text and len(text) > 4 and len(text) < 60:
+                                                navigation = item.get('navigationUrl', '') or ''
+                                                if '/in/' in navigation:
+                                                    public_id = navigation.split('/in/')[-1].split('/')[0].split('?')[0]
+
+                                                    headline = ''
+                                                    primary_subtitle = item.get('primarySubtitle', {})
+                                                    if isinstance(primary_subtitle, dict):
+                                                        headline = primary_subtitle.get('text', '')
+
+                                                    parts = text.split()
+                                                    if len(parts) >= 2:
+                                                        emp = {
+                                                            'name': text,
+                                                            'first_name': parts[0],
+                                                            'last_name': ' '.join(parts[1:]),
+                                                            'title': headline or 'Unknown',
+                                                            'profile_url': f"https://www.linkedin.com/in/{public_id}",
+                                                            'public_id': public_id,
+                                                            'company': company_name
+                                                        }
+                                                        if not any(e['public_id'] == public_id for e in page_employees if e.get('public_id')):
+                                                            page_employees.append(emp)
+
+                                    # Add from profile map
+                                    for urn, profile_data in profile_map.items():
+                                        if profile_data['public_id'] and not any(e.get('public_id') == profile_data['public_id'] for e in page_employees):
+                                            page_employees.append(profile_data)
+
+                                    # Regex fallback
+                                    if not page_employees:
+                                        text = json.dumps(data)
+                                        name_matches = re.findall(r'"firstName":\s*"([^"]+)"[^}]*"lastName":\s*"([^"]+)"', text)
+                                        public_id_matches = re.findall(r'"publicIdentifier":\s*"([^"]+)"', text)
+                                        headline_matches = re.findall(r'"headline":\s*"([^"]+)"', text)
+
+                                        for i, (first, last) in enumerate(name_matches):
+                                            public_id = public_id_matches[i] if i < len(public_id_matches) else ''
+                                            headline = headline_matches[i] if i < len(headline_matches) else 'Unknown'
+
+                                            if public_id and not any(e.get('public_id') == public_id for e in page_employees):
+                                                page_employees.append({
+                                                    'name': f"{first} {last}",
+                                                    'first_name': first,
+                                                    'last_name': last,
+                                                    'title': headline,
+                                                    'profile_url': f"https://www.linkedin.com/in/{public_id}" if public_id else '',
+                                                    'public_id': public_id,
+                                                    'company': company_name
+                                                })
+
+                                    new_count = 0
+                                    for emp in page_employees:
+                                        if not any(e.get('public_id') == emp.get('public_id') for e in company_employees if emp.get('public_id')):
+                                            company_employees.append(emp)
+                                            new_count += 1
+
+                                    self.print_info(f"  Page {start // page_size + 1}: Found {new_count} new employees (total: {len(company_employees)}, API calls: {api_call_count})")
+
+                                    if new_count == 0:
+                                        break
+
+                                    start += page_size
+
+                                    # Per-page delay with jitter
+                                    delay = random.uniform(profile['page_min'], profile['page_max'])
+
+                                    # Occasional long pause
+                                    if profile['long_pause_prob'] > 0 and random.random() < profile['long_pause_prob']:
+                                        long_pause = random.uniform(profile['long_pause_min'], profile['long_pause_max'])
+                                        self.print_info(f"  (Long read pause: {long_pause:.0f}s)")
+                                        time.sleep(long_pause)
+                                    else:
+                                        time.sleep(delay)
+
+                                except Exception as e:
+                                    self.print_error(f"Error fetching people: {e}")
+                                    break
+
+                            # Add company employees to all_employees (avoid duplicates by public_id)
+                            for emp in company_employees:
+                                if not any(e.get('public_id') == emp.get('public_id') for e in all_employees if emp.get('public_id')):
+                                    all_employees.append(emp)
+
+                            # Mark company as searched and checkpoint
+                            searched_companies.add(company_name)
+                            self.checkpoint('linkedin_enumeration', 'searched_companies', list(searched_companies))
+                            self.checkpoint('linkedin_enumeration', 'employees', all_employees)
+
+                            # Bail early if rate limited
+                            if rate_limit_triggered:
+                                break
+
+                            # Between-company break (only if more companies remain)
+                            if company_idx < len(companies_to_search):
+                                company_break = random.uniform(profile['company_break_min'], profile['company_break_max'])
+                                self.print_info(f"  (Pausing {company_break:.0f}s before next company)")
+                                time.sleep(company_break)
+
+                        self.print_success(f"Found {len(all_employees)} total employees")
+
+                        # =====================================================================
+                        # Process and store results
+                        # =====================================================================
+                        if all_employees:
+                            for emp in all_employees:
+                                if emp not in linkedin_intel['employees']:
+                                    linkedin_intel['employees'].append(emp)
+
+                            self.print_info("\nEmployees found:")
+                            for emp in linkedin_intel['employees']:
+                                title_info = f" - {emp['title']}" if emp.get('title') and emp['title'] != 'Unknown' else ""
+                                self.print_success(f"  {emp['name']}{title_info}")
+                                if emp.get('profile_url'):
+                                    self.print_info(f"    {emp['profile_url']}")
+                        else:
+                            self.print_warning("No employees found")
+
+                        # Store results
+                        linkedin_intel['employees'] = all_employees
+                        self.results['linkedin_intel'] = linkedin_intel
+
+                        # Finalize with summary
+                        self._linkedin_finalize(linkedin_intel, all_companies, api_call_count, rate_limit_reason if rate_limit_triggered else '')
 
     def _linkedin_finalize(self, linkedin_intel, all_companies, api_call_count, rate_limit_reason):
             """Finalize LinkedIn enumeration with summary and rate-limit handling"""
@@ -3908,7 +3896,7 @@ class ReconAutomation:
             # Return None only if absolutely nothing found
             return tech_info if (tech_info['headers'] or tech_info.get('detected_technologies') or tech_info.get('vpn_appliance') or tech_info['services_by_port']) else None
 
-        def email_harvesting(self):
+    def email_harvesting(self):
                 """Harvest email addresses from multiple public sources"""
                 self.print_section("EMAIL ADDRESS HARVESTING")
 
@@ -3998,7 +3986,7 @@ class ReconAutomation:
                 else:
                     self.print_warning(f"No emails found for target domain ({self.domain})")
 
-        def _google_dork_emails(self) -> List[str]:
+    def _google_dork_emails(self) -> List[str]:
                     """Search for emails using multiple search engines"""
                     emails = []
 
@@ -4128,7 +4116,7 @@ class ReconAutomation:
 
                     return filtered
 
-        def _search_pgp_servers(self) -> List[str]:
+    def _search_pgp_servers(self) -> List[str]:
             """Search PGP key servers for emails"""
             emails = []
             email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
@@ -4153,7 +4141,7 @@ class ReconAutomation:
 
             return list(set(emails))
 
-        def _detect_email_pattern(self, emails: List[str]) -> Optional[Dict[str, Any]]:
+    def _detect_email_pattern(self, emails: List[str]) -> Optional[Dict[str, Any]]:
             """Detect the email naming pattern from collected emails"""
             if not emails:
                 return None
@@ -4222,7 +4210,7 @@ class ReconAutomation:
                 'examples': examples[best_pattern[0]][:5]
             }
 
-        def _run_theharvester(self) -> List[str]:
+    def _run_theharvester(self) -> List[str]:
                 """Run theHarvester tool"""
                 emails = []
 
@@ -4278,7 +4266,7 @@ class ReconAutomation:
 
                 return list(set(emails))  # Return unique emails
 
-        def _locate_theharvester(self) -> Optional[str]:
+    def _locate_theharvester(self) -> Optional[str]:
                 """Locate theHarvester installation using system tools"""
                 # Try standard PATH lookup first
                 for cmd in ['theHarvester.py', 'theHarvester', 'theharvester']:
@@ -4324,7 +4312,7 @@ class ReconAutomation:
 
                 return None
 
-        def _find_theharvester_with_find(self) -> Optional[str]:
+    def _find_theharvester_with_find(self) -> Optional[str]:
             """Use find command to locate theHarvester (slow fallback method)"""
             self.print_info("Searching for theHarvester with find command (may be slow)...")
             try:
@@ -4345,7 +4333,7 @@ class ReconAutomation:
 
             return None
 
-        def _scrape_emails_from_web(self) -> List[str]:
+    def _scrape_emails_from_web(self) -> List[str]:
                     """Crawl company website to discover email addresses with prioritized targeting and early termination"""
                     emails = set()
 
@@ -4554,7 +4542,7 @@ class ReconAutomation:
 
                     return list(emails)
 
-        def _is_real_secret(self, secret_type: str, matches: list, content: str) -> bool:
+    def _is_real_secret(self, secret_type: str, matches: list, content: str) -> bool:
                 """Determine if detected pattern is likely a real secret vs false positive"""
 
                 # These patterns are high-confidence and rarely false positives
@@ -4628,7 +4616,7 @@ class ReconAutomation:
 
                 return True
 
-        def s3_bucket_enumeration(self):
+    def s3_bucket_enumeration(self):
                 """Perform S3 bucket enumeration with checkpoint support"""
                 self.print_section("S3 BUCKET ENUMERATION")
 
@@ -4768,7 +4756,7 @@ class ReconAutomation:
                 else:
                     self.print_success("No S3 buckets found")
 
-        def _check_s3_bucket(self, bucket_name: str) -> Optional[Dict[str, Any]]:
+    def _check_s3_bucket(self, bucket_name: str) -> Optional[Dict[str, Any]]:
             """Check if S3 bucket exists"""
             urls_to_try = [
                 f"https://s3.amazonaws.com/{bucket_name}/",
@@ -4806,7 +4794,7 @@ class ReconAutomation:
 
             return None
 
-        def _analyze_s3_bucket_contents(self, bucket_info: Dict[str, Any]):
+    def _analyze_s3_bucket_contents(self, bucket_info: Dict[str, Any]):
                 """Analyze S3 bucket contents and download sensitive files only"""
                 bucket_name = bucket_info.get('bucket', 'unknown')
                 bucket_url = bucket_info.get('url', '')
@@ -4995,7 +4983,7 @@ class ReconAutomation:
                     import traceback
                     traceback.print_exc()
 
-        def azure_storage_enumeration(self):
+    def azure_storage_enumeration(self):
                 """Enumerate Azure Blob Storage containers with checkpoint support"""
                 self.print_section("AZURE STORAGE ENUMERATION")
 
@@ -5135,7 +5123,7 @@ class ReconAutomation:
                             import traceback
                             traceback.print_exc()
 
-        def _check_azure_storage(self, account_name: str) -> Optional[Dict[str, Any]]:
+    def _check_azure_storage(self, account_name: str) -> Optional[Dict[str, Any]]:
             """Check if Azure storage account exists"""
             # Try different container names
             container_names = ['$web', 'public', 'files', 'assets', 'data', 'backup', 'images']
@@ -5174,7 +5162,7 @@ class ReconAutomation:
 
             return None
 
-        def _analyze_azure_storage_contents(self, storage_info: Dict[str, Any]):
+    def _analyze_azure_storage_contents(self, storage_info: Dict[str, Any]):
                 """Analyze Azure storage container contents"""
                 account_name = storage_info.get('account', 'unknown')
                 container = storage_info.get('container', 'unknown')
@@ -5281,7 +5269,7 @@ class ReconAutomation:
                     import traceback
                     traceback.print_exc()
 
-        def gcp_storage_enumeration(self):
+    def gcp_storage_enumeration(self):
                 """Enumerate Google Cloud Platform (GCP) Storage buckets with checkpoint support"""
                 self.print_section("GCP STORAGE ENUMERATION")
 
@@ -5427,7 +5415,7 @@ class ReconAutomation:
                             import traceback
                             traceback.print_exc()
 
-        def _check_gcp_bucket(self, bucket_name: str) -> Optional[Dict[str, Any]]:
+    def _check_gcp_bucket(self, bucket_name: str) -> Optional[Dict[str, Any]]:
                 """Check if GCP storage bucket exists"""
                 urls_to_try = [
                     f"https://storage.googleapis.com/{bucket_name}/",
@@ -5496,7 +5484,7 @@ class ReconAutomation:
 
                 return None
 
-        def _analyze_gcp_bucket_contents(self, bucket_info: Dict[str, Any]):
+    def _analyze_gcp_bucket_contents(self, bucket_info: Dict[str, Any]):
                 """Analyze GCP storage bucket contents"""
                 bucket_name = bucket_info.get('bucket', 'unknown')
                 bucket_url = bucket_info.get('url', '')
@@ -5638,7 +5626,7 @@ class ReconAutomation:
                     import traceback
                     traceback.print_exc()
 
-        def breach_database_check(self):
+    def breach_database_check(self):
                 """Check for compromised credentials in breach databases"""
                 self.print_section("BREACH DATABASE CHECK")
 
@@ -5676,7 +5664,7 @@ class ReconAutomation:
                 else:
                     self.print_success("No compromised credentials found in breach databases")
 
-        def _check_hibp(self, email: str) -> List[str]:
+    def _check_hibp(self, email: str) -> List[str]:
                     """Check email against Have I Been Pwned API"""
                     breaches = []
 
@@ -5713,7 +5701,7 @@ class ReconAutomation:
 
                     return breaches
 
-        def network_enumeration(self):
+    def network_enumeration(self):
                 """Perform network scanning on in-scope IP ranges"""
                 self.print_section("NETWORK ENUMERATION")
 
@@ -5745,7 +5733,7 @@ class ReconAutomation:
 
                 self.print_success(f"Network scan complete. {len(scan_results)} hosts with open ports")
 
-        def _host_discovery(self, ip_range: str) -> List[str]:
+    def _host_discovery(self, ip_range: str) -> List[str]:
             """Discover live hosts in IP range"""
             live_hosts = []
 
@@ -5772,7 +5760,7 @@ class ReconAutomation:
 
             return live_hosts
 
-        def _port_scan(self, host: str) -> Dict[int, Dict[str, str]]:
+    def _port_scan(self, host: str) -> Dict[int, Dict[str, str]]:
             """Scan ports on a host"""
             ports = {}
 
@@ -5809,7 +5797,7 @@ class ReconAutomation:
 
             return ports
 
-        def generate_report(self):
+    def generate_report(self):
             """Generate comprehensive report"""
             self.print_section("GENERATING REPORT")
 
@@ -5829,7 +5817,7 @@ class ReconAutomation:
             self._generate_report_template(template_file)
             self.print_success(f"Report template saved to: {template_file}")
 
-        def _generate_markdown_report(self, filepath: Path):
+    def _generate_markdown_report(self, filepath: Path):
                         """Generate markdown format report"""
                         with open(filepath, 'w') as f:
                             f.write(f"# Penetration Testing Reconnaissance Report\n\n")
@@ -6341,574 +6329,574 @@ class ReconAutomation:
                             else:
                                 f.write(f"No GCP storage buckets found.\n\n")
 
-                def run_all(self):
-                            """Run all reconnaissance modules with state tracking"""
-                            self.print_banner()
+    def run_all(self):
+                """Run all reconnaissance modules with state tracking"""
+                self.print_banner()
 
-                            # Prompt for API keys at startup (only if not resuming with keys already set)
-                            if not self.state['session'].get('api_keys_prompted'):
-                                self.prompt_for_api_keys()
-                                self.state['session']['api_keys_prompted'] = True
-                                self.save_state()
+                # Prompt for API keys at startup (only if not resuming with keys already set)
+                if not self.state['session'].get('api_keys_prompted'):
+                    self.prompt_for_api_keys()
+                    self.state['session']['api_keys_prompted'] = True
+                    self.save_state()
 
+                try:
+                    # Phase 1: Basic reconnaissance
+                    if self.should_run_module('scope_validation'):
+                        self.mark_module_status('scope_validation', 'in_progress')
+                        try:
+                            self.scope_validation()
+                            self.mark_module_status('scope_validation', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('scope_validation', 'failed', str(e))
+                            self.print_error(f"scope_validation failed: {e}")
+
+                    if self.should_run_module('m365_tenant'):
+                        if not self.args.skip_m365:
+                            self.mark_module_status('m365_tenant', 'in_progress')
                             try:
-                                # Phase 1: Basic reconnaissance
-                                if self.should_run_module('scope_validation'):
-                                    self.mark_module_status('scope_validation', 'in_progress')
-                                    try:
-                                        self.scope_validation()
-                                        self.mark_module_status('scope_validation', 'complete')
-                                    except Exception as e:
-                                        self.mark_module_status('scope_validation', 'failed', str(e))
-                                        self.print_error(f"scope_validation failed: {e}")
-
-                                if self.should_run_module('m365_tenant'):
-                                    if not self.args.skip_m365:
-                                        self.mark_module_status('m365_tenant', 'in_progress')
-                                        try:
-                                            self.m365_tenant_attribution()
-                                            self.mark_module_status('m365_tenant', 'complete')
-                                        except Exception as e:
-                                            self.mark_module_status('m365_tenant', 'failed', str(e))
-                                            self.print_error(f"m365_tenant failed: {e}")
-                                    else:
-                                        self.mark_module_status('m365_tenant', 'skipped')
-
-                                if self.should_run_module('adfs'):
-                                    if not self.args.skip_adfs:
-                                        self.mark_module_status('adfs', 'in_progress')
-                                        try:
-                                            self.adfs_endpoint_discovery()
-                                            self.mark_module_status('adfs', 'complete')
-                                        except Exception as e:
-                                            self.mark_module_status('adfs', 'failed', str(e))
-                                            self.print_error(f"adfs failed: {e}")
-                                    else:
-                                        self.mark_module_status('adfs', 'skipped')
-
-                                if self.should_run_module('dns_enumeration'):
-                                    self.mark_module_status('dns_enumeration', 'in_progress')
-                                    try:
-                                        self.dns_enumeration()
-                                        self.mark_module_status('dns_enumeration', 'complete')
-                                    except Exception as e:
-                                        self.mark_module_status('dns_enumeration', 'failed', str(e))
-                                        self.print_error(f"dns_enumeration failed: {e}")
-
-                                # Phase 1.5: Post-DNS WHOIS lookup (when no IP ranges provided)
-                                if not self.ip_ranges and self.should_run_module('post_dns_whois'):
-                                    self.mark_module_status('post_dns_whois', 'in_progress')
-                                    try:
-                                        self.post_dns_whois_lookup()
-                                        self.mark_module_status('post_dns_whois', 'complete')
-                                    except Exception as e:
-                                        self.mark_module_status('post_dns_whois', 'failed', str(e))
-                                        self.print_error(f"post_dns_whois failed: {e}")
-
-                                if self.should_run_module('technology_stack'):
-                                    self.mark_module_status('technology_stack', 'in_progress')
-                                    try:
-                                        self.technology_stack_identification()
-                                        self.mark_module_status('technology_stack', 'complete')
-                                    except Exception as e:
-                                        self.mark_module_status('technology_stack', 'failed', str(e))
-                                        self.print_error(f"technology_stack failed: {e}")
-
-                                # Phase 2: OSINT and intelligence gathering
-                                # Email harvesting MUST run before LinkedIn to detect email format
-                                if self.should_run_module('email_harvesting'):
-                                    self.mark_module_status('email_harvesting', 'in_progress')
-                                    try:
-                                        self.email_harvesting()
-                                        self.mark_module_status('email_harvesting', 'complete')
-                                    except Exception as e:
-                                        self.mark_module_status('email_harvesting', 'failed', str(e))
-                                        self.print_error(f"email_harvesting failed: {e}")
-
-                                # LinkedIn enumeration runs after email harvesting
-                                if self.should_run_module('linkedin_enumeration'):
-                                    if self.config.get('linkedin_cookies'):
-                                        self.mark_module_status('linkedin_enumeration', 'in_progress')
-                                        try:
-                                            self.linkedin_enumeration()
-                                            self.mark_module_status('linkedin_enumeration', 'complete')
-                                        except Exception as e:
-                                            self.mark_module_status('linkedin_enumeration', 'failed', str(e))
-                                            self.print_error(f"linkedin_enumeration failed: {e}")
-                                    else:
-                                        self.print_info("Skipping LinkedIn enumeration (no cookies provided)")
-                                        self.mark_module_status('linkedin_enumeration', 'skipped')
-
-                                if self.should_run_module('breach_database_check'):
-                                    if not self.args.skip_breach_check:
-                                        self.mark_module_status('breach_database_check', 'in_progress')
-                                        try:
-                                            self.breach_database_check()
-                                            self.mark_module_status('breach_database_check', 'complete')
-                                        except Exception as e:
-                                            self.mark_module_status('breach_database_check', 'failed', str(e))
-                                            self.print_error(f"breach_database_check failed: {e}")
-                                    else:
-                                        self.mark_module_status('breach_database_check', 'skipped')
-
-                                # Phase 3: Advanced enumeration
-                                if self.should_run_module('github_secret_scanning'):
-                                    if not self.args.skip_github:
-                                        self.mark_module_status('github_secret_scanning', 'in_progress')
-                                        try:
-                                            self.github_secret_scanning()
-                                            self.mark_module_status('github_secret_scanning', 'complete')
-                                        except Exception as e:
-                                            self.mark_module_status('github_secret_scanning', 'failed', str(e))
-                                            self.print_error(f"github_secret_scanning failed: {e}")
-                                    else:
-                                        self.mark_module_status('github_secret_scanning', 'skipped')
-
-                                if self.should_run_module('asn_enumeration'):
-                                    if not self.args.skip_asn:
-                                        self.mark_module_status('asn_enumeration', 'in_progress')
-                                        try:
-                                            self.asn_enumeration()
-                                            self.mark_module_status('asn_enumeration', 'complete')
-                                        except Exception as e:
-                                            self.mark_module_status('asn_enumeration', 'failed', str(e))
-                                            self.print_error(f"asn_enumeration failed: {e}")
-                                    else:
-                                        self.mark_module_status('asn_enumeration', 'skipped')
-
-                                if self.should_run_module('subdomain_takeover_detection'):
-                                    if not self.args.skip_subdomain_takeover:
-                                        self.mark_module_status('subdomain_takeover_detection', 'in_progress')
-                                        try:
-                                            self.subdomain_takeover_detection()
-                                            self.mark_module_status('subdomain_takeover_detection', 'complete')
-                                        except Exception as e:
-                                            self.mark_module_status('subdomain_takeover_detection', 'failed', str(e))
-                                            self.print_error(f"subdomain_takeover_detection failed: {e}")
-                                    else:
-                                        self.mark_module_status('subdomain_takeover_detection', 'skipped')
-
-                                # Phase 4: Cloud storage enumeration
-                                if self.should_run_module('s3_bucket_enumeration'):
-                                    if not self.args.skip_s3:
-                                        self.mark_module_status('s3_bucket_enumeration', 'in_progress')
-                                        try:
-                                            self.s3_bucket_enumeration()
-                                            self.mark_module_status('s3_bucket_enumeration', 'complete')
-                                        except Exception as e:
-                                            self.mark_module_status('s3_bucket_enumeration', 'failed', str(e))
-                                            self.print_error(f"s3_bucket_enumeration failed: {e}")
-                                    else:
-                                        self.mark_module_status('s3_bucket_enumeration', 'skipped')
-
-                                if self.should_run_module('azure_storage_enumeration'):
-                                    if not self.args.skip_azure:
-                                        self.mark_module_status('azure_storage_enumeration', 'in_progress')
-                                        try:
-                                            self.azure_storage_enumeration()
-                                            self.mark_module_status('azure_storage_enumeration', 'complete')
-                                        except Exception as e:
-                                            self.mark_module_status('azure_storage_enumeration', 'failed', str(e))
-                                            self.print_error(f"azure_storage_enumeration failed: {e}")
-                                    else:
-                                        self.mark_module_status('azure_storage_enumeration', 'skipped')
-
-                                if self.should_run_module('gcp_storage_enumeration'):
-                                    if not self.args.skip_gcp:
-                                        self.mark_module_status('gcp_storage_enumeration', 'in_progress')
-                                        try:
-                                            self.gcp_storage_enumeration()
-                                            self.mark_module_status('gcp_storage_enumeration', 'complete')
-                                        except Exception as e:
-                                            self.mark_module_status('gcp_storage_enumeration', 'failed', str(e))
-                                            self.print_error(f"gcp_storage_enumeration failed: {e}")
-                                    else:
-                                        self.mark_module_status('gcp_storage_enumeration', 'skipped')
-
-                                # Phase 5: Network enumeration (if IP ranges provided)
-                                if self.should_run_module('network_enumeration'):
-                                    if self.ip_ranges and not self.args.skip_scan:
-                                        self.mark_module_status('network_enumeration', 'in_progress')
-                                        try:
-                                            self.network_enumeration()
-                                            self.mark_module_status('network_enumeration', 'complete')
-                                        except Exception as e:
-                                            self.mark_module_status('network_enumeration', 'failed', str(e))
-                                            self.print_error(f"network_enumeration failed: {e}")
-                                    else:
-                                        self.mark_module_status('network_enumeration', 'skipped')
-
-                                # Phase 6: Generate reports
-                                self.generate_report()
-
-                                # Mark session as complete
-                                self.state['session']['completed'] = True
-                                self.state['session']['completed_at'] = datetime.now().isoformat()
-                                self.save_state()
-
-                                self.print_section("RECONNAISSANCE COMPLETE")
-                                self.print_success(f"All results saved to: {self.output_dir}")
-
-                                # Show summary of module statuses
-                                self._print_final_summary()
-
-                            except KeyboardInterrupt:
-                                # Signal handler will take care of saving state
-                                pass
+                                self.m365_tenant_attribution()
+                                self.mark_module_status('m365_tenant', 'complete')
                             except Exception as e:
-                                self.print_error(f"Error during reconnaissance: {e}")
-                                import traceback
-                                traceback.print_exc()
-                                self.save_state()
-
-                def _print_final_summary(self):
-                    """Print summary of all module statuses"""
-                    print(f"\n{Colors.HEADER}Module Summary:{Colors.ENDC}")
-
-                    for module_name, module_state in self.state['modules'].items():
-                        status = module_state['status']
-                        display_name = module_name.replace('_', ' ').title()
-
-                        if status == 'complete':
-                            duration = ""
-                            if module_state.get('started_at') and module_state.get('completed_at'):
-                                try:
-                                    start = datetime.fromisoformat(module_state['started_at'])
-                                    end = datetime.fromisoformat(module_state['completed_at'])
-                                    secs = (end - start).total_seconds()
-                                    if secs >= 60:
-                                        duration = f" ({secs/60:.1f}m)"
-                                    else:
-                                        duration = f" ({secs:.0f}s)"
-                                except:
-                                    pass
-                            print(f"  {Colors.OKGREEN}✓{Colors.ENDC} {display_name}{duration}")
-                        elif status == 'skipped':
-                            print(f"  {Colors.OKCYAN}○{Colors.ENDC} {display_name} (skipped)")
-                        elif status == 'failed':
-                            error = module_state.get('error', 'Unknown error')
-                            print(f"  {Colors.FAIL}✗{Colors.ENDC} {display_name} - {error[:50]}")
-                        elif status == 'in_progress':
-                            print(f"  {Colors.WARNING}⋯{Colors.ENDC} {display_name} (incomplete)")
+                                self.mark_module_status('m365_tenant', 'failed', str(e))
+                                self.print_error(f"m365_tenant failed: {e}")
                         else:
-                            print(f"  {Colors.OKCYAN}○{Colors.ENDC} {display_name} (not run)")
+                            self.mark_module_status('m365_tenant', 'skipped')
 
-                # =========================================================================
-                # STATE MANAGEMENT METHODS
-                # =========================================================================
+                    if self.should_run_module('adfs'):
+                        if not self.args.skip_adfs:
+                            self.mark_module_status('adfs', 'in_progress')
+                            try:
+                                self.adfs_endpoint_discovery()
+                                self.mark_module_status('adfs', 'complete')
+                            except Exception as e:
+                                self.mark_module_status('adfs', 'failed', str(e))
+                                self.print_error(f"adfs failed: {e}")
+                        else:
+                            self.mark_module_status('adfs', 'skipped')
 
-                def init_state(self):
-                            """Initialize state tracking structure"""
-                            self.state = {
-                                'version': '1.0',
-                                'target': {
-                                    'domain': self.domain,
-                                    'client': self.client_name,
-                                    'ip_ranges': self.ip_ranges,
-                                    'config_hash': self._generate_config_hash()
-                                },
-                                'session': {
-                                    'started_at': datetime.now().isoformat(),
-                                    'last_updated': datetime.now().isoformat(),
-                                    'interrupted': False,
-                                    'completed': False
-                                },
-                                'modules': {
-                                    'scope_validation': {'status': 'pending', 'progress': {}},
-                                    'm365_tenant': {'status': 'pending', 'progress': {}},
-                                    'adfs': {'status': 'pending', 'progress': {}},
-                                    'dns_enumeration': {'status': 'pending', 'progress': {}},
-                                    'post_dns_whois': {'status': 'pending', 'progress': {}},
-                                    'technology_stack': {'status': 'pending', 'progress': {}},
-                                    'email_harvesting': {'status': 'pending', 'progress': {}},
-                                    'linkedin_enumeration': {'status': 'pending', 'progress': {}},
-                                    'breach_database_check': {'status': 'pending', 'progress': {}},
-                                    'github_secret_scanning': {'status': 'pending', 'progress': {}},
-                                    'asn_enumeration': {'status': 'pending', 'progress': {}},
-                                    'subdomain_takeover_detection': {'status': 'pending', 'progress': {}},
-                                    's3_bucket_enumeration': {'status': 'pending', 'progress': {}},
-                                    'azure_storage_enumeration': {'status': 'pending', 'progress': {}},
-                                    'gcp_storage_enumeration': {'status': 'pending', 'progress': {}},
-                                    'network_enumeration': {'status': 'pending', 'progress': {}},
-                                },
-                                'results': {}
-                            }
-                            self.state_file = self.output_dir / 'recon_state.json'
-                            self._shutdown_in_progress = False
+                    if self.should_run_module('dns_enumeration'):
+                        self.mark_module_status('dns_enumeration', 'in_progress')
+                        try:
+                            self.dns_enumeration()
+                            self.mark_module_status('dns_enumeration', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('dns_enumeration', 'failed', str(e))
+                            self.print_error(f"dns_enumeration failed: {e}")
 
-                def _generate_config_hash(self) -> str:
-                    """Generate hash of target configuration for change detection"""
-                    config_str = f"{self.domain}|{self.client_name}|{','.join(sorted(self.ip_ranges))}"
-                    return hashlib.sha256(config_str.encode()).hexdigest()[:16]
+                    # Phase 1.5: Post-DNS WHOIS lookup (when no IP ranges provided)
+                    if not self.ip_ranges and self.should_run_module('post_dns_whois'):
+                        self.mark_module_status('post_dns_whois', 'in_progress')
+                        try:
+                            self.post_dns_whois_lookup()
+                            self.mark_module_status('post_dns_whois', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('post_dns_whois', 'failed', str(e))
+                            self.print_error(f"post_dns_whois failed: {e}")
 
-                def setup_signal_handlers(self):
-                    """Register signal handlers for graceful shutdown"""
-                    signal.signal(signal.SIGINT, self._signal_handler)
-                    signal.signal(signal.SIGTERM, self._signal_handler)
-                    atexit.register(self._atexit_handler)
+                    if self.should_run_module('technology_stack'):
+                        self.mark_module_status('technology_stack', 'in_progress')
+                        try:
+                            self.technology_stack_identification()
+                            self.mark_module_status('technology_stack', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('technology_stack', 'failed', str(e))
+                            self.print_error(f"technology_stack failed: {e}")
 
-                def _signal_handler(self, signum, frame):
-                        """Handle SIGINT/SIGTERM for graceful shutdown"""
-                        if self._shutdown_in_progress:
-                            self.print_error("\nForced exit - state may be incomplete")
-                            sys.exit(1)
+                    # Phase 2: OSINT and intelligence gathering
+                    # Email harvesting MUST run before LinkedIn to detect email format
+                    if self.should_run_module('email_harvesting'):
+                        self.mark_module_status('email_harvesting', 'in_progress')
+                        try:
+                            self.email_harvesting()
+                            self.mark_module_status('email_harvesting', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('email_harvesting', 'failed', str(e))
+                            self.print_error(f"email_harvesting failed: {e}")
 
-                        self._shutdown_in_progress = True
-                        self.print_warning("\n\nInterrupt received - saving state before exit...")
+                    # LinkedIn enumeration runs after email harvesting
+                    if self.should_run_module('linkedin_enumeration'):
+                        if self.config.get('linkedin_cookies'):
+                            self.mark_module_status('linkedin_enumeration', 'in_progress')
+                            try:
+                                self.linkedin_enumeration()
+                                self.mark_module_status('linkedin_enumeration', 'complete')
+                            except Exception as e:
+                                self.mark_module_status('linkedin_enumeration', 'failed', str(e))
+                                self.print_error(f"linkedin_enumeration failed: {e}")
+                        else:
+                            self.print_info("Skipping LinkedIn enumeration (no cookies provided)")
+                            self.mark_module_status('linkedin_enumeration', 'skipped')
 
-                        # Mark session as interrupted
-                        self.state['session']['interrupted'] = True
-                        self.state['session']['last_updated'] = datetime.now().isoformat()
+                    if self.should_run_module('breach_database_check'):
+                        if not self.args.skip_breach_check:
+                            self.mark_module_status('breach_database_check', 'in_progress')
+                            try:
+                                self.breach_database_check()
+                                self.mark_module_status('breach_database_check', 'complete')
+                            except Exception as e:
+                                self.mark_module_status('breach_database_check', 'failed', str(e))
+                                self.print_error(f"breach_database_check failed: {e}")
+                        else:
+                            self.mark_module_status('breach_database_check', 'skipped')
 
-                        # Find any in_progress modules and preserve their state
-                        for module_name, module_state in self.state['modules'].items():
-                            if module_state['status'] == 'in_progress':
-                                self.print_info(f"Module '{module_name}' was in progress - state preserved")
+                    # Phase 3: Advanced enumeration
+                    if self.should_run_module('github_secret_scanning'):
+                        if not self.args.skip_github:
+                            self.mark_module_status('github_secret_scanning', 'in_progress')
+                            try:
+                                self.github_secret_scanning()
+                                self.mark_module_status('github_secret_scanning', 'complete')
+                            except Exception as e:
+                                self.mark_module_status('github_secret_scanning', 'failed', str(e))
+                                self.print_error(f"github_secret_scanning failed: {e}")
+                        else:
+                            self.mark_module_status('github_secret_scanning', 'skipped')
 
-                        # Save current results to state
-                        self.state['results'] = self.results
+                    if self.should_run_module('asn_enumeration'):
+                        if not self.args.skip_asn:
+                            self.mark_module_status('asn_enumeration', 'in_progress')
+                            try:
+                                self.asn_enumeration()
+                                self.mark_module_status('asn_enumeration', 'complete')
+                            except Exception as e:
+                                self.mark_module_status('asn_enumeration', 'failed', str(e))
+                                self.print_error(f"asn_enumeration failed: {e}")
+                        else:
+                            self.mark_module_status('asn_enumeration', 'skipped')
 
-                        # Save state file
-                        self.save_state()
+                    if self.should_run_module('subdomain_takeover_detection'):
+                        if not self.args.skip_subdomain_takeover:
+                            self.mark_module_status('subdomain_takeover_detection', 'in_progress')
+                            try:
+                                self.subdomain_takeover_detection()
+                                self.mark_module_status('subdomain_takeover_detection', 'complete')
+                            except Exception as e:
+                                self.mark_module_status('subdomain_takeover_detection', 'failed', str(e))
+                                self.print_error(f"subdomain_takeover_detection failed: {e}")
+                        else:
+                            self.mark_module_status('subdomain_takeover_detection', 'skipped')
 
-                        self.print_success(f"State saved to: {self.state_file}")
-                        self.print_info("Run the same command with --resume to continue")
-                        sys.exit(0)
+                    # Phase 4: Cloud storage enumeration
+                    if self.should_run_module('s3_bucket_enumeration'):
+                        if not self.args.skip_s3:
+                            self.mark_module_status('s3_bucket_enumeration', 'in_progress')
+                            try:
+                                self.s3_bucket_enumeration()
+                                self.mark_module_status('s3_bucket_enumeration', 'complete')
+                            except Exception as e:
+                                self.mark_module_status('s3_bucket_enumeration', 'failed', str(e))
+                                self.print_error(f"s3_bucket_enumeration failed: {e}")
+                        else:
+                            self.mark_module_status('s3_bucket_enumeration', 'skipped')
 
-                def _atexit_handler(self):
-                    """Handle normal exit - save state if not already saved"""
-                    if not self._shutdown_in_progress and hasattr(self, 'state'):
-                        self.state['session']['last_updated'] = datetime.now().isoformat()
-                        self.state['results'] = self.results
-                        self.save_state()
+                    if self.should_run_module('azure_storage_enumeration'):
+                        if not self.args.skip_azure:
+                            self.mark_module_status('azure_storage_enumeration', 'in_progress')
+                            try:
+                                self.azure_storage_enumeration()
+                                self.mark_module_status('azure_storage_enumeration', 'complete')
+                            except Exception as e:
+                                self.mark_module_status('azure_storage_enumeration', 'failed', str(e))
+                                self.print_error(f"azure_storage_enumeration failed: {e}")
+                        else:
+                            self.mark_module_status('azure_storage_enumeration', 'skipped')
 
-                def load_state(self) -> bool:
-                    """Load existing state file. Returns True if valid state was loaded."""
-                    if not self.state_file.exists():
-                        return False
+                    if self.should_run_module('gcp_storage_enumeration'):
+                        if not self.args.skip_gcp:
+                            self.mark_module_status('gcp_storage_enumeration', 'in_progress')
+                            try:
+                                self.gcp_storage_enumeration()
+                                self.mark_module_status('gcp_storage_enumeration', 'complete')
+                            except Exception as e:
+                                self.mark_module_status('gcp_storage_enumeration', 'failed', str(e))
+                                self.print_error(f"gcp_storage_enumeration failed: {e}")
+                        else:
+                            self.mark_module_status('gcp_storage_enumeration', 'skipped')
 
-                    try:
-                        with open(self.state_file, 'r') as f:
-                            loaded_state = json.load(f)
+                    # Phase 5: Network enumeration (if IP ranges provided)
+                    if self.should_run_module('network_enumeration'):
+                        if self.ip_ranges and not self.args.skip_scan:
+                            self.mark_module_status('network_enumeration', 'in_progress')
+                            try:
+                                self.network_enumeration()
+                                self.mark_module_status('network_enumeration', 'complete')
+                            except Exception as e:
+                                self.mark_module_status('network_enumeration', 'failed', str(e))
+                                self.print_error(f"network_enumeration failed: {e}")
+                        else:
+                            self.mark_module_status('network_enumeration', 'skipped')
 
-                        # Validate version
-                        if loaded_state.get('version') != '1.0':
-                            self.print_warning(f"State file version mismatch")
-                            return False
+                    # Phase 6: Generate reports
+                    self.generate_report()
 
-                        # Validate target matches
-                        loaded_target = loaded_state.get('target', {})
-                        if (loaded_target.get('domain') != self.domain or
-                            loaded_target.get('client') != self.client_name):
-                            self.print_warning("State file is for a different target")
-                            return False
-
-                        # Load the state
-                        self.state = loaded_state
-
-                        # Restore results
-                        self.results = loaded_state.get('results', self.results)
-
-                        return True
-
-                    except json.JSONDecodeError as e:
-                        self.print_error(f"State file is corrupted: {e}")
-                        return False
-                    except Exception as e:
-                        self.print_error(f"Error loading state file: {e}")
-                        return False
-
-                def save_state(self):
-                    """Atomically save current state to file"""
-                    try:
-                        # Update timestamp
-                        self.state['session']['last_updated'] = datetime.now().isoformat()
-
-                        # Sync results to state
-                        self.state['results'] = self.results
-
-                        # Write to temp file first
-                        temp_file = self.state_file.with_suffix('.json.tmp')
-
-                        with open(temp_file, 'w') as f:
-                            json.dump(self.state, f, indent=2, default=str)
-
-                        # Atomic rename
-                        temp_file.replace(self.state_file)
-
-                    except Exception as e:
-                        self.print_error(f"Failed to save state: {e}")
-
-                def checkpoint(self, module: str, subtask: str = None, progress_data: Dict = None):
-                    """Save checkpoint during long-running operations"""
-                    if module not in self.state['modules']:
-                        return
-
-                    module_state = self.state['modules'][module]
-
-                    if subtask and progress_data:
-                        if 'progress' not in module_state:
-                            module_state['progress'] = {}
-                        module_state['progress'][subtask] = progress_data
-
-                    # Save state
+                    # Mark session as complete
+                    self.state['session']['completed'] = True
+                    self.state['session']['completed_at'] = datetime.now().isoformat()
                     self.save_state()
 
-                def get_module_status(self, module: str) -> str:
-                    """Get status of a module: pending, in_progress, complete, skipped, failed"""
-                    if module not in self.state['modules']:
-                        return 'pending'
-                    return self.state['modules'][module].get('status', 'pending')
+                    self.print_section("RECONNAISSANCE COMPLETE")
+                    self.print_success(f"All results saved to: {self.output_dir}")
 
-                def get_module_progress(self, module: str, subtask: str = None) -> Optional[Dict]:
-                    """Get progress data for a module/subtask"""
-                    if module not in self.state['modules']:
-                        return None
+                    # Show summary of module statuses
+                    self._print_final_summary()
 
-                    module_state = self.state['modules'][module]
-                    progress = module_state.get('progress', {})
-
-                    if subtask:
-                        return progress.get(subtask)
-                    return progress
-
-                def mark_module_status(self, module: str, status: str, error_msg: str = None):
-                    """Update module status"""
-                    if module not in self.state['modules']:
-                        self.state['modules'][module] = {'status': status, 'progress': {}}
-                    else:
-                        self.state['modules'][module]['status'] = status
-
-                    if status == 'in_progress':
-                        self.state['modules'][module]['started_at'] = datetime.now().isoformat()
-                    elif status == 'complete':
-                        self.state['modules'][module]['completed_at'] = datetime.now().isoformat()
-                    elif status == 'failed' and error_msg:
-                        self.state['modules'][module]['error'] = error_msg
-
+                except KeyboardInterrupt:
+                    # Signal handler will take care of saving state
+                    pass
+                except Exception as e:
+                    self.print_error(f"Error during reconnaissance: {e}")
+                    import traceback
+                    traceback.print_exc()
                     self.save_state()
 
-                def prompt_resume(self) -> bool:
-                    """Interactive prompt when existing state is detected. Returns True to resume."""
-                    if self.auto_resume:
-                        self.print_info("Auto-resume enabled - continuing from last checkpoint")
-                        return True
+    def _print_final_summary(self):
+        """Print summary of all module statuses"""
+        print(f"\n{Colors.HEADER}Module Summary:{Colors.ENDC}")
 
-                    # Calculate module stats
-                    complete_count = sum(1 for m in self.state['modules'].values() if m['status'] == 'complete')
-                    in_progress_count = sum(1 for m in self.state['modules'].values() if m['status'] == 'in_progress')
-                    pending_count = sum(1 for m in self.state['modules'].values() if m['status'] == 'pending')
-                    total_count = len(self.state['modules'])
+        for module_name, module_state in self.state['modules'].items():
+            status = module_state['status']
+            display_name = module_name.replace('_', ' ').title()
 
-                    # Find in-progress module for resume point
-                    in_progress_module = None
-                    for name, state in self.state['modules'].items():
-                        if state['status'] == 'in_progress':
-                            in_progress_module = name
+            if status == 'complete':
+                duration = ""
+                if module_state.get('started_at') and module_state.get('completed_at'):
+                    try:
+                        start = datetime.fromisoformat(module_state['started_at'])
+                        end = datetime.fromisoformat(module_state['completed_at'])
+                        secs = (end - start).total_seconds()
+                        if secs >= 60:
+                            duration = f" ({secs/60:.1f}m)"
+                        else:
+                            duration = f" ({secs:.0f}s)"
+                    except:
+                        pass
+                print(f"  {Colors.OKGREEN}✓{Colors.ENDC} {display_name}{duration}")
+            elif status == 'skipped':
+                print(f"  {Colors.OKCYAN}○{Colors.ENDC} {display_name} (skipped)")
+            elif status == 'failed':
+                error = module_state.get('error', 'Unknown error')
+                print(f"  {Colors.FAIL}✗{Colors.ENDC} {display_name} - {error[:50]}")
+            elif status == 'in_progress':
+                print(f"  {Colors.WARNING}⋯{Colors.ENDC} {display_name} (incomplete)")
+            else:
+                print(f"  {Colors.OKCYAN}○{Colors.ENDC} {display_name} (not run)")
+
+    # =========================================================================
+    # STATE MANAGEMENT METHODS
+    # =========================================================================
+
+    def init_state(self):
+                """Initialize state tracking structure"""
+                self.state = {
+                    'version': '1.0',
+                    'target': {
+                        'domain': self.domain,
+                        'client': self.client_name,
+                        'ip_ranges': self.ip_ranges,
+                        'config_hash': self._generate_config_hash()
+                    },
+                    'session': {
+                        'started_at': datetime.now().isoformat(),
+                        'last_updated': datetime.now().isoformat(),
+                        'interrupted': False,
+                        'completed': False
+                    },
+                    'modules': {
+                        'scope_validation': {'status': 'pending', 'progress': {}},
+                        'm365_tenant': {'status': 'pending', 'progress': {}},
+                        'adfs': {'status': 'pending', 'progress': {}},
+                        'dns_enumeration': {'status': 'pending', 'progress': {}},
+                        'post_dns_whois': {'status': 'pending', 'progress': {}},
+                        'technology_stack': {'status': 'pending', 'progress': {}},
+                        'email_harvesting': {'status': 'pending', 'progress': {}},
+                        'linkedin_enumeration': {'status': 'pending', 'progress': {}},
+                        'breach_database_check': {'status': 'pending', 'progress': {}},
+                        'github_secret_scanning': {'status': 'pending', 'progress': {}},
+                        'asn_enumeration': {'status': 'pending', 'progress': {}},
+                        'subdomain_takeover_detection': {'status': 'pending', 'progress': {}},
+                        's3_bucket_enumeration': {'status': 'pending', 'progress': {}},
+                        'azure_storage_enumeration': {'status': 'pending', 'progress': {}},
+                        'gcp_storage_enumeration': {'status': 'pending', 'progress': {}},
+                        'network_enumeration': {'status': 'pending', 'progress': {}},
+                    },
+                    'results': {}
+                }
+                self.state_file = self.output_dir / 'recon_state.json'
+                self._shutdown_in_progress = False
+
+    def _generate_config_hash(self) -> str:
+        """Generate hash of target configuration for change detection"""
+        config_str = f"{self.domain}|{self.client_name}|{','.join(sorted(self.ip_ranges))}"
+        return hashlib.sha256(config_str.encode()).hexdigest()[:16]
+
+    def setup_signal_handlers(self):
+        """Register signal handlers for graceful shutdown"""
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        atexit.register(self._atexit_handler)
+
+    def _signal_handler(self, signum, frame):
+            """Handle SIGINT/SIGTERM for graceful shutdown"""
+            if self._shutdown_in_progress:
+                self.print_error("\nForced exit - state may be incomplete")
+                sys.exit(1)
+
+            self._shutdown_in_progress = True
+            self.print_warning("\n\nInterrupt received - saving state before exit...")
+
+            # Mark session as interrupted
+            self.state['session']['interrupted'] = True
+            self.state['session']['last_updated'] = datetime.now().isoformat()
+
+            # Find any in_progress modules and preserve their state
+            for module_name, module_state in self.state['modules'].items():
+                if module_state['status'] == 'in_progress':
+                    self.print_info(f"Module '{module_name}' was in progress - state preserved")
+
+            # Save current results to state
+            self.state['results'] = self.results
+
+            # Save state file
+            self.save_state()
+
+            self.print_success(f"State saved to: {self.state_file}")
+            self.print_info("Run the same command with --resume to continue")
+            sys.exit(0)
+
+    def _atexit_handler(self):
+        """Handle normal exit - save state if not already saved"""
+        if not self._shutdown_in_progress and hasattr(self, 'state'):
+            self.state['session']['last_updated'] = datetime.now().isoformat()
+            self.state['results'] = self.results
+            self.save_state()
+
+    def load_state(self) -> bool:
+        """Load existing state file. Returns True if valid state was loaded."""
+        if not self.state_file.exists():
+            return False
+
+        try:
+            with open(self.state_file, 'r') as f:
+                loaded_state = json.load(f)
+
+            # Validate version
+            if loaded_state.get('version') != '1.0':
+                self.print_warning(f"State file version mismatch")
+                return False
+
+            # Validate target matches
+            loaded_target = loaded_state.get('target', {})
+            if (loaded_target.get('domain') != self.domain or
+                loaded_target.get('client') != self.client_name):
+                self.print_warning("State file is for a different target")
+                return False
+
+            # Load the state
+            self.state = loaded_state
+
+            # Restore results
+            self.results = loaded_state.get('results', self.results)
+
+            return True
+
+        except json.JSONDecodeError as e:
+            self.print_error(f"State file is corrupted: {e}")
+            return False
+        except Exception as e:
+            self.print_error(f"Error loading state file: {e}")
+            return False
+
+    def save_state(self):
+        """Atomically save current state to file"""
+        try:
+            # Update timestamp
+            self.state['session']['last_updated'] = datetime.now().isoformat()
+
+            # Sync results to state
+            self.state['results'] = self.results
+
+            # Write to temp file first
+            temp_file = self.state_file.with_suffix('.json.tmp')
+
+            with open(temp_file, 'w') as f:
+                json.dump(self.state, f, indent=2, default=str)
+
+            # Atomic rename
+            temp_file.replace(self.state_file)
+
+        except Exception as e:
+            self.print_error(f"Failed to save state: {e}")
+
+    def checkpoint(self, module: str, subtask: str = None, progress_data: Dict = None):
+        """Save checkpoint during long-running operations"""
+        if module not in self.state['modules']:
+            return
+
+        module_state = self.state['modules'][module]
+
+        if subtask and progress_data:
+            if 'progress' not in module_state:
+                module_state['progress'] = {}
+            module_state['progress'][subtask] = progress_data
+
+        # Save state
+        self.save_state()
+
+    def get_module_status(self, module: str) -> str:
+        """Get status of a module: pending, in_progress, complete, skipped, failed"""
+        if module not in self.state['modules']:
+            return 'pending'
+        return self.state['modules'][module].get('status', 'pending')
+
+    def get_module_progress(self, module: str, subtask: str = None) -> Optional[Dict]:
+        """Get progress data for a module/subtask"""
+        if module not in self.state['modules']:
+            return None
+
+        module_state = self.state['modules'][module]
+        progress = module_state.get('progress', {})
+
+        if subtask:
+            return progress.get(subtask)
+        return progress
+
+    def mark_module_status(self, module: str, status: str, error_msg: str = None):
+        """Update module status"""
+        if module not in self.state['modules']:
+            self.state['modules'][module] = {'status': status, 'progress': {}}
+        else:
+            self.state['modules'][module]['status'] = status
+
+        if status == 'in_progress':
+            self.state['modules'][module]['started_at'] = datetime.now().isoformat()
+        elif status == 'complete':
+            self.state['modules'][module]['completed_at'] = datetime.now().isoformat()
+        elif status == 'failed' and error_msg:
+            self.state['modules'][module]['error'] = error_msg
+
+        self.save_state()
+
+    def prompt_resume(self) -> bool:
+        """Interactive prompt when existing state is detected. Returns True to resume."""
+        if self.auto_resume:
+            self.print_info("Auto-resume enabled - continuing from last checkpoint")
+            return True
+
+        # Calculate module stats
+        complete_count = sum(1 for m in self.state['modules'].values() if m['status'] == 'complete')
+        in_progress_count = sum(1 for m in self.state['modules'].values() if m['status'] == 'in_progress')
+        pending_count = sum(1 for m in self.state['modules'].values() if m['status'] == 'pending')
+        total_count = len(self.state['modules'])
+
+        # Find in-progress module for resume point
+        in_progress_module = None
+        for name, state in self.state['modules'].items():
+            if state['status'] == 'in_progress':
+                in_progress_module = name
+                break
+
+        print(f"\n{'='*80}")
+        print(f"{Colors.HEADER}    PREVIOUS SCAN DETECTED{Colors.ENDC}")
+        print(f"{'='*80}")
+        print(f"    Target: {self.state['target']['domain']} ({self.state['target']['client']})")
+        print(f"    Started: {self.state['session']['started_at']}")
+        print(f"    Last activity: {self.state['session']['last_updated']}")
+
+        if self.state['session'].get('interrupted'):
+            print(f"    {Colors.WARNING}Status: Interrupted{Colors.ENDC}")
+
+        print(f"\n    Module Status ({complete_count}/{total_count} complete):")
+
+        for module_name, module_state in self.state['modules'].items():
+            status = module_state['status']
+            display_name = module_name.replace('_', ' ').title()
+
+            if status == 'complete':
+                print(f"      {Colors.OKGREEN}✓{Colors.ENDC} {display_name}")
+            elif status == 'in_progress':
+                progress = module_state.get('progress', {})
+                progress_info = ""
+                if progress:
+                    # Show most relevant progress info
+                    for subtask, data in progress.items():
+                        if isinstance(data, dict) and 'completed' in data:
+                            progress_info = f" ({data['completed']}/{data.get('total', '?')} {subtask})"
                             break
+                print(f"      {Colors.WARNING}⋯{Colors.ENDC} {display_name}{progress_info}")
+            elif status == 'skipped':
+                print(f"      {Colors.OKCYAN}○{Colors.ENDC} {display_name} (skipped)")
+            elif status == 'failed':
+                print(f"      {Colors.FAIL}✗{Colors.ENDC} {display_name} (failed)")
+            else:
+                print(f"      {Colors.OKCYAN}○{Colors.ENDC} {display_name}")
 
-                    print(f"\n{'='*80}")
-                    print(f"{Colors.HEADER}    PREVIOUS SCAN DETECTED{Colors.ENDC}")
-                    print(f"{'='*80}")
-                    print(f"    Target: {self.state['target']['domain']} ({self.state['target']['client']})")
-                    print(f"    Started: {self.state['session']['started_at']}")
-                    print(f"    Last activity: {self.state['session']['last_updated']}")
+        print(f"\n    Options:")
+        if in_progress_module:
+            display_name = in_progress_module.replace('_', ' ').title()
+            print(f"      [R] Resume from {display_name} (recommended)")
+        else:
+            print(f"      [R] Resume from next pending module")
+        print(f"      [S] Start fresh (backup existing results)")
+        print(f"      [Q] Quit")
 
-                    if self.state['session'].get('interrupted'):
-                        print(f"    {Colors.WARNING}Status: Interrupted{Colors.ENDC}")
+        print()
+        choice = input(f"    Choice [R]: ").strip().upper()
 
-                    print(f"\n    Module Status ({complete_count}/{total_count} complete):")
+        if choice == 'Q':
+            self.print_info("Exiting without changes")
+            sys.exit(0)
+        elif choice == 'S':
+            self._backup_and_reset_state()
+            return False
+        else:
+            # Default to resume
+            return True
 
-                    for module_name, module_state in self.state['modules'].items():
-                        status = module_state['status']
-                        display_name = module_name.replace('_', ' ').title()
+    def _backup_and_reset_state(self):
+        """Backup existing state and results, then reset for fresh start"""
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-                        if status == 'complete':
-                            print(f"      {Colors.OKGREEN}✓{Colors.ENDC} {display_name}")
-                        elif status == 'in_progress':
-                            progress = module_state.get('progress', {})
-                            progress_info = ""
-                            if progress:
-                                # Show most relevant progress info
-                                for subtask, data in progress.items():
-                                    if isinstance(data, dict) and 'completed' in data:
-                                        progress_info = f" ({data['completed']}/{data.get('total', '?')} {subtask})"
-                                        break
-                            print(f"      {Colors.WARNING}⋯{Colors.ENDC} {display_name}{progress_info}")
-                        elif status == 'skipped':
-                            print(f"      {Colors.OKCYAN}○{Colors.ENDC} {display_name} (skipped)")
-                        elif status == 'failed':
-                            print(f"      {Colors.FAIL}✗{Colors.ENDC} {display_name} (failed)")
-                        else:
-                            print(f"      {Colors.OKCYAN}○{Colors.ENDC} {display_name}")
+        # Backup state file
+        if self.state_file.exists():
+            backup_state = self.state_file.with_name(f'recon_state_backup_{timestamp}.json')
+            shutil.copy(self.state_file, backup_state)
+            self.print_success(f"State backed up to: {backup_state}")
 
-                    print(f"\n    Options:")
-                    if in_progress_module:
-                        display_name = in_progress_module.replace('_', ' ').title()
-                        print(f"      [R] Resume from {display_name} (recommended)")
-                    else:
-                        print(f"      [R] Resume from next pending module")
-                    print(f"      [S] Start fresh (backup existing results)")
-                    print(f"      [Q] Quit")
+        # Backup any existing results files
+        for result_file in self.output_dir.glob('recon_results_*.json'):
+            backup_name = result_file.with_name(f'backup_{timestamp}_{result_file.name}')
+            shutil.move(result_file, backup_name)
+            self.print_info(f"Results backed up: {backup_name}")
 
-                    print()
-                    choice = input(f"    Choice [R]: ").strip().upper()
+        # Reset state
+        self.init_state()
+        self.print_info("Starting fresh scan")
 
-                    if choice == 'Q':
-                        self.print_info("Exiting without changes")
-                        sys.exit(0)
-                    elif choice == 'S':
-                        self._backup_and_reset_state()
-                        return False
-                    else:
-                        # Default to resume
-                        return True
+    def should_run_module(self, module: str) -> bool:
+        """Determine if a module should run based on state and skip flags"""
+        status = self.get_module_status(module)
 
-                def _backup_and_reset_state(self):
-                    """Backup existing state and results, then reset for fresh start"""
-                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        # Already complete - skip
+        if status == 'complete':
+            self.print_info(f"Skipping {module} (already complete)")
+            return False
 
-                    # Backup state file
-                    if self.state_file.exists():
-                        backup_state = self.state_file.with_name(f'recon_state_backup_{timestamp}.json')
-                        shutil.copy(self.state_file, backup_state)
-                        self.print_success(f"State backed up to: {backup_state}")
+        # Already skipped - stay skipped
+        if status == 'skipped':
+            return False
 
-                    # Backup any existing results files
-                    for result_file in self.output_dir.glob('recon_results_*.json'):
-                        backup_name = result_file.with_name(f'backup_{timestamp}_{result_file.name}')
-                        shutil.move(result_file, backup_name)
-                        self.print_info(f"Results backed up: {backup_name}")
+        return True
 
-                    # Reset state
-                    self.init_state()
-                    self.print_info("Starting fresh scan")
+    def get_resume_data(self, module: str) -> Dict:
+        """Get data needed to resume a module from checkpoint"""
+        module_state = self.state['modules'].get(module, {})
+        return {
+            'status': module_state.get('status', 'pending'),
+            'progress': module_state.get('progress', {}),
+            'results': self.results
+        }
 
-                def should_run_module(self, module: str) -> bool:
-                    """Determine if a module should run based on state and skip flags"""
-                    status = self.get_module_status(module)
-
-                    # Already complete - skip
-                    if status == 'complete':
-                        self.print_info(f"Skipping {module} (already complete)")
-                        return False
-
-                    # Already skipped - stay skipped
-                    if status == 'skipped':
-                        return False
-
-                    return True
-
-                def get_resume_data(self, module: str) -> Dict:
-                    """Get data needed to resume a module from checkpoint"""
-                    module_state = self.state['modules'].get(module, {})
-                    return {
-                        'status': module_state.get('status', 'pending'),
-                        'progress': module_state.get('progress', {}),
-                        'results': self.results
-                    }
-
-        def _generate_report_template(self, filepath: Path):
+    def _generate_report_template(self, filepath: Path):
                         """Generate report template with findings"""
                         with open(filepath, 'w') as f:
                             f.write(f"# Report Template Content - {self.client_name}\n\n")
