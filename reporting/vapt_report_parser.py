@@ -43,12 +43,17 @@ from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
-
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+import json
+import hashlib
+
+
+# DefectDojo Generic Findings Import default test type name
+DEFAULT_TEST_TYPE_NAME = 'VAPT Assessment'
 
 
 # Severity ordering used in output. High/Medium/Low only - Informational is
@@ -746,26 +751,148 @@ def display_test_finding(buckets):
     print("[!] No findings to display")
 
 
+def _generate_unique_id(finding):
+    """
+    Generate a stable unique_id_from_tool for DefectDojo remediation tracking.
+
+    Nessus uses plugin_id directly (stable across scans). Burp/ZAP hash the
+    finding title since neither tool exposes a stable vulnerability ID in XML.
+    """
+    if finding.scanner_type == 'nessus':
+        return f"nessus-{finding.plugin_id}"
+
+    title_hash = hashlib.sha256(finding.title.encode('utf-8')).hexdigest()[:16]
+    return f"{finding.scanner_type}-{title_hash}"
+
+
+def _normalize_endpoint(system):
+    """
+    Normalize an affected system string for the DefectDojo endpoints array.
+
+    Nessus format 'host:port (protocol/svc)' is stripped to 'host:port'.
+    URLs are passed through unchanged.
+    """
+    if not system:
+        return ''
+    # Strip Nessus protocol/svc suffix like ' (tcp/https)'
+    paren_idx = system.find(' (')
+    if paren_idx > 0:
+        return system[:paren_idx].strip()
+    return system.strip()
+
+
+def _build_finding_json(finding):
+    """Convert a Finding object into a DefectDojo Generic Findings Import dict."""
+    entry = {
+        'title': finding.title,
+        'description': finding.description or 'No description provided.',
+        'severity': finding.severity,
+        'date': datetime.now().strftime('%Y-%m-%d'),
+        'unique_id_from_tool': _generate_unique_id(finding),
+        'active': True,
+        'verified': True,
+        'static_finding': False,
+        'dynamic_finding': True,
+    }
+
+    if finding.recommendation:
+        entry['mitigation'] = finding.recommendation
+
+    if finding.references:
+        entry['references'] = '\n'.join(finding.references)
+
+    if finding.plugin_id:
+        entry['vuln_id_from_tool'] = finding.plugin_id
+
+    if finding.cwe:
+        try:
+            entry['cwe'] = int(finding.cwe)
+        except (ValueError, TypeError):
+            pass
+
+    if finding.cve:
+        entry['cve'] = finding.cve
+
+    if finding.cvss_score:
+        # Nessus exposes the CVSS base score, not the vector. Emit as cvssv3_score
+        # if it parses as a float, otherwise pass through cvssv3 as vector string.
+        try:
+            entry['cvssv3_score'] = float(finding.cvss_score)
+        except (ValueError, TypeError):
+            if finding.cvss_score.startswith('CVSS:'):
+                entry['cvssv3'] = finding.cvss_score
+
+    # Endpoints from affected_systems
+    endpoints = []
+    for system in finding.affected_systems:
+        normalized = _normalize_endpoint(system)
+        if normalized and normalized not in endpoints:
+            endpoints.append(normalized)
+    if endpoints:
+        entry['endpoints'] = endpoints
+
+    # Evidence blocks into steps_to_reproduce
+    if finding.evidence_blocks:
+        parts = []
+        for block in finding.evidence_blocks:
+            if block['label']:
+                parts.append(f"{block['label']}:\n{block['content']}")
+            else:
+                parts.append(block['content'])
+        entry['steps_to_reproduce'] = '\n\n'.join(parts)
+
+    # Scanner type as a tag for filtering inside DefectDojo
+    entry['tags'] = [finding.scanner_type]
+
+    return entry
+
+
+def export_defectdojo_json(buckets, output_file, test_type_name):
+    """
+    Export deduplicated findings as DefectDojo Generic Findings Import JSON.
+
+    The top-level 'name' field becomes the test type in DefectDojo. Findings
+    are flattened from severity buckets into a single list.
+    """
+    print(f"[*] Exporting DefectDojo JSON (test type: {test_type_name})...")
+
+    findings_list = []
+    for severity in SEVERITY_ORDER:
+        for finding in buckets[severity]:
+            findings_list.append(_build_finding_json(finding))
+
+    payload = {
+        'name': test_type_name,
+        'findings': findings_list,
+    }
+
+    try:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, indent=2, ensure_ascii=False)
+        print(f"[+] DefectDojo JSON written: {output_file}")
+        print(f"[+] Exported {len(findings_list)} finding(s)")
+        return True
+    except (IOError, OSError) as e:
+        print(f"[!] Error writing JSON: {e}")
+        return False
+
 def main():
     parser = argparse.ArgumentParser(
-        description='VAPT Report Parser - Nessus / Burp / ZAP XML to DOCX',
+        description='VAPT Report Parser - Nessus / Burp / ZAP XML to DOCX and DefectDojo JSON',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Scan current working directory for scanner files and generate report
+  # Scan current working directory and generate DOCX report
   python3 vapt_report_parser.py
 
-  # Test mode - parse and display first finding without writing files
+  # Generate DOCX and DefectDojo JSON
+  python3 vapt_report_parser.py --json
+
+  # Generate JSON only with client name as test type
+  python3 vapt_report_parser.py --json --no-report --client "Acme Corp"
+
+  # Test mode - display first finding without writing files
   python3 vapt_report_parser.py --test
-
-  # Skip Nessus XML merging step
-  python3 vapt_report_parser.py --no-merge
-
-  # Skip DOCX report generation (merge only)
-  python3 vapt_report_parser.py --no-report
-
-  # Custom DOCX output path
-  python3 vapt_report_parser.py -o /tmp/engagement_report.docx
         """
     )
 
@@ -777,6 +904,12 @@ Examples:
                         help='Skip Nessus XML merge step')
     parser.add_argument('--no-report', action='store_true',
                         help='Skip DOCX report generation')
+    parser.add_argument('--json', nargs='?', const='__auto__', default=None,
+                        help='Export DefectDojo Generic Findings Import JSON. '
+                             'Optional path argument (default: vapt_findings_<timestamp>.json)')
+    parser.add_argument('--client', default=None,
+                        help='Client name used as DefectDojo test type. '
+                             'Default test type: "VAPT Assessment"')
     parser.add_argument('--test', action='store_true',
                         help='Display first parsed finding and exit (no files written)')
 
@@ -839,25 +972,39 @@ Examples:
         display_test_finding(buckets)
         sys.exit(0)
 
-    # Report generation
-    if args.no_report:
-        print("\n[*] Report generation skipped (--no-report)")
-        return
+    # DOCX report generation
+    if not args.no_report:
+        if args.output:
+            output_path = Path(args.output)
+            if not output_path.is_absolute():
+                output_path = working_dir / output_path
+        else:
+            output_path = working_dir / f"vapt_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
 
-    if args.output:
-        output_path = Path(args.output)
-        if not output_path.is_absolute():
-            output_path = working_dir / output_path
+        print(f"\n[*] Generating report: {output_path}")
+        if generate_report(buckets, str(output_path)):
+            size_kb = os.path.getsize(output_path) / 1024
+            print(f"[+] Report size: {size_kb:.1f} KB")
+        else:
+            print("[!] Report generation failed")
+            sys.exit(1)
     else:
-        output_path = working_dir / f"vapt_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
+        print("\n[*] DOCX report generation skipped (--no-report)")
 
-    print(f"\n[*] Generating report: {output_path}")
-    if generate_report(buckets, str(output_path)):
-        size_kb = os.path.getsize(output_path) / 1024
-        print(f"[+] Report size: {size_kb:.1f} KB")
-    else:
-        print("[!] Report generation failed")
-        sys.exit(1)
+    # DefectDojo JSON export
+    if args.json is not None:
+        if args.json == '__auto__':
+            json_path = working_dir / f"vapt_findings_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        else:
+            json_path = Path(args.json)
+            if not json_path.is_absolute():
+                json_path = working_dir / json_path
+
+        test_type_name = args.client if args.client else DEFAULT_TEST_TYPE_NAME
+        print(f"\n[*] Exporting DefectDojo JSON: {json_path}")
+        if not export_defectdojo_json(buckets, str(json_path), test_type_name):
+            print("[!] JSON export failed")
+            sys.exit(1)
 
     print("\n[+] Complete")
 
