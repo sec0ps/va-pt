@@ -51,10 +51,8 @@ from docx.oxml import OxmlElement
 import json
 import hashlib
 
-
 # DefectDojo Generic Findings Import default test type name
 DEFAULT_TEST_TYPE_NAME = 'VAPT Assessment'
-
 
 # Severity ordering used in output. High/Medium/Low only - Informational is
 # dropped at parse time, Critical collapses into High.
