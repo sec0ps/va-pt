@@ -870,6 +870,474 @@ class ReconAutomation:
                 if adfs_data['federation_metadata'].get('entity_id'):
                     self.print_info(f"  Entity ID: {adfs_data['federation_metadata']['entity_id']}")
 
+    def email_security_posture(self):
+                """Assess SPF, DKIM, and DMARC posture for the target domain"""
+                self.print_section("EMAIL SECURITY POSTURE (SPF/DKIM/DMARC)")
+
+                results = {
+                    'domain': self.domain,
+                    'spf': {
+                        'present': False,
+                        'record': None,
+                        'multiple_records': False,
+                        'qualifier': None,
+                        'dns_lookup_count': 0,
+                        'mechanisms': [],
+                        'includes': [],
+                        'findings': []
+                    },
+                    'dmarc': {
+                        'present': False,
+                        'record': None,
+                        'policy': None,
+                        'subdomain_policy': None,
+                        'pct': None,
+                        'rua': [],
+                        'ruf': [],
+                        'aspf': None,
+                        'adkim': None,
+                        'findings': []
+                    },
+                    'dkim': {
+                        'selectors_checked': [],
+                        'selectors_found': [],
+                        'records': {},
+                        'findings': []
+                    },
+                    'overall_severity': 'Low'
+                }
+
+                resolver = dns.resolver.Resolver()
+                resolver.timeout = 5
+                resolver.lifetime = 10
+
+                # =====================================================================
+                # SPF Analysis
+                # =====================================================================
+                self.print_info(f"Checking SPF record for {self.domain}...")
+
+                try:
+                    txt_answers = resolver.resolve(self.domain, 'TXT')
+                    spf_records = []
+
+                    for rdata in txt_answers:
+                        record_text = ''.join(s.decode('utf-8', errors='ignore') if isinstance(s, bytes) else str(s) for s in rdata.strings)
+                        if record_text.lower().startswith('v=spf1'):
+                            spf_records.append(record_text)
+
+                    if not spf_records:
+                        results['spf']['findings'].append({
+                            'severity': 'High',
+                            'finding': 'No SPF record present',
+                            'detail': 'Without SPF, any sender can claim to send mail from this domain. Anti-spoofing protection depends on SPF being in place and enforced.'
+                        })
+                        self.print_warning("  No SPF record found")
+                    else:
+                        results['spf']['present'] = True
+
+                        if len(spf_records) > 1:
+                            results['spf']['multiple_records'] = True
+                            results['spf']['findings'].append({
+                                'severity': 'High',
+                                'finding': f'{len(spf_records)} SPF records present (RFC 7208 violation)',
+                                'detail': 'Multiple SPF records on the same domain cause receiving servers to return a permerror. SPF validation fails completely, effectively disabling SPF protection.'
+                            })
+                            self.print_warning(f"  Multiple SPF records found ({len(spf_records)}) - RFC violation")
+
+                        spf_record = spf_records[0]
+                        results['spf']['record'] = spf_record
+
+                        # Parse mechanisms
+                        parts = spf_record.split()
+                        mechanisms = []
+                        includes = []
+                        dns_lookup_count = 0
+                        qualifier = None
+
+                        for part in parts[1:]:  # skip v=spf1
+                            part_lower = part.lower()
+                            mechanisms.append(part)
+
+                            # Each include, a, mx, exists, redirect counts as 1 DNS lookup
+                            if part_lower.startswith('include:'):
+                                dns_lookup_count += 1
+                                includes.append(part[8:])
+                            elif part_lower.startswith('a:') or part_lower == 'a':
+                                dns_lookup_count += 1
+                            elif part_lower.startswith('mx:') or part_lower == 'mx':
+                                dns_lookup_count += 1
+                            elif part_lower.startswith('exists:'):
+                                dns_lookup_count += 1
+                            elif part_lower.startswith('redirect='):
+                                dns_lookup_count += 1
+                            elif part_lower.startswith('ptr:') or part_lower == 'ptr':
+                                dns_lookup_count += 1
+
+                            # Capture the all qualifier
+                            if part_lower.endswith('all'):
+                                if part_lower == 'all' or part_lower == '+all':
+                                    qualifier = '+all'
+                                elif part_lower == '-all':
+                                    qualifier = '-all'
+                                elif part_lower == '~all':
+                                    qualifier = '~all'
+                                elif part_lower == '?all':
+                                    qualifier = '?all'
+
+                        results['spf']['mechanisms'] = mechanisms
+                        results['spf']['includes'] = includes
+                        results['spf']['dns_lookup_count'] = dns_lookup_count
+                        results['spf']['qualifier'] = qualifier
+
+                        # Findings based on qualifier
+                        if qualifier == '+all':
+                            results['spf']['findings'].append({
+                                'severity': 'Critical',
+                                'finding': 'SPF record uses +all (permit all senders)',
+                                'detail': 'The +all qualifier instructs receivers to accept mail from any source as legitimate. This completely defeats the purpose of SPF and allows unrestricted domain spoofing.'
+                            })
+                            self.print_error(f"  SPF qualifier: +all (CRITICAL - permits any sender)")
+                        elif qualifier == '?all':
+                            results['spf']['findings'].append({
+                                'severity': 'Medium',
+                                'finding': 'SPF record uses ?all (neutral, no enforcement)',
+                                'detail': 'The ?all qualifier provides no guidance to receivers on how to handle mail from non-authorized sources. Effectively no spoofing protection.'
+                            })
+                            self.print_warning(f"  SPF qualifier: ?all (no enforcement)")
+                        elif qualifier == '~all':
+                            results['spf']['findings'].append({
+                                'severity': 'Low',
+                                'finding': 'SPF record uses ~all (soft fail)',
+                                'detail': 'The ~all qualifier marks unauthorized mail as suspicious but typically still delivers it. -all (hard fail) is recommended once SPF deployment is validated.'
+                            })
+                            self.print_info(f"  SPF qualifier: ~all (soft fail)")
+                        elif qualifier == '-all':
+                            self.print_success(f"  SPF qualifier: -all (hard fail - enforced)")
+                        elif qualifier is None:
+                            results['spf']['findings'].append({
+                                'severity': 'High',
+                                'finding': 'SPF record missing all qualifier',
+                                'detail': 'Without a terminating all qualifier, the SPF record provides no default handling for non-listed sources. Behavior is unpredictable across receivers.'
+                            })
+                            self.print_warning(f"  SPF qualifier: missing (no default policy)")
+
+                        # DNS lookup limit findings
+                        if dns_lookup_count > 10:
+                            results['spf']['findings'].append({
+                                'severity': 'High',
+                                'finding': f'SPF DNS lookup limit exceeded ({dns_lookup_count} lookups, RFC limit is 10)',
+                                'detail': 'When SPF requires more than 10 DNS lookups, receivers return permerror and SPF validation fails completely. The domain has no working SPF enforcement.'
+                            })
+                            self.print_error(f"  SPF DNS lookups: {dns_lookup_count} (EXCEEDS RFC LIMIT)")
+                        elif dns_lookup_count >= 8:
+                            results['spf']['findings'].append({
+                                'severity': 'Low',
+                                'finding': f'SPF DNS lookup count approaching limit ({dns_lookup_count}/10)',
+                                'detail': 'SPF is close to the 10-lookup RFC limit. Adding additional mail senders could push the record over the limit and break authentication.'
+                            })
+                            self.print_warning(f"  SPF DNS lookups: {dns_lookup_count}/10 (approaching limit)")
+                        else:
+                            self.print_info(f"  SPF DNS lookups: {dns_lookup_count}/10")
+
+                        if includes:
+                            self.print_info(f"  SPF includes: {', '.join(includes[:5])}")
+                            if len(includes) > 5:
+                                self.print_info(f"  ... and {len(includes) - 5} more")
+
+                except dns.resolver.NoAnswer:
+                    results['spf']['findings'].append({
+                        'severity': 'High',
+                        'finding': 'No TXT records found for domain',
+                        'detail': 'Domain has no TXT records, including no SPF record. Anti-spoofing protection is absent.'
+                    })
+                    self.print_warning("  No TXT records found")
+                except dns.resolver.NXDOMAIN:
+                    self.print_error(f"  Domain {self.domain} does not exist in DNS")
+                except Exception as e:
+                    self.print_error(f"  SPF lookup failed: {e}")
+
+                # =====================================================================
+                # DMARC Analysis
+                # =====================================================================
+                dmarc_domain = f"_dmarc.{self.domain}"
+                self.print_info(f"\nChecking DMARC record at {dmarc_domain}...")
+
+                try:
+                    dmarc_answers = resolver.resolve(dmarc_domain, 'TXT')
+                    dmarc_records = []
+
+                    for rdata in dmarc_answers:
+                        record_text = ''.join(s.decode('utf-8', errors='ignore') if isinstance(s, bytes) else str(s) for s in rdata.strings)
+                        if record_text.lower().startswith('v=dmarc1'):
+                            dmarc_records.append(record_text)
+
+                    if not dmarc_records:
+                        results['dmarc']['findings'].append({
+                            'severity': 'High',
+                            'finding': 'No DMARC record present',
+                            'detail': 'Without DMARC, receivers have no instruction on how to handle SPF/DKIM authentication failures. Spoofed mail is more likely to be delivered.'
+                        })
+                        self.print_warning("  No DMARC record found")
+                    else:
+                        results['dmarc']['present'] = True
+                        dmarc_record = dmarc_records[0]
+                        results['dmarc']['record'] = dmarc_record
+
+                        # Parse DMARC tags
+                        tags = {}
+                        for tag_pair in dmarc_record.split(';'):
+                            tag_pair = tag_pair.strip()
+                            if '=' in tag_pair:
+                                key, value = tag_pair.split('=', 1)
+                                tags[key.strip().lower()] = value.strip()
+
+                        policy = tags.get('p', '').lower()
+                        sp = tags.get('sp', '').lower()
+                        pct = tags.get('pct', '100')
+                        rua = tags.get('rua', '')
+                        ruf = tags.get('ruf', '')
+                        aspf = tags.get('aspf', 'r').lower()
+                        adkim = tags.get('adkim', 'r').lower()
+
+                        results['dmarc']['policy'] = policy if policy else None
+                        results['dmarc']['subdomain_policy'] = sp if sp else None
+                        results['dmarc']['pct'] = pct
+                        results['dmarc']['rua'] = [addr.strip() for addr in rua.replace('mailto:', '').split(',') if addr.strip()] if rua else []
+                        results['dmarc']['ruf'] = [addr.strip() for addr in ruf.replace('mailto:', '').split(',') if addr.strip()] if ruf else []
+                        results['dmarc']['aspf'] = aspf
+                        results['dmarc']['adkim'] = adkim
+
+                        # Findings based on policy
+                        if policy == 'none':
+                            results['dmarc']['findings'].append({
+                                'severity': 'High',
+                                'finding': 'DMARC policy set to p=none (monitor mode only)',
+                                'detail': 'With p=none, DMARC provides reporting but no enforcement. Mail failing SPF/DKIM authentication is still delivered. This is a transitional posture not suitable for ongoing operation.'
+                            })
+                            self.print_warning(f"  DMARC policy: p=none (no enforcement)")
+                        elif policy == 'quarantine':
+                            try:
+                                pct_val = int(pct)
+                                if pct_val < 100:
+                                    results['dmarc']['findings'].append({
+                                        'severity': 'Medium',
+                                        'finding': f'DMARC quarantine policy applied to only {pct_val}% of mail',
+                                        'detail': f'The pct={pct_val} tag means only {pct_val}% of failing mail is subject to the quarantine policy. The remaining {100 - pct_val}% is delivered normally despite failing authentication.'
+                                    })
+                                    self.print_warning(f"  DMARC policy: p=quarantine, pct={pct_val} (partial enforcement)")
+                                else:
+                                    self.print_success(f"  DMARC policy: p=quarantine (full enforcement)")
+                            except ValueError:
+                                self.print_warning(f"  DMARC policy: p=quarantine, pct={pct} (could not parse pct)")
+                        elif policy == 'reject':
+                            try:
+                                pct_val = int(pct)
+                                if pct_val < 100:
+                                    results['dmarc']['findings'].append({
+                                        'severity': 'Low',
+                                        'finding': f'DMARC reject policy applied to only {pct_val}% of mail',
+                                        'detail': f'pct={pct_val} means {100 - pct_val}% of failing mail bypasses the reject policy.'
+                                    })
+                                    self.print_warning(f"  DMARC policy: p=reject, pct={pct_val}")
+                                else:
+                                    self.print_success(f"  DMARC policy: p=reject (strongest enforcement)")
+                            except ValueError:
+                                self.print_info(f"  DMARC policy: p=reject")
+                        else:
+                            results['dmarc']['findings'].append({
+                                'severity': 'High',
+                                'finding': f'DMARC policy missing or unrecognized: p={policy}',
+                                'detail': 'DMARC record exists but the policy tag is invalid. Receivers will not apply any enforcement.'
+                            })
+
+                        # Subdomain policy findings
+                        if not sp and policy in ('quarantine', 'reject'):
+                            results['dmarc']['findings'].append({
+                                'severity': 'Medium',
+                                'finding': 'No explicit DMARC subdomain policy (sp=)',
+                                'detail': 'Without an explicit sp= tag, subdomains inherit the apex policy. This is often acceptable, but for organizations with many subdomains, explicit sp=reject is recommended to prevent subdomain spoofing if any subdomain has weaker authentication.'
+                            })
+                        elif sp == 'none' and policy != 'none':
+                            results['dmarc']['findings'].append({
+                                'severity': 'High',
+                                'finding': f'DMARC subdomain policy weaker than apex (sp=none, p={policy})',
+                                'detail': 'Subdomains are exempt from DMARC enforcement while the apex domain is protected. Subdomain spoofing is permitted.'
+                            })
+
+                        # Reporting findings
+                        if not results['dmarc']['rua']:
+                            results['dmarc']['findings'].append({
+                                'severity': 'Low',
+                                'finding': 'No DMARC aggregate reporting address (rua=)',
+                                'detail': 'Without rua= reporting, the organization has no visibility into mail authentication failures or spoofing attempts against the domain.'
+                            })
+
+                        if results['dmarc']['rua']:
+                            self.print_info(f"  DMARC aggregate reports: {', '.join(results['dmarc']['rua'])}")
+
+                except dns.resolver.NoAnswer:
+                    results['dmarc']['findings'].append({
+                        'severity': 'High',
+                        'finding': 'No DMARC record present',
+                        'detail': 'No TXT record at _dmarc subdomain. DMARC enforcement is absent.'
+                    })
+                    self.print_warning("  No DMARC record found")
+                except dns.resolver.NXDOMAIN:
+                    results['dmarc']['findings'].append({
+                        'severity': 'High',
+                        'finding': 'No DMARC record present',
+                        'detail': '_dmarc subdomain does not exist. DMARC enforcement is absent.'
+                    })
+                    self.print_warning("  No DMARC record (NXDOMAIN on _dmarc)")
+                except Exception as e:
+                    self.print_error(f"  DMARC lookup failed: {e}")
+
+                # =====================================================================
+                # DKIM Analysis (common selector probing)
+                # =====================================================================
+                self.print_info(f"\nProbing common DKIM selectors...")
+
+                common_selectors = [
+                    'google', 'selector1', 'selector2', 'mail', 'default',
+                    'k1', 'k2', 'dkim', 'mxvault', 'mandrill'
+                ]
+
+                results['dkim']['selectors_checked'] = common_selectors
+
+                for selector in common_selectors:
+                    dkim_domain = f"{selector}._domainkey.{self.domain}"
+                    try:
+                        dkim_answers = resolver.resolve(dkim_domain, 'TXT')
+
+                        for rdata in dkim_answers:
+                            record_text = ''.join(s.decode('utf-8', errors='ignore') if isinstance(s, bytes) else str(s) for s in rdata.strings)
+
+                            if 'k=' in record_text.lower() or 'p=' in record_text.lower():
+                                results['dkim']['selectors_found'].append(selector)
+
+                                # Parse DKIM tags
+                                tags = {}
+                                for tag_pair in record_text.split(';'):
+                                    tag_pair = tag_pair.strip()
+                                    if '=' in tag_pair:
+                                        key, value = tag_pair.split('=', 1)
+                                        tags[key.strip().lower()] = value.strip()
+
+                                dkim_data = {
+                                    'selector': selector,
+                                    'record': record_text,
+                                    'key_type': tags.get('k', 'rsa'),
+                                    'key_present': bool(tags.get('p', '').strip()),
+                                    'public_key': tags.get('p', ''),
+                                    'hash_algorithms': tags.get('h', 'sha1,sha256'),
+                                    'service_type': tags.get('s', '*'),
+                                    'key_length': None
+                                }
+
+                                # Estimate key length from base64 public key
+                                pubkey = tags.get('p', '').strip()
+                                if pubkey:
+                                    try:
+                                        import base64
+                                        decoded = base64.b64decode(pubkey + '=' * (4 - len(pubkey) % 4))
+                                        # RSA key length: roughly decoded_length * 8 / 1.4 for DER-encoded keys
+                                        # More accurate: extract from ASN.1 structure
+                                        # Quick estimate based on base64 length
+                                        if len(pubkey) > 600:
+                                            dkim_data['key_length'] = 4096
+                                        elif len(pubkey) > 350:
+                                            dkim_data['key_length'] = 2048
+                                        elif len(pubkey) > 200:
+                                            dkim_data['key_length'] = 1024
+                                        elif len(pubkey) > 100:
+                                            dkim_data['key_length'] = 512
+                                        else:
+                                            dkim_data['key_length'] = 'unknown'
+                                    except Exception:
+                                        dkim_data['key_length'] = 'unknown'
+                                else:
+                                    # Revoked DKIM key
+                                    results['dkim']['findings'].append({
+                                        'severity': 'Info',
+                                        'finding': f'DKIM selector {selector} has empty public key (revoked)',
+                                        'detail': 'An empty p= tag is the correct way to retire a DKIM selector. This is informational only.'
+                                    })
+
+                                results['dkim']['records'][selector] = dkim_data
+
+                                # Findings based on key length
+                                if isinstance(dkim_data['key_length'], int):
+                                    if dkim_data['key_length'] < 1024:
+                                        results['dkim']['findings'].append({
+                                            'severity': 'Critical',
+                                            'finding': f'DKIM selector {selector} uses {dkim_data["key_length"]}-bit key',
+                                            'detail': f'RSA keys below 1024 bits are trivially broken. DKIM signatures from this selector provide no security guarantee.'
+                                        })
+                                    elif dkim_data['key_length'] == 1024:
+                                        results['dkim']['findings'].append({
+                                            'severity': 'Medium',
+                                            'finding': f'DKIM selector {selector} uses 1024-bit key (deprecated)',
+                                            'detail': 'NIST and RFC 8301 recommend 2048-bit RSA keys as minimum. 1024-bit DKIM keys are considered weak and should be upgraded.'
+                                        })
+                                        self.print_warning(f"  DKIM {selector}: 1024-bit key (deprecated)")
+                                    else:
+                                        self.print_success(f"  DKIM {selector}: {dkim_data['key_length']}-bit key")
+
+                                # Hash algorithm findings
+                                if 'sha1' in dkim_data['hash_algorithms'].lower() and 'sha256' not in dkim_data['hash_algorithms'].lower():
+                                    results['dkim']['findings'].append({
+                                        'severity': 'Medium',
+                                        'finding': f'DKIM selector {selector} only supports sha1 hashing',
+                                        'detail': 'SHA-1 is deprecated for cryptographic signatures. DKIM records should advertise sha256 support.'
+                                    })
+
+                    except dns.resolver.NXDOMAIN:
+                        continue
+                    except dns.resolver.NoAnswer:
+                        continue
+                    except Exception:
+                        continue
+
+                if not results['dkim']['selectors_found']:
+                    results['dkim']['findings'].append({
+                        'severity': 'Medium',
+                        'finding': 'No DKIM selectors detected with common selector names',
+                        'detail': f'Probed {len(common_selectors)} common DKIM selector names with no hits. The domain may not be signing outbound mail with DKIM, or may be using non-standard selector names. Verify by examining headers of received mail from this domain.'
+                    })
+                    self.print_warning(f"  No DKIM records found for common selectors")
+                else:
+                    self.print_success(f"\n  DKIM selectors found: {', '.join(results['dkim']['selectors_found'])}")
+
+                # =====================================================================
+                # Overall severity calculation
+                # =====================================================================
+                all_findings = (results['spf']['findings'] +
+                            results['dmarc']['findings'] +
+                            results['dkim']['findings'])
+
+                severity_order = {'Critical': 4, 'High': 3, 'Medium': 2, 'Low': 1, 'Info': 0}
+                highest = max([severity_order.get(f['severity'], 0) for f in all_findings] or [0])
+                severity_map = {4: 'Critical', 3: 'High', 2: 'Medium', 1: 'Low', 0: 'Informational'}
+                results['overall_severity'] = severity_map[highest]
+
+                # Summary output
+                self.print_info(f"\nEmail Security Posture Summary:")
+                self.print_info(f"  Total findings: {len(all_findings)}")
+                for severity in ['Critical', 'High', 'Medium', 'Low']:
+                    count = sum(1 for f in all_findings if f['severity'] == severity)
+                    if count > 0:
+                        if severity == 'Critical':
+                            self.print_error(f"  {severity}: {count}")
+                        elif severity == 'High':
+                            self.print_warning(f"  {severity}: {count}")
+                        else:
+                            self.print_info(f"  {severity}: {count}")
+
+                self.print_info(f"  Overall severity: {results['overall_severity']}")
+
+                self.results['email_security'] = results
+                self.mark_module_status('email_security', 'complete')
+
     def load_config(self) -> Dict[str, str]:
             """Load configuration from file"""
             default_config = {
@@ -5964,6 +6432,83 @@ class ReconAutomation:
                         f.write(f"## M365/Azure AD Tenant Attribution\n\n")
                         f.write(f"Domain does not appear to be associated with an M365/Azure AD tenant.\n\n")
 
+                    # Email Security Posture (SPF/DKIM/DMARC)
+                    email_sec = self.results.get('email_security', {})
+                    if email_sec:
+                        f.write(f"## Email Security Posture\n\n")
+                        f.write(f"**Overall Severity:** {email_sec.get('overall_severity', 'Unknown')}\n\n")
+
+                        # SPF
+                        spf = email_sec.get('spf', {})
+                        f.write(f"### SPF (Sender Policy Framework)\n\n")
+                        if spf.get('present'):
+                            f.write(f"- **Record:** `{spf.get('record', '')}`\n")
+                            f.write(f"- **Qualifier:** {spf.get('qualifier', 'Unknown')}\n")
+                            f.write(f"- **DNS Lookups:** {spf.get('dns_lookup_count', 0)}/10\n")
+                            if spf.get('includes'):
+                                f.write(f"- **Includes:** {', '.join(spf['includes'])}\n")
+                            if spf.get('multiple_records'):
+                                f.write(f"- **Multiple Records:** Yes (RFC violation)\n")
+                        else:
+                            f.write(f"- **Status:** No SPF record present\n")
+
+                        if spf.get('findings'):
+                            f.write(f"\n**SPF Findings:**\n\n")
+                            for finding in spf['findings']:
+                                f.write(f"- **[{finding['severity']}]** {finding['finding']}\n")
+                                f.write(f"  - {finding['detail']}\n")
+                        f.write(f"\n")
+
+                        # DMARC
+                        dmarc = email_sec.get('dmarc', {})
+                        f.write(f"### DMARC (Domain-based Message Authentication)\n\n")
+                        if dmarc.get('present'):
+                            f.write(f"- **Record:** `{dmarc.get('record', '')}`\n")
+                            f.write(f"- **Policy (p):** {dmarc.get('policy', 'Unknown')}\n")
+                            if dmarc.get('subdomain_policy'):
+                                f.write(f"- **Subdomain Policy (sp):** {dmarc['subdomain_policy']}\n")
+                            f.write(f"- **Percent (pct):** {dmarc.get('pct', '100')}\n")
+                            if dmarc.get('rua'):
+                                f.write(f"- **Aggregate Reports (rua):** {', '.join(dmarc['rua'])}\n")
+                            if dmarc.get('ruf'):
+                                f.write(f"- **Forensic Reports (ruf):** {', '.join(dmarc['ruf'])}\n")
+                            f.write(f"- **SPF Alignment:** {dmarc.get('aspf', 'r')}\n")
+                            f.write(f"- **DKIM Alignment:** {dmarc.get('adkim', 'r')}\n")
+                        else:
+                            f.write(f"- **Status:** No DMARC record present\n")
+
+                        if dmarc.get('findings'):
+                            f.write(f"\n**DMARC Findings:**\n\n")
+                            for finding in dmarc['findings']:
+                                f.write(f"- **[{finding['severity']}]** {finding['finding']}\n")
+                                f.write(f"  - {finding['detail']}\n")
+                        f.write(f"\n")
+
+                        # DKIM
+                        dkim = email_sec.get('dkim', {})
+                        f.write(f"### DKIM (DomainKeys Identified Mail)\n\n")
+                        f.write(f"- **Selectors Checked:** {len(dkim.get('selectors_checked', []))}\n")
+                        f.write(f"- **Selectors Found:** {len(dkim.get('selectors_found', []))}\n")
+
+                        if dkim.get('selectors_found'):
+                            f.write(f"\n**Active DKIM Selectors:**\n\n")
+                            for selector, record_data in dkim.get('records', {}).items():
+                                f.write(f"#### {selector}\n")
+                                f.write(f"- **Key Length:** {record_data.get('key_length', 'unknown')} bits\n")
+                                f.write(f"- **Key Type:** {record_data.get('key_type', 'rsa')}\n")
+                                f.write(f"- **Hash Algorithms:** {record_data.get('hash_algorithms', 'sha1,sha256')}\n")
+                                f.write(f"- **Service Type:** {record_data.get('service_type', '*')}\n")
+                                if not record_data.get('key_present'):
+                                    f.write(f"- **Status:** Empty public key (revoked)\n")
+                                f.write(f"\n")
+
+                        if dkim.get('findings'):
+                            f.write(f"**DKIM Findings:**\n\n")
+                            for finding in dkim['findings']:
+                                f.write(f"- **[{finding['severity']}]** {finding['finding']}\n")
+                                f.write(f"  - {finding['detail']}\n")
+                        f.write(f"\n")
+
                     # ADFS Endpoint Discovery
                     adfs = self.results.get('adfs', {})
                     hosts_probed = adfs.get('hosts_probed', [])
@@ -6033,7 +6578,6 @@ class ReconAutomation:
                     f.write(f"\n")
 
                     # Confirmed In-Scope Targets (Tier 1: resolves into authorized IP ranges)
-                    # Surfaced before External Subdomains as the highest-priority finding
                     if resolved_in_authorized_scope:
                         f.write(f"### Confirmed In-Scope Targets ({len(resolved_in_authorized_scope)})\n\n")
                         f.write(f"The following subdomains resolve to IP addresses within the authorized testing scope. ")
@@ -6067,7 +6611,6 @@ class ReconAutomation:
                         f.write(f"### External Subdomains ({len(resolved_external)})\n\n")
                         f.write(f"Subdomains resolving to public IP addresses:\n\n")
                         for subdomain, ips in sorted(resolved_external.items()):
-                            # Mark in-scope subdomains for cross-reference
                             scope_marker = " **[IN AUTHORIZED SCOPE]**" if subdomain in resolved_in_authorized_scope else ""
                             f.write(f"- `{subdomain}` -> {', '.join(ips)}{scope_marker}\n")
                         f.write(f"\n")
@@ -6144,7 +6687,6 @@ class ReconAutomation:
                     if tech:
                         f.write(f"**Systems Analyzed:** {len(tech)}\n\n")
 
-                        # Surface VPN/remote access appliances first as high-value findings
                         appliance_hosts = {h: info for h, info in tech.items() if info.get('vpn_appliance')}
                         if appliance_hosts:
                             f.write(f"### Remote Access Appliances ({len(appliance_hosts)})\n\n")
@@ -6163,7 +6705,6 @@ class ReconAutomation:
                             f.write(f"**Note:** Remote access appliance version disclosure supports vulnerability analysis. ")
                             f.write(f"Recent CVE history on VPN/remote access appliances is heavy. Review current vendor advisories against the identified versions before Phase 3.\n\n")
 
-                        # Surface hosts with services on alternate ports (8443, 8080, 8000, 8888)
                         alt_port_hosts = {}
                         for h, info in tech.items():
                             services = info.get('services_by_port', {})
@@ -6200,7 +6741,6 @@ class ReconAutomation:
                             if info.get('vpn_appliance'):
                                 f.write(f"- **VPN Appliance:** {info['vpn_appliance']['class']} ({info['vpn_appliance']['version']})\n")
 
-                            # List active ports
                             services = info.get('services_by_port', {})
                             if services:
                                 active_ports = sorted([int(p) for p in services.keys()])
@@ -6396,623 +6936,737 @@ class ReconAutomation:
                         f.write(f"No GCP storage buckets found.\n\n")
 
     def _generate_report_template(self, filepath: Path):
-            """Generate report template with findings"""
-            with open(filepath, 'w') as f:
-                f.write(f"# Report Template Content - {self.client_name}\n\n")
+                """Generate report template with findings"""
+                with open(filepath, 'w') as f:
+                    f.write(f"# Report Template Content - {self.client_name}\n\n")
 
-                # Domain Registration Info
-                f.write("## Target Information\n\n")
-                domain_whois = self.results.get('scope_validation', {}).get('domain_whois', {})
+                    # Domain Registration Info
+                    f.write("## Target Information\n\n")
+                    domain_whois = self.results.get('scope_validation', {}).get('domain_whois', {})
 
-                if domain_whois:
-                    if domain_whois.get('organizations'):
-                        f.write(f"**Registered Organization:** {domain_whois['organizations'][0]}\n\n")
+                    if domain_whois:
+                        if domain_whois.get('organizations'):
+                            f.write(f"**Registered Organization:** {domain_whois['organizations'][0]}\n\n")
 
-                    if domain_whois.get('addresses'):
-                        addr = domain_whois['addresses'][0]
-                        addr_str = f"{addr['street']}, {addr['city']}"
-                        if addr.get('state'):
-                            addr_str += f", {addr['state']}"
-                        if addr.get('postal_code'):
-                            addr_str += f" {addr['postal_code']}"
-                        if addr.get('country'):
-                            addr_str += f", {addr['country']}"
-                        f.write(f"**Physical Location:** {addr_str}\n\n")
+                        if domain_whois.get('addresses'):
+                            addr = domain_whois['addresses'][0]
+                            addr_str = f"{addr['street']}, {addr['city']}"
+                            if addr.get('state'):
+                                addr_str += f", {addr['state']}"
+                            if addr.get('postal_code'):
+                                addr_str += f" {addr['postal_code']}"
+                            if addr.get('country'):
+                                addr_str += f", {addr['country']}"
+                            f.write(f"**Physical Location:** {addr_str}\n\n")
 
-                    if domain_whois.get('phones'):
-                        f.write(f"**Contact Phone:** {domain_whois['phones'][0]}\n\n")
+                        if domain_whois.get('phones'):
+                            f.write(f"**Contact Phone:** {domain_whois['phones'][0]}\n\n")
 
-                # Ownership Verification
-                f.write("### Ownership Verification\n\n")
-                whois = self.results.get('scope_validation', {}).get('whois', {})
-                if whois:
-                    for ip_range, info in whois.items():
-                        org = info.get('org', 'Unknown')
-                        f.write(f"- {ip_range} - Confirmed owned by {org}\n")
-                    f.write("\n")
-                else:
-                    f.write("No IP ranges provided for ownership verification.\n\n")
-
-                # DNS Enumeration Section
-                f.write("## Reconnaissance and OSINT\n\n")
-                f.write("### Finding the External Footprint\n\n")
-
-                dns = self.results.get('dns_enumeration', {})
-                total = dns.get('total_discovered', 0)
-                resolved_external = dns.get('resolved_external', {})
-                resolved_internal = dns.get('resolved_internal', {})
-                resolved_in_authorized_scope = dns.get('resolved_in_authorized_scope', {})
-                resolved = dns.get('resolved', {})
-
-                f.write(f"DNS enumeration revealed {total} subdomains. ")
-                if resolved_external or resolved_internal:
-                    f.write(f"Of these, {len(resolved_external)} resolve to external IPs and {len(resolved_internal)} resolve to internal IPs.")
-                    if resolved_in_authorized_scope:
-                        f.write(f" {len(resolved_in_authorized_scope)} of these resolve directly into the authorized IP scope.")
-                    f.write("\n\n")
-                else:
-                    f.write(f"This mapped out what was reachable from the internet.\n\n")
-
-                # Confirmed In-Scope Targets - placed at the top of DNS section as highest-priority finding
-                if resolved_in_authorized_scope:
-                    f.write("### Confirmed In-Scope Targets\n\n")
-                    f.write(f"Cross-referencing DNS enumeration results against the authorized IP ranges identified ")
-                    f.write(f"{len(resolved_in_authorized_scope)} subdomain(s) resolving directly into the in-scope network space. ")
-                    f.write(f"These represent the highest-priority targets for active testing.\n\n")
-
-                    for subdomain, data in sorted(resolved_in_authorized_scope.items()):
-                        ips_str = ', '.join(data['ips'])
-                        ranges_str = ', '.join(data['matched_ranges'])
-                        f.write(f"- {subdomain} -> {ips_str} (scope: {ranges_str})\n")
-                    f.write("\n")
-
-                # Use external resolved if available, fall back to resolved
-                display_resolved = resolved_external if resolved_external else resolved
-                if display_resolved:
-                    f.write("Additional external subdomains identified:\n")
-                    # Exclude already-listed in-scope subdomains to avoid duplication
-                    display_items = [(k, v) for k, v in sorted(display_resolved.items())
-                                     if k not in resolved_in_authorized_scope]
-                    for subdomain, ips in display_items[:10]:
-                        f.write(f"- {subdomain} ({', '.join(ips)})\n")
-                    f.write("\n")
-
-                # Internal DNS Information Disclosure
-                if resolved_internal:
-                    f.write("### Internal DNS Information Disclosure\n\n")
-                    f.write(f"**Finding:** {len(resolved_internal)} internal hostnames exposed in public DNS.\n\n")
-                    f.write("During DNS enumeration, multiple subdomains were discovered that resolve to private ")
-                    f.write("RFC 1918 IP addresses (10.x.x.x, 172.16-31.x.x, 192.168.x.x). This constitutes an ")
-                    f.write("information disclosure vulnerability as it reveals:\n\n")
-                    f.write("- Internal network addressing scheme\n")
-                    f.write("- Internal hostname naming conventions\n")
-                    f.write("- Potential internal services and their purposes\n\n")
-                    f.write("**Affected Systems (sample):**\n\n")
-                    for subdomain in sorted(resolved_internal.keys())[:15]:
-                        ips = resolved_internal[subdomain]
-                        f.write(f"- {subdomain} -> {', '.join(ips)}\n")
-                    if len(resolved_internal) > 15:
-                        f.write(f"- ... and {len(resolved_internal) - 15} more\n")
-                    f.write("\n")
-                    f.write("**Recommendation:** Implement split-horizon DNS to prevent internal records from being ")
-                    f.write("served to external queries, or remove internal records from public DNS zones entirely.\n\n")
-
-                # M365/Azure AD Tenant Attribution
-                m365 = self.results.get('m365_tenant', {})
-                if m365 and m365.get('is_m365'):
-                    f.write("### M365/Azure AD Tenant Attribution\n\n")
-                    brand = m365.get('federation_brand') or self.client_name
-                    namespace = m365.get('namespace_type', 'Unknown')
-
-                    f.write(f"Cloud identity reconnaissance confirmed the target operates a Microsoft 365 / Azure AD ")
-                    f.write(f"tenant. The tenant was attributed through publicly accessible Microsoft authentication ")
-                    f.write(f"endpoints which disclose tenant identifiers, brand information, and federation posture.\n\n")
-
-                    f.write(f"- Tenant ID: {m365.get('tenant_id', 'Unknown')}\n")
-                    if m365.get('tenant_region'):
-                        f.write(f"- Tenant Region: {m365['tenant_region']}\n")
-                    f.write(f"- Federation Brand: {brand}\n")
-                    f.write(f"- Namespace Type: {namespace}\n")
-                    if m365.get('cloud_instance'):
-                        f.write(f"- Cloud Instance: {m365['cloud_instance']}\n")
-                    f.write("\n")
-
-                    if namespace == 'Federated':
-                        f.write("The tenant is configured for federated authentication, indicating an on-premises ")
-                        f.write("identity provider (typically ADFS) handles user authentication. ")
-                        if m365.get('federation_host'):
-                            f.write(f"The federation endpoint resides at {m365['federation_host']}. ")
-                        f.write("Federated tenants present additional external attack surface through the on-premises ")
-                        f.write("IdP, which becomes a primary target for credential attacks, version-specific ")
-                        f.write("vulnerabilities, and authentication bypass research.\n\n")
-                    elif namespace == 'Managed':
-                        f.write("The tenant uses cloud-native managed authentication. The primary external ")
-                        f.write("authentication surface is the M365 sign-in endpoint, which becomes the target ")
-                        f.write("for password spray attacks, valid-user enumeration, and conditional access ")
-                        f.write("policy assessment.\n\n")
-
-                # ADFS Endpoint Discovery
-                adfs = self.results.get('adfs', {})
-                hosts_probed = adfs.get('hosts_probed', [])
-                reachable_hosts = [h for h in hosts_probed if h.get('reachable')]
-
-                if reachable_hosts:
-                    f.write("### ADFS Identity Provider Reconnaissance\n\n")
-                    version_info = adfs.get('version_info', {})
-
-                    f.write(f"ADFS endpoint reconnaissance against the federated identity provider revealed ")
-                    f.write(f"the version, supported authentication protocols, and federation metadata. This ")
-                    f.write(f"information establishes the attack surface for the on-premises identity provider.\n\n")
-
-                    if version_info.get('adfs_version'):
-                        f.write(f"The deployed ADFS version was identified as {version_info['adfs_version']}")
-                        if version_info.get('build_number'):
-                            f.write(f" (build {version_info['build_number']})")
-                        f.write(". ")
-
-                    protocols = set()
-                    for host_data in reachable_hosts:
-                        for endpoint_data in host_data.get('endpoints', {}).values():
-                            if endpoint_data.get('supported_protocols'):
-                                protocols.update(endpoint_data['supported_protocols'])
-                            if endpoint_data.get('ws_trust_supported'):
-                                protocols.add('WS-Trust MEX')
-                            if endpoint_data.get('oauth2_supported'):
-                                protocols.add('OAuth2')
-
-                    if protocols:
-                        f.write(f"Supported federation protocols include: {', '.join(sorted(protocols))}. ")
-
-                    fed_metadata = adfs.get('federation_metadata', {})
-                    if fed_metadata.get('entity_id'):
-                        f.write(f"The federation entity identifier was disclosed as {fed_metadata['entity_id']}. ")
-
-                    f.write("\n\n")
-                    f.write("ADFS version disclosure provides the input for vulnerability analysis against the ")
-                    f.write("identity provider. The on-premises IdP is a high-value target as compromise can lead ")
-                    f.write("to credential capture, golden SAML attacks, or authentication bypass affecting all ")
-                    f.write("federated cloud services. Current vendor advisories should be reviewed against the ")
-                    f.write("identified version before active testing.\n\n")
-
-                # Subdomain Takeover
-                takeovers = self.results.get('subdomain_takeovers', [])
-                if takeovers:
-                    f.write("### Subdomain Takeover Vulnerabilities\n\n")
-                    f.write(f"Analysis identified {len(takeovers)} subdomain(s) potentially vulnerable to takeover attacks:\n\n")
-                    for vuln in takeovers:
-                        f.write(f"- {vuln['subdomain']} - Points to unclaimed {vuln['service']} resource\n")
-                    f.write("\n")
-                    f.write("Subdomain takeover allows attackers to host malicious content on the organization's domain, ")
-                    f.write("enabling phishing campaigns, malware distribution, or reputation damage. These subdomains should be ")
-                    f.write("either claimed by the organization or removed from DNS records.\n\n")
-
-                # Technology Stack Section
-                f.write("### Understanding the Technology Stack\n\n")
-                tech = self.results.get('technology_stack', {})
-
-                if tech:
-                    f.write("Public sources and SSL certificates revealed the organization uses:\n")
-                    all_tech = set()
-                    all_servers = set()
-
-                    for domain, info in tech.items():
-                        if info.get('server'):
-                            all_servers.add(info['server'])
-                        if info.get('detected_technologies'):
-                            all_tech.update(info['detected_technologies'])
-
-                    if all_servers:
-                        f.write(f"- Web Servers: {', '.join(all_servers)}\n")
-                    if all_tech:
-                        f.write(f"- Technologies: {', '.join(all_tech)}\n")
-                    f.write("\n")
-
-                    # Remote access appliance narrative
-                    appliance_hosts = {h: info for h, info in tech.items() if info.get('vpn_appliance')}
-                    if appliance_hosts:
-                        f.write("### Remote Access Appliance Identification\n\n")
-                        f.write(f"Technology fingerprinting identified {len(appliance_hosts)} remote access appliance(s) ")
-                        f.write("exposed to the internet. These appliances handle VPN, remote desktop, or federated ")
-                        f.write("authentication and represent high-value targets given the heavy CVE history on this class of devices.\n\n")
-
-                        for host, info in sorted(appliance_hosts.items()):
-                            appliance = info['vpn_appliance']
-                            version_part = f" version {appliance['version']}" if appliance['version'] != 'Unknown' else ""
-                            port_part = f" on port {appliance['discovered_on_port']}" if appliance.get('discovered_on_port') else ""
-                            f.write(f"- {host} - {appliance['class']}{version_part}{port_part}\n")
+                    # Ownership Verification
+                    f.write("### Ownership Verification\n\n")
+                    whois = self.results.get('scope_validation', {}).get('whois', {})
+                    if whois:
+                        for ip_range, info in whois.items():
+                            org = info.get('org', 'Unknown')
+                            f.write(f"- {ip_range} - Confirmed owned by {org}\n")
                         f.write("\n")
-                        f.write("Identified appliance versions should be cross-referenced against current vendor advisories. ")
-                        f.write("Common high-yield CVE classes on these devices include pre-authentication remote code execution, ")
-                        f.write("authentication bypass, and path traversal vulnerabilities.\n\n")
-
-                    # Alternate port services narrative
-                    alt_port_count = 0
-                    alt_port_hosts_summary = []
-                    for h, info in tech.items():
-                        services = info.get('services_by_port', {})
-                        alt_services = {p: s for p, s in services.items() if p not in ('80', '443')}
-                        if alt_services:
-                            alt_port_count += 1
-                            ports_list = sorted([int(p) for p in alt_services.keys()])
-                            alt_port_hosts_summary.append((h, ports_list))
-
-                    if alt_port_hosts_summary:
-                        f.write("### Services on Alternate HTTP Ports\n\n")
-                        f.write(f"Probing across common alternate HTTP/HTTPS ports identified {alt_port_count} host(s) ")
-                        f.write("running services outside the standard 80/443 ports. Services on these ports frequently ")
-                        f.write("host administrative interfaces, development environments, or internal applications that ")
-                        f.write("were intended for restricted access but became externally reachable.\n\n")
-
-                        for host, ports in sorted(alt_port_hosts_summary)[:15]:
-                            f.write(f"- {host} - port(s) {', '.join(str(p) for p in ports)}\n")
-                        if len(alt_port_hosts_summary) > 15:
-                            f.write(f"- ... and {len(alt_port_hosts_summary) - 15} more\n")
-                        f.write("\n")
-                        f.write("Each identified alternate-port service should be reviewed during testing for default ")
-                        f.write("credentials, exposed management functions, and unauthenticated access to sensitive ")
-                        f.write("application functionality.\n\n")
-
-                # LinkedIn Intelligence
-                f.write("### Employee Enumeration via LinkedIn\n\n")
-                linkedin = self.results.get('linkedin_intel', {})
-                employees = linkedin.get('employees', [])
-
-                if employees:
-                    f.write(f"LinkedIn reconnaissance identified {len(employees)} employee accounts associated with the organization.\n\n")
-                    f.write("This intelligence enables targeted phishing campaigns and password spraying attacks against valid accounts.\n\n")
-                else:
-                    f.write("Limited employee information was gathered through public LinkedIn sources.\n\n")
-
-                # Email Addresses Section
-                f.write("### Identifying Valid User Accounts\n\n")
-                emails = self.results.get('email_addresses', [])
-
-                if emails:
-                    f.write(f"Public sources revealed {len(emails)} email addresses:\n\n")
-                    for email in emails[:10]:
-                        f.write(f"- {email}\n")
-                    if len(emails) > 10:
-                        f.write(f"- ... and {len(emails) - 10} more\n")
-                    f.write("\n")
-                else:
-                    f.write("No email addresses were discovered through passive reconnaissance.\n\n")
-
-                # Breach Data Section
-                f.write("### Searching for Compromised Credentials\n\n")
-                breaches = self.results.get('breach_data', {})
-
-                if breaches:
-                    f.write(f"Breach databases were checked for client email addresses. {len(breaches)} accounts were found with exposed passwords:\n\n")
-                    for email, breach_list in list(breaches.items())[:5]:
-                        f.write(f"- {email} - Found in: {', '.join(breach_list[:3])}\n")
-                    f.write("\n")
-                    f.write("These credentials became immediate testing priorities as users frequently reuse passwords across work and personal accounts.\n\n")
-                else:
-                    f.write("No exposed credentials were found in available breach databases.\n\n")
-
-                # GitHub Secret Scanning
-                f.write("### GitHub Secret Exposure\n\n")
-                github = self.results.get('github_secrets', {})
-
-                if github.get('total_secrets_found', 0) > 0:
-                    repos = github.get('repositories', [])
-                    issues = github.get('issues', [])
-                    commits = github.get('commits', [])
-
-                    f.write(f"GitHub scanning identified {github['total_secrets_found']} potential secrets across {len(repos)} repositories, ")
-                    f.write(f"{len(issues)} issues, and {len(commits)} commits.\n\n")
-
-                    if repos:
-                        f.write("Repositories containing sensitive data:\n")
-                        for repo in repos[:5]:
-                            f.write(f"- {repo['repository']}/{repo['file_path']}\n")
-                        f.write("\n")
-
-                    f.write("Exposed secrets in public repositories represent critical security vulnerabilities, potentially providing ")
-                    f.write("direct access to infrastructure, databases, and third-party services.\n\n")
-                else:
-                    f.write("No secrets were discovered in public GitHub repositories associated with the organization.\n\n")
-
-                # ASN Enumeration
-                f.write("### Network Infrastructure (ASN Enumeration)\n\n")
-                asn_data = self.results.get('asn_data', {})
-
-                asns = asn_data.get('asn_numbers', [])
-                ip_ranges = asn_data.get('ip_ranges', [])
-
-                if asns:
-                    f.write(f"ASN enumeration identified {len(asns)} autonomous system(s) associated with the organization:\n\n")
-                    for asn in asns:
-                        f.write(f"- AS{asn['asn']} - {asn['owner']}\n")
-                    f.write("\n")
-
-                if ip_ranges:
-                    in_scope = [r for r in ip_ranges if r.get('in_scope') or r.get('contains_discovered_ips')]
-                    out_scope = [r for r in ip_ranges if not r.get('in_scope') and not r.get('contains_discovered_ips')]
-
-                    f.write(f"Total IP ranges discovered: {len(ip_ranges)}\n")
-                    f.write(f"- Ranges within authorized scope: {len(in_scope)}\n")
-                    f.write(f"- Ranges outside authorized scope: {len(out_scope)}\n\n")
-
-                    if out_scope:
-                        f.write("Additional IP ranges were identified that belong to the organization but fall outside the authorized testing scope. ")
-                        f.write("These ranges were documented but not tested.\n\n")
-
-                # Cloud Storage Enumeration Section
-                f.write("### Cloud Storage Enumeration\n\n")
-
-                s3 = self.results.get('s3_buckets', {})
-                azure = self.results.get('azure_storage', {})
-                gcp = self.results.get('gcp_storage', {})
-
-                found_s3 = s3.get('found', [])
-                found_azure = azure.get('found', [])
-                found_gcp = gcp.get('found', [])
-
-                total_cloud = len(found_s3) + len(found_azure) + len(found_gcp)
-
-                if total_cloud > 0:
-                    public_s3 = [b for b in found_s3 if b['status'] == 'Public Read']
-                    public_azure = [s for s in found_azure if s['status'] == 'Public Read']
-                    public_gcp = [b for b in found_gcp if b['status'] == 'Public Read']
-                    total_public = len(public_s3) + len(public_azure) + len(public_gcp)
-
-                    f.write(f"Cloud storage enumeration discovered {total_cloud} storage resource(s):\n")
-                    f.write(f"- AWS S3: {len(found_s3)} ({len(public_s3)} public)\n")
-                    f.write(f"- Azure Storage: {len(found_azure)} ({len(public_azure)} public)\n")
-                    f.write(f"- GCP Storage: {len(found_gcp)} ({len(public_gcp)} public)\n\n")
-
-                    if total_public > 0:
-                        f.write(f"**{total_public} publicly accessible cloud storage resource(s) identified.**\n\n")
-                        f.write("Public cloud storage represents a critical data exposure risk. Unauthenticated access allows ")
-                        f.write("any internet user to view, and potentially download, sensitive organizational data.\n\n")
                     else:
-                        f.write("While cloud storage resources were discovered, all were properly configured with private access controls.\n\n")
-                else:
-                    f.write("No cloud storage resources were discovered during enumeration.\n\n")
+                        f.write("No IP ranges provided for ownership verification.\n\n")
 
-                # Network Enumeration Section
-                f.write("## Enumeration and Mapping\n\n")
-                scan = self.results.get('network_scan', {})
+                    # DNS Enumeration Section
+                    f.write("## Reconnaissance and OSINT\n\n")
+                    f.write("### Finding the External Footprint\n\n")
 
-                if scan:
-                    total_hosts = len(scan)
-                    total_ports = sum(len(ports) for ports in scan.values())
+                    dns = self.results.get('dns_enumeration', {})
+                    total = dns.get('total_discovered', 0)
+                    resolved_external = dns.get('resolved_external', {})
+                    resolved_internal = dns.get('resolved_internal', {})
+                    resolved_in_authorized_scope = dns.get('resolved_in_authorized_scope', {})
+                    resolved = dns.get('resolved', {})
 
-                    f.write(f"Network scanning revealed {total_hosts} live hosts with {total_ports} open ports.\n\n")
+                    f.write(f"DNS enumeration revealed {total} subdomains. ")
+                    if resolved_external or resolved_internal:
+                        f.write(f"Of these, {len(resolved_external)} resolve to external IPs and {len(resolved_internal)} resolve to internal IPs.")
+                        if resolved_in_authorized_scope:
+                            f.write(f" {len(resolved_in_authorized_scope)} of these resolve directly into the authorized IP scope.")
+                        f.write("\n\n")
+                    else:
+                        f.write(f"This mapped out what was reachable from the internet.\n\n")
 
-                    interesting_services = []
-                    for host, ports in scan.items():
-                        for port_num, port_info in ports.items():
-                            service = port_info.get('service', 'unknown')
-                            if any(keyword in service.lower() for keyword in ['vpn', 'ssh', 'rdp', 'http', 'ftp', 'smtp']):
-                                interesting_services.append(f"{host}:{port_num} ({service})")
+                    # Confirmed In-Scope Targets
+                    if resolved_in_authorized_scope:
+                        f.write("### Confirmed In-Scope Targets\n\n")
+                        f.write(f"Cross-referencing DNS enumeration results against the authorized IP ranges identified ")
+                        f.write(f"{len(resolved_in_authorized_scope)} subdomain(s) resolving directly into the in-scope network space. ")
+                        f.write(f"These represent the highest-priority targets for active testing.\n\n")
 
-                    if interesting_services:
-                        f.write("Most promising targets for further investigation:\n")
-                        for service in interesting_services[:10]:
-                            f.write(f"- {service}\n")
+                        for subdomain, data in sorted(resolved_in_authorized_scope.items()):
+                            ips_str = ', '.join(data['ips'])
+                            ranges_str = ', '.join(data['matched_ranges'])
+                            f.write(f"- {subdomain} -> {ips_str} (scope: {ranges_str})\n")
                         f.write("\n")
+
+                    # Use external resolved if available, fall back to resolved
+                    display_resolved = resolved_external if resolved_external else resolved
+                    if display_resolved:
+                        f.write("Additional external subdomains identified:\n")
+                        display_items = [(k, v) for k, v in sorted(display_resolved.items())
+                                        if k not in resolved_in_authorized_scope]
+                        for subdomain, ips in display_items[:10]:
+                            f.write(f"- {subdomain} ({', '.join(ips)})\n")
+                        f.write("\n")
+
+                    # Internal DNS Information Disclosure
+                    if resolved_internal:
+                        f.write("### Internal DNS Information Disclosure\n\n")
+                        f.write(f"**Finding:** {len(resolved_internal)} internal hostnames exposed in public DNS.\n\n")
+                        f.write("During DNS enumeration, multiple subdomains were discovered that resolve to private ")
+                        f.write("RFC 1918 IP addresses (10.x.x.x, 172.16-31.x.x, 192.168.x.x). This constitutes an ")
+                        f.write("information disclosure vulnerability as it reveals:\n\n")
+                        f.write("- Internal network addressing scheme\n")
+                        f.write("- Internal hostname naming conventions\n")
+                        f.write("- Potential internal services and their purposes\n\n")
+                        f.write("**Affected Systems (sample):**\n\n")
+                        for subdomain in sorted(resolved_internal.keys())[:15]:
+                            ips = resolved_internal[subdomain]
+                            f.write(f"- {subdomain} -> {', '.join(ips)}\n")
+                        if len(resolved_internal) > 15:
+                            f.write(f"- ... and {len(resolved_internal) - 15} more\n")
+                        f.write("\n")
+                        f.write("**Recommendation:** Implement split-horizon DNS to prevent internal records from being ")
+                        f.write("served to external queries, or remove internal records from public DNS zones entirely.\n\n")
+
+                    # M365/Azure AD Tenant Attribution
+                    m365 = self.results.get('m365_tenant', {})
+                    if m365 and m365.get('is_m365'):
+                        f.write("### M365/Azure AD Tenant Attribution\n\n")
+                        brand = m365.get('federation_brand') or self.client_name
+                        namespace = m365.get('namespace_type', 'Unknown')
+
+                        f.write(f"Cloud identity reconnaissance confirmed the target operates a Microsoft 365 / Azure AD ")
+                        f.write(f"tenant. The tenant was attributed through publicly accessible Microsoft authentication ")
+                        f.write(f"endpoints which disclose tenant identifiers, brand information, and federation posture.\n\n")
+
+                        f.write(f"- Tenant ID: {m365.get('tenant_id', 'Unknown')}\n")
+                        if m365.get('tenant_region'):
+                            f.write(f"- Tenant Region: {m365['tenant_region']}\n")
+                        f.write(f"- Federation Brand: {brand}\n")
+                        f.write(f"- Namespace Type: {namespace}\n")
+                        if m365.get('cloud_instance'):
+                            f.write(f"- Cloud Instance: {m365['cloud_instance']}\n")
+                        f.write("\n")
+
+                        if namespace == 'Federated':
+                            f.write("The tenant is configured for federated authentication, indicating an on-premises ")
+                            f.write("identity provider (typically ADFS) handles user authentication. ")
+                            if m365.get('federation_host'):
+                                f.write(f"The federation endpoint resides at {m365['federation_host']}. ")
+                            f.write("Federated tenants present additional external attack surface through the on-premises ")
+                            f.write("IdP, which becomes a primary target for credential attacks, version-specific ")
+                            f.write("vulnerabilities, and authentication bypass research.\n\n")
+                        elif namespace == 'Managed':
+                            f.write("The tenant uses cloud-native managed authentication. The primary external ")
+                            f.write("authentication surface is the M365 sign-in endpoint, which becomes the target ")
+                            f.write("for password spray attacks, valid-user enumeration, and conditional access ")
+                            f.write("policy assessment.\n\n")
+
+                    # Email Security Posture Narrative
+                    email_sec = self.results.get('email_security', {})
+                    if email_sec:
+                        f.write("### Email Authentication Posture (SPF/DKIM/DMARC)\n\n")
+
+                        spf = email_sec.get('spf', {})
+                        dmarc = email_sec.get('dmarc', {})
+                        dkim = email_sec.get('dkim', {})
+                        severity = email_sec.get('overall_severity', 'Unknown')
+
+                        f.write(f"Email authentication posture assessment evaluated the domain's SPF, DKIM, and DMARC configuration. ")
+                        f.write(f"Overall severity is rated **{severity}** based on the findings identified below. ")
+                        f.write(f"Weaknesses in email authentication directly impact the organization's exposure to phishing campaigns ")
+                        f.write(f"using its own domain.\n\n")
+
+                        # SPF narrative
+                        f.write("#### SPF Configuration\n\n")
+                        if not spf.get('present'):
+                            f.write("The domain has no SPF record published. Without SPF, any internet sender can claim to originate ")
+                            f.write("mail from this domain. Receivers have no authorization data to validate against, and anti-spoofing ")
+                            f.write("protection is entirely absent.\n\n")
+                        else:
+                            qualifier = spf.get('qualifier', 'unknown')
+                            if qualifier == '-all':
+                                f.write(f"SPF is properly configured with the -all qualifier, instructing receivers to reject mail ")
+                                f.write(f"from unauthorized sources. The record performs {spf.get('dns_lookup_count', 0)} DNS lookups ")
+                                f.write(f"out of the RFC-mandated 10-lookup limit.\n\n")
+                            elif qualifier == '~all':
+                                f.write(f"SPF is configured with the ~all (soft fail) qualifier. Mail from unauthorized sources is ")
+                                f.write(f"flagged as suspicious but typically still delivered. Hardening to -all (hard fail) is recommended ")
+                                f.write(f"once the existing SPF deployment is validated to be complete.\n\n")
+                            elif qualifier == '?all':
+                                f.write(f"SPF is configured with the ?all (neutral) qualifier, which provides no enforcement guidance ")
+                                f.write(f"to receivers. Mail from unauthorized sources is treated identically to legitimate mail. ")
+                                f.write(f"The protection is effectively absent.\n\n")
+                            elif qualifier == '+all':
+                                f.write(f"SPF is configured with +all, instructing receivers to accept mail from any source as ")
+                                f.write(f"legitimate. This is a critical misconfiguration that completely defeats SPF and explicitly ")
+                                f.write(f"authorizes domain spoofing.\n\n")
+
+                            if spf.get('dns_lookup_count', 0) > 10:
+                                f.write(f"The SPF record performs {spf['dns_lookup_count']} DNS lookups, exceeding the RFC 7208 limit ")
+                                f.write(f"of 10. Receiving servers will return a permerror and SPF validation fails entirely, ")
+                                f.write(f"effectively disabling SPF enforcement regardless of the qualifier configuration.\n\n")
+
+                        # DMARC narrative
+                        f.write("#### DMARC Configuration\n\n")
+                        if not dmarc.get('present'):
+                            f.write("The domain has no DMARC record published. Without DMARC, receivers have no enforcement policy ")
+                            f.write("for handling messages that fail SPF or DKIM authentication. Messages failing authentication may ")
+                            f.write("still be delivered, and the organization has no visibility into authentication failures across ")
+                            f.write("the mail ecosystem.\n\n")
+                        else:
+                            policy = dmarc.get('policy', 'unknown')
+                            if policy == 'reject':
+                                f.write(f"DMARC is configured with p=reject, the strongest enforcement policy. Mail failing ")
+                                f.write(f"authentication is rejected at the receiver. ")
+                            elif policy == 'quarantine':
+                                f.write(f"DMARC is configured with p=quarantine. Mail failing authentication is delivered to the ")
+                                f.write(f"recipient's spam folder rather than rejected outright. ")
+                            elif policy == 'none':
+                                f.write(f"DMARC is configured with p=none, a monitor-only posture. The domain receives DMARC reports ")
+                                f.write(f"but no enforcement action is taken on failing mail. This is a transitional configuration ")
+                                f.write(f"and does not provide spoofing protection. ")
+
+                            pct = dmarc.get('pct', '100')
+                            try:
+                                pct_val = int(pct)
+                                if pct_val < 100 and policy in ('quarantine', 'reject'):
+                                    f.write(f"However, pct={pct_val} means only {pct_val}% of failing mail is subject to the policy. ")
+                                    f.write(f"The remaining {100 - pct_val}% bypasses enforcement entirely. ")
+                            except ValueError:
+                                pass
+
+                            rua = dmarc.get('rua', [])
+                            if rua:
+                                f.write(f"Aggregate reports are sent to {', '.join(rua)}. ")
+                            else:
+                                f.write(f"No aggregate reporting addresses are configured, limiting visibility into authentication ")
+                                f.write(f"failures and spoofing attempts. ")
+
+                            f.write("\n\n")
+
+                        # DKIM narrative
+                        f.write("#### DKIM Configuration\n\n")
+                        if not dkim.get('selectors_found'):
+                            f.write(f"Probing common DKIM selector names did not return any active DKIM records. The domain may not ")
+                            f.write(f"sign outbound mail with DKIM, or may use non-standard selector names not covered by the probe set. ")
+                            f.write(f"Without DKIM, recipients cannot cryptographically verify that mail content originated from an ")
+                            f.write(f"authorized sender and has not been modified in transit.\n\n")
+                        else:
+                            selectors = dkim.get('selectors_found', [])
+                            f.write(f"Active DKIM selectors were identified: {', '.join(selectors)}. ")
+
+                            weak_keys = [s for s, data in dkim.get('records', {}).items()
+                                        if isinstance(data.get('key_length'), int) and data['key_length'] <= 1024]
+                            if weak_keys:
+                                f.write(f"\n\nThe following selectors use 1024-bit or weaker keys: {', '.join(weak_keys)}. ")
+                                f.write(f"NIST and RFC 8301 recommend 2048-bit RSA keys as the minimum for DKIM signing. ")
+                                f.write(f"Weaker keys should be rotated to stronger keys as part of DKIM hardening.\n\n")
+                            else:
+                                f.write("All identified selectors use 2048-bit or stronger keys, meeting current cryptographic recommendations.\n\n")
+
+                    # ADFS Endpoint Discovery
+                    adfs = self.results.get('adfs', {})
+                    hosts_probed = adfs.get('hosts_probed', [])
+                    reachable_hosts = [h for h in hosts_probed if h.get('reachable')]
+
+                    if reachable_hosts:
+                        f.write("### ADFS Identity Provider Reconnaissance\n\n")
+                        version_info = adfs.get('version_info', {})
+
+                        f.write(f"ADFS endpoint reconnaissance against the federated identity provider revealed ")
+                        f.write(f"the version, supported authentication protocols, and federation metadata. This ")
+                        f.write(f"information establishes the attack surface for the on-premises identity provider.\n\n")
+
+                        if version_info.get('adfs_version'):
+                            f.write(f"The deployed ADFS version was identified as {version_info['adfs_version']}")
+                            if version_info.get('build_number'):
+                                f.write(f" (build {version_info['build_number']})")
+                            f.write(". ")
+
+                        protocols = set()
+                        for host_data in reachable_hosts:
+                            for endpoint_data in host_data.get('endpoints', {}).values():
+                                if endpoint_data.get('supported_protocols'):
+                                    protocols.update(endpoint_data['supported_protocols'])
+                                if endpoint_data.get('ws_trust_supported'):
+                                    protocols.add('WS-Trust MEX')
+                                if endpoint_data.get('oauth2_supported'):
+                                    protocols.add('OAuth2')
+
+                        if protocols:
+                            f.write(f"Supported federation protocols include: {', '.join(sorted(protocols))}. ")
+
+                        fed_metadata = adfs.get('federation_metadata', {})
+                        if fed_metadata.get('entity_id'):
+                            f.write(f"The federation entity identifier was disclosed as {fed_metadata['entity_id']}. ")
+
+                        f.write("\n\n")
+                        f.write("ADFS version disclosure provides the input for vulnerability analysis against the ")
+                        f.write("identity provider. The on-premises IdP is a high-value target as compromise can lead ")
+                        f.write("to credential capture, golden SAML attacks, or authentication bypass affecting all ")
+                        f.write("federated cloud services. Current vendor advisories should be reviewed against the ")
+                        f.write("identified version before active testing.\n\n")
+
+                    # Subdomain Takeover
+                    takeovers = self.results.get('subdomain_takeovers', [])
+                    if takeovers:
+                        f.write("### Subdomain Takeover Vulnerabilities\n\n")
+                        f.write(f"Analysis identified {len(takeovers)} subdomain(s) potentially vulnerable to takeover attacks:\n\n")
+                        for vuln in takeovers:
+                            f.write(f"- {vuln['subdomain']} - Points to unclaimed {vuln['service']} resource\n")
+                        f.write("\n")
+                        f.write("Subdomain takeover allows attackers to host malicious content on the organization's domain, ")
+                        f.write("enabling phishing campaigns, malware distribution, or reputation damage. These subdomains should be ")
+                        f.write("either claimed by the organization or removed from DNS records.\n\n")
+
+                    # Technology Stack Section
+                    f.write("### Understanding the Technology Stack\n\n")
+                    tech = self.results.get('technology_stack', {})
+
+                    if tech:
+                        f.write("Public sources and SSL certificates revealed the organization uses:\n")
+                        all_tech = set()
+                        all_servers = set()
+
+                        for domain, info in tech.items():
+                            if info.get('server'):
+                                all_servers.add(info['server'])
+                            if info.get('detected_technologies'):
+                                all_tech.update(info['detected_technologies'])
+
+                        if all_servers:
+                            f.write(f"- Web Servers: {', '.join(all_servers)}\n")
+                        if all_tech:
+                            f.write(f"- Technologies: {', '.join(all_tech)}\n")
+                        f.write("\n")
+
+                        # Remote access appliance narrative
+                        appliance_hosts = {h: info for h, info in tech.items() if info.get('vpn_appliance')}
+                        if appliance_hosts:
+                            f.write("### Remote Access Appliance Identification\n\n")
+                            f.write(f"Technology fingerprinting identified {len(appliance_hosts)} remote access appliance(s) ")
+                            f.write("exposed to the internet. These appliances handle VPN, remote desktop, or federated ")
+                            f.write("authentication and represent high-value targets given the heavy CVE history on this class of devices.\n\n")
+
+                            for host, info in sorted(appliance_hosts.items()):
+                                appliance = info['vpn_appliance']
+                                version_part = f" version {appliance['version']}" if appliance['version'] != 'Unknown' else ""
+                                port_part = f" on port {appliance['discovered_on_port']}" if appliance.get('discovered_on_port') else ""
+                                f.write(f"- {host} - {appliance['class']}{version_part}{port_part}\n")
+                            f.write("\n")
+                            f.write("Identified appliance versions should be cross-referenced against current vendor advisories. ")
+                            f.write("Common high-yield CVE classes on these devices include pre-authentication remote code execution, ")
+                            f.write("authentication bypass, and path traversal vulnerabilities.\n\n")
+
+                        # Alternate port services narrative
+                        alt_port_count = 0
+                        alt_port_hosts_summary = []
+                        for h, info in tech.items():
+                            services = info.get('services_by_port', {})
+                            alt_services = {p: s for p, s in services.items() if p not in ('80', '443')}
+                            if alt_services:
+                                alt_port_count += 1
+                                ports_list = sorted([int(p) for p in alt_services.keys()])
+                                alt_port_hosts_summary.append((h, ports_list))
+
+                        if alt_port_hosts_summary:
+                            f.write("### Services on Alternate HTTP Ports\n\n")
+                            f.write(f"Probing across common alternate HTTP/HTTPS ports identified {alt_port_count} host(s) ")
+                            f.write("running services outside the standard 80/443 ports. Services on these ports frequently ")
+                            f.write("host administrative interfaces, development environments, or internal applications that ")
+                            f.write("were intended for restricted access but became externally reachable.\n\n")
+
+                            for host, ports in sorted(alt_port_hosts_summary)[:15]:
+                                f.write(f"- {host} - port(s) {', '.join(str(p) for p in ports)}\n")
+                            if len(alt_port_hosts_summary) > 15:
+                                f.write(f"- ... and {len(alt_port_hosts_summary) - 15} more\n")
+                            f.write("\n")
+                            f.write("Each identified alternate-port service should be reviewed during testing for default ")
+                            f.write("credentials, exposed management functions, and unauthenticated access to sensitive ")
+                            f.write("application functionality.\n\n")
+
+                    # LinkedIn Intelligence
+                    f.write("### Employee Enumeration via LinkedIn\n\n")
+                    linkedin = self.results.get('linkedin_intel', {})
+                    employees = linkedin.get('employees', [])
+
+                    if employees:
+                        f.write(f"LinkedIn reconnaissance identified {len(employees)} employee accounts associated with the organization.\n\n")
+                        f.write("This intelligence enables targeted phishing campaigns and password spraying attacks against valid accounts.\n\n")
+                    else:
+                        f.write("Limited employee information was gathered through public LinkedIn sources.\n\n")
+
+                    # Email Addresses Section
+                    f.write("### Identifying Valid User Accounts\n\n")
+                    emails = self.results.get('email_addresses', [])
+
+                    if emails:
+                        f.write(f"Public sources revealed {len(emails)} email addresses:\n\n")
+                        for email in emails[:10]:
+                            f.write(f"- {email}\n")
+                        if len(emails) > 10:
+                            f.write(f"- ... and {len(emails) - 10} more\n")
+                        f.write("\n")
+                    else:
+                        f.write("No email addresses were discovered through passive reconnaissance.\n\n")
+
+                    # Breach Data Section
+                    f.write("### Searching for Compromised Credentials\n\n")
+                    breaches = self.results.get('breach_data', {})
+
+                    if breaches:
+                        f.write(f"Breach databases were checked for client email addresses. {len(breaches)} accounts were found with exposed passwords:\n\n")
+                        for email, breach_list in list(breaches.items())[:5]:
+                            f.write(f"- {email} - Found in: {', '.join(breach_list[:3])}\n")
+                        f.write("\n")
+                        f.write("These credentials became immediate testing priorities as users frequently reuse passwords across work and personal accounts.\n\n")
+                    else:
+                        f.write("No exposed credentials were found in available breach databases.\n\n")
+
+                    # GitHub Secret Scanning
+                    f.write("### GitHub Secret Exposure\n\n")
+                    github = self.results.get('github_secrets', {})
+
+                    if github.get('total_secrets_found', 0) > 0:
+                        repos = github.get('repositories', [])
+                        issues = github.get('issues', [])
+                        commits = github.get('commits', [])
+
+                        f.write(f"GitHub scanning identified {github['total_secrets_found']} potential secrets across {len(repos)} repositories, ")
+                        f.write(f"{len(issues)} issues, and {len(commits)} commits.\n\n")
+
+                        if repos:
+                            f.write("Repositories containing sensitive data:\n")
+                            for repo in repos[:5]:
+                                f.write(f"- {repo['repository']}/{repo['file_path']}\n")
+                            f.write("\n")
+
+                        f.write("Exposed secrets in public repositories represent critical security vulnerabilities, potentially providing ")
+                        f.write("direct access to infrastructure, databases, and third-party services.\n\n")
+                    else:
+                        f.write("No secrets were discovered in public GitHub repositories associated with the organization.\n\n")
+
+                    # ASN Enumeration
+                    f.write("### Network Infrastructure (ASN Enumeration)\n\n")
+                    asn_data = self.results.get('asn_data', {})
+
+                    asns = asn_data.get('asn_numbers', [])
+                    ip_ranges = asn_data.get('ip_ranges', [])
+
+                    if asns:
+                        f.write(f"ASN enumeration identified {len(asns)} autonomous system(s) associated with the organization:\n\n")
+                        for asn in asns:
+                            f.write(f"- AS{asn['asn']} - {asn['owner']}\n")
+                        f.write("\n")
+
+                    if ip_ranges:
+                        in_scope = [r for r in ip_ranges if r.get('in_scope') or r.get('contains_discovered_ips')]
+                        out_scope = [r for r in ip_ranges if not r.get('in_scope') and not r.get('contains_discovered_ips')]
+
+                        f.write(f"Total IP ranges discovered: {len(ip_ranges)}\n")
+                        f.write(f"- Ranges within authorized scope: {len(in_scope)}\n")
+                        f.write(f"- Ranges outside authorized scope: {len(out_scope)}\n\n")
+
+                        if out_scope:
+                            f.write("Additional IP ranges were identified that belong to the organization but fall outside the authorized testing scope. ")
+                            f.write("These ranges were documented but not tested.\n\n")
+
+                    # Cloud Storage Enumeration Section
+                    f.write("### Cloud Storage Enumeration\n\n")
+
+                    s3 = self.results.get('s3_buckets', {})
+                    azure = self.results.get('azure_storage', {})
+                    gcp = self.results.get('gcp_storage', {})
+
+                    found_s3 = s3.get('found', [])
+                    found_azure = azure.get('found', [])
+                    found_gcp = gcp.get('found', [])
+
+                    total_cloud = len(found_s3) + len(found_azure) + len(found_gcp)
+
+                    if total_cloud > 0:
+                        public_s3 = [b for b in found_s3 if b['status'] == 'Public Read']
+                        public_azure = [s for s in found_azure if s['status'] == 'Public Read']
+                        public_gcp = [b for b in found_gcp if b['status'] == 'Public Read']
+                        total_public = len(public_s3) + len(public_azure) + len(public_gcp)
+
+                        f.write(f"Cloud storage enumeration discovered {total_cloud} storage resource(s):\n")
+                        f.write(f"- AWS S3: {len(found_s3)} ({len(public_s3)} public)\n")
+                        f.write(f"- Azure Storage: {len(found_azure)} ({len(public_azure)} public)\n")
+                        f.write(f"- GCP Storage: {len(found_gcp)} ({len(public_gcp)} public)\n\n")
+
+                        if total_public > 0:
+                            f.write(f"**{total_public} publicly accessible cloud storage resource(s) identified.**\n\n")
+                            f.write("Public cloud storage represents a critical data exposure risk. Unauthenticated access allows ")
+                            f.write("any internet user to view, and potentially download, sensitive organizational data.\n\n")
+                        else:
+                            f.write("While cloud storage resources were discovered, all were properly configured with private access controls.\n\n")
+                    else:
+                        f.write("No cloud storage resources were discovered during enumeration.\n\n")
+
+                    # Network Enumeration Section
+                    f.write("## Enumeration and Mapping\n\n")
+                    scan = self.results.get('network_scan', {})
+
+                    if scan:
+                        total_hosts = len(scan)
+                        total_ports = sum(len(ports) for ports in scan.values())
+
+                        f.write(f"Network scanning revealed {total_hosts} live hosts with {total_ports} open ports.\n\n")
+
+                        interesting_services = []
+                        for host, ports in scan.items():
+                            for port_num, port_info in ports.items():
+                                service = port_info.get('service', 'unknown')
+                                if any(keyword in service.lower() for keyword in ['vpn', 'ssh', 'rdp', 'http', 'ftp', 'smtp']):
+                                    interesting_services.append(f"{host}:{port_num} ({service})")
+
+                        if interesting_services:
+                            f.write("Most promising targets for further investigation:\n")
+                            for service in interesting_services[:10]:
+                                f.write(f"- {service}\n")
+                            f.write("\n")
 
     def run_all(self):
-                """Run all reconnaissance modules with state tracking"""
-                self.print_banner()
+                    """Run all reconnaissance modules with state tracking"""
+                    self.print_banner()
 
-                # Prompt for API keys at startup (only if not resuming with keys already set)
-                if not self.state['session'].get('api_keys_prompted'):
-                    self.prompt_for_api_keys()
-                    self.state['session']['api_keys_prompted'] = True
-                    self.save_state()
+                    # Prompt for API keys at startup (only if not resuming with keys already set)
+                    if not self.state['session'].get('api_keys_prompted'):
+                        self.prompt_for_api_keys()
+                        self.state['session']['api_keys_prompted'] = True
+                        self.save_state()
 
-                try:
-                    # Phase 1: Basic reconnaissance
-                    if self.should_run_module('scope_validation'):
-                        self.mark_module_status('scope_validation', 'in_progress')
-                        try:
-                            self.scope_validation()
-                            self.mark_module_status('scope_validation', 'complete')
-                        except Exception as e:
-                            self.mark_module_status('scope_validation', 'failed', str(e))
-                            self.print_error(f"scope_validation failed: {e}")
-
-                    if self.should_run_module('m365_tenant'):
-                        if not self.args.skip_m365:
-                            self.mark_module_status('m365_tenant', 'in_progress')
+                    try:
+                        # Phase 1: Basic reconnaissance
+                        if self.should_run_module('scope_validation'):
+                            self.mark_module_status('scope_validation', 'in_progress')
                             try:
-                                self.m365_tenant_attribution()
-                                self.mark_module_status('m365_tenant', 'complete')
+                                self.scope_validation()
+                                self.mark_module_status('scope_validation', 'complete')
                             except Exception as e:
-                                self.mark_module_status('m365_tenant', 'failed', str(e))
-                                self.print_error(f"m365_tenant failed: {e}")
-                        else:
-                            self.mark_module_status('m365_tenant', 'skipped')
+                                self.mark_module_status('scope_validation', 'failed', str(e))
+                                self.print_error(f"scope_validation failed: {e}")
 
-                    if self.should_run_module('adfs'):
-                        if not self.args.skip_adfs:
-                            self.mark_module_status('adfs', 'in_progress')
+                        if self.should_run_module('m365_tenant'):
+                            if not self.args.skip_m365:
+                                self.mark_module_status('m365_tenant', 'in_progress')
+                                try:
+                                    self.m365_tenant_attribution()
+                                    self.mark_module_status('m365_tenant', 'complete')
+                                except Exception as e:
+                                    self.mark_module_status('m365_tenant', 'failed', str(e))
+                                    self.print_error(f"m365_tenant failed: {e}")
+                            else:
+                                self.mark_module_status('m365_tenant', 'skipped')
+
+                        if self.should_run_module('adfs'):
+                            if not self.args.skip_adfs:
+                                self.mark_module_status('adfs', 'in_progress')
+                                try:
+                                    self.adfs_endpoint_discovery()
+                                    self.mark_module_status('adfs', 'complete')
+                                except Exception as e:
+                                    self.mark_module_status('adfs', 'failed', str(e))
+                                    self.print_error(f"adfs failed: {e}")
+                            else:
+                                self.mark_module_status('adfs', 'skipped')
+
+                        if self.should_run_module('email_security'):
+                            if not self.args.skip_email_security:
+                                self.mark_module_status('email_security', 'in_progress')
+                                try:
+                                    self.email_security_posture()
+                                    self.mark_module_status('email_security', 'complete')
+                                except Exception as e:
+                                    self.mark_module_status('email_security', 'failed', str(e))
+                                    self.print_error(f"email_security failed: {e}")
+                            else:
+                                self.mark_module_status('email_security', 'skipped')
+
+                        if self.should_run_module('dns_enumeration'):
+                            self.mark_module_status('dns_enumeration', 'in_progress')
                             try:
-                                self.adfs_endpoint_discovery()
-                                self.mark_module_status('adfs', 'complete')
+                                self.dns_enumeration()
+                                self.mark_module_status('dns_enumeration', 'complete')
                             except Exception as e:
-                                self.mark_module_status('adfs', 'failed', str(e))
-                                self.print_error(f"adfs failed: {e}")
-                        else:
-                            self.mark_module_status('adfs', 'skipped')
+                                self.mark_module_status('dns_enumeration', 'failed', str(e))
+                                self.print_error(f"dns_enumeration failed: {e}")
 
-                    if self.should_run_module('dns_enumeration'):
-                        self.mark_module_status('dns_enumeration', 'in_progress')
-                        try:
-                            self.dns_enumeration()
-                            self.mark_module_status('dns_enumeration', 'complete')
-                        except Exception as e:
-                            self.mark_module_status('dns_enumeration', 'failed', str(e))
-                            self.print_error(f"dns_enumeration failed: {e}")
-
-                    # Phase 1.5: Post-DNS WHOIS lookup (when no IP ranges provided)
-                    if not self.ip_ranges and self.should_run_module('post_dns_whois'):
-                        self.mark_module_status('post_dns_whois', 'in_progress')
-                        try:
-                            self.post_dns_whois_lookup()
-                            self.mark_module_status('post_dns_whois', 'complete')
-                        except Exception as e:
-                            self.mark_module_status('post_dns_whois', 'failed', str(e))
-                            self.print_error(f"post_dns_whois failed: {e}")
-
-                    if self.should_run_module('technology_stack'):
-                        self.mark_module_status('technology_stack', 'in_progress')
-                        try:
-                            self.technology_stack_identification()
-                            self.mark_module_status('technology_stack', 'complete')
-                        except Exception as e:
-                            self.mark_module_status('technology_stack', 'failed', str(e))
-                            self.print_error(f"technology_stack failed: {e}")
-
-                    # Phase 2: OSINT and intelligence gathering
-                    # Email harvesting MUST run before LinkedIn to detect email format
-                    if self.should_run_module('email_harvesting'):
-                        self.mark_module_status('email_harvesting', 'in_progress')
-                        try:
-                            self.email_harvesting()
-                            self.mark_module_status('email_harvesting', 'complete')
-                        except Exception as e:
-                            self.mark_module_status('email_harvesting', 'failed', str(e))
-                            self.print_error(f"email_harvesting failed: {e}")
-
-                    # LinkedIn enumeration runs after email harvesting
-                    if self.should_run_module('linkedin_enumeration'):
-                        if self.config.get('linkedin_cookies'):
-                            self.mark_module_status('linkedin_enumeration', 'in_progress')
+                        # Phase 1.5: Post-DNS WHOIS lookup (when no IP ranges provided)
+                        if not self.ip_ranges and self.should_run_module('post_dns_whois'):
+                            self.mark_module_status('post_dns_whois', 'in_progress')
                             try:
-                                self.linkedin_enumeration()
-                                self.mark_module_status('linkedin_enumeration', 'complete')
+                                self.post_dns_whois_lookup()
+                                self.mark_module_status('post_dns_whois', 'complete')
                             except Exception as e:
-                                self.mark_module_status('linkedin_enumeration', 'failed', str(e))
-                                self.print_error(f"linkedin_enumeration failed: {e}")
-                        else:
-                            self.print_info("Skipping LinkedIn enumeration (no cookies provided)")
-                            self.mark_module_status('linkedin_enumeration', 'skipped')
+                                self.mark_module_status('post_dns_whois', 'failed', str(e))
+                                self.print_error(f"post_dns_whois failed: {e}")
 
-                    if self.should_run_module('breach_database_check'):
-                        if not self.args.skip_breach_check:
-                            self.mark_module_status('breach_database_check', 'in_progress')
+                        if self.should_run_module('technology_stack'):
+                            self.mark_module_status('technology_stack', 'in_progress')
                             try:
-                                self.breach_database_check()
-                                self.mark_module_status('breach_database_check', 'complete')
+                                self.technology_stack_identification()
+                                self.mark_module_status('technology_stack', 'complete')
                             except Exception as e:
-                                self.mark_module_status('breach_database_check', 'failed', str(e))
-                                self.print_error(f"breach_database_check failed: {e}")
-                        else:
-                            self.mark_module_status('breach_database_check', 'skipped')
+                                self.mark_module_status('technology_stack', 'failed', str(e))
+                                self.print_error(f"technology_stack failed: {e}")
 
-                    # Phase 3: Advanced enumeration
-                    if self.should_run_module('github_secret_scanning'):
-                        if not self.args.skip_github:
-                            self.mark_module_status('github_secret_scanning', 'in_progress')
+                        # Phase 2: OSINT and intelligence gathering
+                        # Email harvesting MUST run before LinkedIn to detect email format
+                        if self.should_run_module('email_harvesting'):
+                            self.mark_module_status('email_harvesting', 'in_progress')
                             try:
-                                self.github_secret_scanning()
-                                self.mark_module_status('github_secret_scanning', 'complete')
+                                self.email_harvesting()
+                                self.mark_module_status('email_harvesting', 'complete')
                             except Exception as e:
-                                self.mark_module_status('github_secret_scanning', 'failed', str(e))
-                                self.print_error(f"github_secret_scanning failed: {e}")
-                        else:
-                            self.mark_module_status('github_secret_scanning', 'skipped')
+                                self.mark_module_status('email_harvesting', 'failed', str(e))
+                                self.print_error(f"email_harvesting failed: {e}")
 
-                    if self.should_run_module('asn_enumeration'):
-                        if not self.args.skip_asn:
-                            self.mark_module_status('asn_enumeration', 'in_progress')
-                            try:
-                                self.asn_enumeration()
-                                self.mark_module_status('asn_enumeration', 'complete')
-                            except Exception as e:
-                                self.mark_module_status('asn_enumeration', 'failed', str(e))
-                                self.print_error(f"asn_enumeration failed: {e}")
-                        else:
-                            self.mark_module_status('asn_enumeration', 'skipped')
+                        # LinkedIn enumeration runs after email harvesting
+                        if self.should_run_module('linkedin_enumeration'):
+                            if self.config.get('linkedin_cookies'):
+                                self.mark_module_status('linkedin_enumeration', 'in_progress')
+                                try:
+                                    self.linkedin_enumeration()
+                                    self.mark_module_status('linkedin_enumeration', 'complete')
+                                except Exception as e:
+                                    self.mark_module_status('linkedin_enumeration', 'failed', str(e))
+                                    self.print_error(f"linkedin_enumeration failed: {e}")
+                            else:
+                                self.print_info("Skipping LinkedIn enumeration (no cookies provided)")
+                                self.mark_module_status('linkedin_enumeration', 'skipped')
 
-                    if self.should_run_module('subdomain_takeover_detection'):
-                        if not self.args.skip_subdomain_takeover:
-                            self.mark_module_status('subdomain_takeover_detection', 'in_progress')
-                            try:
-                                self.subdomain_takeover_detection()
-                                self.mark_module_status('subdomain_takeover_detection', 'complete')
-                            except Exception as e:
-                                self.mark_module_status('subdomain_takeover_detection', 'failed', str(e))
-                                self.print_error(f"subdomain_takeover_detection failed: {e}")
-                        else:
-                            self.mark_module_status('subdomain_takeover_detection', 'skipped')
+                        if self.should_run_module('breach_database_check'):
+                            if not self.args.skip_breach_check:
+                                self.mark_module_status('breach_database_check', 'in_progress')
+                                try:
+                                    self.breach_database_check()
+                                    self.mark_module_status('breach_database_check', 'complete')
+                                except Exception as e:
+                                    self.mark_module_status('breach_database_check', 'failed', str(e))
+                                    self.print_error(f"breach_database_check failed: {e}")
+                            else:
+                                self.mark_module_status('breach_database_check', 'skipped')
 
-                    # Phase 4: Cloud storage enumeration
-                    if self.should_run_module('s3_bucket_enumeration'):
-                        if not self.args.skip_s3:
-                            self.mark_module_status('s3_bucket_enumeration', 'in_progress')
-                            try:
-                                self.s3_bucket_enumeration()
-                                self.mark_module_status('s3_bucket_enumeration', 'complete')
-                            except Exception as e:
-                                self.mark_module_status('s3_bucket_enumeration', 'failed', str(e))
-                                self.print_error(f"s3_bucket_enumeration failed: {e}")
-                        else:
-                            self.mark_module_status('s3_bucket_enumeration', 'skipped')
+                        # Phase 3: Advanced enumeration
+                        if self.should_run_module('github_secret_scanning'):
+                            if not self.args.skip_github:
+                                self.mark_module_status('github_secret_scanning', 'in_progress')
+                                try:
+                                    self.github_secret_scanning()
+                                    self.mark_module_status('github_secret_scanning', 'complete')
+                                except Exception as e:
+                                    self.mark_module_status('github_secret_scanning', 'failed', str(e))
+                                    self.print_error(f"github_secret_scanning failed: {e}")
+                            else:
+                                self.mark_module_status('github_secret_scanning', 'skipped')
 
-                    if self.should_run_module('azure_storage_enumeration'):
-                        if not self.args.skip_azure:
-                            self.mark_module_status('azure_storage_enumeration', 'in_progress')
-                            try:
-                                self.azure_storage_enumeration()
-                                self.mark_module_status('azure_storage_enumeration', 'complete')
-                            except Exception as e:
-                                self.mark_module_status('azure_storage_enumeration', 'failed', str(e))
-                                self.print_error(f"azure_storage_enumeration failed: {e}")
-                        else:
-                            self.mark_module_status('azure_storage_enumeration', 'skipped')
+                        if self.should_run_module('asn_enumeration'):
+                            if not self.args.skip_asn:
+                                self.mark_module_status('asn_enumeration', 'in_progress')
+                                try:
+                                    self.asn_enumeration()
+                                    self.mark_module_status('asn_enumeration', 'complete')
+                                except Exception as e:
+                                    self.mark_module_status('asn_enumeration', 'failed', str(e))
+                                    self.print_error(f"asn_enumeration failed: {e}")
+                            else:
+                                self.mark_module_status('asn_enumeration', 'skipped')
 
-                    if self.should_run_module('gcp_storage_enumeration'):
-                        if not self.args.skip_gcp:
-                            self.mark_module_status('gcp_storage_enumeration', 'in_progress')
-                            try:
-                                self.gcp_storage_enumeration()
-                                self.mark_module_status('gcp_storage_enumeration', 'complete')
-                            except Exception as e:
-                                self.mark_module_status('gcp_storage_enumeration', 'failed', str(e))
-                                self.print_error(f"gcp_storage_enumeration failed: {e}")
-                        else:
-                            self.mark_module_status('gcp_storage_enumeration', 'skipped')
+                        if self.should_run_module('subdomain_takeover_detection'):
+                            if not self.args.skip_subdomain_takeover:
+                                self.mark_module_status('subdomain_takeover_detection', 'in_progress')
+                                try:
+                                    self.subdomain_takeover_detection()
+                                    self.mark_module_status('subdomain_takeover_detection', 'complete')
+                                except Exception as e:
+                                    self.mark_module_status('subdomain_takeover_detection', 'failed', str(e))
+                                    self.print_error(f"subdomain_takeover_detection failed: {e}")
+                            else:
+                                self.mark_module_status('subdomain_takeover_detection', 'skipped')
 
-                    # Phase 5: Network enumeration (if IP ranges provided)
-                    if self.should_run_module('network_enumeration'):
-                        if self.ip_ranges and not self.args.skip_scan:
-                            self.mark_module_status('network_enumeration', 'in_progress')
-                            try:
-                                self.network_enumeration()
-                                self.mark_module_status('network_enumeration', 'complete')
-                            except Exception as e:
-                                self.mark_module_status('network_enumeration', 'failed', str(e))
-                                self.print_error(f"network_enumeration failed: {e}")
-                        else:
-                            self.mark_module_status('network_enumeration', 'skipped')
+                        # Phase 4: Cloud storage enumeration
+                        if self.should_run_module('s3_bucket_enumeration'):
+                            if not self.args.skip_s3:
+                                self.mark_module_status('s3_bucket_enumeration', 'in_progress')
+                                try:
+                                    self.s3_bucket_enumeration()
+                                    self.mark_module_status('s3_bucket_enumeration', 'complete')
+                                except Exception as e:
+                                    self.mark_module_status('s3_bucket_enumeration', 'failed', str(e))
+                                    self.print_error(f"s3_bucket_enumeration failed: {e}")
+                            else:
+                                self.mark_module_status('s3_bucket_enumeration', 'skipped')
 
-                    # Phase 6: Generate reports
-                    self.generate_report()
+                        if self.should_run_module('azure_storage_enumeration'):
+                            if not self.args.skip_azure:
+                                self.mark_module_status('azure_storage_enumeration', 'in_progress')
+                                try:
+                                    self.azure_storage_enumeration()
+                                    self.mark_module_status('azure_storage_enumeration', 'complete')
+                                except Exception as e:
+                                    self.mark_module_status('azure_storage_enumeration', 'failed', str(e))
+                                    self.print_error(f"azure_storage_enumeration failed: {e}")
+                            else:
+                                self.mark_module_status('azure_storage_enumeration', 'skipped')
 
-                    # Mark session as complete
-                    self.state['session']['completed'] = True
-                    self.state['session']['completed_at'] = datetime.now().isoformat()
-                    self.save_state()
+                        if self.should_run_module('gcp_storage_enumeration'):
+                            if not self.args.skip_gcp:
+                                self.mark_module_status('gcp_storage_enumeration', 'in_progress')
+                                try:
+                                    self.gcp_storage_enumeration()
+                                    self.mark_module_status('gcp_storage_enumeration', 'complete')
+                                except Exception as e:
+                                    self.mark_module_status('gcp_storage_enumeration', 'failed', str(e))
+                                    self.print_error(f"gcp_storage_enumeration failed: {e}")
+                            else:
+                                self.mark_module_status('gcp_storage_enumeration', 'skipped')
 
-                    self.print_section("RECONNAISSANCE COMPLETE")
-                    self.print_success(f"All results saved to: {self.output_dir}")
+                        # Phase 5: Network enumeration (if IP ranges provided)
+                        if self.should_run_module('network_enumeration'):
+                            if self.ip_ranges and not self.args.skip_scan:
+                                self.mark_module_status('network_enumeration', 'in_progress')
+                                try:
+                                    self.network_enumeration()
+                                    self.mark_module_status('network_enumeration', 'complete')
+                                except Exception as e:
+                                    self.mark_module_status('network_enumeration', 'failed', str(e))
+                                    self.print_error(f"network_enumeration failed: {e}")
+                            else:
+                                self.mark_module_status('network_enumeration', 'skipped')
 
-                    # Show summary of module statuses
-                    self._print_final_summary()
+                        # Phase 6: Generate reports
+                        self.generate_report()
 
-                except KeyboardInterrupt:
-                    # Signal handler will take care of saving state
-                    pass
-                except Exception as e:
-                    self.print_error(f"Error during reconnaissance: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    self.save_state()
+                        # Mark session as complete
+                        self.state['session']['completed'] = True
+                        self.state['session']['completed_at'] = datetime.now().isoformat()
+                        self.save_state()
+
+                        self.print_section("RECONNAISSANCE COMPLETE")
+                        self.print_success(f"All results saved to: {self.output_dir}")
+
+                        # Show summary of module statuses
+                        self._print_final_summary()
+
+                    except KeyboardInterrupt:
+                        # Signal handler will take care of saving state
+                        pass
+                    except Exception as e:
+                        self.print_error(f"Error during reconnaissance: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        self.save_state()
 
     def _print_final_summary(self):
         """Print summary of all module statuses"""
@@ -7396,6 +8050,7 @@ Examples:
     python3 quick_recon.py -d example.com -c "Acme Corp" --email-only
     python3 quick_recon.py -d example.com -c "Acme Corp" --m365-only
     python3 quick_recon.py -d example.com -c "Acme Corp" --adfs-only
+    python3 quick_recon.py -d example.com -c "Acme Corp" --email-security-only
 
   LinkedIn delay modes (avoid rate limits):
     python3 quick_recon.py -d example.com -c "Acme Corp" --linkedin-only --linkedin-mode paranoid
@@ -7429,6 +8084,7 @@ Examples:
     parser.add_argument('--skip-subdomain-takeover', action='store_true', help='Skip subdomain takeover detection')
     parser.add_argument('--skip-m365', action='store_true', help='Skip M365/Azure AD tenant attribution')
     parser.add_argument('--skip-adfs', action='store_true', help='Skip ADFS endpoint discovery')
+    parser.add_argument('--skip-email-security', action='store_true', help='Skip email security posture check (SPF/DKIM/DMARC)')
     parser.add_argument('--skip-osint', action='store_true', help='Skip all OSINT modules (GitHub, LinkedIn)')
     parser.add_argument('--linkedin-max-results', type=int, default=100, help='Maximum LinkedIn employee results to fetch (default: 100)')
     parser.add_argument('--linkedin-mode', choices=['fast', 'normal', 'paranoid'], default='normal', help='LinkedIn delay mode: fast (testing only, high lockout risk), normal (default, human-like delays), paranoid (slower, for sensitive engagements)')
@@ -7448,6 +8104,7 @@ Examples:
     parser.add_argument('--techstack-only', action='store_true', help='Run only technology stack identification')
     parser.add_argument('--m365-only', action='store_true', help='Run only M365 tenant attribution')
     parser.add_argument('--adfs-only', action='store_true', help='Run only ADFS endpoint discovery (runs M365 first)')
+    parser.add_argument('--email-security-only', action='store_true', help='Run only email security posture check')
 
     args = parser.parse_args()
 
@@ -7457,12 +8114,10 @@ Examples:
 
     # Set output directory based on client name if not specified
     if not args.output:
-        # Sanitize client name for use as directory name
         safe_client_name = re.sub(r'[^\w\s-]', '', args.client).strip().replace(' ', '_')
         args.output = f"./{safe_client_name}_recon"
 
     # Check for any --X-only mode BEFORE processing IP ranges
-    # Format: 'arg_name': ('display_name', 'method_name', 'result_key')
     only_modes = {
         'linkedin_only': ('LinkedIn enumeration', 'linkedin_enumeration', 'linkedin_intel'),
         'github_only': ('GitHub secret scanning', 'github_secret_scanning', 'github_secrets'),
@@ -7477,6 +8132,7 @@ Examples:
         'techstack_only': ('Technology stack identification', 'technology_stack_identification', 'technology_stack'),
         'm365_only': ('M365 tenant attribution', 'm365_tenant_attribution', 'm365_tenant'),
         'adfs_only': ('ADFS endpoint discovery', 'adfs_endpoint_discovery', 'adfs'),
+        'email_security_only': ('Email security posture check', 'email_security_posture', 'email_security'),
     }
 
     active_only_mode = None
@@ -7498,7 +8154,7 @@ Examples:
             auto_resume=args.resume
         )
 
-        # Store args reference so modules can access flags like linkedin_mode, deep_crawl
+        # Store args reference so modules can access flags
         recon.args = args
 
         # LinkedIn has its own run method with cookie prompting
@@ -7573,7 +8229,6 @@ Examples:
             with open(args.file, 'r') as f:
                 for line in f:
                     line = line.strip()
-                    # Skip empty lines and comments
                     if line and not line.startswith('#'):
                         ip_ranges.append(line)
             print(f"{Colors.OKGREEN}[+] Loaded {len([r for r in ip_ranges if r not in (args.ip_ranges or [])])} IP ranges from {args.file}{Colors.ENDC}")
