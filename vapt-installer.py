@@ -194,7 +194,7 @@ def install_base_dependencies():
     run_command("sudo apt install -y docker.io docker-compose hcxtools httrack tshark git python-is-python3 tig tftpd-hpa libimage-exiftool-perl wkhtmltopdf")
     run_command("sudo apt install -y libffi-dev libyaml-dev libreadline-dev libncurses5-dev libgdbm-dev zlib1g-dev build-essential bison libedit-dev libxml2-utils")
     run_command("sudo apt install -y automake libtool pkg-config libnl-3-dev libnl-genl-3-dev ethtool shtool rfkill libpcre3-dev libhwloc-dev libcmocka-dev hostapd")
-    run_command("sudo apt install -y wpasupplicant tcpdump iw usbutils python3-dnspython")
+    run_command("sudo apt install -y wpasupplicant tcpdump iw usbutils python3-dnspython squid")
     run_command("sudo usermod -aG docker $USER")
     run_command("sudo snap install powershell --classic")
     #Adding these in for the eventual move to Ubuntu 24+
