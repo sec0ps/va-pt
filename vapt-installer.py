@@ -121,6 +121,7 @@ def cleanup_old_directories():
     old_powershell_dir = "/vapt/powershell"
     old_findshares_dir = "/vapt/scanners/FindUncommonShares"
     old_grecon_dir = "/vapt/intel/GRecon"
+    old_arachni_dir = "/vapt/web/arachni"
 
     if os.path.exists(old_powershell_dir):
         print("Cleaning up old powershell directory...")
@@ -149,6 +150,12 @@ def cleanup_old_directories():
         print("Cleaning up old GRecon directory...")
         run_command(f"rm -rf {old_grecon_dir}")
         print("Old GRecon directory removed.")
+
+    @ Cleanup Arachni if it exists
+    if os.path.exists(old_arachni_dir):
+        print("Cleaning up deprecated Arachni directory...")
+        run_command(f"rm -rf {old_arachni_dir}")
+        print("Old Arachni directory removed.")
 
 def check_and_install(repo_url, install_dir, setup_commands=None):
     """Clone the repo if it doesn't exist and run optional setup commands."""
@@ -187,7 +194,7 @@ def install_base_dependencies():
     run_command("sudo apt install -y docker.io docker-compose hcxtools httrack tshark git python-is-python3 tig tftpd-hpa libimage-exiftool-perl wkhtmltopdf")
     run_command("sudo apt install -y libffi-dev libyaml-dev libreadline-dev libncurses5-dev libgdbm-dev zlib1g-dev build-essential bison libedit-dev libxml2-utils")
     run_command("sudo apt install -y automake libtool pkg-config libnl-3-dev libnl-genl-3-dev ethtool shtool rfkill libpcre3-dev libhwloc-dev libcmocka-dev hostapd")
-    run_command("sudo apt install -y wpasupplicant tcpdump iw usbutils python3-dnspython squid")
+    run_command("sudo apt install -y wpasupplicant tcpdump iw usbutils python3-dnspython")
     run_command("sudo usermod -aG docker $USER")
     run_command("sudo snap install powershell --classic")
     #Adding these in for the eventual move to Ubuntu 24+
@@ -424,17 +431,6 @@ def install_toolkit_packages():
         run_command("cd /vapt/web && tar xvf ZAP_2.17.0_Linux.tar.gz")
         run_command("cd /vapt/web && rm -rf ZAP_2.17.0_Linux.tar.gz")
         run_command("cd /vapt/web && mv ZAP_2.17.0/ zap/")
-
-    # Arachni installation
-    arachni_dir = "/vapt/web/arachni"
-    if os.path.exists(arachni_dir):
-        print("Arachni already installed, skipping.")
-    else:
-        print("Installing Arachni")
-        run_command("cd /vapt/web && wget https://github.com/Arachni/arachni/releases/download/v1.6.1.3/arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz")
-        run_command("cd /vapt/web && tar xvf arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz")
-        run_command("cd /vapt/web && mv arachni-1.6.1.3-0.6.1.1/ arachni/")
-        run_command("cd /vapt/web && rm -rf arachni-1.6.1.3-0.6.1.1-linux-x86_64.tar.gz")
 
     # Vulnerability scanner tools
     vulnerability_scanners = [
