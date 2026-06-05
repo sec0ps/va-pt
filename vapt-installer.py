@@ -38,15 +38,26 @@ import os
 import subprocess
 import sys
 import re
+import datetime
+
+LOG_PATH = "/vapt/install_failures.log"
 
 def run_command(command):
-    """Execute a command in the shell, and continue even if an error occurs."""
-    try:
-        subprocess.run(command, shell=True, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"\033[91mError occurred while executing: {command}\033[0m")
-        print(f"\033[91mError details: {e}\033[0m")
-        print("Continuing with the next command...\n")
+    """Execute a command, suppressing output. On failure, log captured
+    stdout/stderr to LOG_PATH for later review. Returns True on success."""
+    result = subprocess.run(command, shell=True, capture_output=True, text=True)
+    if result.returncode != 0:
+        with open(LOG_PATH, 'a') as f:
+            f.write(f"\n{'=' * 70}\n")
+            f.write(f"{datetime.datetime.now().isoformat()}\n")
+            f.write(f"COMMAND: {command}\n")
+            f.write(f"EXIT CODE: {result.returncode}\n")
+            if result.stdout.strip():
+                f.write(f"--- STDOUT ---\n{result.stdout}\n")
+            if result.stderr.strip():
+                f.write(f"--- STDERR ---\n{result.stderr}\n")
+        return False
+    return True
 
 def filter_uninstalled_apt(packages):
     """Return only the apt packages not already installed (status 'installed')."""
@@ -175,7 +186,7 @@ def cleanup_old_directories():
         run_command(f"rm -rf {old_grecon_dir}")
         print("Old GRecon directory removed.")
 
-    @ Cleanup Arachni if it exists
+    # Cleanup Arachni if it exists
     if os.path.exists(old_arachni_dir):
         print("Cleaning up deprecated Arachni directory...")
         run_command(f"rm -rf {old_arachni_dir}")
@@ -444,7 +455,7 @@ def install_toolkit_packages():
 
     # Wireless Signal Analysis tools
     wireless_tools = [
-        # QtTinySA – spectrum analyzer frontend
+        # QtTinySA spectrum analyzer frontend
         (
             "https://github.com/g4ixt/QtTinySA.git",
             "/vapt/wireless/QtTinySA",
@@ -458,7 +469,7 @@ def install_toolkit_packages():
             ["sudo python3 setup.py install"]
         ),
 
-        # Aircrack-ng – wireless attack & analysis suite (source build)
+        # Aircrack-ng wireless attack and analysis suite (source build)
         (
             "https://download.aircrack-ng.org/aircrack-ng-1.7.tar.gz",
             "/vapt/wireless/aircrack-ng-1.7",
@@ -516,6 +527,8 @@ def install_toolkit_packages():
         check_and_install(*tool)
 
     print("Toolkit packages installation complete.")
+    if os.path.exists(LOG_PATH):
+        print(f"Some steps logged errors. Review: {LOG_PATH}")
 
 def update_toolsets():
     """Update all toolsets by performing a git pull in each directory."""
@@ -662,5 +675,9 @@ if __name__ == "__main__":
         print("This script should not be run as root..", file=sys.stderr)
         sys.exit(1)
 
+    if os.path.exists(LOG_PATH):
+        os.remove(LOG_PATH)
+
     display_logo()
     main_menu()
+
