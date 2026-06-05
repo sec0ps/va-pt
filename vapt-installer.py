@@ -345,11 +345,16 @@ def install_base_dependencies():
         print("CPANminus is already installed, skipping installation.")
 
     # Perl CPAN modules
-    run_command("sudo cpanm Cisco::CopyConfig && sudo cpanm Net::Netmask")
-    run_command("sudo cpanm XML::Writer && sudo cpanm String::Random")
-    run_command("sudo cpanm Net::IP && sudo cpanm Net::DNS")
+    cpan_modules = [
+        "Cisco::CopyConfig", "Net::Netmask", "XML::Writer",
+        "String::Random", "Net::IP", "Net::DNS"
+    ]
+    for module in cpan_modules:
+        print(f"Installing Perl module {module}...")
+        run_command(f"sudo cpanm {module}")
 
     # Set up firewall rules
+    print("Configuring firewall rules...")
     run_command("sudo ufw default deny incoming")
     run_command("sudo ufw default allow outgoing")
     run_command("sudo ufw allow 22/tcp")
