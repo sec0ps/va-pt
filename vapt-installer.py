@@ -83,6 +83,18 @@ def filter_uninstalled_pip(packages):
     return [pkg for pkg in packages
             if re.sub(r"[-_.]+", "-", pkg).lower() not in installed]
 
+def filter_uninstalled_cpan(modules):
+    """Return only the Perl modules that don't already load."""
+    missing = []
+    for module in modules:
+        result = subprocess.run(
+            f"perl -M{module} -e 1",
+            shell=True, capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            missing.append(module)
+    return missing
+
 def display_logo():
     RED = "\033[91m"
     RESET = "\033[0m"
@@ -360,13 +372,17 @@ def install_base_dependencies():
         print("CPANminus is already installed, skipping installation.")
 
     # Perl CPAN modules
-    cpan_modules = [
-        "Cisco::CopyConfig", "Net::Netmask", "XML::Writer",
-        "String::Random", "Net::IP", "Net::DNS"
-    ]
-    for module in cpan_modules:
-        print(f"Installing Perl module {module}...")
-        run_command(f"sudo cpanm {module}")
+        cpan_modules = [
+            "Cisco::CopyConfig", "Net::Netmask", "XML::Writer",
+            "String::Random", "Net::IP", "Net::DNS"
+        ]
+        missing_cpan = filter_uninstalled_cpan(cpan_modules)
+        if missing_cpan:
+            for module in missing_cpan:
+                print(f"Installing Perl module {module}...")
+                run_command(f"sudo cpanm {module}")
+        else:
+            print("All Perl modules already installed, skipping.")
 
     # Set up firewall rules (idempotent; --force avoids the interactive y/n prompt)
     print("Configuring firewall rules...")
