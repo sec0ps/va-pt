@@ -85,9 +85,8 @@ def filter_uninstalled_pip(packages):
 
 def display_logo():
     RED = "\033[91m"
-    WHITE = "\033[97m"
     RESET = "\033[0m"
-    SPLIT_COL = 49  # column dividing "RED" (left, red) from "CELL" (right, white) in the wordmark
+    SPLIT_COL = 49  # column dividing "RED" (left, red) from "CELL" (right, default fg) in the wordmark
 
     logo_ascii = """
                                  #                              #
@@ -129,10 +128,11 @@ def display_logo():
         if not line.strip():
             print(line)
         elif "Vulnerability" in line:
-            print(f"{WHITE}{line}{RESET}")
+            # subtitle: default foreground, readable on any background
+            print(line)
         elif (len(line) - len(line.lstrip())) < 15:
-            # wordmark line: RED on the left, CELL on the right
-            print(f"{RED}{line[:SPLIT_COL]}{WHITE}{line[SPLIT_COL:]}{RESET}")
+            # wordmark line: RED red, CELL in default foreground
+            print(f"{RED}{line[:SPLIT_COL]}{RESET}{line[SPLIT_COL:]}{RESET}")
         else:
             # emblem (winged shield)
             print(f"{RED}{line}{RESET}")
