@@ -8,7 +8,7 @@
 # Email: keith@redcellsecurity.org
 # Website: www.redcellsecurity.org
 #
-# Copyright (c) 2026 Keith Pachulski. All rights reserved.
+# Copyright (c) 2025 Keith Pachulski. All rights reserved.
 #
 # License: This software is licensed under the MIT License.
 #          You are free to use, modify, and distribute this software
@@ -146,11 +146,14 @@ def detect_format(file_path):
     return None
 
 
-def find_scanner_files(directory):
+def find_scanner_files(directory, include_reports=False):
     """
     Scan the working directory (top level only, no recursion) for scanner output
-    and completed penetration test reports.
-    Returns a list of (Path, scanner_type) tuples.
+    and optionally completed penetration test reports.
+
+    Returns a list of (Path, scanner_type) tuples. DOCX report files are only
+    included when include_reports=True, since DOCX files in a working directory
+    may be unrelated to the engagement (SOWs, notes, prior reports).
     """
     results = []
     for entry in sorted(Path(directory).iterdir()):
@@ -159,8 +162,11 @@ def find_scanner_files(directory):
         if entry.suffix.lower() not in ['.nessus', '.xml', '.docx']:
             continue
         scanner_type = detect_format(entry)
-        if scanner_type:
-            results.append((entry, scanner_type))
+        if not scanner_type:
+            continue
+        if scanner_type == 'report' and not include_reports:
+            continue
+        results.append((entry, scanner_type))
     return results
 
 
@@ -1176,14 +1182,14 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Scan current working directory and generate DOCX report
+  # Scan current working directory and generate DOCX report from scanner output
   python3 vapt_report_parser.py
 
-  # Generate DOCX and DefectDojo JSON
+  # Generate DOCX and DefectDojo JSON from scanner output
   python3 vapt_report_parser.py --json
 
-  # Generate JSON only with client name as test type
-  python3 vapt_report_parser.py --json --no-report --client "Acme Corp"
+  # Parse a completed penetration test report and export to DefectDojo
+  python3 vapt_report_parser.py --include-reports --json --client "Acme Corp"
 
   # Test mode - display first finding without writing files
   python3 vapt_report_parser.py --test
@@ -1204,6 +1210,9 @@ Examples:
     parser.add_argument('--client', default=None,
                         help='Client name used as DefectDojo test type. '
                              'Default test type: "VAPT Assessment"')
+    parser.add_argument('--include-reports', action='store_true',
+                        help='Include completed penetration test reports (.docx) as input. '
+                             'Off by default to avoid parsing unrelated DOCX files in the working directory.')
     parser.add_argument('--test', action='store_true',
                         help='Display first parsed finding and exit (no files written)')
 
@@ -1212,11 +1221,13 @@ Examples:
     working_dir = Path.cwd()
     print(f"[*] Working directory: {working_dir}")
 
-    scanner_files = find_scanner_files(working_dir)
+    scanner_files = find_scanner_files(working_dir, include_reports=args.include_reports)
 
     if not scanner_files:
         print("[!] No supported scanner files found in working directory")
-        print("    Expected: .nessus (Nessus), .xml (Burp/ZAP), .docx (report)")
+        print("    Expected: .nessus (Nessus), .xml (Burp/ZAP)")
+        if not args.include_reports:
+            print("    Pass --include-reports to also parse completed report DOCX files")
         sys.exit(1)
 
     by_type = {'nessus': [], 'burp': [], 'zap': [], 'report': []}
@@ -1265,7 +1276,15 @@ Examples:
         sys.exit(0)
 
     # DOCX report generation
-    if not args.no_report:
+    # Auto-skip if the only inputs were completed reports - regenerating a DOCX
+    # from a report's own findings produces a less complete copy of the input.
+    only_reports = all(stype == 'report' for _, stype in scanner_files)
+
+    if args.no_report:
+        print("\n[*] DOCX report generation skipped (--no-report)")
+    elif only_reports:
+        print("\n[*] DOCX report generation skipped (input is report-only; use --json for DefectDojo export)")
+    else:
         if args.output:
             output_path = Path(args.output)
             if not output_path.is_absolute():
@@ -1280,8 +1299,6 @@ Examples:
         else:
             print("[!] Report generation failed")
             sys.exit(1)
-    else:
-        print("\n[*] DOCX report generation skipped (--no-report)")
 
     # DefectDojo JSON export
     if args.json is not None:
