@@ -48,6 +48,30 @@ def run_command(command):
         print(f"\033[91mError details: {e}\033[0m")
         print("Continuing with the next command...\n")
 
+def filter_uninstalled_apt(packages):
+    """Return only the apt packages not already installed (status 'installed')."""
+    result = subprocess.run(
+        "dpkg-query -W -f='${Package} ${Status}\n'",
+        shell=True, capture_output=True, text=True
+    )
+    installed = set()
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and parts[3] == "installed":
+            installed.add(parts[0])
+    return [pkg for pkg in packages if pkg not in installed]
+
+def filter_uninstalled_pip(packages):
+    """Return only the pip packages not already installed (PEP 503 normalized)."""
+    import importlib.metadata
+    installed = {
+        re.sub(r"[-_.]+", "-", dist.metadata["Name"]).lower()
+        for dist in importlib.metadata.distributions()
+        if dist.metadata["Name"]
+    }
+    return [pkg for pkg in packages
+            if re.sub(r"[-_.]+", "-", pkg).lower() not in installed]
+
 def display_logo():
     logo_ascii = """
                                  #                              #
@@ -183,26 +207,55 @@ def install_wordlist_files():
         print("Weakpass dictionary already installed, skipping.")
 
 def install_base_dependencies():
-    print("Installing base toolkit dependencies...")
-    run_command("sudo apt update && sudo apt upgrade -y")
-    run_command("sudo apt install -y vim subversion landscape-common ufw openssh-server net-tools mlocate ntpdate screen whois libtool-bin")
-    run_command("sudo apt install -y make gcc ncftp rar p7zip-full curl libpcap-dev libssl-dev hping3 libssh-dev g++ arp-scan wifite ruby-bundler freerdp2-dev")
-    run_command("sudo apt install -y libsqlite3-dev nbtscan dsniff apache2 secure-delete autoconf libpq-dev libmysqlclient-dev libsvn-dev libssh-dev libsmbclient-dev")
-    run_command("sudo apt install -y libgcrypt-dev libbson-dev libmongoc-dev python3-pip netsniff-ng httptunnel ptunnel-ng udptunnel pipx python3-venv ruby-dev")
-    run_command("sudo apt install -y webhttrack minicom openjdk-21-jre gnome-tweaks macchanger recordmydesktop postgresql golang-1.23-go hydra-gtk hydra")
-    run_command("sudo apt install -y ncftp wine-development libcurl4-openssl-dev smbclient hackrf nfs-common samba gpsd snmp libsnmp-dev libsnmp-perl snmp-mibs-downloader")
-    run_command("sudo apt install -y docker.io docker-compose hcxtools httrack tshark git python-is-python3 tig tftpd-hpa libimage-exiftool-perl wkhtmltopdf")
-    run_command("sudo apt install -y libffi-dev libyaml-dev libreadline-dev libncurses5-dev libgdbm-dev zlib1g-dev build-essential bison libedit-dev libxml2-utils")
-    run_command("sudo apt install -y automake libtool pkg-config libnl-3-dev libnl-genl-3-dev ethtool shtool rfkill libpcre3-dev libhwloc-dev libcmocka-dev hostapd")
-    run_command("sudo apt install -y wpasupplicant tcpdump iw usbutils python3-dnspython squid")
+    print("Performing system update and upgrade before installing package dependencies...")
+    run_command("sudo apt-get update -qq && sudo apt-get upgrade -y -qq")
+
+    apt_packages = [
+        "vim", "subversion", "landscape-common", "ufw", "openssh-server", "net-tools",
+        "mlocate", "ntpdate", "screen", "whois", "libtool-bin", "make", "gcc", "ncftp",
+        "rar", "p7zip-full", "curl", "libpcap-dev", "libssl-dev", "hping3", "libssh-dev",
+        "g++", "arp-scan", "wifite", "ruby-bundler", "freerdp2-dev", "libsqlite3-dev",
+        "nbtscan", "dsniff", "apache2", "secure-delete", "autoconf", "libpq-dev",
+        "libmysqlclient-dev", "libsvn-dev", "libsmbclient-dev", "libgcrypt-dev",
+        "libbson-dev", "libmongoc-dev", "python3-pip", "netsniff-ng", "httptunnel",
+        "ptunnel-ng", "udptunnel", "pipx", "python3-venv", "ruby-dev", "webhttrack",
+        "minicom", "openjdk-21-jre", "gnome-tweaks", "macchanger", "recordmydesktop",
+        "postgresql", "golang-1.23-go", "hydra-gtk", "hydra", "wine-development",
+        "libcurl4-openssl-dev", "smbclient", "hackrf", "nfs-common", "samba", "gpsd",
+        "snmp", "libsnmp-dev", "libsnmp-perl", "snmp-mibs-downloader", "docker.io",
+        "docker-compose", "hcxtools", "httrack", "tshark", "git", "python-is-python3",
+        "tig", "tftpd-hpa", "libimage-exiftool-perl", "wkhtmltopdf", "libffi-dev",
+        "libyaml-dev", "libreadline-dev", "libncurses5-dev", "libgdbm-dev", "zlib1g-dev",
+        "build-essential", "bison", "libedit-dev", "libxml2-utils", "automake", "libtool",
+        "pkg-config", "libnl-3-dev", "libnl-genl-3-dev", "ethtool", "shtool", "rfkill",
+        "libpcre3-dev", "libhwloc-dev", "libcmocka-dev", "hostapd", "wpasupplicant",
+        "tcpdump", "iw", "usbutils", "python3-dnspython", "python3-aiofiles",
+        "python3-watchdog", "python3-pandas"
+    ]
+
+    missing_apt = filter_uninstalled_apt(apt_packages)
+    if missing_apt:
+        print(f"Installing {len(missing_apt)} missing apt packages...")
+        run_command(f"sudo apt install -y {' '.join(missing_apt)}")
+    else:
+        print("All apt packages already installed, skipping.")
+
     run_command("sudo usermod -aG docker $USER")
     run_command("sudo snap install powershell --classic")
-    #Adding these in for the eventual move to Ubuntu 24+
-    run_command("sudo apt install -y python3-aiofiles python3-watchdog python3-pandas")
 
     print("Installing Python Packages and Dependencies")
-    run_command("pip3 install build dnspython kerberoast certipy-ad knowsmore sherlock-project wafw00f pypykatz zeep netaddr ujson aiomultiprocess censys shodan")
-    run_command("pip3 install playwright uvloop easysnmp pysnmp tftpy dnspython aiohttp")
+    pip_packages = [
+        "build", "dnspython", "kerberoast", "certipy-ad", "knowsmore", "sherlock-project",
+        "wafw00f", "pypykatz", "zeep", "netaddr", "ujson", "aiomultiprocess", "censys",
+        "shodan", "playwright", "uvloop", "easysnmp", "pysnmp", "tftpy", "aiohttp"
+    ]
+
+    missing_pip = filter_uninstalled_pip(pip_packages)
+    if missing_pip:
+        print(f"Installing {len(missing_pip)} missing pip packages...")
+        run_command(f"pip3 install {' '.join(missing_pip)}")
+    else:
+        print("All pip packages already installed, skipping.")
 
     # Install each pipx package separately
     pipx_packages = ["urh", "scoutsuite", "checkov", "impacket", "dnsrecon"]
