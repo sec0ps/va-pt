@@ -318,12 +318,23 @@ def install_base_dependencies():
             print("Go environment configured. Changes will apply to new shells.")
             os.environ['PATH'] += f":/usr/lib/go-1.23/bin:{os.path.expanduser('~/go/bin')}"
 
-    # Install Rust and NetExec
-    print("Installing Rust and NetExec...")
-    run_command("curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y")
-    run_command('bash -c "source $HOME/.cargo/env"')
-    run_command("pipx ensurepath")
-    run_command("pipx install git+https://github.com/Pennyw0rth/NetExec")
+    # Install Rust (skip if already present)
+        cargo_bin = os.path.expanduser("~/.cargo/bin/rustc")
+        if os.path.exists(cargo_bin) or subprocess.run("command -v rustc", shell=True, capture_output=True, text=True).returncode == 0:
+            print("Rust already installed, skipping.")
+        else:
+            print("Installing Rust...")
+            run_command("curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y")
+            run_command('bash -c "source $HOME/.cargo/env"')
+
+        # Install NetExec (skip if already present)
+        netexec_check = subprocess.run("pipx list", shell=True, capture_output=True, text=True)
+        if "netexec" in netexec_check.stdout.lower():
+            print("NetExec already installed, skipping.")
+        else:
+            print("Installing NetExec...")
+            run_command("pipx ensurepath")
+            run_command("pipx install git+https://github.com/Pennyw0rth/NetExec")
 
     print("Checking Ruby version...")
 
@@ -720,5 +731,9 @@ if __name__ == "__main__":
         os.remove(LOG_PATH)
 
     display_logo()
-    main_menu()
+    try:
+        main_menu()
+    except KeyboardInterrupt:
+        print("\nInterrupted. Exiting...")
+        sys.exit(130)
 
