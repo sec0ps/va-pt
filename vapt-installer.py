@@ -245,6 +245,7 @@ def install_base_dependencies():
     ]
 
     missing_apt = filter_uninstalled_apt(apt_packages)
+    print(f"DEBUG missing apt: {missing_apt}")
     if missing_apt:
         print(f"Installing {len(missing_apt)} missing apt packages...")
         run_command(f"sudo apt install -y {' '.join(missing_apt)}")
