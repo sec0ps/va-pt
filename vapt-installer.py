@@ -84,6 +84,11 @@ def filter_uninstalled_pip(packages):
             if re.sub(r"[-_.]+", "-", pkg).lower() not in installed]
 
 def display_logo():
+    RED = "\033[91m"
+    WHITE = "\033[97m"
+    RESET = "\033[0m"
+    SPLIT_COL = 49  # column dividing "RED" (left, red) from "CELL" (right, white) in the wordmark
+
     logo_ascii = """
                                  #                              #
                                ###              #*#              ##
@@ -119,7 +124,18 @@ def display_logo():
 
                       Vulnerability Assessment and Penetration Testing Toolkit
     """
-    print(logo_ascii)
+
+    for line in logo_ascii.split("\n"):
+        if not line.strip():
+            print(line)
+        elif "Vulnerability" in line:
+            print(f"{WHITE}{line}{RESET}")
+        elif (len(line) - len(line.lstrip())) < 15:
+            # wordmark line: RED on the left, CELL on the right
+            print(f"{RED}{line[:SPLIT_COL]}{WHITE}{line[SPLIT_COL:]}{RESET}")
+        else:
+            # emblem (winged shield)
+            print(f"{RED}{line}{RESET}")
 
 def check_directory_structure():
     base_path = "/vapt"
