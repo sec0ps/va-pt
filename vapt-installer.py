@@ -201,8 +201,8 @@ def install_base_dependencies():
     run_command("sudo apt install -y python3-aiofiles python3-watchdog python3-pandas")
 
     print("Installing Python Packages and Dependencies")
-    run_command("pip3 install build dnspython kerberoast certipy-ad knowsmore sherlock-project wafw00f pypykatz zeep netaddr ujson aiomultiprocess aoihttp censys shodan")
-    run_command("pip3 install playwright uvloop easysnmp pysnmp tftpy dnspython")
+    run_command("pip3 install build dnspython kerberoast certipy-ad knowsmore sherlock-project wafw00f pypykatz zeep netaddr ujson aiomultiprocess censys shodan")
+    run_command("pip3 install playwright uvloop easysnmp pysnmp tftpy dnspython aoihttp")
 
     # Install each pipx package separately
     pipx_packages = ["urh", "scoutsuite", "checkov", "impacket", "dnsrecon"]
