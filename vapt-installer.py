@@ -243,7 +243,7 @@ def install_base_dependencies():
         "rar", "p7zip-full", "curl", "libpcap-dev", "libssl-dev", "hping3", "libssh-dev",
         "g++", "arp-scan", "wifite", "ruby-bundler", "freerdp2-dev", "libsqlite3-dev",
         "nbtscan", "dsniff", "apache2", "secure-delete", "autoconf", "libpq-dev",
-        "libmysqlclient-dev", "libsvn-dev", "libsmbclient-dev", "libgcrypt-dev",
+        "libmysqlclient-dev", "libsvn-dev", "libsmbclient-dev", "libgcrypt20-dev",
         "libbson-dev", "libmongoc-dev", "python3-pip", "netsniff-ng", "httptunnel",
         "ptunnel-ng", "udptunnel", "pipx", "python3-venv", "ruby-dev", "webhttrack",
         "minicom", "openjdk-21-jre", "gnome-tweaks", "macchanger", "recordmydesktop",
@@ -261,7 +261,6 @@ def install_base_dependencies():
     ]
 
     missing_apt = filter_uninstalled_apt(apt_packages)
-    print(f"DEBUG missing apt: {missing_apt}")
     if missing_apt:
         print(f"Installing {len(missing_apt)} missing apt packages...")
         run_command(f"sudo apt install -y {' '.join(missing_apt)}")
@@ -369,12 +368,16 @@ def install_base_dependencies():
         print(f"Installing Perl module {module}...")
         run_command(f"sudo cpanm {module}")
 
-    # Set up firewall rules
+    # Set up firewall rules (idempotent; --force avoids the interactive y/n prompt)
     print("Configuring firewall rules...")
-    run_command("sudo ufw default deny incoming")
-    run_command("sudo ufw default allow outgoing")
-    run_command("sudo ufw allow 22/tcp")
-    run_command("sudo ufw enable")
+    ufw_status = subprocess.run("sudo ufw status", shell=True, capture_output=True, text=True)
+    if "Status: active" in ufw_status.stdout and "22/tcp" in ufw_status.stdout:
+        print("Firewall already configured, skipping.")
+    else:
+        run_command("sudo ufw default deny incoming")
+        run_command("sudo ufw default allow outgoing")
+        run_command("sudo ufw allow 22/tcp")
+        run_command("sudo ufw --force enable")
 
     print("Base toolkit dependencies installed successfully.")
 
