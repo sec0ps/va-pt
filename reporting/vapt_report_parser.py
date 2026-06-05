@@ -15,9 +15,11 @@
 #          in accordance with the terms of the license.
 #
 # Purpose: Unified report parser that ingests Nessus, Burp Suite, and OWASP ZAP
-#          XML output from the working directory and generates a consolidated
-#          DOCX vulnerability assessment report. Supports Nessus file merging
-#          and produces output suitable for inclusion in formal client reports.
+#          XML output and completed penetration test reports (DOCX) from the
+#          working directory and generates a consolidated DOCX vulnerability
+#          assessment report and a DefectDojo Generic Findings Import JSON
+#          export. Supports Nessus file merging and produces output suitable
+#          for inclusion in formal client reports.
 #
 # DISCLAIMER: This software is provided "as-is," without warranty of any kind,
 #             express or implied, including but not limited to the warranties
@@ -37,22 +39,23 @@
 import os
 import re
 import sys
+import json
+import hashlib
 import argparse
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
+
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
-import json
-import hashlib
+from docx.table import Table as DocxTable
+from docx.text.paragraph import Paragraph as DocxParagraph
 
-# DefectDojo Generic Findings Import default test type name
-DEFAULT_TEST_TYPE_NAME = 'VAPT Assessment'
 
 # Severity ordering used in output. High/Medium/Low only - Informational is
 # dropped at parse time, Critical collapses into High.
@@ -85,12 +88,21 @@ ZAP_SEVERITY_MAP = {
     'Low': 'Low',
 }
 
+# DefectDojo Generic Findings Import default test type name
+DEFAULT_TEST_TYPE_NAME = 'VAPT Assessment'
+
+# Labels that mark field boundaries inside a finding in a formal report. Order
+# matters for the state machine: once a label is hit, all subsequent content
+# belongs to it until the next label, the next H3 (new finding), or the next
+# H1/H2 (section end).
+REPORT_FIELD_LABELS = ('description', 'recommendation', 'references', 'evidence')
+
 
 @dataclass
 class Finding:
     """Normalized finding representation used across all scanner types."""
-    scanner_type: str            # 'nessus' | 'burp' | 'zap'
-    scanner_id: str              # plugin_id for nessus, finding name for burp/zap
+    scanner_type: str            # 'nessus' | 'burp' | 'zap' | 'manual'
+    scanner_id: str              # plugin_id for nessus, finding name for others
     title: str
     severity: str                # 'High' | 'Medium' | 'Low'
     affected_systems: list = field(default_factory=list)
@@ -99,18 +111,26 @@ class Finding:
     references: list = field(default_factory=list)
     evidence_blocks: list = field(default_factory=list)  # [{'label': str, 'content': str}]
 
-    # Parsed but not rendered in DOCX. Retained for stage 2 (DefectDojo JSON export).
+    # Parsed but not rendered in DOCX. Retained for DefectDojo JSON export.
     cvss_score: str = ''
     cwe: str = ''
     cve: str = ''
     plugin_id: str = ''
 
 
+# ---------------------------------------------------------------------------
+# Format detection and file discovery
+# ---------------------------------------------------------------------------
+
 def detect_format(file_path):
     """
-    Sniff the first 2KB of a file to identify scanner type.
-    Returns 'nessus' | 'burp' | 'zap' | None.
+    Identify scanner output type. .docx files are checked by extension since
+    they're ZIP archives, not text-sniffable. XML files are sniffed.
+    Returns 'nessus' | 'burp' | 'zap' | 'report' | None.
     """
+    if file_path.suffix.lower() == '.docx':
+        return 'report'
+
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read(2048)
@@ -128,20 +148,25 @@ def detect_format(file_path):
 
 def find_scanner_files(directory):
     """
-    Scan the working directory (top level only, no recursion) for scanner output.
+    Scan the working directory (top level only, no recursion) for scanner output
+    and completed penetration test reports.
     Returns a list of (Path, scanner_type) tuples.
     """
     results = []
     for entry in sorted(Path(directory).iterdir()):
         if not entry.is_file():
             continue
-        if entry.suffix.lower() not in ['.nessus', '.xml']:
+        if entry.suffix.lower() not in ['.nessus', '.xml', '.docx']:
             continue
         scanner_type = detect_format(entry)
         if scanner_type:
             results.append((entry, scanner_type))
     return results
 
+
+# ---------------------------------------------------------------------------
+# Shared parsing helpers
+# ---------------------------------------------------------------------------
 
 def _extract_text(element, tag):
     """Safely extract text content from a named child element."""
@@ -170,6 +195,10 @@ def _extract_base_url(uri):
             base += f":{parsed.port}"
     return base
 
+
+# ---------------------------------------------------------------------------
+# Nessus adapter
+# ---------------------------------------------------------------------------
 
 def parse_nessus(file_path):
     """Parse a .nessus XML file and return a list of Finding objects."""
@@ -247,6 +276,10 @@ def parse_nessus(file_path):
 
     return findings
 
+
+# ---------------------------------------------------------------------------
+# Burp Suite adapter
+# ---------------------------------------------------------------------------
 
 def parse_burp(file_path):
     """Parse a Burp Suite XML report and return a list of Finding objects."""
@@ -335,6 +368,10 @@ def parse_burp(file_path):
     return findings
 
 
+# ---------------------------------------------------------------------------
+# OWASP ZAP adapter
+# ---------------------------------------------------------------------------
+
 def parse_zap(file_path):
     """Parse an OWASP ZAP XML report and return a list of Finding objects."""
     try:
@@ -416,11 +453,280 @@ def parse_zap(file_path):
 
     return findings
 
+
+# ---------------------------------------------------------------------------
+# Manual penetration test report (DOCX) adapter
+# ---------------------------------------------------------------------------
+
+def _iter_block_items(parent):
+    """
+    Yield paragraphs and tables in document order from a python-docx parent
+    (Document or _Cell). python-docx exposes paragraphs and tables as separate
+    lists, which loses ordering; this walks the underlying XML to preserve it.
+    """
+    from docx.document import Document as _Document
+    from docx.oxml.table import CT_Tbl
+    from docx.oxml.text.paragraph import CT_P
+    from docx.table import _Cell, Table
+    from docx.text.paragraph import Paragraph
+
+    if isinstance(parent, _Document):
+        parent_elm = parent.element.body
+    elif isinstance(parent, _Cell):
+        parent_elm = parent._tc
+    else:
+        parent_elm = parent
+
+    for child in parent_elm.iterchildren():
+        if isinstance(child, CT_P):
+            yield Paragraph(child, parent)
+        elif isinstance(child, CT_Tbl):
+            yield Table(child, parent)
+
+
+def _heading_level(paragraph):
+    """Return heading level as int (1, 2, 3, ...) or None if not a heading."""
+    style_name = paragraph.style.name if paragraph.style else ''
+    if not style_name.startswith('Heading '):
+        return None
+    try:
+        return int(style_name.replace('Heading ', '').strip())
+    except (ValueError, AttributeError):
+        return None
+
+
+def _paragraph_text(paragraph):
+    """
+    Extract paragraph text while stripping images and inline drawings. Images
+    are dropped silently. Other run content is preserved.
+    """
+    parts = []
+    for run in paragraph.runs:
+        if run.element.findall('.//' + qn('w:drawing')):
+            if not run.text:
+                continue
+        parts.append(run.text or '')
+    return ''.join(parts)
+
+
+def _is_bold_label(paragraph, label):
+    """
+    Check if a paragraph is a bold label matching the given text (case-insensitive,
+    colon-tolerant).
+    """
+    text = _paragraph_text(paragraph).strip().rstrip(':').strip().lower()
+    if text != label.lower():
+        return False
+    return any(run.bold for run in paragraph.runs)
+
+
+def _cell_text_lines(cell):
+    """Return a list of non-empty text lines from a table cell, one per paragraph."""
+    lines = []
+    for para in cell.paragraphs:
+        text = _paragraph_text(para).strip()
+        if text:
+            lines.append(text)
+    return lines
+
+
+def _split_affected_systems(cell):
+    """
+    Split a metadata-table affected-systems cell into individual entries.
+    Each paragraph in the cell is treated as one system entry, preserving any
+    inline annotation (e.g., 'https://example.com/path  (parameter: filter)').
+    """
+    systems = []
+    for line in _cell_text_lines(cell):
+        line = line.strip()
+        if line and line not in systems:
+            systems.append(line)
+    return systems
+
+
+def _parse_metadata_table(table):
+    """
+    Parse the per-finding metadata table.
+    Returns (severity_raw, affected_systems_list) or (None, []).
+    """
+    severity = None
+    affected = []
+
+    for row in table.rows:
+        if len(row.cells) < 2:
+            continue
+        label = _paragraph_text(row.cells[0].paragraphs[0]).strip().rstrip(':').strip().lower()
+
+        if label == 'severity':
+            sev_text = _paragraph_text(row.cells[1].paragraphs[0]).strip()
+            severity = sev_text
+        elif label in ('affected system(s)', 'affected systems', 'affected system'):
+            affected = _split_affected_systems(row.cells[1])
+
+    return severity, affected
+
+
+def _normalize_report_severity(raw):
+    """Normalize a free-text severity string to High/Medium/Low or None."""
+    if not raw:
+        return None
+    raw = raw.strip().lower()
+    if raw in ('critical', 'high'):
+        return 'High'
+    if raw == 'medium':
+        return 'Medium'
+    if raw == 'low':
+        return 'Low'
+    return None
+
+
+def parse_report(file_path):
+    """
+    Parse a finished penetration test report (DOCX) and return Finding objects.
+
+    Expects the formal report structure:
+        H1 'Detailed Findings'
+            H2 '<Severity> Severity Findings'
+                H3 '<Finding Title>'
+                    Metadata table (Severity, Affected System(s))
+                    Bold 'Description' -> prose
+                    Bold 'Recommendation' -> prose
+                    Bold 'References' -> bullets
+                    Bold 'Evidence' -> mixed content
+        H1 '<next section>' (terminates findings)
+    """
+    try:
+        doc = Document(str(file_path))
+    except Exception as e:
+        print(f"[!] Failed to open {file_path}: {e}")
+        return []
+
+    findings = []
+    blocks = list(_iter_block_items(doc))
+
+    # Locate the start of the findings section
+    start_idx = None
+    for idx, block in enumerate(blocks):
+        if not isinstance(block, DocxParagraph):
+            continue
+        if _heading_level(block) == 1:
+            heading_text = _paragraph_text(block).strip().lower()
+            if 'detailed findings' in heading_text:
+                start_idx = idx + 1
+                break
+
+    if start_idx is None:
+        print(f"[!] No 'Detailed Findings' section found in {file_path.name}")
+        return []
+
+    current_finding = None
+    current_field = None
+    field_buffers = {label: [] for label in REPORT_FIELD_LABELS}
+    field_references = []
+
+    def finalize_current():
+        if not current_finding:
+            return
+        description = '\n\n'.join(field_buffers['description']).strip()
+        recommendation = '\n\n'.join(field_buffers['recommendation']).strip()
+        evidence_text = '\n'.join(field_buffers['evidence']).rstrip()
+
+        current_finding.description = description
+        current_finding.recommendation = recommendation
+        current_finding.references = list(field_references)
+        if evidence_text:
+            current_finding.evidence_blocks = [{'label': '', 'content': evidence_text}]
+        findings.append(current_finding)
+
+    for block in blocks[start_idx:]:
+        # Table handling: a table immediately after an H3 is the metadata table
+        if isinstance(block, DocxTable):
+            if current_finding and current_field is None:
+                severity_raw, affected = _parse_metadata_table(block)
+                severity = _normalize_report_severity(severity_raw)
+                if severity:
+                    current_finding.severity = severity
+                if affected:
+                    current_finding.affected_systems = affected
+            continue
+
+        if not isinstance(block, DocxParagraph):
+            continue
+
+        level = _heading_level(block)
+        text = _paragraph_text(block).strip()
+
+        # H1 terminates the findings section
+        if level == 1:
+            finalize_current()
+            current_finding = None
+            current_field = None
+            field_buffers = {label: [] for label in REPORT_FIELD_LABELS}
+            field_references = []
+            break
+
+        # H2 is informational only; severity comes from the metadata table
+        if level == 2:
+            continue
+
+        # H3 starts a new finding
+        if level == 3:
+            finalize_current()
+            current_finding = Finding(
+                scanner_type='manual',
+                scanner_id=text,
+                title=text,
+                severity='',
+            )
+            current_field = None
+            field_buffers = {label: [] for label in REPORT_FIELD_LABELS}
+            field_references = []
+            continue
+
+        if current_finding is None:
+            continue
+
+        label_match = None
+        for label in REPORT_FIELD_LABELS:
+            if _is_bold_label(block, label):
+                label_match = label
+                break
+
+        if label_match:
+            current_field = label_match
+            continue
+
+        if current_field is None:
+            continue
+
+        if current_field == 'references':
+            if text:
+                field_references.append(text)
+        else:
+            # Evidence preserves blank lines for HTTP request/response readability
+            if text or current_field == 'evidence':
+                field_buffers[current_field].append(text)
+
+    # Flush trailing finding if document ended without another H1
+    finalize_current()
+
+    # Drop findings whose severity didn't normalize
+    valid_findings = [f for f in findings if f.severity in SEVERITY_ORDER]
+    dropped = len(findings) - len(valid_findings)
+    if dropped:
+        print(f"    Skipped {dropped} finding(s) with non-mapped severity")
+
+    return valid_findings
+
+
+# ---------------------------------------------------------------------------
+# Nessus XML merge
+# ---------------------------------------------------------------------------
+
 def merge_nessus_files(nessus_files, output_file):
     """
     Merge multiple .nessus files into a single output file.
     Uses the Policy from the first file and combines all ReportHost elements.
-    Returns True on success, False otherwise.
     """
     if not nessus_files:
         print("[!] No .nessus files to merge")
@@ -478,16 +784,14 @@ def merge_nessus_files(nessus_files, output_file):
         return False
 
 
+# ---------------------------------------------------------------------------
+# Aggregation and dispatch
+# ---------------------------------------------------------------------------
+
 def aggregate_findings(findings):
     """
     Deduplicate findings within each scanner type and merge affected systems
     across duplicates. Cross-scanner duplicates are preserved as separate findings.
-
-    Dedup key: (scanner_type, scanner_id)
-        - Nessus: scanner_id is plugin_id
-        - Burp/ZAP: scanner_id is finding name
-
-    Returns a list of deduplicated Finding objects.
     """
     deduped = {}
 
@@ -497,7 +801,6 @@ def aggregate_findings(findings):
             deduped[key] = finding
             continue
 
-        # Merge affected_systems from the duplicate into the existing finding.
         existing = deduped[key]
         for system in finding.affected_systems:
             if system not in existing.affected_systems:
@@ -509,9 +812,7 @@ def aggregate_findings(findings):
 def bucket_by_severity(findings):
     """
     Organize findings into severity buckets, sorted alphabetically by title
-    within each bucket.
-
-    Returns a dict: {'High': [...], 'Medium': [...], 'Low': [...]}.
+    within each bucket. Returns {'High': [...], 'Medium': [...], 'Low': [...]}.
     """
     buckets = {sev: [] for sev in SEVERITY_ORDER}
     for finding in findings:
@@ -532,6 +833,7 @@ def parse_all_files(scanner_files):
         'nessus': parse_nessus,
         'burp': parse_burp,
         'zap': parse_zap,
+        'report': parse_report,
     }
 
     for file_path, scanner_type in scanner_files:
@@ -544,6 +846,11 @@ def parse_all_files(scanner_files):
         all_findings.extend(file_findings)
 
     return all_findings
+
+
+# ---------------------------------------------------------------------------
+# DOCX report generator
+# ---------------------------------------------------------------------------
 
 def _set_cell_shading(paragraph, fill_color):
     """Apply background shading to a paragraph (used for evidence blocks)."""
@@ -579,29 +886,12 @@ def _add_evidence_block(doc, content):
 
 
 def generate_report(buckets, output_file):
-    """
-    Generate the DOCX report from severity-bucketed findings.
-
-    Report structure:
-        Title (level 0)
-        Timestamp
-        Executive Summary (level 1)
-            - Bulleted severity counts
-        Findings (level 1)
-            Per severity (level 2, colored)
-                Per finding (level 3, title only)
-                    Affected System(s)
-                    Description
-                    Recommendation
-                    References
-                    Evidence
-    """
+    """Generate the DOCX report from severity-bucketed findings."""
     print("[*] Generating DOCX report...")
 
     try:
         doc = Document()
 
-        # Default body font
         style = doc.styles['Normal']
         style.font.name = 'Arial'
         style.font.size = Pt(11)
@@ -698,6 +988,133 @@ def generate_report(buckets, output_file):
         print(f"[!] Error generating report: {e}")
         return False
 
+
+# ---------------------------------------------------------------------------
+# DefectDojo JSON exporter
+# ---------------------------------------------------------------------------
+
+def _generate_unique_id(finding):
+    """
+    Generate a stable unique_id_from_tool for DefectDojo remediation tracking.
+
+    Nessus uses plugin_id directly. Burp/ZAP/manual hash the finding title since
+    none expose a stable vulnerability ID in their source.
+    """
+    if finding.scanner_type == 'nessus':
+        return f"nessus-{finding.plugin_id}"
+
+    title_hash = hashlib.sha256(finding.title.encode('utf-8')).hexdigest()[:16]
+    return f"{finding.scanner_type}-{title_hash}"
+
+
+def _normalize_endpoint(system):
+    """
+    Normalize an affected system string for the DefectDojo endpoints array.
+
+    Nessus format 'host:port (protocol/svc)' is stripped to 'host:port'.
+    URLs are passed through unchanged.
+    """
+    if not system:
+        return ''
+    paren_idx = system.find(' (')
+    if paren_idx > 0:
+        return system[:paren_idx].strip()
+    return system.strip()
+
+
+def _build_finding_json(finding):
+    """Convert a Finding object into a DefectDojo Generic Findings Import dict."""
+    entry = {
+        'title': finding.title,
+        'description': finding.description or 'No description provided.',
+        'severity': finding.severity,
+        'date': datetime.now().strftime('%Y-%m-%d'),
+        'unique_id_from_tool': _generate_unique_id(finding),
+        'active': True,
+        'verified': True,
+        'static_finding': False,
+        'dynamic_finding': True,
+    }
+
+    if finding.recommendation:
+        entry['mitigation'] = finding.recommendation
+
+    if finding.references:
+        entry['references'] = '\n'.join(finding.references)
+
+    if finding.plugin_id:
+        entry['vuln_id_from_tool'] = finding.plugin_id
+
+    if finding.cwe:
+        try:
+            entry['cwe'] = int(finding.cwe)
+        except (ValueError, TypeError):
+            pass
+
+    if finding.cve:
+        entry['cve'] = finding.cve
+
+    if finding.cvss_score:
+        try:
+            entry['cvssv3_score'] = float(finding.cvss_score)
+        except (ValueError, TypeError):
+            if finding.cvss_score.startswith('CVSS:'):
+                entry['cvssv3'] = finding.cvss_score
+
+    # Endpoints from affected_systems
+    endpoints = []
+    for system in finding.affected_systems:
+        normalized = _normalize_endpoint(system)
+        if normalized and normalized not in endpoints:
+            endpoints.append(normalized)
+    if endpoints:
+        entry['endpoints'] = endpoints
+
+    # Evidence blocks into steps_to_reproduce
+    if finding.evidence_blocks:
+        parts = []
+        for block in finding.evidence_blocks:
+            if block['label']:
+                parts.append(f"{block['label']}:\n{block['content']}")
+            else:
+                parts.append(block['content'])
+        entry['steps_to_reproduce'] = '\n\n'.join(parts)
+
+    # Scanner type as a tag for filtering inside DefectDojo
+    entry['tags'] = [finding.scanner_type]
+
+    return entry
+
+
+def export_defectdojo_json(buckets, output_file, test_type_name):
+    """Export deduplicated findings as DefectDojo Generic Findings Import JSON."""
+    print(f"[*] Exporting DefectDojo JSON (test type: {test_type_name})...")
+
+    findings_list = []
+    for severity in SEVERITY_ORDER:
+        for finding in buckets[severity]:
+            findings_list.append(_build_finding_json(finding))
+
+    payload = {
+        'name': test_type_name,
+        'findings': findings_list,
+    }
+
+    try:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, indent=2, ensure_ascii=False)
+        print(f"[+] DefectDojo JSON written: {output_file}")
+        print(f"[+] Exported {len(findings_list)} finding(s)")
+        return True
+    except (IOError, OSError) as e:
+        print(f"[!] Error writing JSON: {e}")
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Test-mode display
+# ---------------------------------------------------------------------------
+
 def display_test_finding(buckets):
     """Display the first finding from the highest-severity non-empty bucket."""
     print("\n" + "=" * 80)
@@ -749,134 +1166,13 @@ def display_test_finding(buckets):
     print("[!] No findings to display")
 
 
-def _generate_unique_id(finding):
-    """
-    Generate a stable unique_id_from_tool for DefectDojo remediation tracking.
-
-    Nessus uses plugin_id directly (stable across scans). Burp/ZAP hash the
-    finding title since neither tool exposes a stable vulnerability ID in XML.
-    """
-    if finding.scanner_type == 'nessus':
-        return f"nessus-{finding.plugin_id}"
-
-    title_hash = hashlib.sha256(finding.title.encode('utf-8')).hexdigest()[:16]
-    return f"{finding.scanner_type}-{title_hash}"
-
-
-def _normalize_endpoint(system):
-    """
-    Normalize an affected system string for the DefectDojo endpoints array.
-
-    Nessus format 'host:port (protocol/svc)' is stripped to 'host:port'.
-    URLs are passed through unchanged.
-    """
-    if not system:
-        return ''
-    # Strip Nessus protocol/svc suffix like ' (tcp/https)'
-    paren_idx = system.find(' (')
-    if paren_idx > 0:
-        return system[:paren_idx].strip()
-    return system.strip()
-
-
-def _build_finding_json(finding):
-    """Convert a Finding object into a DefectDojo Generic Findings Import dict."""
-    entry = {
-        'title': finding.title,
-        'description': finding.description or 'No description provided.',
-        'severity': finding.severity,
-        'date': datetime.now().strftime('%Y-%m-%d'),
-        'unique_id_from_tool': _generate_unique_id(finding),
-        'active': True,
-        'verified': True,
-        'static_finding': False,
-        'dynamic_finding': True,
-    }
-
-    if finding.recommendation:
-        entry['mitigation'] = finding.recommendation
-
-    if finding.references:
-        entry['references'] = '\n'.join(finding.references)
-
-    if finding.plugin_id:
-        entry['vuln_id_from_tool'] = finding.plugin_id
-
-    if finding.cwe:
-        try:
-            entry['cwe'] = int(finding.cwe)
-        except (ValueError, TypeError):
-            pass
-
-    if finding.cve:
-        entry['cve'] = finding.cve
-
-    if finding.cvss_score:
-        # Nessus exposes the CVSS base score, not the vector. Emit as cvssv3_score
-        # if it parses as a float, otherwise pass through cvssv3 as vector string.
-        try:
-            entry['cvssv3_score'] = float(finding.cvss_score)
-        except (ValueError, TypeError):
-            if finding.cvss_score.startswith('CVSS:'):
-                entry['cvssv3'] = finding.cvss_score
-
-    # Endpoints from affected_systems
-    endpoints = []
-    for system in finding.affected_systems:
-        normalized = _normalize_endpoint(system)
-        if normalized and normalized not in endpoints:
-            endpoints.append(normalized)
-    if endpoints:
-        entry['endpoints'] = endpoints
-
-    # Evidence blocks into steps_to_reproduce
-    if finding.evidence_blocks:
-        parts = []
-        for block in finding.evidence_blocks:
-            if block['label']:
-                parts.append(f"{block['label']}:\n{block['content']}")
-            else:
-                parts.append(block['content'])
-        entry['steps_to_reproduce'] = '\n\n'.join(parts)
-
-    # Scanner type as a tag for filtering inside DefectDojo
-    entry['tags'] = [finding.scanner_type]
-
-    return entry
-
-
-def export_defectdojo_json(buckets, output_file, test_type_name):
-    """
-    Export deduplicated findings as DefectDojo Generic Findings Import JSON.
-
-    The top-level 'name' field becomes the test type in DefectDojo. Findings
-    are flattened from severity buckets into a single list.
-    """
-    print(f"[*] Exporting DefectDojo JSON (test type: {test_type_name})...")
-
-    findings_list = []
-    for severity in SEVERITY_ORDER:
-        for finding in buckets[severity]:
-            findings_list.append(_build_finding_json(finding))
-
-    payload = {
-        'name': test_type_name,
-        'findings': findings_list,
-    }
-
-    try:
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(payload, f, indent=2, ensure_ascii=False)
-        print(f"[+] DefectDojo JSON written: {output_file}")
-        print(f"[+] Exported {len(findings_list)} finding(s)")
-        return True
-    except (IOError, OSError) as e:
-        print(f"[!] Error writing JSON: {e}")
-        return False
+# ---------------------------------------------------------------------------
+# CLI / main
+# ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(
-        description='VAPT Report Parser - Nessus / Burp / ZAP XML to DOCX and DefectDojo JSON',
+        description='VAPT Report Parser - Nessus / Burp / ZAP XML and manual report DOCX to DOCX and DefectDojo JSON',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -916,21 +1212,19 @@ Examples:
     working_dir = Path.cwd()
     print(f"[*] Working directory: {working_dir}")
 
-    # Discover scanner output files
     scanner_files = find_scanner_files(working_dir)
 
     if not scanner_files:
         print("[!] No supported scanner files found in working directory")
-        print("    Expected: .nessus (Nessus), .xml (Burp Suite or OWASP ZAP)")
+        print("    Expected: .nessus (Nessus), .xml (Burp/ZAP), .docx (report)")
         sys.exit(1)
 
-    # Summarize what was found
-    by_type = {'nessus': [], 'burp': [], 'zap': []}
+    by_type = {'nessus': [], 'burp': [], 'zap': [], 'report': []}
     for file_path, scanner_type in scanner_files:
         by_type[scanner_type].append(file_path)
 
     print(f"[+] Found {len(scanner_files)} scanner file(s):")
-    for scanner_type in ['nessus', 'burp', 'zap']:
+    for scanner_type in ['nessus', 'burp', 'zap', 'report']:
         files = by_type[scanner_type]
         if files:
             print(f"    {scanner_type.upper()}: {len(files)}")
