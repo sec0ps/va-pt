@@ -297,9 +297,13 @@ def install_base_dependencies():
         print("All pip packages already installed, skipping.")
 
     # Install each pipx package separately
-    pipx_packages = ["urh", "scoutsuite", "checkov", "impacket", "dnsrecon"]
+    pipx_packages = ["urh", "scoutsuite", "checkov", "dnsrecon"]
     for package in pipx_packages:
         run_command(f"pipx install {package}")
+
+    # impacket forced: it drops many scripts into ~/.local/bin that can collide
+    # with stale copies from older installs; --force claims them cleanly
+    run_command("pipx install --force impacket")
 
     # Configure Go environment
     go_config = """
@@ -413,7 +417,7 @@ def install_toolkit_packages():
 
     # Define installations for exploitation tools
     exploitation_tools = [
-        ("https://github.com/rapid7/metasploit-framework.git", "/vapt/exploits/metasploit-framework", ["bundle install"]),
+#        ("https://github.com/rapid7/metasploit-framework.git", "/vapt/exploits/metasploit-framework", ["bundle install"]),
         ("https://github.com/trustedsec/social-engineer-toolkit.git", "/vapt/exploits/social-engineer-toolkit", ["pip3 install -r requirements.txt"]),
         ("https://gitlab.com/exploit-database/exploitdb.git", "/vapt/exploits/exploitdb", None),
         ("https://github.com/lgandx/Responder.git", "/vapt/exploits/Responder", None),
@@ -431,10 +435,21 @@ def install_toolkit_packages():
         ("https://github.com/MatheuZSecurity/D3m0n1z3dShell.git", "/vapt/exploits/D3m0n1z3dShell", ["chmod +x demonizedshell.sh"])
     ]
 
+    # Metasploit Framework (vendored bundle install to avoid system gem path / sudo)
+    msf_dir = "/vapt/exploits/metasploit-framework"
+    if os.path.exists(msf_dir):
+        print("Metasploit Framework already installed, skipping.")
+    else:
+        print("Installing Metasploit Framework")
+        run_command(f"git clone https://github.com/rapid7/metasploit-framework.git {msf_dir}")
+        # install gems into a project-local path so no sudo / system gem dir is touched
+        run_command(f"cd {msf_dir} && bundle config set --local path vendor/bundle")
+        run_command(f"cd {msf_dir} && bundle install")
+
     # Container and cloud security tools
     container_cloud_tools = [
         ("https://github.com/aquasecurity/trivy.git", "/vapt/cloud/trivy", None),
-        ("https://github.com/RhinoSecurityLabs/pacu.git", "/vapt/cloud/pacu", ["pipx install ."]),
+        ("https://github.com/RhinoSecurityLabs/pacu.git", "/vapt/cloud/pacu", ["pipx install /vapt/cloud/pacu"]),
     ]
 
     # Define installations for web testing tools
@@ -458,7 +473,7 @@ def install_toolkit_packages():
        ("https://github.com/Kevin-Robertson/Invoke-TheHash.git", "/vapt/ad_windows/Invoke-TheHash", None),
        ("https://github.com/p3nt4/PowerShdll.git", "/vapt/ad_windows/PowerShdll", None),
        ("https://github.com/GhostPack/Rubeus.git", "/vapt/ad_windows/Rubeus", None),
-       ("https://github.com/dirkjanm/ldapdomaindump.git", "/vapt/ad_windows/ldapdomaindump", ["pipx install ."]),
+       ("https://github.com/dirkjanm/ldapdomaindump.git", "/vapt/ad_windows/ldapdomaindump", ["pipx install /vapt/ad_windows/ldapdomaindump"]),
        ("https://github.com/adityatelange/evil-winrm-py.git", "/vapt/ad_windows/evil-winrm-py", ["sudo python3 setup.py install"]),
     ]
 
@@ -504,7 +519,7 @@ def install_toolkit_packages():
         ("https://github.com/wireghoul/graudit.git", "/vapt/audit/graudit", None),
     ]
 
-    # Wireless Signal Analysis tools
+    # Wireless Signal Analysis tools (git repos only; aircrack-ng is built separately below)
     wireless_tools = [
         # QtTinySA spectrum analyzer frontend
         (
@@ -519,22 +534,22 @@ def install_toolkit_packages():
             "/vapt/wireless/qspectrumanalyzer",
             ["sudo python3 setup.py install"]
         ),
-
-        # Aircrack-ng wireless attack and analysis suite (source build)
-        (
-            "https://download.aircrack-ng.org/aircrack-ng-1.7.tar.gz",
-            "/vapt/wireless/aircrack-ng-1.7",
-            [
-                "tar -zxvf aircrack-ng-1.7.tar.gz",
-                "cd aircrack-ng-1.7",
-                "autoreconf -i",
-                "./configure --with-experimental",
-                "make",
-                "sudo make install",
-                "sudo ldconfig"
-            ]
-        )
     ]
+
+    # Aircrack-ng (source build; tarball, not a git repo)
+    aircrack_dir = "/vapt/wireless/aircrack-ng-1.7"
+    if os.path.exists(aircrack_dir):
+        print("Aircrack-ng already installed, skipping.")
+    else:
+        print("Installing Aircrack-ng")
+        run_command("cd /vapt/wireless && wget https://download.aircrack-ng.org/aircrack-ng-1.7.tar.gz")
+        run_command("cd /vapt/wireless && tar -zxvf aircrack-ng-1.7.tar.gz")
+        run_command(f"cd {aircrack_dir} && autoreconf -i")
+        run_command(f"cd {aircrack_dir} && ./configure --with-experimental")
+        run_command(f"cd {aircrack_dir} && make")
+        run_command(f"cd {aircrack_dir} && sudo make install")
+        run_command("sudo ldconfig")
+        run_command("cd /vapt/wireless && rm -rf aircrack-ng-1.7.tar.gz")
 
     # OWASP ZAP installation
     zap_dir = "/vapt/web/zap"
