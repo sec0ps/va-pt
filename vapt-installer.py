@@ -425,7 +425,7 @@ def install_toolkit_packages():
         ("https://github.com/gentilkiwi/mimikatz.git", "/vapt/exploits/mimikatz", None),
         ("https://github.com/byt3bl33d3r/DeathStar.git", "/vapt/exploits/DeathStar", ["pip3 install -r requirements.txt"]),
         ("https://github.com/cobbr/Covenant.git", "/vapt/exploits/Covenant", None),
-        ("https://github.com/Ne0nd0g/merlin.git", "/vapt/exploits/merlin", ["sed -i 's/go 1.23.0/go 1.23/' go.mod", "sed -i '/^toolchain/d' go.mod", "PATH=/usr/lib/go-1.23/bin:$PATH make"]),
+        ("https://github.com/Ne0nd0g/merlin.git", "/vapt/exploits/merlin", ["sed -i 's/go 1.23.0/go 1.23/' go.mod", "sed -i '/^toolchain/d' go.mod", "PATH=/usr/lib/go-1.23/bin:$PATH go mod tidy", "PATH=/usr/lib/go-1.23/bin:$PATH make"]),
         ("https://github.com/byt3bl33d3r/SILENTTRINITY.git", "/vapt/exploits/SILENTTRINITY", ["pip3 install -r requirements.txt"]),
         ("https://github.com/assetnote/kiterunner.git", "/vapt/web/kiterunner", ["make build"]),
         ("https://github.com/projectdiscovery/httpx.git", "/vapt/web/httpx", ["/usr/lib/go-1.23/bin/go install ./cmd/httpx"]),
