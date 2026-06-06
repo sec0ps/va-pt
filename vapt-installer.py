@@ -417,7 +417,6 @@ def install_toolkit_packages():
         ("https://github.com/trustedsec/social-engineer-toolkit.git", "/vapt/exploits/social-engineer-toolkit", ["pip3 install -r requirements.txt"]),
         ("https://gitlab.com/exploit-database/exploitdb.git", "/vapt/exploits/exploitdb", None),
         ("https://github.com/lgandx/Responder.git", "/vapt/exploits/Responder", None),
-        ("https://github.com/CoreSecurity/impacket.git", "/vapt/exploits/impacket", ["pip3 install -r requirements.txt", "sudo python3 setup.py install"]),
         ("https://github.com/beefproject/beef.git", "/vapt/exploits/beef", None),
         ("https://github.com/xFreed0m/ADFSpray.git", "/vapt/exploits/ADFSpray", ["pip3 install -r requirements.txt"]),
         ("https://github.com/gentilkiwi/mimikatz.git", "/vapt/exploits/mimikatz", None),
@@ -588,7 +587,7 @@ def update_toolsets():
     exploit_tools = [
         "/vapt/exploits/social-engineer-toolkit", "/vapt/exploits/metasploit-framework",
         "/vapt/exploits/ADFSpray", "/vapt/exploits/beef", "/vapt/exploits/DeathStar",
-        "/vapt/exploits/impacket", "/vapt/exploits/mimikatz", "/vapt/exploits/Responder",
+        "/vapt/exploits/mimikatz", "/vapt/exploits/Responder",
         "/vapt/exploits/exploitdb", "/vapt/exploits/Covenant", "/vapt/exploits/merlin",
         "/vapt/exploits/SILENTTRINITY", "/vapt/exploits/D3m0n1z3dShell"
     ]
