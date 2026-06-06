@@ -442,7 +442,8 @@ def install_toolkit_packages():
     else:
         print("Installing Metasploit Framework")
         run_command(f"git clone https://github.com/rapid7/metasploit-framework.git {msf_dir}")
-        # install gems into a project-local path so no sudo / system gem dir is touched
+        # pin MSF to the rbenv Ruby this installer provides (3.3.9), not the upstream .ruby-version
+        run_command(f"echo '3.3.9' > {msf_dir}/.ruby-version")
         run_command(f"cd {msf_dir} && bundle config set --local path vendor/bundle")
         run_command(f"cd {msf_dir} && bundle install")
 
@@ -565,7 +566,7 @@ def install_toolkit_packages():
     # Vulnerability scanner tools
     vulnerability_scanners = [
         ("https://github.com/sqlmapproject/sqlmap.git", "/vapt/scanners/sqlmap", None),
-        ("https://github.com/nmap/nmap.git", "/vapt/scanners/nmap", ["./configure", "make", "sudo make install"]),
+(       "https://github.com/nmap/nmap.git", "/vapt/scanners/nmap", ["./configure --without-zenmap", "make", "sudo make install"]),
         ("https://github.com/mschwager/fierce.git", "/vapt/scanners/fierce", ["python3 -m pip install -r requirements.txt", "sudo python3 setup.py install"]),
         ("https://github.com/makefu/dnsmap.git", "/vapt/scanners/dnsmap", ["gcc -o dnsmap dnsmap.c"]),
         ("https://github.com/fwaeytens/dnsenum.git", "/vapt/scanners/dnsenum", None),
