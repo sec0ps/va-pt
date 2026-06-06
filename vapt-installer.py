@@ -413,6 +413,7 @@ def install_base_dependencies():
     print("Base toolkit dependencies installed successfully.")
 
 def install_toolkit_packages():
+    os.environ['PATH'] = f"/usr/lib/go-1.23/bin:{os.path.expanduser('~/go/bin')}:{os.environ.get('PATH', '')}"
     print("Installing toolkit packages...")
 
     # Define installations for exploitation tools
@@ -429,8 +430,8 @@ def install_toolkit_packages():
         ("https://github.com/Ne0nd0g/merlin.git", "/vapt/exploits/merlin", ["sed -i 's/go 1.23.0/go 1.23/' go.mod", "sed -i '/^toolchain/d' go.mod", "make"]),
         ("https://github.com/byt3bl33d3r/SILENTTRINITY.git", "/vapt/exploits/SILENTTRINITY", ["pip3 install -r requirements.txt"]),
         ("https://github.com/assetnote/kiterunner.git", "/vapt/web/kiterunner", ["make build"]),
-        ("https://github.com/projectdiscovery/httpx.git", "/vapt/web/httpx", ["go install"]),
-        ("https://github.com/ffuf/ffuf.git", "/vapt/web/ffuf", ["go build"]),
+        ("https://github.com/projectdiscovery/httpx.git", "/vapt/web/httpx", ["/usr/lib/go-1.23/bin/go install"]),
+        ("https://github.com/ffuf/ffuf.git", "/vapt/web/ffuf", ["/usr/lib/go-1.23/bin/go build"]),
         ("https://github.com/maurosoria/dirsearch.git", "/vapt/web/dirsearch", None),
         ("https://github.com/MatheuZSecurity/D3m0n1z3dShell.git", "/vapt/exploits/D3m0n1z3dShell", ["chmod +x demonizedshell.sh"])
     ]
@@ -488,7 +489,7 @@ def install_toolkit_packages():
     network_tools = [
         ("https://github.com/robertdavidgraham/masscan.git", "/vapt/network/masscan", ["make"]),
         ("https://github.com/projectdiscovery/nuclei.git", "/vapt/network/nuclei", None),
-        ("https://github.com/OWASP/Amass.git", "/vapt/network/Amass", ["go install -v ./cmd/amass/..."]),
+        ("https://github.com/OWASP/Amass.git", "/vapt/network/Amass", ["/usr/lib/go-1.23/bin/go install -v ./cmd/amass/..."]),
     ]
 
     # Password cracking tools
