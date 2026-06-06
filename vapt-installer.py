@@ -286,7 +286,7 @@ def install_base_dependencies():
     pip_packages = [
         "build", "dnspython", "kerberoast", "certipy-ad", "knowsmore", "sherlock-project",
         "wafw00f", "pypykatz", "zeep", "netaddr", "ujson", "aiomultiprocess", "censys",
-        "shodan", "playwright", "uvloop", "easysnmp", "pysnmp", "tftpy", "aiohttp"
+        "shodan", "playwright", "uvloop", "easysnmp", "pysnmp", "tftpy", "aiohttp", "fierce"
     ]
 
     missing_pip = filter_uninstalled_pip(pip_packages)
@@ -566,7 +566,6 @@ def install_toolkit_packages():
     vulnerability_scanners = [
         ("https://github.com/sqlmapproject/sqlmap.git", "/vapt/scanners/sqlmap", None),
 (       "https://github.com/nmap/nmap.git", "/vapt/scanners/nmap", ["./configure --without-zenmap", "make", "sudo make install"]),
-        ("https://github.com/mschwager/fierce.git", "/vapt/scanners/fierce", ["python3 -m pip install -r requirements.txt", "sudo python3 setup.py install"]),
         ("https://github.com/makefu/dnsmap.git", "/vapt/scanners/dnsmap", ["gcc -o dnsmap dnsmap.c"]),
         ("https://github.com/fwaeytens/dnsenum.git", "/vapt/scanners/dnsenum", None),
         ("https://github.com/nccgroup/cisco-SNMP-enumeration.git", "/vapt/scanners/cisco-SNMP-enumeration", None),
