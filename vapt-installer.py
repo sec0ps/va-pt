@@ -306,21 +306,20 @@ def install_base_dependencies():
     run_command("pipx install --force impacket")
 
     # Configure Go environment
-    go_config = """
-    # Go programming language
-    export PATH=$PATH:/usr/lib/go-1.23/bin
-    export GOROOT=/usr/lib/go-1.23
-    export GOPATH=$HOME/go
-    export PATH=$PATH:$GOPATH/bin
-    """
+    # prior run can't leave any export missing)
+    go_lines = [
+        'export GOROOT=/usr/lib/go-1.23',
+        'export GOPATH=$HOME/go',
+        'export PATH=$PATH:/usr/lib/go-1.23/bin',
+        'export PATH=$PATH:$GOPATH/bin',
+    ]
+    for line in go_lines:
+        run_command(f"grep -qxF '{line}' ~/.bashrc || echo '{line}' >> ~/.bashrc")
 
-    bashrc_path = os.path.expanduser("~/.bashrc")
-    with open(bashrc_path, 'r') as f:
-        if 'go-1.23' not in f.read():
-            with open(bashrc_path, 'a') as f:
-                f.write(go_config)
-            print("Go environment configured. Changes will apply to new shells.")
-            os.environ['PATH'] += f":/usr/lib/go-1.23/bin:{os.path.expanduser('~/go/bin')}"
+    # Make Go usable for the rest of this run regardless of .bashrc state
+    go_paths = f"/usr/lib/go-1.23/bin:{os.path.expanduser('~/go/bin')}"
+    if go_paths not in os.environ.get('PATH', ''):
+        os.environ['PATH'] = f"{go_paths}:{os.environ['PATH']}"
 
     # Install Rust (skip if already present)
         cargo_bin = os.path.expanduser("~/.cargo/bin/rustc")
