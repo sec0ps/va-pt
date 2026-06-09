@@ -220,6 +220,12 @@ def cleanup_old_directories():
         run_command(f"rm -rf {old_arachni_dir}")
         print("Old Arachni directory removed.")
 
+    old_responder_dir = "/vapt/exploits/Responder"
+        if os.path.exists(old_responder_dir):
+            print("Cleaning up old Responder directory...")
+            run_command(f"rm -rf {old_responder_dir}")
+            print("Old Responder directory removed. Replaced by Responder-NG.")
+
 def check_and_install(repo_url, install_dir, setup_commands=None):
     """Clone the repo if it doesn't exist and run optional setup commands."""
     if not os.path.exists(install_dir):
@@ -286,7 +292,7 @@ def install_base_dependencies():
     pip_packages = [
         "build", "dnspython", "kerberoast", "certipy-ad", "knowsmore", "sherlock-project",
         "wafw00f", "pypykatz", "zeep", "netaddr", "ujson", "aiomultiprocess", "censys",
-        "shodan", "playwright", "uvloop", "easysnmp", "pysnmp", "tftpy", "aiohttp", "fierce"
+        "shodan", "playwright", "uvloop", "easysnmp", "pysnmp", "tftpy", "aiohttp", "fierce, aioquic"
     ]
 
     missing_pip = filter_uninstalled_pip(pip_packages)
@@ -419,7 +425,7 @@ def install_toolkit_packages():
     exploitation_tools = [
         ("https://github.com/trustedsec/social-engineer-toolkit.git", "/vapt/exploits/social-engineer-toolkit", ["pip3 install -r requirements.txt"]),
         ("https://gitlab.com/exploit-database/exploitdb.git", "/vapt/exploits/exploitdb", None),
-        ("https://github.com/lgandx/Responder.git", "/vapt/exploits/Responder", None),
+        ("https://github.com/Tantalum-Labs/Responder-NG.git", "/vapt/exploits/Responder-NG", None),
         ("https://github.com/beefproject/beef.git", "/vapt/exploits/beef", None),
         ("https://github.com/xFreed0m/ADFSpray.git", "/vapt/exploits/ADFSpray", ["pip3 install -r requirements.txt"]),
         ("https://github.com/gentilkiwi/mimikatz.git", "/vapt/exploits/mimikatz", None),
@@ -601,7 +607,7 @@ def update_toolsets():
     exploit_tools = [
         "/vapt/exploits/social-engineer-toolkit", "/vapt/exploits/metasploit-framework",
         "/vapt/exploits/ADFSpray", "/vapt/exploits/beef", "/vapt/exploits/DeathStar",
-        "/vapt/exploits/mimikatz", "/vapt/exploits/Responder",
+        "/vapt/exploits/mimikatz", "/vapt/exploits/Responder-NG",
         "/vapt/exploits/exploitdb", "/vapt/exploits/Covenant", "/vapt/exploits/merlin",
         "/vapt/exploits/SILENTTRINITY", "/vapt/exploits/D3m0n1z3dShell"
     ]
