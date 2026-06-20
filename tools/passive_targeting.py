@@ -1695,7 +1695,7 @@ class ReconEngine:
             s for s, e in [("ARP", self.do_arp), ("ICMP", self.do_icmp),
                             ("mask-req", self.do_mask)] if e)
         return [
-            "passive_recon  |  passive + active parallel mode",
+            "passive_targeting  |  passive + active parallel mode",
             "interface(s) : %s" % ", ".join(
                 "%s (%s)" % (n, cidr) for n, _, cidr in self.iface_info),
             "targets      : %s" % os.path.join(self.outdir, "targets.txt"),
@@ -1862,7 +1862,7 @@ def run_tui(engine):
             queued  = engine.sweep_queue.qsize()
             now     = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.query_one("#status", Static).update(
-                "[b]passive_recon[/b]   %s\n"
+                "[b]passive_targeting[/b]   %s\n"
                 "single targets: [b]%d[/b]    cidr targets: [b]%d[/b]    "
                 "gateways: [b]%d[/b]    sweep queue: [b]%d[/b]\n"
                 "ctrl+a paste routes/targets    q quit" % (
@@ -1938,17 +1938,17 @@ def build_parser():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 examples:
-  sudo python3 passive_recon.py                       # full auto (TUI if available)
-  sudo python3 passive_recon.py --no-tui              # plain line-log mode
-  sudo python3 passive_recon.py -r 100 -t 1.0         # faster sweep
-  sudo python3 passive_recon.py --no-arp              # ICMP only
-  sudo python3 passive_recon.py --mask-request        # also probe ICMP type 17
-  sudo python3 passive_recon.py --scope 10.0.0.0/8 --exclude 10.0.5.0/24
-  python3 passive_recon.py analyze capture.pcap       # offline, no root
+  sudo python3 passive_targeting.py                       # full auto (TUI if available)
+  sudo python3 passive_targeting.py --no-tui              # plain line-log mode
+  sudo python3 passive_targeting.py -r 100 -t 1.0         # faster sweep
+  sudo python3 passive_targeting.py --no-arp              # ICMP only
+  sudo python3 passive_targeting.py --mask-request        # also probe ICMP type 17
+  sudo python3 passive_targeting.py --scope 10.0.0.0/8 --exclude 10.0.5.0/24
+  python3 passive_targeting.py analyze capture.pcap       # offline, no root
 """)
 
-    p.add_argument("-o", "--outdir",        default="recon_out",
-                   help="output directory (default: recon_out)")
+    p.add_argument("-o", "--outdir",        default="targeting_out",
+                   help="output directory (default: targeting_out)")
     p.add_argument("-r", "--rate",          type=int,   default=50,
                    help="active probe rate in probes/s (default: 50)")
     p.add_argument("-t", "--probe-timeout", type=float, default=2.0,
