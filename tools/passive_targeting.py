@@ -1907,7 +1907,7 @@ def run_default(args):
         do_mask       = args.mask_request,
         max_hosts     = args.max_hosts,
         scope         = scope,
-        echo          = not use_tui,
+        echo          = True,
     )
     if use_tui and run_tui(engine):
         return
