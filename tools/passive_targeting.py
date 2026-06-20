@@ -162,6 +162,37 @@ ROLE_PORTS = {
 # TTL initial-value buckets for coarse passive OS family.
 TTL_BUCKETS = [(64, "unix/linux"), (128, "windows"), (255, "net-gear")]
 
+# MS-BRWS ServerType bitmask -> coarse role (UDP 138 browser announcements).
+SV_TYPE_FLAGS = {
+    0x00000001: "workstation",
+    0x00000002: "server",
+    0x00000004: "db/mssql",
+    0x00000008: "dc/pdc",
+    0x00000010: "dc/bdc",
+    0x00000020: "time-source",
+    0x00000040: "file/afp",
+    0x00000080: "novell",
+    0x00000100: "domain-member",
+    0x00000200: "printer",
+    0x00000800: "unix",
+    0x00001000: "nt-workstation",
+    0x00008000: "nt-server",
+    0x00020000: "browser/backup",
+    0x00040000: "browser/master",
+    0x00080000: "browser/domain-master",
+    0x00400000: "windows",
+    0x01000000: "file/dfs",
+}
+
+_BROWSE_TAG = b"\\MAILSLOT\\BROWSE\x00"
+_BROWSE_OPS = {0x01: "host-announce", 0x09: "backup-list-req",
+               0x0c: "domain-announce", 0x0d: "master-announce",
+               0x0f: "local-master-announce"}
+
+_MNDP_TLV = {5: "identity", 7: "version", 8: "platform", 12: "board"}
+_UBNT_TLV = {0x03: "firmware", 0x0b: "hostname", 0x0c: "model", 0x0d: "essid"}
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -1127,6 +1158,175 @@ def diss_wsd(pkt, kb):
         kb.note_fingerprint(src, "wsd:%s" % m.group(1).strip()[:32])
 
 
+def diss_browser(pkt, kb):
+    """SMB/NetBIOS Browser announcements (MS-BRWS) over UDP 138. Hosts
+    self-report computer name, OS version, an optional comment, and a
+    ServerType role bitmask, with no probing required."""
+    if not pkt.haslayer(IP) or not pkt.haslayer(UDP):
+        return
+    src = pkt[IP].src
+    kb.observe_host(src, source="browser")
+    try:
+        raw = bytes(pkt[UDP].payload)
+    except Exception:
+        return
+    idx = raw.find(_BROWSE_TAG)
+    if idx < 0:
+        return
+    data = raw[idx + len(_BROWSE_TAG):]
+    if len(data) < 28 or data[0] not in _BROWSE_OPS:
+        return
+    opcode = data[0]
+    name = data[6:22].split(b"\x00", 1)[0].decode(errors="ignore").strip()
+    if opcode == 0x0c:                       # domain/workgroup announcement
+        if name:
+            kb.note_fingerprint(src, "workgroup:%s" % name[:24])
+        kb.tag_role(src, "browser/master")
+        return
+    if name:
+        kb.add_hostname(src, name, "browser")
+    kb.note_fingerprint(src, "browser-os:%d.%d" % (data[22], data[23]))
+    srv_type = struct.unpack_from("<I", data, 24)[0]
+    for bit, role in SV_TYPE_FLAGS.items():
+        if srv_type & bit:
+            kb.tag_role(src, role)
+    if len(data) > 32:
+        comment = data[32:].split(b"\x00", 1)[0].decode(errors="ignore").strip()
+        if comment:
+            kb.note_fingerprint(src, "browser-comment:%s" % comment[:40])
+
+
+def diss_slp(pkt, kb):
+    """Service Location Protocol (UDP 427). Records the responder, the
+    advertised service schemes, and any RFC1918 hosts named in service URLs."""
+    if not pkt.haslayer(IP):
+        return
+    src = pkt[IP].src
+    kb.observe_host(src, source="slp")
+    kb.note_service(src, "udp", 427)
+    try:
+        payload = bytes(pkt[UDP].payload)
+    except Exception:
+        return
+    for m in re.findall(rb"service:([A-Za-z0-9_.\-]+)", payload)[:3]:
+        kb.note_fingerprint(src, "slp:%s" % m.decode(errors="ignore")[:24])
+    for h in re.findall(rb"(\d{1,3}(?:\.\d{1,3}){3})", payload):
+        ip = h.decode()
+        if is_rfc1918(ip):
+            kb.observe_host(ip, source="slp:url")
+
+
+def diss_mssql(pkt, kb):
+    """SQL Server Resolution Protocol (UDP 1434). Response frames name the
+    instance and its TCP port."""
+    if not pkt.haslayer(IP):
+        return
+    src = pkt[IP].src
+    kb.observe_host(src, source="mssql-browser")
+    try:
+        payload = bytes(pkt[UDP].payload)
+    except Exception:
+        return
+    if not payload or payload[0] != 0x05:    # 0x05 = SVR_RESP
+        return
+    body = payload[3:].decode(errors="ignore")
+    kb.tag_role(src, "db/mssql")
+    m = re.search(r"ServerName;([^;]+)", body)
+    if m:
+        kb.add_hostname(src, m.group(1).strip(), "mssql-browser")
+    inst = re.search(r"InstanceName;([^;]+)", body)
+    if inst:
+        kb.note_fingerprint(src, "mssql-instance:%s" % inst.group(1).strip()[:24])
+    port = re.search(r"tcp;(\d+)", body)
+    if port:
+        kb.note_service(src, "tcp", int(port.group(1)))
+
+
+def diss_dropbox(pkt, kb):
+    """Dropbox LAN Sync Discovery (UDP 17500). JSON beacon naming the host."""
+    if not pkt.haslayer(IP):
+        return
+    src = pkt[IP].src
+    kb.observe_host(src, source="dropbox")
+    kb.note_fingerprint(src, "dropbox-lansync")
+    try:
+        obj = json.loads(bytes(pkt[UDP].payload).decode(errors="ignore"))
+    except Exception:
+        return
+    name = obj.get("displayname")
+    if name:
+        kb.add_hostname(src, str(name)[:32], "dropbox")
+
+
+def diss_mndp(pkt, kb):
+    """MikroTik Neighbor Discovery (UDP 5678). TLV beacon with identity,
+    platform, and version."""
+    if not pkt.haslayer(IP):
+        return
+    src = pkt[IP].src
+    kb.observe_host(src, source="mndp")
+    kb.tag_role(src, "net-gear")
+    kb.note_fingerprint(src, "mikrotik")
+    try:
+        raw = bytes(pkt[UDP].payload)
+    except Exception:
+        return
+    i = 4                                    # 2-byte header + 2-byte sequence
+    while i + 4 <= len(raw):
+        ttype, tlen = struct.unpack_from(">HH", raw, i)
+        i += 4
+        val = raw[i:i + tlen]
+        i += tlen
+        label = _MNDP_TLV.get(ttype)
+        if not label or not val:
+            continue
+        text = val.decode(errors="ignore").strip("\x00").strip()
+        if not text:
+            continue
+        if label == "identity":
+            kb.add_hostname(src, text[:32], "mndp")
+        else:
+            kb.note_fingerprint(src, "mndp-%s:%s" % (label, text[:24]))
+
+
+def diss_ubnt(pkt, kb):
+    """Ubiquiti device discovery (UDP 10001). TLV response with hostname,
+    model, firmware, and embedded MAC+IP records."""
+    if not pkt.haslayer(IP):
+        return
+    src = pkt[IP].src
+    kb.observe_host(src, source="ubnt")
+    kb.tag_role(src, "net-gear")
+    kb.note_fingerprint(src, "ubiquiti")
+    try:
+        raw = bytes(pkt[UDP].payload)
+    except Exception:
+        return
+    if len(raw) < 4:
+        return
+    i = 4                                    # version(1) cmd(1) length(2)
+    while i + 3 <= len(raw):
+        ttype = raw[i]
+        tlen  = struct.unpack_from(">H", raw, i + 1)[0]
+        i += 3
+        val = raw[i:i + tlen]
+        i += tlen
+        if ttype == 0x02 and len(val) >= 10:  # MAC(6) + IPv4(4)
+            ip = ".".join(str(b) for b in val[6:10])
+            if is_rfc1918(ip):
+                kb.observe_host(ip, source="ubnt:record")
+            continue
+        label = _UBNT_TLV.get(ttype)
+        if not label or not val:
+            continue
+        text = val.decode(errors="ignore").strip("\x00").strip()
+        if not text:
+            continue
+        if label == "hostname":
+            kb.add_hostname(src, text[:32], "ubnt")
+        else:
+            kb.note_fingerprint(src, "ubnt-%s:%s" % (label, text[:24]))
+
 def diss_stp(pkt, kb):
     if not _CAPS["stp"] or not pkt.haslayer(STP):
         return
@@ -1237,7 +1437,6 @@ def diss_traffic(pkt, kb):
             if rec is not None and vlan:
                 rec.vlan = vlan
 
-
 def dispatch(pkt, kb):
     try:
         if pkt.haslayer(ARP):
@@ -1286,6 +1485,18 @@ def dispatch(pkt, kb):
                 diss_ssdp(pkt, kb)
             elif dport == 3702 or sport == 3702:
                 diss_wsd(pkt, kb)
+            elif dport == 138 or sport == 138:
+                diss_browser(pkt, kb)
+            elif dport == 427 or sport == 427:
+                diss_slp(pkt, kb)
+            elif dport == 1434 or sport == 1434:
+                diss_mssql(pkt, kb)
+            elif dport == 17500 or sport == 17500:
+                diss_dropbox(pkt, kb)
+            elif dport == 5678 or sport == 5678:
+                diss_mndp(pkt, kb)
+            elif dport == 10001 or sport == 10001:
+                diss_ubnt(pkt, kb)
         if pkt.haslayer(TCP) and (pkt[TCP].dport == 53 or pkt[TCP].sport == 53):
             diss_dns_like(pkt, kb, "dns")
         if pkt.haslayer(ICMPv6ND_RA) or pkt.haslayer(ICMPv6ND_NS) or pkt.haslayer(ICMPv6ND_NA):
@@ -1293,7 +1504,6 @@ def dispatch(pkt, kb):
         diss_traffic(pkt, kb)
     except Exception as ex:
         kb.log.write("ERR   dissect: %s" % ex)
-
 
 def diss_ipv6_nd(pkt, kb):
     src = pkt[IPv6].src if pkt.haslayer(IPv6) else None
