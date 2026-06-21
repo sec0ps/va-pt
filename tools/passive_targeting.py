@@ -10,11 +10,12 @@
 #   - Runs passive sniffer and active sweep worker in parallel
 #   - Streams confirmed hosts to targets.txt and subnets to subnets.txt
 #   - Writes a timestamped run log for live tail
-#   - Optional Textual TUI: live clock, host/subnet/gateway counts, log pane,
-#     and ctrl+a paste box to feed captured routing tables or target lists
+#   - Optional stdlib curses TUI: three panes (banner + live counts on top,
+#     newly added targets on the left, running log on the right) plus a
+#     ctrl+a paste box to feed captured routing tables or target lists
 #
 # Usage:
-#   sudo python3 passive_recon.py                 # full auto (TUI if available)
+#   sudo python3 passive_recon.py                 # full auto (curses TUI if a tty)
 #   sudo python3 passive_recon.py --no-tui        # plain line-log mode
 #   sudo python3 passive_recon.py -r 100 -t 1     # faster sweep
 #   sudo python3 passive_recon.py --mask-request  # also probe ICMP type 17
@@ -22,6 +23,7 @@
 #   python3 passive_recon.py analyze cap.pcap     # offline pcap, no root needed
 #
 # Requires root for live capture and active sweep (raw sockets).
+# The curses TUI uses only the standard library; no third-party dependency.
 
 import argparse
 import fcntl
@@ -36,7 +38,6 @@ import struct
 import sys
 import threading
 import time
-import subprocess
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -192,9 +193,6 @@ _BROWSE_OPS = {0x01: "host-announce", 0x09: "backup-list-req",
 
 _MNDP_TLV = {5: "identity", 7: "version", 8: "platform", 12: "board"}
 _UBNT_TLV = {0x03: "firmware", 0x0b: "hostname", 0x0c: "model", 0x0d: "essid"}
-
-VENV_DIR       = os.path.expanduser("~/.va-pt-venv")
-_VENV_SENTINEL = "PASSIVE_TARGETING_IN_VENV"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -508,19 +506,21 @@ class RunLog:
 
 class TargetFeed:
     """Deduplicated, append-only host and subnet feeds. Flushed per write.
-    Preloads existing files so re-running the same outdir does not duplicate."""
+    Preloads existing files so re-running the same outdir does not duplicate.
+    A new entry fires the optional sink callback (used by the TUI targets
+    pane) outside the lock so the UI thread never blocks the writer."""
 
     def __init__(self, targets_path, subnets_path, targets6_path, sink=None):
-            self.seen_hosts   = set()
-            self.seen_subnets = set()
-            self._preload(targets_path,  self.seen_hosts)
-            self._preload(targets6_path, self.seen_hosts)
-            self._preload(subnets_path,  self.seen_subnets)
-            self.targets_fh  = open(targets_path,  "a", buffering=1)
-            self.subnets_fh  = open(subnets_path,  "a", buffering=1)
-            self.targets6_fh = open(targets6_path, "a", buffering=1)
-            self.sink = sink
-            self.lock = threading.Lock()
+        self.seen_hosts   = set()
+        self.seen_subnets = set()
+        self._preload(targets_path,  self.seen_hosts)
+        self._preload(targets6_path, self.seen_hosts)
+        self._preload(subnets_path,  self.seen_subnets)
+        self.targets_fh  = open(targets_path,  "a", buffering=1)
+        self.subnets_fh  = open(subnets_path,  "a", buffering=1)
+        self.targets6_fh = open(targets6_path, "a", buffering=1)
+        self.sink = sink
+        self.lock = threading.Lock()
 
     @staticmethod
     def _preload(path, dest):
@@ -532,35 +532,35 @@ class TargetFeed:
                         dest.add(ln)
 
     def add_host(self, ip):
-            with self.lock:
-                if ip in self.seen_hosts:
-                    return False
-                self.seen_hosts.add(ip)
-                fh = self.targets6_fh if ":" in ip else self.targets_fh
-                fh.write(ip + "\n")
-                fh.flush()
-                sink = self.sink
-            if sink:
-                try:
-                    sink(ip)
-                except Exception:
-                    pass
-            return True
+        with self.lock:
+            if ip in self.seen_hosts:
+                return False
+            self.seen_hosts.add(ip)
+            fh = self.targets6_fh if ":" in ip else self.targets_fh
+            fh.write(ip + "\n")
+            fh.flush()
+            sink = self.sink
+        if sink:
+            try:
+                sink(ip)
+            except Exception:
+                pass
+        return True
 
     def add_subnet(self, cidr):
-            with self.lock:
-                if cidr in self.seen_subnets:
-                    return False
-                self.seen_subnets.add(cidr)
-                self.subnets_fh.write(cidr + "\n")
-                self.subnets_fh.flush()
-                sink = self.sink
-            if sink:
-                try:
-                    sink(cidr)
-                except Exception:
-                    pass
-            return True
+        with self.lock:
+            if cidr in self.seen_subnets:
+                return False
+            self.seen_subnets.add(cidr)
+            self.subnets_fh.write(cidr + "\n")
+            self.subnets_fh.flush()
+            sink = self.sink
+        if sink:
+            try:
+                sink(cidr)
+            except Exception:
+                pass
+        return True
 
     def close(self):
         for fh in (self.targets_fh, self.subnets_fh, self.targets6_fh):
@@ -1806,105 +1806,183 @@ class ReconEngine:
             self.shutdown()
 
 # ---------------------------------------------------------------------------
-# Textual TUI
+# Curses TUI (standard library only)
 # ---------------------------------------------------------------------------
 
 def run_tui(engine):
-    """Live status TUI. Lazy-imports textual so the rest of the tool runs
-    without it. Returns False if textual is unavailable or errors at
-    construction/runtime, so the caller can fall back to line-log mode."""
-    print("[*] run_tui entered")
+    """Self-contained stdlib curses TUI. Three panes: banner and live counts
+    on top, newly added targets (IPs and CIDRs) on the left, the running log
+    on the right. Ctrl-A opens a paste box for routing tables or target
+    lists; q quits.
+
+    Thread-safety: the sniffer and sweep worker only append lines to bounded
+    deques under ui_lock via the runlog/feed sinks. All curses drawing happens
+    on this thread, on a timer. No curses call is ever made from a worker.
+
+    Returns False only when curses cannot initialize before the engine has
+    started, so the caller can cleanly fall back to line-log mode without
+    double-starting the engine. Once the engine is running, any exit (q or
+    error) performs shutdown here and returns True."""
     try:
-        from textual.app import App, ComposeResult
-        from textual.containers import Horizontal, Vertical
-        from textual.screen import ModalScreen
-        from textual.widgets import Static, RichLog, TextArea, Button, Label
+        import curses
+        from curses import textpad
     except Exception as ex:
-        print("[!] TUI import failed: %s" % ex)
+        print("[!] curses unavailable (%s); line-log mode" % ex)
         return False
-    print("[*] run_tui imports ok")
 
-    class PasteScreen(ModalScreen):
-        BINDINGS = [("escape", "cancel", "Cancel")]
+    log_lines    = deque(maxlen=2000)
+    target_lines = deque(maxlen=2000)
+    ui_lock      = threading.Lock()
+    notice       = [""]
+    started      = [False]
 
-        def compose(self):
-            with Vertical(id="paste-box"):
-                yield Label("Paste routing table or target list, then Apply "
-                            "(ip route / route -n / route print / show ip route / IPs)")
-                yield TextArea(id="paste-area")
-                yield Button("Apply", id="apply", variant="success")
-                yield Button("Cancel", id="cancel", variant="error")
+    def log_sink(line):
+        with ui_lock:
+            log_lines.append(line)
 
-        def on_button_pressed(self, event):
-            if event.button.id == "apply":
-                text = self.query_one("#paste-area", TextArea).text
-                subs, gws, hosts = parse_routes(text)
-                ns, ng, nh = apply_parsed(engine.kb, subs, gws, hosts, "manual:paste")
-                self.app.notify("Added %d subnets, %d gateways, %d hosts" % (ns, ng, nh))
-            self.app.pop_screen()
+    def target_sink(entry):
+        with ui_lock:
+            target_lines.append(entry)
 
-        def action_cancel(self):
-            self.app.pop_screen()
+    def _ui(stdscr):
+        curses.curs_set(0)
+        stdscr.nodelay(True)
+        stdscr.keypad(True)
+        try:
+            curses.start_color()
+            curses.use_default_colors()
+        except Exception:
+            pass
 
-    class ReconTUI(App):
-        CSS = """
-        #status { height: auto; padding: 1 2; background: $panel; }
-        #panes { height: 1fr; }
-        #targets { width: 1fr; border: round $secondary; margin: 0 1 0 0; }
-        #log { width: 2fr; border: round $primary; }
-        #paste-box { width: 80%; height: 80%; border: thick $primary;
-                     background: $surface; padding: 1 2; }
-        #paste-area { height: 1fr; }
-        Button { margin: 1 1 0 0; }
-        """
-        BINDINGS = [
-            ("ctrl+a", "add_targets", "Add targets"),
-            ("q", "quit", "Quit"),
-        ]
+        banner = engine._banner_lines()
+        wins   = {}
 
-        def compose(self):
-            yield Static(id="status")
-            with Horizontal(id="panes"):
-                yield RichLog(id="targets", highlight=False, markup=False, wrap=False)
-                yield RichLog(id="log", highlight=False, markup=False, wrap=False)
+        def _safe_addstr(win, y, x, s, attr=0):
+            h, w = win.getmaxyx()
+            if y < 0 or y >= h or x < 0 or x >= w:
+                return
+            s = s[:max(0, w - x - 1)]
+            try:
+                win.addstr(y, x, s, attr)
+            except curses.error:
+                pass
 
-        def on_mount(self):
-            engine.runlog.echo = False
-            log     = self.query_one("#log", RichLog)
-            targets = self.query_one("#targets", RichLog)
-            log.border_title     = "log"
-            targets.border_title = "new targets"
-            engine.runlog.sink = lambda line:  self.call_from_thread(log.write, line)
-            engine.feed.sink   = lambda entry: self.call_from_thread(targets.write, entry)
-            engine.start()
-            self._banner = engine._banner_lines()
-            self.set_interval(0.5, self._refresh)
-            self._refresh()
+        def rebuild():
+            maxy, maxx = stdscr.getmaxyx()
+            top_h = len(banner) + 3
+            if top_h > maxy - 4:
+                top_h = max(3, maxy - 4)
+            bot_h = max(3, maxy - top_h)
+            split = max(18, maxx // 3)
+            stdscr.clear()
+            stdscr.refresh()
+            wins["status"]  = curses.newwin(top_h, maxx, 0, 0)
+            wins["targets"] = curses.newwin(bot_h, split, top_h, 0)
+            wins["log"]     = curses.newwin(bot_h, max(1, maxx - split), top_h, split)
 
-        def _refresh(self):
-            hosts   = len(engine.feed.seen_hosts)
-            subnets = len(engine.feed.seen_subnets)
-            gws     = len(engine.kb.gateway_ips)
-            queued  = engine.sweep_queue.qsize()
-            now     = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            self.query_one("#status", Static).update(
-                "%s\n\n"
-                "%s    single: [b]%d[/b]    cidr: [b]%d[/b]    "
-                "gateways: [b]%d[/b]    sweep queue: [b]%d[/b]\n"
-                "ctrl+a paste routes/targets    q quit" % (
-                    "\n".join(self._banner), now, hosts, subnets, gws, queued))
+        def draw_status():
+            win = wins["status"]
+            win.erase()
+            h, _ = win.getmaxyx()
+            for i, ln in enumerate(banner):
+                if i < h:
+                    _safe_addstr(win, i, 1, ln, curses.A_BOLD if i == 0 else 0)
+            with ui_lock:
+                hosts   = len(engine.feed.seen_hosts)
+                subnets = len(engine.feed.seen_subnets)
+            gws    = len(engine.kb.gateway_ips)
+            queued = engine.sweep_queue.qsize()
+            clock  = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            counts = ("%s   single:%d  cidr:%d  gateways:%d  sweep-queue:%d"
+                      % (clock, hosts, subnets, gws, queued))
+            if len(banner) < h:
+                _safe_addstr(win, len(banner), 1, counts, curses.A_BOLD)
+            help_ln = "ctrl+a paste routes/targets    q quit"
+            if notice[0]:
+                help_ln = notice[0] + "    |    " + help_ln
+            if len(banner) + 1 < h:
+                _safe_addstr(win, len(banner) + 1, 1, help_ln)
+            win.noutrefresh()
 
-        def action_add_targets(self):
-            self.push_screen(PasteScreen())
+        def draw_pane(win, title, lines):
+            win.erase()
+            try:
+                win.box()
+            except curses.error:
+                pass
+            h, w = win.getmaxyx()
+            _safe_addstr(win, 0, 2, " %s " % title, curses.A_BOLD)
+            inner_h = h - 2
+            inner_w = w - 2
+            if inner_h >= 1 and inner_w >= 1:
+                with ui_lock:
+                    view = list(lines)[-inner_h:]
+                for i, ln in enumerate(view):
+                    _safe_addstr(win, 1 + i, 1, ln[:inner_w])
+            win.noutrefresh()
 
-        def on_unmount(self):
+        def paste_box():
+            maxy, maxx = stdscr.getmaxyx()
+            h = max(8, int(maxy * 0.7))
+            w = max(40, int(maxx * 0.7))
+            y = (maxy - h) // 2
+            x = (maxx - w) // 2
+            frame = curses.newwin(h, w, y, x)
+            frame.box()
+            _safe_addstr(frame, 0, 2,
+                         " paste routes/targets - Ctrl-G applies ", curses.A_BOLD)
+            _safe_addstr(frame, h - 1, 2,
+                         " ip route / route -n / route print / show ip route / IPs ")
+            frame.refresh()
+            edit = curses.newwin(h - 2, w - 2, y + 1, x + 1)
+            box  = textpad.Textbox(edit, insert_mode=True)
+            curses.curs_set(1)
+            text = box.edit()
+            curses.curs_set(0)
+            subs, gws, hosts = parse_routes(text)
+            ns, ng, nh = apply_parsed(engine.kb, subs, gws, hosts, "manual:paste")
+            notice[0] = "added %d subnets, %d gateways, %d hosts" % (ns, ng, nh)
+
+        rebuild()
+        engine.runlog.echo = False
+        engine.runlog.sink = log_sink
+        engine.feed.sink   = target_sink
+        engine.start()
+        started[0] = True
+
+        last_draw = 0.0
+        while True:
+            try:
+                ch = stdscr.getch()
+                if ch == ord("q"):
+                    break
+                elif ch == curses.KEY_RESIZE:
+                    rebuild()
+                elif ch == 1:                      # Ctrl-A
+                    paste_box()
+                    rebuild()
+                now = time.time()
+                if now - last_draw >= 0.25:
+                    last_draw = now
+                    draw_status()
+                    draw_pane(wins["targets"], "new targets", target_lines)
+                    draw_pane(wins["log"],     "log",         log_lines)
+                    curses.doupdate()
+                time.sleep(0.02)
+            except KeyboardInterrupt:
+                break
+
+    try:
+        curses.wrapper(_ui)
+    except Exception as ex:
+        print("[!] TUI error: %s" % ex)
+        if started[0]:
+            engine.runlog.echo = True
             engine.shutdown()
-
-    try:
-        ReconTUI().run()
-    except Exception as ex:
-        print("[!] TUI runtime error: %s" % ex)
+            return True
         return False
+    engine.runlog.echo = True
+    engine.shutdown()
     return True
 
 # ---------------------------------------------------------------------------
@@ -1926,7 +2004,7 @@ def run_default(args):
         allow=[c for c in (args.scope or [])],
         deny=[c for c in (args.exclude or [])],
     )
-    use_tui = (not args.no_tui) and sys.stdout.isatty() and _ensure_textual()
+    use_tui = (not args.no_tui) and sys.stdout.isatty()
     engine = ReconEngine(
         iface_info    = selected,
         outdir        = args.outdir,
@@ -1943,60 +2021,6 @@ def run_default(args):
         return
     engine.run()
 
-def _ensure_textual():
-    """Confirm a modern-enough textual is importable, reporting what was
-    found and where so a fallback to line-log is never silent."""
-    try:
-        import textual
-    except ImportError as ex:
-        print("[!] textual import failed (%s); line-log mode" % ex)
-        return False
-    ver = tuple(int(x) for x in re.findall(r"\d+", textual.__version__)[:2])
-    print("[*] textual %s at %s  (python %s)" % (
-        textual.__version__, os.path.dirname(textual.__file__), sys.executable))
-    if ver < (0, 40):
-        print("[!] textual too old for this TUI; line-log mode")
-        return False
-    return True
-
-def _venv_python():
-    return os.path.join(VENV_DIR, "bin", "python")
-
-
-def _maybe_reexec_in_venv(args):
-    """If TUI mode is wanted and the running interpreter lacks a current
-    textual, build a --system-site-packages venv (so scapy and contrib stay
-    visible), pip-install a modern textual into it, and re-exec into it.
-    No-op for analyze, --no-tui, non-tty output, or when already inside the
-    venv. The system-site-packages flag is mandatory: a clean venv would not
-    see the apt/pip scapy this tool depends on."""
-    if os.environ.get(_VENV_SENTINEL):
-        return
-    if getattr(args, "cmd", None) == "analyze":
-        return
-    if getattr(args, "no_tui", False) or not sys.stdout.isatty():
-        return
-    try:
-        import textual
-        if tuple(int(x) for x in re.findall(r"\d+", textual.__version__)[:2]) >= (0, 40):
-            return
-    except ImportError:
-        pass
-
-    py = _venv_python()
-    if not os.path.exists(py):
-        print("[*] building TUI venv at %s" % VENV_DIR)
-        try:
-            subprocess.run([sys.executable, "-m", "venv",
-                            "--system-site-packages", VENV_DIR], check=True)
-            subprocess.run([py, "-m", "pip", "install", "-q", "-U", "textual"],
-                           check=True)
-        except (subprocess.CalledProcessError, OSError) as ex:
-            print("[!] venv/textual setup failed (%s); using line-log mode" % ex)
-            return
-
-    os.environ[_VENV_SENTINEL] = "1"
-    os.execv(py, [py] + sys.argv)
 
 def run_analyze(args):
     runlog, feed, ts = open_outputs(args.outdir)
@@ -2022,7 +2046,7 @@ def build_parser():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 examples:
-  sudo python3 passive_targeting.py                       # full auto (TUI if available)
+  sudo python3 passive_targeting.py                       # full auto (curses TUI if a tty)
   sudo python3 passive_targeting.py --no-tui              # plain line-log mode
   sudo python3 passive_targeting.py -r 100 -t 1.0         # faster sweep
   sudo python3 passive_targeting.py --no-arp              # ICMP only
@@ -2050,7 +2074,7 @@ examples:
     p.add_argument("--exclude", action="append", metavar="CIDR",
                    help="exclude CIDR from targets (repeatable)")
     p.add_argument("--no-tui", action="store_true", default=False,
-                   help="disable the Textual TUI; use plain line-log output")
+                   help="disable the curses TUI; use plain line-log output")
     p.set_defaults(func=run_default)
 
     sub = p.add_subparsers(dest="cmd")
@@ -2060,9 +2084,9 @@ examples:
 
     return p
 
+
 def main():
     args = build_parser().parse_args()
-    _maybe_reexec_in_venv(args)
     args.func(args)
 
 
