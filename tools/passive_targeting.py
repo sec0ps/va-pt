@@ -36,6 +36,7 @@ import struct
 import sys
 import threading
 import time
+import subprocess
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -1896,7 +1897,7 @@ def run_default(args):
         allow=[c for c in (args.scope or [])],
         deny=[c for c in (args.exclude or [])],
     )
-    use_tui = (not args.no_tui) and sys.stdout.isatty()
+    use_tui = (not args.no_tui) and sys.stdout.isatty() and _ensure_textual()
     engine = ReconEngine(
         iface_info    = selected,
         outdir        = args.outdir,
@@ -1913,6 +1914,29 @@ def run_default(args):
         return
     engine.run()
 
+def _ensure_textual():
+    """Import textual, apt-installing python3-textual on first use if
+    missing. Returns True when usable, False if import and install both
+    fail (caller falls back to line-log mode)."""
+    try:
+        import textual  # noqa: F401
+        return True
+    except ImportError:
+        pass
+    print("[*] textual not installed, installing python3-textual...")
+    cmd = ["apt-get", "install", "-y", "python3-textual"]
+    if os.geteuid() != 0:
+        cmd.insert(0, "sudo")
+    try:
+        subprocess.run(cmd, check=True)
+    except (subprocess.CalledProcessError, OSError) as ex:
+        print("[!] python3-textual install failed (%s); using line-log mode" % ex)
+        return False
+    try:
+        import textual  # noqa: F401
+        return True
+    except ImportError:
+        return False
 
 def run_analyze(args):
     runlog, feed, ts = open_outputs(args.outdir)
