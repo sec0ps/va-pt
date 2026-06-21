@@ -508,16 +508,17 @@ class TargetFeed:
     """Deduplicated, append-only host and subnet feeds. Flushed per write.
     Preloads existing files so re-running the same outdir does not duplicate."""
 
-    def __init__(self, targets_path, subnets_path, targets6_path):
-        self.seen_hosts   = set()
-        self.seen_subnets = set()
-        self._preload(targets_path,  self.seen_hosts)
-        self._preload(targets6_path, self.seen_hosts)
-        self._preload(subnets_path,  self.seen_subnets)
-        self.targets_fh  = open(targets_path,  "a", buffering=1)
-        self.subnets_fh  = open(subnets_path,  "a", buffering=1)
-        self.targets6_fh = open(targets6_path, "a", buffering=1)
-        self.lock = threading.Lock()
+    def __init__(self, targets_path, subnets_path, targets6_path, sink=None):
+            self.seen_hosts   = set()
+            self.seen_subnets = set()
+            self._preload(targets_path,  self.seen_hosts)
+            self._preload(targets6_path, self.seen_hosts)
+            self._preload(subnets_path,  self.seen_subnets)
+            self.targets_fh  = open(targets_path,  "a", buffering=1)
+            self.subnets_fh  = open(subnets_path,  "a", buffering=1)
+            self.targets6_fh = open(targets6_path, "a", buffering=1)
+            self.sink = sink
+            self.lock = threading.Lock()
 
     @staticmethod
     def _preload(path, dest):
@@ -529,22 +530,34 @@ class TargetFeed:
                         dest.add(ln)
 
     def add_host(self, ip):
-        with self.lock:
-            if ip in self.seen_hosts:
-                return False
-            self.seen_hosts.add(ip)
-            fh = self.targets6_fh if ":" in ip else self.targets_fh
-            fh.write(ip + "\n")
-            fh.flush()
+            with self.lock:
+                if ip in self.seen_hosts:
+                    return False
+                self.seen_hosts.add(ip)
+                fh = self.targets6_fh if ":" in ip else self.targets_fh
+                fh.write(ip + "\n")
+                fh.flush()
+                sink = self.sink
+            if sink:
+                try:
+                    sink(ip)
+                except Exception:
+                    pass
             return True
 
     def add_subnet(self, cidr):
-        with self.lock:
-            if cidr in self.seen_subnets:
-                return False
-            self.seen_subnets.add(cidr)
-            self.subnets_fh.write(cidr + "\n")
-            self.subnets_fh.flush()
+            with self.lock:
+                if cidr in self.seen_subnets:
+                    return False
+                self.seen_subnets.add(cidr)
+                self.subnets_fh.write(cidr + "\n")
+                self.subnets_fh.flush()
+                sink = self.sink
+            if sink:
+                try:
+                    sink(cidr)
+                except Exception:
+                    pass
             return True
 
     def close(self):
@@ -1799,7 +1812,7 @@ def run_tui(engine):
     without it. Returns False if textual is unavailable."""
     try:
         from textual.app import App, ComposeResult
-        from textual.containers import Vertical
+        from textual.containers import Horizontal, Vertical
         from textual.screen import ModalScreen
         from textual.widgets import Static, RichLog, TextArea, Button, Label
     except Exception:
@@ -1828,55 +1841,58 @@ def run_tui(engine):
             self.app.pop_screen()
 
     class ReconTUI(App):
-        CSS = """
-        #status { height: auto; padding: 1 2; background: $panel; }
-        #log { height: 1fr; border: round $primary; }
-        #paste-box { width: 80%; height: 80%; border: thick $primary;
-                     background: $surface; padding: 1 2; }
-        #paste-area { height: 1fr; }
-        Button { margin: 1 1 0 0; }
-        """
-        BINDINGS = [
-            ("ctrl+a", "add_targets", "Add targets"),
-            ("q", "quit", "Quit"),
-        ]
+            CSS = """
+            #status { height: auto; padding: 1 2; background: $panel; }
+            #panes { height: 1fr; }
+            #targets { width: 1fr; border: round $secondary; margin: 0 1 0 0; }
+            #log { width: 2fr; border: round $primary; }
+            #paste-box { width: 80%; height: 80%; border: thick $primary;
+                        background: $surface; padding: 1 2; }
+            #paste-area { height: 1fr; }
+            Button { margin: 1 1 0 0; }
+            """
+            BINDINGS = [
+                ("ctrl+a", "add_targets", "Add targets"),
+                ("q", "quit", "Quit"),
+            ]
 
-        def compose(self):
-            yield Static(id="status")
-            yield RichLog(id="log", highlight=False, markup=False, wrap=False)
+            def compose(self):
+                yield Static(id="status")
+                with Horizontal(id="panes"):
+                    yield RichLog(id="targets", highlight=False, markup=False, wrap=False)
+                    yield RichLog(id="log", highlight=False, markup=False, wrap=False)
 
-        def on_mount(self):
-            engine.runlog.echo = False
-            engine.runlog.sink = lambda line: self.call_from_thread(
-                self.query_one("#log", RichLog).write, line)
-            log = self.query_one("#log", RichLog)
-            for ln in engine._banner_lines():
-                log.write(ln)
-            engine.start()
-            self.set_interval(0.5, self._refresh)
-            self._refresh()
+            def on_mount(self):
+                engine.runlog.echo = False
+                log     = self.query_one("#log", RichLog)
+                targets = self.query_one("#targets", RichLog)
+                log.border_title     = "log"
+                targets.border_title = "new targets"
+                engine.runlog.sink = lambda line:  self.call_from_thread(log.write, line)
+                engine.feed.sink   = lambda entry: self.call_from_thread(targets.write, entry)
+                engine.start()
+                self._banner = engine._banner_lines()
+                self.set_interval(0.5, self._refresh)
+                self._refresh()
 
-        def _refresh(self):
-            hosts   = len(engine.feed.seen_hosts)
-            subnets = len(engine.feed.seen_subnets)
-            gws     = len(engine.kb.gateway_ips)
-            queued  = engine.sweep_queue.qsize()
-            now     = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            self.query_one("#status", Static).update(
-                "[b]passive_targeting[/b]   %s\n"
-                "single targets: [b]%d[/b]    cidr targets: [b]%d[/b]    "
-                "gateways: [b]%d[/b]    sweep queue: [b]%d[/b]\n"
-                "ctrl+a paste routes/targets    q quit" % (
-                    now, hosts, subnets, gws, queued))
+            def _refresh(self):
+                hosts   = len(engine.feed.seen_hosts)
+                subnets = len(engine.feed.seen_subnets)
+                gws     = len(engine.kb.gateway_ips)
+                queued  = engine.sweep_queue.qsize()
+                now     = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                self.query_one("#status", Static).update(
+                    "%s\n\n"
+                    "%s    single: [b]%d[/b]    cidr: [b]%d[/b]    "
+                    "gateways: [b]%d[/b]    sweep queue: [b]%d[/b]\n"
+                    "ctrl+a paste routes/targets    q quit" % (
+                        "\n".join(self._banner), now, hosts, subnets, gws, queued))
 
-        def action_add_targets(self):
-            self.push_screen(PasteScreen())
+            def action_add_targets(self):
+                self.push_screen(PasteScreen())
 
-        def on_unmount(self):
-            engine.shutdown()
-
-    ReconTUI().run()
-    return True
+            def on_unmount(self):
+                engine.shutdown()
 
 # ---------------------------------------------------------------------------
 # Runners
