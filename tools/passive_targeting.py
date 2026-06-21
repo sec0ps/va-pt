@@ -193,6 +193,8 @@ _BROWSE_OPS = {0x01: "host-announce", 0x09: "backup-list-req",
 _MNDP_TLV = {5: "identity", 7: "version", 8: "platform", 12: "board"}
 _UBNT_TLV = {0x03: "firmware", 0x0b: "hostname", 0x0c: "model", 0x0d: "essid"}
 
+VENV_DIR       = os.path.expanduser("~/.va-pt-venv")
+_VENV_SENTINEL = "PASSIVE_TARGETING_IN_VENV"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1931,28 +1933,53 @@ def run_default(args):
     engine.run()
 
 def _ensure_textual():
-    """Import textual, apt-installing python3-textual on first use if
-    missing. Returns True when usable, False if import and install both
-    fail (caller falls back to line-log mode)."""
+    """Confirm a modern-enough textual is importable. Bootstrap into the
+    venv happens earlier in _maybe_reexec_in_venv; by the time the TUI gate
+    calls this we are either in the venv or textual is otherwise present."""
     try:
-        import textual  # noqa: F401
-        return True
+        import textual
+        return tuple(int(x) for x in re.findall(r"\d+", textual.__version__)[:2]) >= (0, 40)
+    except ImportError:
+        return False
+
+def _venv_python():
+    return os.path.join(VENV_DIR, "bin", "python")
+
+
+def _maybe_reexec_in_venv(args):
+    """If TUI mode is wanted and the running interpreter lacks a current
+    textual, build a --system-site-packages venv (so scapy and contrib stay
+    visible), pip-install a modern textual into it, and re-exec into it.
+    No-op for analyze, --no-tui, non-tty output, or when already inside the
+    venv. The system-site-packages flag is mandatory: a clean venv would not
+    see the apt/pip scapy this tool depends on."""
+    if os.environ.get(_VENV_SENTINEL):
+        return
+    if getattr(args, "cmd", None) == "analyze":
+        return
+    if getattr(args, "no_tui", False) or not sys.stdout.isatty():
+        return
+    try:
+        import textual
+        if tuple(int(x) for x in re.findall(r"\d+", textual.__version__)[:2]) >= (0, 40):
+            return
     except ImportError:
         pass
-    print("[*] textual not installed, installing python3-textual...")
-    cmd = ["apt-get", "install", "-y", "python3-textual"]
-    if os.geteuid() != 0:
-        cmd.insert(0, "sudo")
-    try:
-        subprocess.run(cmd, check=True)
-    except (subprocess.CalledProcessError, OSError) as ex:
-        print("[!] python3-textual install failed (%s); using line-log mode" % ex)
-        return False
-    try:
-        import textual  # noqa: F401
-        return True
-    except ImportError:
-        return False
+
+    py = _venv_python()
+    if not os.path.exists(py):
+        print("[*] building TUI venv at %s" % VENV_DIR)
+        try:
+            subprocess.run([sys.executable, "-m", "venv",
+                            "--system-site-packages", VENV_DIR], check=True)
+            subprocess.run([py, "-m", "pip", "install", "-q", "-U", "textual"],
+                           check=True)
+        except (subprocess.CalledProcessError, OSError) as ex:
+            print("[!] venv/textual setup failed (%s); using line-log mode" % ex)
+            return
+
+    os.environ[_VENV_SENTINEL] = "1"
+    os.execv(py, [py] + sys.argv)
 
 def run_analyze(args):
     runlog, feed, ts = open_outputs(args.outdir)
@@ -2016,9 +2043,9 @@ examples:
 
     return p
 
-
 def main():
     args = build_parser().parse_args()
+    _maybe_reexec_in_venv(args)
     args.func(args)
 
 
