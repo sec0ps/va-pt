@@ -1933,14 +1933,20 @@ def run_default(args):
     engine.run()
 
 def _ensure_textual():
-    """Confirm a modern-enough textual is importable. Bootstrap into the
-    venv happens earlier in _maybe_reexec_in_venv; by the time the TUI gate
-    calls this we are either in the venv or textual is otherwise present."""
+    """Confirm a modern-enough textual is importable, reporting what was
+    found and where so a fallback to line-log is never silent."""
     try:
         import textual
-        return tuple(int(x) for x in re.findall(r"\d+", textual.__version__)[:2]) >= (0, 40)
-    except ImportError:
+    except ImportError as ex:
+        print("[!] textual import failed (%s); line-log mode" % ex)
         return False
+    ver = tuple(int(x) for x in re.findall(r"\d+", textual.__version__)[:2])
+    print("[*] textual %s at %s  (python %s)" % (
+        textual.__version__, os.path.dirname(textual.__file__), sys.executable))
+    if ver < (0, 40):
+        print("[!] textual too old for this TUI; line-log mode")
+        return False
+    return True
 
 def _venv_python():
     return os.path.join(VENV_DIR, "bin", "python")
