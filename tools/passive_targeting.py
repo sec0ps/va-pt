@@ -1817,7 +1817,8 @@ def run_tui(engine):
         from textual.containers import Horizontal, Vertical
         from textual.screen import ModalScreen
         from textual.widgets import Static, RichLog, TextArea, Button, Label
-    except Exception:
+    except Exception as ex:
+        print("[!] TUI import failed: %s" % ex)
         return False
 
     class PasteScreen(ModalScreen):
