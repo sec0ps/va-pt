@@ -1811,7 +1811,9 @@ class ReconEngine:
 
 def run_tui(engine):
     """Live status TUI. Lazy-imports textual so the rest of the tool runs
-    without it. Returns False if textual is unavailable."""
+    without it. Returns False if textual is unavailable or errors at
+    construction/runtime, so the caller can fall back to line-log mode."""
+    print("[*] run_tui entered")
     try:
         from textual.app import App, ComposeResult
         from textual.containers import Horizontal, Vertical
@@ -1820,6 +1822,7 @@ def run_tui(engine):
     except Exception as ex:
         print("[!] TUI import failed: %s" % ex)
         return False
+    print("[*] run_tui imports ok")
 
     class PasteScreen(ModalScreen):
         BINDINGS = [("escape", "cancel", "Cancel")]
@@ -1844,58 +1847,65 @@ def run_tui(engine):
             self.app.pop_screen()
 
     class ReconTUI(App):
-            CSS = """
-            #status { height: auto; padding: 1 2; background: $panel; }
-            #panes { height: 1fr; }
-            #targets { width: 1fr; border: round $secondary; margin: 0 1 0 0; }
-            #log { width: 2fr; border: round $primary; }
-            #paste-box { width: 80%; height: 80%; border: thick $primary;
-                        background: $surface; padding: 1 2; }
-            #paste-area { height: 1fr; }
-            Button { margin: 1 1 0 0; }
-            """
-            BINDINGS = [
-                ("ctrl+a", "add_targets", "Add targets"),
-                ("q", "quit", "Quit"),
-            ]
+        CSS = """
+        #status { height: auto; padding: 1 2; background: $panel; }
+        #panes { height: 1fr; }
+        #targets { width: 1fr; border: round $secondary; margin: 0 1 0 0; }
+        #log { width: 2fr; border: round $primary; }
+        #paste-box { width: 80%; height: 80%; border: thick $primary;
+                     background: $surface; padding: 1 2; }
+        #paste-area { height: 1fr; }
+        Button { margin: 1 1 0 0; }
+        """
+        BINDINGS = [
+            ("ctrl+a", "add_targets", "Add targets"),
+            ("q", "quit", "Quit"),
+        ]
 
-            def compose(self):
-                yield Static(id="status")
-                with Horizontal(id="panes"):
-                    yield RichLog(id="targets", highlight=False, markup=False, wrap=False)
-                    yield RichLog(id="log", highlight=False, markup=False, wrap=False)
+        def compose(self):
+            yield Static(id="status")
+            with Horizontal(id="panes"):
+                yield RichLog(id="targets", highlight=False, markup=False, wrap=False)
+                yield RichLog(id="log", highlight=False, markup=False, wrap=False)
 
-            def on_mount(self):
-                engine.runlog.echo = False
-                log     = self.query_one("#log", RichLog)
-                targets = self.query_one("#targets", RichLog)
-                log.border_title     = "log"
-                targets.border_title = "new targets"
-                engine.runlog.sink = lambda line:  self.call_from_thread(log.write, line)
-                engine.feed.sink   = lambda entry: self.call_from_thread(targets.write, entry)
-                engine.start()
-                self._banner = engine._banner_lines()
-                self.set_interval(0.5, self._refresh)
-                self._refresh()
+        def on_mount(self):
+            engine.runlog.echo = False
+            log     = self.query_one("#log", RichLog)
+            targets = self.query_one("#targets", RichLog)
+            log.border_title     = "log"
+            targets.border_title = "new targets"
+            engine.runlog.sink = lambda line:  self.call_from_thread(log.write, line)
+            engine.feed.sink   = lambda entry: self.call_from_thread(targets.write, entry)
+            engine.start()
+            self._banner = engine._banner_lines()
+            self.set_interval(0.5, self._refresh)
+            self._refresh()
 
-            def _refresh(self):
-                hosts   = len(engine.feed.seen_hosts)
-                subnets = len(engine.feed.seen_subnets)
-                gws     = len(engine.kb.gateway_ips)
-                queued  = engine.sweep_queue.qsize()
-                now     = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                self.query_one("#status", Static).update(
-                    "%s\n\n"
-                    "%s    single: [b]%d[/b]    cidr: [b]%d[/b]    "
-                    "gateways: [b]%d[/b]    sweep queue: [b]%d[/b]\n"
-                    "ctrl+a paste routes/targets    q quit" % (
-                        "\n".join(self._banner), now, hosts, subnets, gws, queued))
+        def _refresh(self):
+            hosts   = len(engine.feed.seen_hosts)
+            subnets = len(engine.feed.seen_subnets)
+            gws     = len(engine.kb.gateway_ips)
+            queued  = engine.sweep_queue.qsize()
+            now     = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.query_one("#status", Static).update(
+                "%s\n\n"
+                "%s    single: [b]%d[/b]    cidr: [b]%d[/b]    "
+                "gateways: [b]%d[/b]    sweep queue: [b]%d[/b]\n"
+                "ctrl+a paste routes/targets    q quit" % (
+                    "\n".join(self._banner), now, hosts, subnets, gws, queued))
 
-            def action_add_targets(self):
-                self.push_screen(PasteScreen())
+        def action_add_targets(self):
+            self.push_screen(PasteScreen())
 
-            def on_unmount(self):
-                engine.shutdown()
+        def on_unmount(self):
+            engine.shutdown()
+
+    try:
+        ReconTUI().run()
+    except Exception as ex:
+        print("[!] TUI runtime error: %s" % ex)
+        return False
+    return True
 
 # ---------------------------------------------------------------------------
 # Runners
