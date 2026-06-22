@@ -147,13 +147,21 @@ ALWAYS_ON_PROTOS = (
 # ---------------------------------------------------------------------------
 
 def is_rfc1918(addr):
+    """True for a private host address worth cataloguing. Rejects the
+    unspecified address and the whole 0.0.0.0/8 'this network' block (a DHCP
+    client with no lease sources from 0.0.0.0), link-local (169.254/16,
+    fe80::/10), loopback, and multicast. IPv6 ULA (fd00::/8) is accepted."""
     try:
         ip = ip_address(addr)
     except ValueError:
         return False
-    if not isinstance(ip, IPv4Address):
-        return ip.is_private and not ip.is_link_local and not ip.is_loopback
-    return ip.is_private and not ip.is_loopback
+    if ip.is_unspecified or ip.is_loopback or ip.is_link_local or ip.is_multicast:
+        return False
+    if isinstance(ip, IPv4Address):
+        if int(ip) < 0x01000000:        # 0.0.0.0/8 reserved "this network"
+            return False
+        return ip.is_private
+    return ip.is_private
 
 
 def norm_mac(mac):
