@@ -1755,7 +1755,10 @@ class ReconEngine:
         self.sniffer.start()
 
     def shutdown(self):
-        """Stop capture, finish in-flight sweep, run mask sweep, export."""
+        """Stop capture, finish in-flight sweep, run mask sweep, export.
+        The blocking join and mask sweep are guarded against KeyboardInterrupt
+        so a Ctrl-C during teardown still completes the export and closes the
+        output files instead of crashing with a half-written run."""
         if self._down:
             return
         self._down = True
@@ -1768,11 +1771,17 @@ class ReconEngine:
         discarded = self._drain_queue()
         self.runlog.write("INFO  stopping  discarded=%d" % discarded)
         if self.sweep_thread:
-            self.sweep_thread.join(timeout=self.probe_timeout * 2 + 3)
+            try:
+                self.sweep_thread.join(timeout=self.probe_timeout * 2 + 3)
+            except KeyboardInterrupt:
+                pass
         if self.do_mask:
             live = list(self.kb.hosts.keys())
             if live:
-                icmp_mask_sweep(live, self.kb, self.rate, self.probe_timeout)
+                try:
+                    icmp_mask_sweep(live, self.kb, self.rate, self.probe_timeout)
+                except KeyboardInterrupt:
+                    pass
         self.kb.extrapolate_adjacent()
         jpath = os.path.join(self.outdir, "hosts_%s.jsonl" % self.ts)
         self.kb.export_jsonl(jpath)
@@ -1972,17 +1981,40 @@ def run_tui(engine):
             except KeyboardInterrupt:
                 break
 
+    def _restore_terminal():
+        # curses.wrapper already ran endwin(), but on some terminals the
+        # mouse-reporting and bracketed-paste modes are left enabled, which
+        # makes the shell echo escape sequences and breaks copy/paste/typing.
+        # Emit the disable sequences explicitly so the prompt returns clean.
+        try:
+            sys.stdout.write(
+                "\033[?1000l\033[?1002l\033[?1003l\033[?1006l"  # all mouse modes off
+                "\033[?2004l"                                    # bracketed paste off
+                "\033[?25h"                                      # cursor visible
+                "\033[0m")                                       # reset attributes
+            sys.stdout.flush()
+        except Exception:
+            pass
+
     try:
         curses.wrapper(_ui)
     except Exception as ex:
+        _restore_terminal()
         print("[!] TUI error: %s" % ex)
         if started[0]:
             engine.runlog.echo = True
-            engine.shutdown()
+            try:
+                engine.shutdown()
+            except KeyboardInterrupt:
+                pass
             return True
         return False
+    _restore_terminal()
     engine.runlog.echo = True
-    engine.shutdown()
+    try:
+        engine.shutdown()
+    except KeyboardInterrupt:
+        pass
     return True
 
 # ---------------------------------------------------------------------------
