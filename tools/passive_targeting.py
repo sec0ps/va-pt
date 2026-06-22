@@ -96,7 +96,9 @@ try:
 except Exception:
     _CAPS["vrrp"] = False
 
-from scapy.layers.netbios import NBNSQueryResponse
+from scapy.layers.netbios import (
+    NBNSHeader, NBNSNodeStatusResponse, NBTDatagram,
+)
 from scapy.layers.dhcp6 import DHCP6
 from scapy.layers.inet6 import (
     IPv6, ICMPv6ND_RA, ICMPv6ND_NS, ICMPv6ND_NA, ICMPv6NDOptPrefixInfo,
@@ -1003,27 +1005,71 @@ def diss_dns_like(pkt, kb, source):
 
 
 def diss_nbns(pkt, kb):
-    """NBNS registration, refresh, and query broadcasts carry the source host
-    and its NetBIOS name."""
+    """NBNS (UDP 137). Catalogue the source and attach a hostname only when the
+    packet carries the source's OWN name: any response (RR_NAME) or a name
+    registration/refresh request (QUESTION_NAME). Plain queries are skipped
+    because their QUESTION_NAME is the name being looked up, not the sender's."""
     if not pkt.haslayer(IP):
         return
     src = pkt[IP].src
     kb.observe_host(src, source="nbns")
-    for fld in ("RR_NAME", "QUESTION_NAME", "NETBIOS_NAME"):
+    hdr = pkt.getlayer(NBNSHeader)
+    if hdr is None:
+        return
+    response = getattr(hdr, "RESPONSE", 0)
+    opcode   = getattr(hdr, "OPCODE", 0)
+
+    def _name(field):
         try:
-            val = pkt.getfieldval(fld)
+            val = pkt.getfieldval(field)
         except Exception:
-            val = None
-        if val:
-            try:
-                name = (val.decode(errors="ignore")
-                        if isinstance(val, (bytes, bytearray)) else str(val))
-                name = name.strip().strip("\x00").rstrip()
-                if name and name != "*":
-                    kb.add_hostname(src, name[:15].strip(), "nbns")
-                    break
-            except Exception:
-                pass
+            return ""
+        if not val:
+            return ""
+        s = (val.decode(errors="ignore")
+             if isinstance(val, (bytes, bytearray)) else str(val))
+        s = s.strip().strip("\x00").rstrip()
+        return "" if (not s or s == "*") else s[:15].strip()
+
+    name = ""
+    if response:                       # response: RR_NAME is the responder's own
+        name = _name("RR_NAME")
+    elif opcode in (5, 8):             # registration / refresh: own name
+        name = _name("QUESTION_NAME")
+    # opcode 0 query: QUESTION_NAME is the queried name, not the sender's
+
+    if name:
+        kb.add_hostname(src, name, "nbns")
+
+    if pkt.haslayer(NBNSNodeStatusResponse):
+        try:
+            mac = pkt[NBNSNodeStatusResponse].MAC_ADDRESS
+        except Exception:
+            mac = None
+        if mac and is_unicast_mac(mac):
+            kb.observe_host(src, mac=mac, source="nbns:nodestatus")
+
+
+def diss_nbtds(pkt, kb):
+    """NBT Datagram Service (UDP 138): host announcements and browser traffic.
+    SourceName is the announcing host's own NetBIOS name and SourceIP its
+    address. This is the prime passive name source the old build threw away."""
+    dg = pkt.getlayer(NBTDatagram)
+    if dg is None:
+        return
+    sip = getattr(dg, "SourceIP", None)
+    src = sip if (sip and sip != "0.0.0.0") else (
+        pkt[IP].src if pkt.haslayer(IP) else None)
+    if not src:
+        return
+    kb.observe_host(src, source="nbtds")
+    sname = getattr(dg, "SourceName", None)
+    if sname:
+        name = (sname.decode(errors="ignore")
+                if isinstance(sname, (bytes, bytearray)) else str(sname))
+        name = name.strip().strip("\x00").rstrip()
+        if name and name != "*":
+            kb.add_hostname(src, name[:15].strip(), "nbtds")
 
 
 def diss_dhcp6(pkt, kb):
@@ -1104,8 +1150,10 @@ def dispatch(pkt, kb):
             diss_hsrp(pkt, kb)
         if _CAPS["vrrp"] and (pkt.haslayer(VRRP) or pkt.haslayer(VRRPv3)):
             diss_vrrp(pkt, kb)
-        if pkt.haslayer(NBNSQueryResponse) or pkt.haslayer("NBNSHeader"):
+        if pkt.haslayer(NBNSHeader):
             diss_nbns(pkt, kb)
+        if pkt.haslayer(NBTDatagram):
+            diss_nbtds(pkt, kb)
         _mc = [c for c in (IGMP if _CAPS["igmp"] else None,
                            ICMPv6MLReport, ICMPv6MLReport2) if c is not None]
         if any(pkt.haslayer(c) for c in _mc):
