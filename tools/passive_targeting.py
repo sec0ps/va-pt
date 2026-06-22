@@ -704,11 +704,14 @@ class KnowledgeBase:
     # ---- export ----
 
     def export_jsonl(self, path):
+        def _host_key(kv):
+            try:
+                a = ip_address(kv[0])
+                return (a.version, a.packed)
+            except ValueError:
+                return (0, kv[0].encode())
         with self.lock, open(path, "w") as fh:
-            for ip, rec in sorted(
-                    self.hosts.items(),
-                    key=lambda kv: ip_address(kv[0])
-                    if is_rfc1918(kv[0]) else ip_address("0.0.0.0")):
+            for ip, rec in sorted(self.hosts.items(), key=_host_key):
                 fh.write(json.dumps({
                     "ip":         ip,
                     "mac":        rec.mac,
