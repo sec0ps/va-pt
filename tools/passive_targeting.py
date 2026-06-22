@@ -1,36 +1,44 @@
 #!/usr/bin/env python3
-# passive_recon.py
+# passive_targeting.py
 #
-# Passive + active internal segment target expansion.
+# Strictly passive internal target discovery.
+#
+# Purpose:
+#   Watch whatever traffic the tester's interface can already see (broadcast,
+#   multicast, or unicast that reaches the NIC). Every source address that has
+#   not been catalogued before is logged as a candidate target. Where the
+#   observed traffic carries enough evidence, the size of that source's
+#   network is inferred as a CIDR so the subnet itself becomes a target for
+#   internal testing.
+#
+#   This builds the target list that nmap/masscan assume you already have. It
+#   never transmits: no sweeps, no probes, no host discovery traffic. The live
+#   path and the offline pcap path run identical logic.
 #
 # On execution:
 #   - Enumerates interfaces, filters to RFC1918-addressed ones
 #   - Auto-selects if only one; prompts for choice if multiple
-#   - Immediately seeds and queues the local subnet(s) for active sweep
-#   - Runs passive sniffer and active sweep worker in parallel
-#   - Streams confirmed hosts to targets.txt and subnets to subnets.txt
-#   - Writes a timestamped run log for live tail
-#   - Optional stdlib curses TUI: three panes (banner + live counts on top,
-#     newly added targets on the left, running log on the right) plus a
-#     ctrl+a paste box to feed captured routing tables or target lists
+#   - Seeds the local subnet(s) as confirmed targets
+#   - Runs the passive sniffer only
+#   - Streams newly seen hosts to targets.txt and inferred subnets to subnets.txt
+#   - Writes a timestamped run log
+#   - Optional stdlib curses TUI: banner + live counts on top, new targets on
+#     the left, running log on the right; ctrl+a opens a paste box to feed a
+#     captured routing table or target list
 #
 # Usage:
-#   sudo python3 passive_recon.py                 # full auto (curses TUI if a tty)
-#   sudo python3 passive_recon.py --no-tui        # plain line-log mode
-#   sudo python3 passive_recon.py -r 100 -t 1     # faster sweep
-#   sudo python3 passive_recon.py --mask-request  # also probe ICMP type 17
-#   sudo python3 passive_recon.py --scope 10.0.0.0/8 --exclude 10.0.5.0/24
-#   python3 passive_recon.py analyze cap.pcap     # offline pcap, no root needed
+#   sudo python3 passive_targeting.py                 # full auto (curses TUI if a tty)
+#   sudo python3 passive_targeting.py --no-tui        # plain line-log mode
+#   sudo python3 passive_targeting.py --scope 10.0.0.0/8 --exclude 10.0.5.0/24
+#   python3 passive_targeting.py analyze cap.pcap     # offline pcap, no root needed
 #
-# Requires root for live capture and active sweep (raw sockets).
-# The curses TUI uses only the standard library; no third-party dependency.
+# Requires root for live capture (raw socket). The TUI uses only the stdlib.
 
 import argparse
 import fcntl
 import json
 import logging
 import os
-import queue
 import re
 import signal
 import socket
@@ -46,8 +54,7 @@ from ipaddress import ip_address, ip_network, IPv4Address, IPv4Network
 from scapy.all import (
     AsyncSniffer, rdpcap,
     conf as scapy_conf, load_contrib,
-    Ether, Dot1Q, ARP, IP, TCP, ICMP, UDP, DHCP, DNS,
-    sr, srp,
+    Ether, Dot1Q, ARP, IP, TCP, UDP, DHCP, DNS,
 )
 
 # Suppress scapy's MAC-resolution warnings and verbose output.
@@ -55,7 +62,7 @@ scapy_conf.verb = 0
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 
 _CAPS = {}
-for _m in ("cdp", "lldp", "ospf", "eigrp", "hsrp", "vrrp", "dtp", "vtp"):
+for _m in ("cdp", "lldp", "ospf", "eigrp", "hsrp", "vrrp"):
     try:
         load_contrib(_m)
         _CAPS[_m] = True
@@ -64,8 +71,7 @@ for _m in ("cdp", "lldp", "ospf", "eigrp", "hsrp", "vrrp", "dtp", "vtp"):
 
 try:
     from scapy.contrib.cdp import (
-        CDPMsgDeviceID, CDPMsgAddr, CDPMsgMgmtAddr,
-        CDPAddrRecordIPv4, CDPMsgIPPrefix,
+        CDPMsgDeviceID, CDPMsgAddr, CDPMsgMgmtAddr, CDPMsgIPPrefix,
     )
 except Exception:
     _CAPS["cdp"] = False
@@ -89,20 +95,6 @@ try:
     from scapy.all import VRRP, VRRPv3
 except Exception:
     _CAPS["vrrp"] = False
-try:
-    from scapy.contrib.dtp import DTP
-except Exception:
-    _CAPS["dtp"] = False
-try:
-    from scapy.all import STP
-    _CAPS["stp"] = True
-except Exception:
-    _CAPS["stp"] = False
-try:
-    from scapy.layers.snmp import SNMP
-    _CAPS["snmp"] = True
-except Exception:
-    _CAPS["snmp"] = False
 
 from scapy.layers.netbios import NBNSQueryResponse
 from scapy.layers.dhcp6 import DHCP6
@@ -136,63 +128,8 @@ CONF_EXTRAPOLATED = 1   # adjacency or /24 floor, no direct observation
 
 CONF_NAME = {3: "confirmed", 2: "routed", 1: "extrapolated"}
 
-GATEWAY_OUI = {
-    "00000c07ac": "HSRP",
-    "00000c9ff":  "HSRPv2",
-    "00005e0001": "VRRP",
-    "00000c4140": "GLBP",
-}
-
-DEFAULT_FLOOR      = 24     # assumed prefix when nothing else resolves
-MIN_INFER_PREFIX   = 16     # never widen inferred subnet past /16 without proof
-MAX_SWEEP_HOSTS    = 65536  # hard ceiling on host expansion per CIDR
-SWEEP_BATCH        = 256    # hosts per sr/srp call
-MIN_SWEEP_PREFIX   = 16     # don't auto-queue subnets wider than /16
-
-# Well-known destination ports -> coarse server role.
-ROLE_PORTS = {
-    88: "dc/kerberos", 389: "dc/ldap", 636: "dc/ldaps", 3268: "dc/gc",
-    53: "dns", 445: "file/smb", 139: "file/smb", 2049: "file/nfs",
-    3389: "rdp", 5985: "winrm", 5986: "winrm", 22: "ssh", 23: "telnet",
-    1433: "db/mssql", 3306: "db/mysql", 5432: "db/pgsql", 1521: "db/oracle",
-    25: "smtp", 110: "pop3", 143: "imap", 161: "snmp", 123: "ntp",
-    80: "web", 443: "web", 8080: "web", 8443: "web",
-    515: "printer", 631: "printer", 9100: "printer",
-    623: "ipmi", 3128: "proxy", 1080: "proxy",
-}
-
-# TTL initial-value buckets for coarse passive OS family.
-TTL_BUCKETS = [(64, "unix/linux"), (128, "windows"), (255, "net-gear")]
-
-# MS-BRWS ServerType bitmask -> coarse role (UDP 138 browser announcements).
-SV_TYPE_FLAGS = {
-    0x00000001: "workstation",
-    0x00000002: "server",
-    0x00000004: "db/mssql",
-    0x00000008: "dc/pdc",
-    0x00000010: "dc/bdc",
-    0x00000020: "time-source",
-    0x00000040: "file/afp",
-    0x00000080: "novell",
-    0x00000100: "domain-member",
-    0x00000200: "printer",
-    0x00000800: "unix",
-    0x00001000: "nt-workstation",
-    0x00008000: "nt-server",
-    0x00020000: "browser/backup",
-    0x00040000: "browser/master",
-    0x00080000: "browser/domain-master",
-    0x00400000: "windows",
-    0x01000000: "file/dfs",
-}
-
-_BROWSE_TAG = b"\\MAILSLOT\\BROWSE\x00"
-_BROWSE_OPS = {0x01: "host-announce", 0x09: "backup-list-req",
-               0x0c: "domain-announce", 0x0d: "master-announce",
-               0x0f: "local-master-announce"}
-
-_MNDP_TLV = {5: "identity", 7: "version", 8: "platform", 12: "board"}
-_UBNT_TLV = {0x03: "firmware", 0x0b: "hostname", 0x0c: "model", 0x0d: "essid"}
+DEFAULT_FLOOR    = 24   # assumed prefix when nothing else resolves
+MIN_INFER_PREFIX = 16   # never widen an inferred subnet past /16 without proof
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -219,14 +156,6 @@ def is_unicast_mac(mac):
     if len(n) < 2 or n == "ffffffffffff":
         return False
     return (int(n[0:2], 16) & 0x01) == 0
-
-
-def ttl_os(ttl):
-    """Map an observed TTL to (os_family, estimated_hops)."""
-    for base, name in TTL_BUCKETS:
-        if 0 < ttl <= base:
-            return name, base - ttl
-    return "high-ttl", 0
 
 # ---------------------------------------------------------------------------
 # Route / target list parsing (manual scope expansion)
@@ -350,8 +279,7 @@ def parse_routes(text):
 
 def apply_parsed(kb, subnets, gateways, hosts, source="manual"):
     """Feed parsed routing data into the knowledge base. Subnets and hosts
-    inherit the standard RFC1918, prefix, and scope guards via the KB; hosts
-    are enqueued directly so they get actively enumerated."""
+    inherit the standard RFC1918 and scope guards via the KB."""
     for gw in gateways:
         kb.note_gateway(ip=gw, source=source)
     for cidr in subnets:
@@ -360,8 +288,6 @@ def apply_parsed(kb, subnets, gateways, hosts, source="manual"):
     for ip in hosts:
         if kb.observe_host(ip, source=source) is not None:
             added += 1
-            if kb.sweep_queue is not None and is_rfc1918(ip) and kb.in_scope(ip):
-                kb.sweep_queue.put(ip)
     kb.log.write("MANUAL adds: subnets=%d gateways=%d hosts=%d (%s)" % (
         len(subnets), len(gateways), len(hosts), source))
     return len(subnets), len(gateways), added
@@ -584,17 +510,14 @@ def open_outputs(outdir, echo=True):
 
 @dataclass
 class HostRecord:
-    ip:          str
-    mac:         str  = ""
-    hostnames:   set  = field(default_factory=set)
-    services:    set  = field(default_factory=set)
-    roles:       set  = field(default_factory=set)
-    fingerprint: set  = field(default_factory=set)
-    vlan:        int  = 0
-    confidence:  int  = CONF_CONFIRMED
-    evidence:    set  = field(default_factory=set)
-    first_seen:  float = field(default_factory=time.time)
-    last_seen:   float = field(default_factory=time.time)
+    ip:         str
+    mac:        str  = ""
+    hostnames:  set  = field(default_factory=set)
+    vlan:       int  = 0
+    confidence: int  = CONF_CONFIRMED
+    evidence:   set  = field(default_factory=set)
+    first_seen: float = field(default_factory=time.time)
+    last_seen:  float = field(default_factory=time.time)
 
 
 @dataclass
@@ -607,16 +530,15 @@ class SubnetRecord:
 
 
 class KnowledgeBase:
-    def __init__(self, runlog, feed, sweep_queue=None, scope=None):
-        self.log         = runlog
-        self.feed        = feed
-        self.sweep_queue = sweep_queue          # queue.Queue or None
-        self.scope       = scope or Scope()
-        self.lock        = threading.Lock()
-        self.hosts       = {}                   # ip -> HostRecord
-        self.mac_to_ip   = {}                   # norm_mac -> ip
-        self.ip_to_mac   = {}                   # ip -> norm_mac
-        self.subnets     = {}                   # cidr -> SubnetRecord
+    def __init__(self, runlog, feed, scope=None):
+        self.log          = runlog
+        self.feed         = feed
+        self.scope        = scope or Scope()
+        self.lock         = threading.Lock()
+        self.hosts        = {}                  # ip -> HostRecord
+        self.mac_to_ip    = {}                  # norm_mac -> ip
+        self.ip_to_mac    = {}                  # ip -> norm_mac
+        self.subnets      = {}                  # cidr -> SubnetRecord
         self.gateway_macs = {}                  # norm_mac -> source
         self.gateway_ips  = set()
         self.onlink       = defaultdict(lambda: {"on": set(), "routed": set()})
@@ -659,41 +581,6 @@ class KnowledgeBase:
                     rec.hostnames.add(name)
                     self.log.write("NAME  %-18s  %s  (%s)" % (ip, name, source))
 
-    def note_service(self, ip, proto, port, confirmed=False):
-        """Record an observed service port on a host and tag a coarse role."""
-        if not is_rfc1918(ip):
-            return
-        tag = "%s/%d" % (proto, port)
-        rec = self.observe_host(ip, source="service")
-        if not rec:
-            return
-        with self.lock:
-            if tag not in rec.services:
-                rec.services.add(tag)
-                self.log.write("SVC   %-18s  %-9s  %s" % (
-                    ip, tag, "confirmed" if confirmed else "seen"))
-            role = ROLE_PORTS.get(port)
-            if role and role not in rec.roles:
-                rec.roles.add(role)
-                self.log.write("ROLE  %-18s  %s" % (ip, role))
-
-    def note_fingerprint(self, ip, tag):
-        rec = self.hosts.get(ip)
-        if rec is None or not tag:
-            return
-        with self.lock:
-            if tag not in rec.fingerprint:
-                rec.fingerprint.add(tag)
-
-    def tag_role(self, ip, role):
-        rec = self.hosts.get(ip)
-        if rec is None or not role:
-            return
-        with self.lock:
-            if role not in rec.roles:
-                rec.roles.add(role)
-                self.log.write("ROLE  %-18s  %s" % (ip, role))
-
     # ---- gateway ----
 
     def note_gateway(self, ip="", mac="", source="protocol"):
@@ -734,12 +621,6 @@ class KnowledgeBase:
         if emit:
             self.log.write("NET   %-24s  %-12s  mask=%-18s  (%s)" % (
                 key, CONF_NAME[confidence], mask_from or "given", source))
-            if (self.sweep_queue is not None
-                    and isinstance(net, IPv4Network)
-                    and is_rfc1918(str(net.network_address))
-                    and self.in_scope(str(net.network_address))
-                    and MIN_SWEEP_PREFIX <= net.prefixlen <= 32):
-                self.sweep_queue.put(key)
 
     # ---- L2/L3 on-link correlation ----
 
@@ -829,18 +710,15 @@ class KnowledgeBase:
                     key=lambda kv: ip_address(kv[0])
                     if is_rfc1918(kv[0]) else ip_address("0.0.0.0")):
                 fh.write(json.dumps({
-                    "ip":          ip,
-                    "mac":         rec.mac,
-                    "hostnames":   sorted(rec.hostnames),
-                    "services":    sorted(rec.services),
-                    "roles":       sorted(rec.roles),
-                    "fingerprint": sorted(rec.fingerprint),
-                    "vlan":        rec.vlan,
-                    "confidence":  CONF_NAME[rec.confidence],
-                    "is_gateway":  ip in self.gateway_ips,
-                    "evidence":    sorted(rec.evidence),
-                    "first_seen":  rec.first_seen,
-                    "last_seen":   rec.last_seen,
+                    "ip":         ip,
+                    "mac":        rec.mac,
+                    "hostnames":  sorted(rec.hostnames),
+                    "vlan":       rec.vlan,
+                    "confidence": CONF_NAME[rec.confidence],
+                    "is_gateway": ip in self.gateway_ips,
+                    "evidence":   sorted(rec.evidence),
+                    "first_seen": rec.first_seen,
+                    "last_seen":  rec.last_seen,
                 }) + "\n")
             for cidr, rec in sorted(self.subnets.items()):
                 fh.write(json.dumps({
@@ -851,7 +729,7 @@ class KnowledgeBase:
                 }) + "\n")
 
 # ---------------------------------------------------------------------------
-# Packet dissectors
+# Packet dissectors (passive only)
 # ---------------------------------------------------------------------------
 
 def diss_arp(pkt, kb):
@@ -905,9 +783,6 @@ def diss_dhcp(pkt, kb):
             name = _decode(hv if not isinstance(hv, list) else hv[-1])
             if name:
                 kb.add_hostname(target, name.split(".")[0], label)
-    vclass = opts.get("vendor_class_id")
-    if vclass and target:
-        kb.note_fingerprint(target, "dhcp-vendor:%s" % _decode(vclass)[:40])
     routers = opts.get("router")
     if routers:
         for r in (routers if isinstance(routers, list) else [routers]):
@@ -916,7 +791,6 @@ def diss_dhcp(pkt, kb):
     if ns_list:
         for ns in (ns_list if isinstance(ns_list, list) else [ns_list]):
             kb.observe_host(ns, source="dhcp:dns")
-            kb.tag_role(ns, "dns")
     csr = opts.get("classless_static_routes")
     if csr:
         for entry in (csr if isinstance(csr, list) else [csr]):
@@ -956,28 +830,69 @@ def diss_cdp(pkt, kb):
         pfx = pfx.payload.getlayer(CDPMsgIPPrefix)
 
 
+def _lldp_mgmt_ip(mg):
+    r"""Decode an LLDP management-address TLV to an IP string, or '' when it is
+    not a v4/v6 address. Guards against emitting the raw byte string as a fake
+    host (the cause of the b'\xfd...' targets seen earlier)."""
+    addr    = getattr(mg, "management_address", None)
+    subtype = getattr(mg, "management_address_subtype", None)
+    if not addr:
+        return ""
+    if isinstance(addr, str):
+        try:
+            ip_address(addr)
+            return addr
+        except ValueError:
+            return ""
+    if isinstance(addr, (bytes, bytearray)):
+        b = bytes(addr)
+        # A raw 16-byte blob is always a syntactically valid IPv6, so length
+        # alone cannot be trusted: a 16-char ASCII system name would decode to
+        # a bogus address. Decode v6 only when the subtype explicitly says v6,
+        # or when the subtype is absent and the bytes do not look like printable
+        # text. v4 (4 bytes) has no such ambiguity.
+        try:
+            if subtype == 1:
+                return socket.inet_ntop(socket.AF_INET, b[-4:]) if len(b) >= 4 else ""
+            if subtype == 2:
+                return socket.inet_ntop(socket.AF_INET6, b[-16:]) if len(b) >= 16 else ""
+            if subtype is None:
+                if len(b) == 4:
+                    return socket.inet_ntop(socket.AF_INET, b)
+                if len(b) == 16 and not _looks_printable(b):
+                    return socket.inet_ntop(socket.AF_INET6, b)
+        except (OSError, ValueError):
+            return ""
+    return ""
+
+
+def _looks_printable(b):
+    """True if the bytes are mostly printable ASCII, i.e. likely a name string
+    rather than a packed address."""
+    if not b:
+        return False
+    printable = sum(1 for c in b if 0x20 <= c <= 0x7e)
+    return printable >= (len(b) * 3) // 4
+
+
 def diss_lldp(pkt, kb):
     if not _CAPS["lldp"]:
         return
     name = ""
     if pkt.haslayer(LLDPDUSystemName):
         try:
-            name = pkt[LLDPDUSystemName].system_name.decode(errors="ignore")
+            sn = pkt[LLDPDUSystemName].system_name
+            name = (sn.decode(errors="ignore")
+                    if isinstance(sn, (bytes, bytearray)) else str(sn)).strip()
         except Exception:
-            name = str(getattr(pkt[LLDPDUSystemName], "system_name", ""))
+            name = ""
     mg = pkt.getlayer(LLDPDUManagementAddress)
     while mg is not None:
-        addr = getattr(mg, "management_address", None)
-        if addr:
-            try:
-                ip = (".".join(str(b) for b in addr)
-                      if isinstance(addr, (bytes, bytearray)) and len(addr) == 4
-                      else str(addr))
-                kb.observe_host(ip, source="lldp:mgmt")
-                if name:
-                    kb.add_hostname(ip, name, "lldp")
-            except Exception:
-                pass
+        ip = _lldp_mgmt_ip(mg)
+        if ip:
+            kb.observe_host(ip, source="lldp:mgmt")
+            if name:
+                kb.add_hostname(ip, name, "lldp")
         mg = mg.payload.getlayer(LLDPDUManagementAddress)
 
 
@@ -1055,9 +970,8 @@ def diss_vrrp(pkt, kb):
 
 
 def diss_dns_like(pkt, kb, source):
-    """Parse A/AAAA, plus DNS-SD PTR/SRV/TXT for mDNS-style records.
-    SRV ports and TXT model hints are attached to any A/AAAA name in the
-    same response."""
+    """Catalogue A/AAAA answers from DNS, mDNS, and LLMNR responses, and the
+    names attached to them. RFC1918 addresses become catalogued targets."""
     if not pkt.haslayer(DNS):
         return
     dns = pkt[DNS]
@@ -1067,7 +981,6 @@ def diss_dns_like(pkt, kb, source):
             return field.decode(errors="ignore").rstrip(".")
         return str(field).rstrip(".")
 
-    name_to_ip = {}
     sections = []
     for attr, count in (("an", "ancount"), ("ns", "nscount"), ("ar", "arcount")):
         for i in range(getattr(dns, count, 0) or 0):
@@ -1077,50 +990,23 @@ def diss_dns_like(pkt, kb, source):
                 break
 
     for rr in sections:
-        rtype = getattr(rr, "type", None)
-        rname = _name(getattr(rr, "rrname", b""))
-        if rtype in (1, 28):
+        if getattr(rr, "type", None) in (1, 28):
             ip = rr.rdata if isinstance(rr.rdata, str) else None
-            if ip:
-                name_to_ip[rname] = ip
-                if is_rfc1918(ip):
-                    kb.observe_host(ip, source=source)
-                    kb.add_hostname(ip, rname, source)
-
-    for rr in sections:
-        rtype = getattr(rr, "type", None)
-        if rtype == 33:  # SRV
-            tgt  = _name(getattr(rr, "target", b""))
-            port = getattr(rr, "port", None)
-            ip   = name_to_ip.get(tgt)
-            if ip and port and is_rfc1918(ip):
-                proto = "udp" if "_udp" in _name(getattr(rr, "rrname", b"")) else "tcp"
-                kb.note_service(ip, proto, int(port))
-        elif rtype == 16:  # TXT
-            try:
-                txt = b" ".join(rr.rdata if isinstance(rr.rdata, list)
-                                 else [rr.rdata]).decode(errors="ignore")
-            except Exception:
-                txt = ""
-            for ip in name_to_ip.values():
-                for key in ("model", "md", "usb_MFG", "ty"):
-                    m = re.search(r"%s=([^\s]+)" % key, txt)
-                    if m and is_rfc1918(ip):
-                        kb.note_fingerprint(ip, "mdns:%s" % m.group(1)[:32])
-                        break
+            if ip and is_rfc1918(ip):
+                kb.observe_host(ip, source=source)
+                nm = _name(getattr(rr, "rrname", b""))
+                if nm:
+                    kb.add_hostname(ip, nm, source)
 
 
 def diss_nbns(pkt, kb):
-    """Handle any NBNS layer, not only query responses. Registration,
-    refresh, and query broadcasts also carry the source host and name."""
+    """NBNS registration, refresh, and query broadcasts carry the source host
+    and its NetBIOS name."""
     if not pkt.haslayer(IP):
         return
-    nb = pkt.getlayer("NBNSHeader") or (
-        pkt.getlayer(NBNSQueryResponse) if pkt.haslayer(NBNSQueryResponse) else None)
     src = pkt[IP].src
     kb.observe_host(src, source="nbns")
     for fld in ("RR_NAME", "QUESTION_NAME", "NETBIOS_NAME"):
-        val = None
         try:
             val = pkt.getfieldval(fld)
         except Exception:
@@ -1130,254 +1016,11 @@ def diss_nbns(pkt, kb):
                 name = (val.decode(errors="ignore")
                         if isinstance(val, (bytes, bytearray)) else str(val))
                 name = name.strip().strip("\x00").rstrip()
-                if name and name not in ("*",):
+                if name and name != "*":
                     kb.add_hostname(src, name[:15].strip(), "nbns")
                     break
             except Exception:
                 pass
-
-
-def diss_ssdp(pkt, kb):
-    """SSDP / UPnP (UDP 1900). Pull LOCATION host and SERVER string."""
-    src = pkt[IP].src if pkt.haslayer(IP) else None
-    if not src:
-        return
-    try:
-        payload = bytes(pkt[UDP].payload).decode(errors="ignore")
-    except Exception:
-        return
-    kb.observe_host(src, source="ssdp")
-    kb.note_service(src, "udp", 1900)
-    m = re.search(r"SERVER:\s*([^\r\n]+)", payload, re.I)
-    if m:
-        kb.note_fingerprint(src, "ssdp:%s" % m.group(1).strip()[:40])
-    m = re.search(r"LOCATION:\s*https?://([\d.]+)", payload, re.I)
-    if m and is_rfc1918(m.group(1)):
-        kb.observe_host(m.group(1), source="ssdp:location")
-
-
-def diss_wsd(pkt, kb):
-    """WS-Discovery (UDP 3702). Pull XAddrs host and Types."""
-    src = pkt[IP].src if pkt.haslayer(IP) else None
-    if not src:
-        return
-    try:
-        payload = bytes(pkt[UDP].payload).decode(errors="ignore")
-    except Exception:
-        return
-    kb.observe_host(src, source="wsd")
-    for host in re.findall(r"https?://([\d.]+)", payload):
-        if is_rfc1918(host):
-            kb.observe_host(host, source="wsd:xaddr")
-    m = re.search(r"<[^>]*Types>([^<]+)<", payload)
-    if m:
-        kb.note_fingerprint(src, "wsd:%s" % m.group(1).strip()[:32])
-
-
-def diss_browser(pkt, kb):
-    """SMB/NetBIOS Browser announcements (MS-BRWS) over UDP 138. Hosts
-    self-report computer name, OS version, an optional comment, and a
-    ServerType role bitmask, with no probing required."""
-    if not pkt.haslayer(IP) or not pkt.haslayer(UDP):
-        return
-    src = pkt[IP].src
-    kb.observe_host(src, source="browser")
-    try:
-        raw = bytes(pkt[UDP].payload)
-    except Exception:
-        return
-    idx = raw.find(_BROWSE_TAG)
-    if idx < 0:
-        return
-    data = raw[idx + len(_BROWSE_TAG):]
-    if len(data) < 28 or data[0] not in _BROWSE_OPS:
-        return
-    opcode = data[0]
-    name = data[6:22].split(b"\x00", 1)[0].decode(errors="ignore").strip()
-    if opcode == 0x0c:                       # domain/workgroup announcement
-        if name:
-            kb.note_fingerprint(src, "workgroup:%s" % name[:24])
-        kb.tag_role(src, "browser/master")
-        return
-    if name:
-        kb.add_hostname(src, name, "browser")
-    kb.note_fingerprint(src, "browser-os:%d.%d" % (data[22], data[23]))
-    srv_type = struct.unpack_from("<I", data, 24)[0]
-    for bit, role in SV_TYPE_FLAGS.items():
-        if srv_type & bit:
-            kb.tag_role(src, role)
-    if len(data) > 32:
-        comment = data[32:].split(b"\x00", 1)[0].decode(errors="ignore").strip()
-        if comment:
-            kb.note_fingerprint(src, "browser-comment:%s" % comment[:40])
-
-
-def diss_slp(pkt, kb):
-    """Service Location Protocol (UDP 427). Records the responder, the
-    advertised service schemes, and any RFC1918 hosts named in service URLs."""
-    if not pkt.haslayer(IP):
-        return
-    src = pkt[IP].src
-    kb.observe_host(src, source="slp")
-    kb.note_service(src, "udp", 427)
-    try:
-        payload = bytes(pkt[UDP].payload)
-    except Exception:
-        return
-    for m in re.findall(rb"service:([A-Za-z0-9_.\-]+)", payload)[:3]:
-        kb.note_fingerprint(src, "slp:%s" % m.decode(errors="ignore")[:24])
-    for h in re.findall(rb"(\d{1,3}(?:\.\d{1,3}){3})", payload):
-        ip = h.decode()
-        if is_rfc1918(ip):
-            kb.observe_host(ip, source="slp:url")
-
-
-def diss_mssql(pkt, kb):
-    """SQL Server Resolution Protocol (UDP 1434). Response frames name the
-    instance and its TCP port."""
-    if not pkt.haslayer(IP):
-        return
-    src = pkt[IP].src
-    kb.observe_host(src, source="mssql-browser")
-    try:
-        payload = bytes(pkt[UDP].payload)
-    except Exception:
-        return
-    if not payload or payload[0] != 0x05:    # 0x05 = SVR_RESP
-        return
-    body = payload[3:].decode(errors="ignore")
-    kb.tag_role(src, "db/mssql")
-    m = re.search(r"ServerName;([^;]+)", body)
-    if m:
-        kb.add_hostname(src, m.group(1).strip(), "mssql-browser")
-    inst = re.search(r"InstanceName;([^;]+)", body)
-    if inst:
-        kb.note_fingerprint(src, "mssql-instance:%s" % inst.group(1).strip()[:24])
-    port = re.search(r"tcp;(\d+)", body)
-    if port:
-        kb.note_service(src, "tcp", int(port.group(1)))
-
-
-def diss_dropbox(pkt, kb):
-    """Dropbox LAN Sync Discovery (UDP 17500). JSON beacon naming the host."""
-    if not pkt.haslayer(IP):
-        return
-    src = pkt[IP].src
-    kb.observe_host(src, source="dropbox")
-    kb.note_fingerprint(src, "dropbox-lansync")
-    try:
-        obj = json.loads(bytes(pkt[UDP].payload).decode(errors="ignore"))
-    except Exception:
-        return
-    name = obj.get("displayname")
-    if name:
-        kb.add_hostname(src, str(name)[:32], "dropbox")
-
-
-def diss_mndp(pkt, kb):
-    """MikroTik Neighbor Discovery (UDP 5678). TLV beacon with identity,
-    platform, and version."""
-    if not pkt.haslayer(IP):
-        return
-    src = pkt[IP].src
-    kb.observe_host(src, source="mndp")
-    kb.tag_role(src, "net-gear")
-    kb.note_fingerprint(src, "mikrotik")
-    try:
-        raw = bytes(pkt[UDP].payload)
-    except Exception:
-        return
-    i = 4                                    # 2-byte header + 2-byte sequence
-    while i + 4 <= len(raw):
-        ttype, tlen = struct.unpack_from(">HH", raw, i)
-        i += 4
-        val = raw[i:i + tlen]
-        i += tlen
-        label = _MNDP_TLV.get(ttype)
-        if not label or not val:
-            continue
-        text = val.decode(errors="ignore").strip("\x00").strip()
-        if not text:
-            continue
-        if label == "identity":
-            kb.add_hostname(src, text[:32], "mndp")
-        else:
-            kb.note_fingerprint(src, "mndp-%s:%s" % (label, text[:24]))
-
-
-def diss_ubnt(pkt, kb):
-    """Ubiquiti device discovery (UDP 10001). TLV response with hostname,
-    model, firmware, and embedded MAC+IP records."""
-    if not pkt.haslayer(IP):
-        return
-    src = pkt[IP].src
-    kb.observe_host(src, source="ubnt")
-    kb.tag_role(src, "net-gear")
-    kb.note_fingerprint(src, "ubiquiti")
-    try:
-        raw = bytes(pkt[UDP].payload)
-    except Exception:
-        return
-    if len(raw) < 4:
-        return
-    i = 4                                    # version(1) cmd(1) length(2)
-    while i + 3 <= len(raw):
-        ttype = raw[i]
-        tlen  = struct.unpack_from(">H", raw, i + 1)[0]
-        i += 3
-        val = raw[i:i + tlen]
-        i += tlen
-        if ttype == 0x02 and len(val) >= 10:  # MAC(6) + IPv4(4)
-            ip = ".".join(str(b) for b in val[6:10])
-            if is_rfc1918(ip):
-                kb.observe_host(ip, source="ubnt:record")
-            continue
-        label = _UBNT_TLV.get(ttype)
-        if not label or not val:
-            continue
-        text = val.decode(errors="ignore").strip("\x00").strip()
-        if not text:
-            continue
-        if label == "hostname":
-            kb.add_hostname(src, text[:32], "ubnt")
-        else:
-            kb.note_fingerprint(src, "ubnt-%s:%s" % (label, text[:24]))
-
-def diss_stp(pkt, kb):
-    if not _CAPS["stp"] or not pkt.haslayer(STP):
-        return
-    rootmac = getattr(pkt[STP], "rootmac", None)
-    if rootmac:
-        kb.note_gateway(mac=str(rootmac), source="stp:root")
-
-
-def diss_dtp(pkt, kb):
-    """DTP presence signals a switch port willing to negotiate a trunk,
-    the precondition for VLAN hopping. Log it loudly."""
-    if not _CAPS["dtp"] or not pkt.haslayer(DTP):
-        return
-    eth = pkt.getlayer(Ether)
-    smac = eth.src if eth else "?"
-    kb.note_gateway(mac=smac, source="dtp:trunk-capable")
-    kb.log.write("DTP   %-17s  trunk negotiation observed (vlan-hop candidate)" % smac)
-
-
-def diss_vtp(pkt, kb):
-    if not _CAPS["vtp"]:
-        return
-    try:
-        from scapy.contrib.vtp import VTP
-    except Exception:
-        return
-    if not pkt.haslayer(VTP):
-        return
-    dom = getattr(pkt[VTP], "DomainName", None)
-    if dom:
-        try:
-            dom = dom.decode(errors="ignore").strip("\x00")
-        except Exception:
-            dom = str(dom)
-        kb.log.write("VTP   domain=%s" % dom)
 
 
 def diss_dhcp6(pkt, kb):
@@ -1389,8 +1032,7 @@ def diss_dhcp6(pkt, kb):
 
 
 def diss_igmp(pkt, kb):
-    """IGMP / MLD membership reports reveal the joining host and that it
-    runs a multicast application."""
+    """IGMP / MLD membership reports reveal the joining host as a source."""
     if _CAPS["igmp"] and IGMP is not None and pkt.haslayer(IGMP) and pkt.haslayer(IP):
         kb.observe_host(pkt[IP].src, source="igmp")
     if _CAPS["mld"]:
@@ -1401,57 +1043,46 @@ def diss_igmp(pkt, kb):
                     kb.observe_host(src, source="mld")
 
 
-def diss_snmp(pkt, kb):
-    """SNMP v1/v2c. Capture cleartext community strings and tag the host."""
-    if not _CAPS["snmp"] or not pkt.haslayer(SNMP) or not pkt.haslayer(IP):
-        return
-    src = pkt[IP].src
-    kb.observe_host(src, source="snmp")
-    kb.tag_role(src, "snmp")
-    try:
-        comm = pkt[SNMP].community.val
-        comm = comm.decode(errors="ignore") if isinstance(comm, (bytes, bytearray)) else str(comm)
-        if comm:
-            kb.note_fingerprint(src, "snmp-community:%s" % comm[:24])
-            kb.log.write("SNMP  %-18s  community=%s" % (src, comm[:24]))
-    except Exception:
-        pass
+def diss_ipv6_nd(pkt, kb):
+    src = pkt[IPv6].src if pkt.haslayer(IPv6) else None
+    if pkt.haslayer(ICMPv6ND_RA):
+        if src:
+            kb.note_gateway(ip=src, source="ipv6:ra")
+        opt = pkt.getlayer(ICMPv6NDOptPrefixInfo)
+        while opt is not None:
+            prefix = getattr(opt, "prefix",    None)
+            plen   = getattr(opt, "prefixlen", None)
+            if prefix and plen:
+                kb.add_subnet("%s/%d" % (prefix, plen), CONF_ROUTED, "ipv6:ra", "ra-prefix")
+            opt = opt.payload.getlayer(ICMPv6NDOptPrefixInfo)
+    for cls in (ICMPv6ND_NS, ICMPv6ND_NA):
+        if pkt.haslayer(cls) and src and src != "::":
+            kb.observe_host(src, source="ipv6:nd")
 
 
 def diss_traffic(pkt, kb):
+    """The generic catch-all: any IP/IPv6 packet's source is a catalogued
+    target, the source MAC binds it, and the (src, dst, dst_mac) triple feeds
+    on-link/routed correlation for CIDR inference."""
     if not pkt.haslayer(Ether):
         return
-    eth = pkt[Ether]
+    eth  = pkt[Ether]
     vlan = pkt[Dot1Q].vlan if pkt.haslayer(Dot1Q) else 0
-
     if pkt.haslayer(IP):
-        ip = pkt[IP]
+        ip  = pkt[IP]
         rec = kb.observe_host(ip.src, mac=eth.src, source="traffic")
-        if rec is not None:
-            if vlan:
-                rec.vlan = vlan
-            osf, hops = ttl_os(int(ip.ttl))
-            kb.note_fingerprint(ip.src, "ttl:%d/%s/%dhop" % (int(ip.ttl), osf, hops))
+        if rec is not None and vlan:
+            rec.vlan = vlan
         if is_unicast_mac(eth.dst):
             kb.observe_host(ip.dst, source="traffic")
             kb.correlate(ip.src, ip.dst, eth.dst)
-        if pkt.haslayer(TCP):
-            t = pkt[TCP]
-            flags = int(t.flags)
-            if (flags & 0x12) == 0x12:           # SYN-ACK: src is a listening server
-                kb.note_service(ip.src, "tcp", int(t.sport), confirmed=True)
-            elif int(t.dport) in ROLE_PORTS:     # client reaching a known service
-                kb.note_service(ip.dst, "tcp", int(t.dport))
-        elif pkt.haslayer(UDP):
-            u = pkt[UDP]
-            if int(u.dport) in ROLE_PORTS:
-                kb.note_service(ip.dst, "udp", int(u.dport))
     elif pkt.haslayer(IPv6):
         v6 = pkt[IPv6]
         if is_rfc1918(v6.src):
             rec = kb.observe_host(v6.src, mac=eth.src, source="traffic6")
             if rec is not None and vlan:
                 rec.vlan = vlan
+
 
 def dispatch(pkt, kb):
     try:
@@ -1470,20 +1101,12 @@ def dispatch(pkt, kb):
             diss_hsrp(pkt, kb)
         if _CAPS["vrrp"] and (pkt.haslayer(VRRP) or pkt.haslayer(VRRPv3)):
             diss_vrrp(pkt, kb)
-        if _CAPS["stp"] and pkt.haslayer(STP):
-            diss_stp(pkt, kb)
-        if _CAPS["dtp"] and pkt.haslayer(DTP):
-            diss_dtp(pkt, kb)
-        if _CAPS["vtp"]:
-            diss_vtp(pkt, kb)
         if pkt.haslayer(NBNSQueryResponse) or pkt.haslayer("NBNSHeader"):
             diss_nbns(pkt, kb)
         _mc = [c for c in (IGMP if _CAPS["igmp"] else None,
                            ICMPv6MLReport, ICMPv6MLReport2) if c is not None]
         if any(pkt.haslayer(c) for c in _mc):
             diss_igmp(pkt, kb)
-        if _CAPS["snmp"] and pkt.haslayer(SNMP):
-            diss_snmp(pkt, kb)
         if pkt.haslayer(DHCP6):
             diss_dhcp6(pkt, kb)
         if pkt.haslayer(UDP):
@@ -1497,22 +1120,6 @@ def dispatch(pkt, kb):
                 diss_dns_like(pkt, kb, "llmnr")
             elif dport == 53 or sport == 53:
                 diss_dns_like(pkt, kb, "dns")
-            elif dport == 1900 or sport == 1900:
-                diss_ssdp(pkt, kb)
-            elif dport == 3702 or sport == 3702:
-                diss_wsd(pkt, kb)
-            elif dport == 138 or sport == 138:
-                diss_browser(pkt, kb)
-            elif dport == 427 or sport == 427:
-                diss_slp(pkt, kb)
-            elif dport == 1434 or sport == 1434:
-                diss_mssql(pkt, kb)
-            elif dport == 17500 or sport == 17500:
-                diss_dropbox(pkt, kb)
-            elif dport == 5678 or sport == 5678:
-                diss_mndp(pkt, kb)
-            elif dport == 10001 or sport == 10001:
-                diss_ubnt(pkt, kb)
         if pkt.haslayer(TCP) and (pkt[TCP].dport == 53 or pkt[TCP].sport == 53):
             diss_dns_like(pkt, kb, "dns")
         if pkt.haslayer(ICMPv6ND_RA) or pkt.haslayer(ICMPv6ND_NS) or pkt.haslayer(ICMPv6ND_NA):
@@ -1521,161 +1128,19 @@ def dispatch(pkt, kb):
     except Exception as ex:
         kb.log.write("ERR   dissect: %s" % ex)
 
-def diss_ipv6_nd(pkt, kb):
-    src = pkt[IPv6].src if pkt.haslayer(IPv6) else None
-    if pkt.haslayer(ICMPv6ND_RA):
-        if src:
-            kb.note_gateway(ip=src, source="ipv6:ra")
-        opt = pkt.getlayer(ICMPv6NDOptPrefixInfo)
-        while opt is not None:
-            prefix = getattr(opt, "prefix",     None)
-            plen   = getattr(opt, "prefixlen",  None)
-            if prefix and plen:
-                kb.add_subnet("%s/%d" % (prefix, plen), CONF_ROUTED, "ipv6:ra", "ra-prefix")
-            opt = opt.payload.getlayer(ICMPv6NDOptPrefixInfo)
-    for cls in (ICMPv6ND_NS, ICMPv6ND_NA):
-        if pkt.haslayer(cls) and src and src != "::":
-            kb.observe_host(src, source="ipv6:nd")
-
 # ---------------------------------------------------------------------------
-# Active sweep functions (require root / raw sockets)
-# ---------------------------------------------------------------------------
-
-def _expand_targets(cidrs, runlog, max_hosts=MAX_SWEEP_HOSTS):
-    """Expand CIDR strings and individual IPs to a flat IPv4 host list."""
-    hosts = []
-    for entry in cidrs:
-        entry = entry.strip()
-        if not entry or entry.startswith("#"):
-            continue
-        try:
-            net = ip_network(entry, strict=False)
-        except ValueError:
-            try:
-                hosts.append(ip_address(entry))
-            except ValueError:
-                runlog.write("WARN  invalid target skipped: %s" % entry)
-            continue
-        if net.version == 6:
-            continue
-        hl = list(net.hosts()) if net.prefixlen < 32 else [net.network_address]
-        if len(hosts) + len(hl) > max_hosts:
-            remaining = max_hosts - len(hosts)
-            runlog.write("WARN  host limit %d reached at %s, truncating" % (
-                max_hosts, entry))
-            hosts.extend(hl[:remaining])
-            break
-        hosts.extend(hl)
-    return hosts
-
-
-def arp_sweep(targets, iface, kb, rate, timeout):
-    """Broadcast ARP sweep. Effective for on-link (L2-reachable) targets only."""
-    kb.log.write("SWEEP arp   hosts=%-6d  iface=%-10s  rate=%d/s" % (
-        len(targets), iface, rate))
-    inter = 1.0 / max(1, rate)
-    found = 0
-    for i in range(0, len(targets), SWEEP_BATCH):
-        batch = targets[i:i + SWEEP_BATCH]
-        pkts  = [Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(pdst=str(ip))
-                 for ip in batch]
-        try:
-            ans, _ = srp(pkts, iface=iface, timeout=timeout, inter=inter, verbose=0)
-            for _, rcv in ans:
-                if rcv.haslayer(ARP) and rcv[ARP].op == 2:
-                    a = rcv[ARP]
-                    kb.observe_host(a.psrc, mac=a.hwsrc, source="arp-sweep")
-                    found += 1
-        except Exception as ex:
-            kb.log.write("ERR   arp-sweep: %s" % ex)
-    kb.log.write("SWEEP arp   done  found=%d" % found)
-    return found
-
-
-def icmp_sweep(targets, kb, rate, timeout):
-    """ICMP echo sweep. Works for both on-link and routed targets."""
-    kb.log.write("SWEEP icmp  hosts=%-6d  rate=%d/s" % (len(targets), rate))
-    inter = 1.0 / max(1, rate)
-    found = 0
-    for i in range(0, len(targets), SWEEP_BATCH):
-        batch = targets[i:i + SWEEP_BATCH]
-        pkts  = [IP(dst=str(ip)) / ICMP(id=0xEC11, seq=(i + j) & 0xffff)
-                 for j, ip in enumerate(batch)]
-        try:
-            ans, _ = sr(pkts, timeout=timeout, inter=inter, verbose=0)
-            for _, rcv in ans:
-                if rcv.haslayer(ICMP) and rcv[ICMP].type == 0:
-                    kb.observe_host(rcv[IP].src, source="icmp-sweep")
-                    found += 1
-        except Exception as ex:
-            kb.log.write("ERR   icmp-sweep: %s" % ex)
-    kb.log.write("SWEEP icmp  done  found=%d" % found)
-    return found
-
-
-def icmp_mask_sweep(targets, kb, rate, timeout):
-    """ICMP Address Mask Request (type 17) against known-live hosts.
-    Low yield on modern OS; useful for legacy gear and some embedded devices."""
-    kb.log.write("SWEEP mask  hosts=%-6d  rate=%d/s" % (len(targets), rate))
-    inter = 1.0 / max(1, rate)
-    found = 0
-    for i in range(0, len(targets), SWEEP_BATCH):
-        batch = targets[i:i + SWEEP_BATCH]
-        pkts  = [IP(dst=str(ip)) / ICMP(type=17, seq=(i + j) & 0xffff)
-                 for j, ip in enumerate(batch)]
-        try:
-            ans, _ = sr(pkts, timeout=timeout, inter=inter, verbose=0)
-            for _, rcv in ans:
-                if rcv.haslayer(ICMP) and rcv[ICMP].type == 18:
-                    src  = rcv[IP].src
-                    mask = rcv[ICMP].addr_mask
-                    if mask:
-                        try:
-                            pl = ip_network("0.0.0.0/%s" % mask).prefixlen
-                            kb.add_subnet("%s/%d" % (src, pl), CONF_CONFIRMED,
-                                          "icmp:type18", "icmp-mask-reply")
-                            found += 1
-                        except ValueError:
-                            pass
-        except Exception as ex:
-            kb.log.write("ERR   icmp-mask-sweep: %s" % ex)
-    kb.log.write("SWEEP mask  done  replies=%d" % found)
-    return found
-
-# ---------------------------------------------------------------------------
-# Recon engine
+# Recon engine (passive sniffer only)
 # ---------------------------------------------------------------------------
 
 class ReconEngine:
-    def __init__(self, iface_info, outdir, rate, probe_timeout,
-                 do_arp, do_icmp, do_mask, max_hosts, scope=None, echo=True):
-        self.iface_info    = iface_info
-        self.iface_names   = [i[0] for i in iface_info]
-        self.rate          = rate
-        self.probe_timeout = probe_timeout
-        self.do_arp        = do_arp
-        self.do_icmp       = do_icmp
-        self.do_mask       = do_mask
-        self.max_hosts     = max_hosts
-        self.outdir        = outdir
-        self.sweep_queue   = queue.Queue()
-        self._swept        = set()
-        self._stop         = threading.Event()
-        self._down         = False
+    def __init__(self, iface_info, outdir, scope=None, echo=True):
+        self.iface_info  = iface_info
+        self.iface_names = [i[0] for i in iface_info]
+        self.outdir      = outdir
+        self._down       = False
         self.runlog, self.feed, self.ts = open_outputs(outdir, echo=echo)
-        self.kb = KnowledgeBase(self.runlog, self.feed, self.sweep_queue, scope)
-        self.sniffer      = None
-        self.sweep_thread = None
-
-    def _iface_for_subnet(self, cidr):
-        try:
-            net = ip_network(cidr, strict=False)
-            for name, ip, _ in self.iface_info:
-                if ip_address(ip) in net:
-                    return name
-        except Exception:
-            pass
-        return self.iface_names[0]
+        self.kb = KnowledgeBase(self.runlog, self.feed, scope)
+        self.sniffer = None
 
     def _seed_local_subnets(self):
         for name, ip, cidr in self.iface_info:
@@ -1683,42 +1148,14 @@ class ReconEngine:
             self.kb.add_subnet(cidr, CONF_CONFIRMED,
                                "local-iface:%s" % name, "iface-config")
 
-    def _sweep_worker(self):
-        while not self._stop.is_set():
-            try:
-                cidr = self.sweep_queue.get(timeout=1.0)
-            except queue.Empty:
-                continue
-            try:
-                if cidr in self._swept:
-                    continue
-                self._swept.add(cidr)
-                targets = _expand_targets([cidr], self.kb.log, self.max_hosts)
-                if not targets:
-                    continue
-                iface = self._iface_for_subnet(cidr)
-                if self.do_arp:
-                    arp_sweep(targets, iface, self.kb, self.rate, self.probe_timeout)
-                if self.do_icmp:
-                    icmp_sweep(targets, self.kb, self.rate, self.probe_timeout)
-            except Exception as ex:
-                self.kb.log.write("ERR   sweep-worker: %s" % ex)
-            finally:
-                self.sweep_queue.task_done()
-
     def _banner_lines(self):
-        sweeps = " + ".join(
-            s for s, e in [("ARP", self.do_arp), ("ICMP", self.do_icmp),
-                            ("mask-req", self.do_mask)] if e)
         return [
-            "passive_targeting  |  passive + active parallel mode",
+            "passive_targeting  |  passive capture only",
             "interface(s) : %s" % ", ".join(
                 "%s (%s)" % (n, cidr) for n, _, cidr in self.iface_info),
             "targets      : %s" % os.path.join(self.outdir, "targets.txt"),
             "subnets      : %s" % os.path.join(self.outdir, "subnets.txt"),
             "log          : %s" % os.path.join(self.outdir, "recon_%s.log" % self.ts),
-            "rate         : %d probes/s   timeout: %.1fs" % (self.rate, self.probe_timeout),
-            "sweeps       : %s" % (sweeps or "none"),
             "caps         : %s" % ", ".join(k for k, v in _CAPS.items() if v),
         ]
 
@@ -1730,35 +1167,17 @@ class ReconEngine:
         print("    tail -f %s" % os.path.join(self.outdir, "recon_%s.log" % self.ts))
         print("    ^C to stop\n")
 
-    def _drain_queue(self):
-        discarded = 0
-        while True:
-            try:
-                self.sweep_queue.get_nowait()
-                discarded += 1
-            except queue.Empty:
-                break
-        return discarded
-
     def start(self):
-        """Spin up sniffer + sweep worker. Non-blocking."""
+        """Spin up the passive sniffer. Non-blocking. Transmits nothing."""
         self._seed_local_subnets()
-        self.sweep_thread = threading.Thread(
-            target=self._sweep_worker, daemon=True, name="sweep-worker")
-        self.sweep_thread.start()
         self.sniffer = AsyncSniffer(
             iface=self.iface_names, store=False,
             prn=lambda p: dispatch(p, self.kb))
-        self.runlog.write("START ifaces=%s  rate=%d  arp=%s  icmp=%s  mask=%s" % (
-            ",".join(self.iface_names), self.rate,
-            self.do_arp, self.do_icmp, self.do_mask))
+        self.runlog.write("START ifaces=%s  (passive)" % ",".join(self.iface_names))
         self.sniffer.start()
 
     def shutdown(self):
-        """Stop capture, finish in-flight sweep, run mask sweep, export.
-        The blocking join and mask sweep are guarded against KeyboardInterrupt
-        so a Ctrl-C during teardown still completes the export and closes the
-        output files instead of crashing with a half-written run."""
+        """Stop capture, extrapolate adjacent /24s, export."""
         if self._down:
             return
         self._down = True
@@ -1767,21 +1186,6 @@ class ReconEngine:
                 self.sniffer.stop()
         except Exception:
             pass
-        self._stop.set()
-        discarded = self._drain_queue()
-        self.runlog.write("INFO  stopping  discarded=%d" % discarded)
-        if self.sweep_thread:
-            try:
-                self.sweep_thread.join(timeout=self.probe_timeout * 2 + 3)
-            except KeyboardInterrupt:
-                pass
-        if self.do_mask:
-            live = list(self.kb.hosts.keys())
-            if live:
-                try:
-                    icmp_mask_sweep(live, self.kb, self.rate, self.probe_timeout)
-                except KeyboardInterrupt:
-                    pass
         self.kb.extrapolate_adjacent()
         jpath = os.path.join(self.outdir, "hosts_%s.jsonl" % self.ts)
         self.kb.export_jsonl(jpath)
@@ -1824,14 +1228,13 @@ def run_tui(engine):
     on the right. Ctrl-A opens a paste box for routing tables or target
     lists; q quits.
 
-    Thread-safety: the sniffer and sweep worker only append lines to bounded
-    deques under ui_lock via the runlog/feed sinks. All curses drawing happens
-    on this thread, on a timer. No curses call is ever made from a worker.
+    Thread-safety: the sniffer only appends lines to bounded deques under
+    ui_lock via the runlog/feed sinks. All curses drawing happens on this
+    thread, on a timer. No curses call is ever made from the sniffer thread.
 
     Returns False only when curses cannot initialize before the engine has
-    started, so the caller can cleanly fall back to line-log mode without
-    double-starting the engine. Once the engine is running, any exit (q or
-    error) performs shutdown here and returns True."""
+    started, so the caller can fall back to line-log mode without
+    double-starting the engine."""
     try:
         import curses
         from curses import textpad
@@ -1899,11 +1302,10 @@ def run_tui(engine):
             with ui_lock:
                 hosts   = len(engine.feed.seen_hosts)
                 subnets = len(engine.feed.seen_subnets)
-            gws    = len(engine.kb.gateway_ips)
-            queued = engine.sweep_queue.qsize()
-            clock  = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            counts = ("%s   single:%d  cidr:%d  gateways:%d  sweep-queue:%d"
-                      % (clock, hosts, subnets, gws, queued))
+            gws   = len(engine.kb.gateway_ips)
+            clock = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            counts = "%s   single:%d  cidr:%d  gateways:%d" % (
+                clock, hosts, subnets, gws)
             if len(banner) < h:
                 _safe_addstr(win, len(banner), 1, counts, curses.A_BOLD)
             help_ln = "ctrl+a paste routes/targets    q quit"
@@ -2038,16 +1440,10 @@ def run_default(args):
     )
     use_tui = (not args.no_tui) and sys.stdout.isatty()
     engine = ReconEngine(
-        iface_info    = selected,
-        outdir        = args.outdir,
-        rate          = args.rate,
-        probe_timeout = args.probe_timeout,
-        do_arp        = args.arp,
-        do_icmp       = args.icmp,
-        do_mask       = args.mask_request,
-        max_hosts     = args.max_hosts,
-        scope         = scope,
-        echo          = True,
+        iface_info = selected,
+        outdir     = args.outdir,
+        scope      = scope,
+        echo       = True,
     )
     if use_tui and run_tui(engine):
         return
@@ -2056,7 +1452,7 @@ def run_default(args):
 
 def run_analyze(args):
     runlog, feed, ts = open_outputs(args.outdir)
-    kb = KnowledgeBase(runlog, feed)          # no sweep_queue: passive-only
+    kb = KnowledgeBase(runlog, feed)
     runlog.write("START analyze  pcap=%s" % args.pcap)
     for pkt in rdpcap(args.pcap):
         dispatch(pkt, kb)
@@ -2074,37 +1470,22 @@ def run_analyze(args):
 
 def build_parser():
     p = argparse.ArgumentParser(
-        description="Passive + active internal segment target expansion.",
+        description="Strictly passive internal target discovery.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 examples:
   sudo python3 passive_targeting.py                       # full auto (curses TUI if a tty)
   sudo python3 passive_targeting.py --no-tui              # plain line-log mode
-  sudo python3 passive_targeting.py -r 100 -t 1.0         # faster sweep
-  sudo python3 passive_targeting.py --no-arp              # ICMP only
-  sudo python3 passive_targeting.py --mask-request        # also probe ICMP type 17
   sudo python3 passive_targeting.py --scope 10.0.0.0/8 --exclude 10.0.5.0/24
   python3 passive_targeting.py analyze capture.pcap       # offline, no root
 """)
 
-    p.add_argument("-o", "--outdir",        default="targeting_out",
+    p.add_argument("-o", "--outdir", default="targeting_out",
                    help="output directory (default: targeting_out)")
-    p.add_argument("-r", "--rate",          type=int,   default=50,
-                   help="active probe rate in probes/s (default: 50)")
-    p.add_argument("-t", "--probe-timeout", type=float, default=2.0,
-                   help="reply wait per batch in seconds (default: 2.0)")
-    p.add_argument("--no-arp",  dest="arp",  action="store_false", default=True,
-                   help="disable ARP sweep")
-    p.add_argument("--no-icmp", dest="icmp", action="store_false", default=True,
-                   help="disable ICMP echo sweep")
-    p.add_argument("--mask-request", action="store_true", default=False,
-                   help="send ICMP type 17 to live hosts at shutdown")
-    p.add_argument("--max-hosts", type=int, default=MAX_SWEEP_HOSTS,
-                   help="max hosts to expand per CIDR (default: %d)" % MAX_SWEEP_HOSTS)
     p.add_argument("--scope", action="append", metavar="CIDR",
-                   help="restrict targets to CIDR (repeatable)")
+                   help="restrict catalogued targets to CIDR (repeatable)")
     p.add_argument("--exclude", action="append", metavar="CIDR",
-                   help="exclude CIDR from targets (repeatable)")
+                   help="exclude CIDR from catalogued targets (repeatable)")
     p.add_argument("--no-tui", action="store_true", default=False,
                    help="disable the curses TUI; use plain line-log output")
     p.set_defaults(func=run_default)
