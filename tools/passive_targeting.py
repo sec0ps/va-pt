@@ -133,6 +133,15 @@ CONF_NAME = {3: "confirmed", 2: "routed", 1: "extrapolated"}
 DEFAULT_FLOOR    = 24   # assumed prefix when nothing else resolves
 MIN_INFER_PREFIX = 16   # never widen an inferred subnet past /16 without proof
 
+# Protocols dissected unconditionally. These ride on base scapy layers that are
+# always importable, so unlike the _CAPS contrib decoders they cannot fail to
+# load and are not gated in dispatch. Listed in the banner for an honest
+# coverage inventory.
+ALWAYS_ON_PROTOS = (
+    "arp", "dhcp", "dns", "mdns", "llmnr",
+    "nbns", "nbtds", "dhcp6", "ipv6-nd",
+)
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -1207,7 +1216,8 @@ class ReconEngine:
             "targets      : %s" % os.path.join(self.outdir, "targets.txt"),
             "subnets      : %s" % os.path.join(self.outdir, "subnets.txt"),
             "log          : %s" % os.path.join(self.outdir, "recon_%s.log" % self.ts),
-            "caps         : %s" % ", ".join(k for k, v in _CAPS.items() if v),
+            "caps         : %s" % ", ".join(
+                list(ALWAYS_ON_PROTOS) + [k for k, v in _CAPS.items() if v]),
         ]
 
     def _print_banner(self):
