@@ -72,57 +72,75 @@ class Colors:
     UNDERLINE = '\033[4m'
 
 class ReconAutomation:
-    def __init__(self, domain: str, ip_ranges: List[str], output_dir: str, client_name: str, auto_resume: bool = False):
-            self.domain = domain
-            self.ip_ranges = ip_ranges
-            self.output_dir = Path(output_dir)
-            self.client_name = client_name
-            self.auto_resume = auto_resume
+    def __init__(self, domain, ip_ranges: List[str], output_dir: str, client_name: str, auto_resume: bool = False):
+                # domain may be a single string or a list of domains
+                if isinstance(domain, str):
+                    domain = [domain]
+                self.domains = domain
+                self.domain = self.domains[0]
+                self.current_domain = self.domains[0]
+                self.ip_ranges = ip_ranges
+                self.output_dir = Path(output_dir)
+                self.client_name = client_name
+                self.auto_resume = auto_resume
 
-            # Initialize requests session
-            self.session = requests.Session()
-            self.session.headers.update({
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            })
+                # Initialize requests session
+                self.session = requests.Session()
+                self.session.headers.update({
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                })
 
-            # Load or create config
-            self.config_file = Path('quick_recon_config.json')
-            self.config = self.load_config()
+                # Load or create config
+                self.config_file = Path('quick_recon_config.json')
+                self.config = self.load_config()
 
-            # Locate theHarvester
-            self.theharvester_path = self._locate_theharvester()
+                # Locate theHarvester
+                self.theharvester_path = self._locate_theharvester()
 
-            self.results = {
-                'timestamp': datetime.now().isoformat(),
-                'domain': domain,
-                'ip_ranges': ip_ranges,
-                'client': client_name,
-                'scope_validation': {},
-                'dns_enumeration': {},
-                'technology_stack': {},
-                'email_addresses': [],
-                'breach_data': {},
-                'network_scan': {},
-                's3_buckets': {},
-                'azure_storage': {},
-                'gcp_storage': {},
-                'github_secrets': {},
-                'linkedin_intel': {},
-                'asn_data': {},
-                'subdomain_takeovers': []
-            }
+                # Per-domain result slices and client-level results
+                self.all_results = {d: self._fresh_results(d) for d in self.domains}
+                self.client_results = {
+                    'ip_ranges': self.ip_ranges,
+                    'client': self.client_name,
+                    'network_scan': {}
+                }
+                self.results = self.all_results[self.domain]
 
-            # Create output directory
-            self.output_dir.mkdir(parents=True, exist_ok=True)
+                # Create output directory
+                self.output_dir.mkdir(parents=True, exist_ok=True)
 
-            # Initialize state tracking
-            self.init_state()
+                # Initialize state tracking
+                self.init_state()
 
-            # Check for existing state and handle resume
-            self._handle_existing_state()
+                # Check for existing state and handle resume
+                self._handle_existing_state()
 
-            # Setup signal handlers for graceful shutdown
-            self.setup_signal_handlers()
+                # Setup signal handlers for graceful shutdown
+                self.setup_signal_handlers()
+
+    def _fresh_results(self, domain: str) -> Dict[str, Any]:
+                """Return a fresh per-domain results slice"""
+                return {
+                    'timestamp': datetime.now().isoformat(),
+                    'domain': domain,
+                    'client': self.client_name,
+                    'scope_validation': {},
+                    'm365_tenant': {},
+                    'adfs': {},
+                    'email_security': {},
+                    'dns_enumeration': {},
+                    'post_dns_whois': {},
+                    'technology_stack': {},
+                    'email_addresses': [],
+                    'breach_data': {},
+                    's3_buckets': {},
+                    'azure_storage': {},
+                    'gcp_storage': {},
+                    'github_secrets': {},
+                    'linkedin_intel': {},
+                    'asn_data': {},
+                    'subdomain_takeovers': []
+                }
 
     def _handle_existing_state(self):
         """Check for existing state file and handle resume logic"""
@@ -146,7 +164,7 @@ class ReconAutomation:
 {Colors.HEADER}{'='*80}
     PENETRATION TESTING RECONNAISSANCE AUTOMATION
     Client: {self.client_name}
-    Domain: {self.domain}
+    Domains: {', '.join(self.domains)}
     Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 {'='*80}{Colors.ENDC}
 """
@@ -6314,24 +6332,96 @@ class ReconAutomation:
             return ports
 
     def generate_report(self):
-            """Generate comprehensive report"""
-            self.print_section("GENERATING REPORT")
+                """Generate consolidated multi-domain report"""
+                self.print_section("GENERATING REPORT")
+                ts = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-            # Save JSON results
-            json_file = self.output_dir / f"recon_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            with open(json_file, 'w') as f:
-                json.dump(self.results, f, indent=2)
-            self.print_success(f"JSON results saved to: {json_file}")
+                # Structured JSON (full per-domain fidelity + client network)
+                json_file = self.output_dir / f"recon_results_{ts}.json"
+                with open(json_file, 'w') as f:
+                    json.dump({
+                        'client': self.client_name,
+                        'domains': self.all_results,
+                        'network': self.client_results
+                    }, f, indent=2, default=str)
+                self.print_success(f"JSON results saved to: {json_file}")
 
-            # Generate markdown report
-            md_file = self.output_dir / f"recon_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
-            self._generate_markdown_report(md_file)
-            self.print_success(f"Markdown report saved to: {md_file}")
+                # Merged flat JSON for downstream tooling
+                if getattr(self, 'consolidated', None):
+                    merged_file = self.output_dir / f"recon_merged_{ts}.json"
+                    with open(merged_file, 'w') as f:
+                        json.dump(self.consolidated, f, indent=2, default=str)
+                    self.print_success(f"Merged results saved to: {merged_file}")
 
-            # Generate report template content
-            template_file = self.output_dir / f"report_template_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-            self._generate_report_template(template_file)
-            self.print_success(f"Report template saved to: {template_file}")
+                saved = (self.domain, self.results, self.current_domain)
+
+                # Combined markdown report
+                md_file = self.output_dir / f"recon_report_{ts}.md"
+                with open(md_file, 'w') as cf:
+                    cf.write(f"# Penetration Testing Reconnaissance Report\n\n")
+                    cf.write(f"**Client:** {self.client_name}\n\n")
+                    cf.write(f"**Domains:** {', '.join(self.domains)}\n\n")
+                    cf.write(f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                    cf.write(f"---\n\n")
+                    network = self.client_results.get('network_scan', {})
+                    if network:
+                        cf.write(f"## Client Network Enumeration\n\n")
+                        for host in sorted(network.keys()):
+                            ports = network[host]
+                            cf.write(f"### {host}\n\n")
+                            cf.write(f"| Port | State | Service | Version |\n")
+                            cf.write(f"|------|-------|---------|---------|\n")
+                            for port in sorted(ports.keys(), key=lambda x: int(x) if str(x).isdigit() else 0):
+                                pd = ports[port]
+                                cf.write(f"| {port} | {pd.get('state','')} | {pd.get('service','')} | {pd.get('version','')} |\n")
+                            cf.write(f"\n")
+
+                for d in self.domains:
+                    self.current_domain = d
+                    self.domain = d
+                    self.results = self.all_results[d]
+                    safe = re.sub(r'[^a-zA-Z0-9_.-]', '_', d)
+                    tmp_md = self.output_dir / f".section_{safe}.md"
+                    self._generate_markdown_report(tmp_md)
+                    body = tmp_md.read_text()
+                    marker = "\n---\n"
+                    idx = body.find(marker)
+                    if idx != -1:
+                        body = body[idx + len(marker):]
+                    with open(md_file, 'a') as cf:
+                        cf.write(f"\n\n# DOMAIN: {d}\n\n")
+                        cf.write(body)
+                    try:
+                        tmp_md.unlink()
+                    except Exception:
+                        pass
+
+                self.domain, self.results, self.current_domain = saved
+                self.print_success(f"Markdown report saved to: {md_file}")
+
+                # Combined report template
+                template_file = self.output_dir / f"report_template_{ts}.txt"
+                with open(template_file, 'w') as tf:
+                    tf.write(f"REPORT TEMPLATE - {self.client_name}\n")
+                    tf.write(f"Domains: {', '.join(self.domains)}\n")
+                    tf.write(f"{'='*80}\n\n")
+                for d in self.domains:
+                    self.current_domain = d
+                    self.domain = d
+                    self.results = self.all_results[d]
+                    safe = re.sub(r'[^a-zA-Z0-9_.-]', '_', d)
+                    tmp_tpl = self.output_dir / f".tpl_{safe}.txt"
+                    self._generate_report_template(tmp_tpl)
+                    body = tmp_tpl.read_text()
+                    with open(template_file, 'a') as tf:
+                        tf.write(f"\n\n{'#'*80}\n# DOMAIN: {d}\n{'#'*80}\n\n")
+                        tf.write(body)
+                    try:
+                        tmp_tpl.unlink()
+                    except Exception:
+                        pass
+                self.domain, self.results, self.current_domain = saved
+                self.print_success(f"Report template saved to: {template_file}")
 
     def _generate_markdown_report(self, filepath: Path):
                 """Generate markdown format report"""
@@ -7436,280 +7526,322 @@ class ReconAutomation:
                                 f.write(f"- {service}\n")
                             f.write("\n")
 
-    def run_all(self):
-                    """Run all reconnaissance modules with state tracking"""
-                    self.print_banner()
-
-                    # Prompt for API keys at startup (only if not resuming with keys already set)
-                    if not self.state['session'].get('api_keys_prompted'):
-                        self.prompt_for_api_keys()
-                        self.state['session']['api_keys_prompted'] = True
-                        self.save_state()
-
+    def _run_domain_modules(self):
+                """Run the per-domain module sequence against the active domain"""
+                if self.should_run_module('scope_validation'):
+                    self.mark_module_status('scope_validation', 'in_progress')
                     try:
-                        # Phase 1: Basic reconnaissance
-                        if self.should_run_module('scope_validation'):
-                            self.mark_module_status('scope_validation', 'in_progress')
-                            try:
-                                self.scope_validation()
-                                self.mark_module_status('scope_validation', 'complete')
-                            except Exception as e:
-                                self.mark_module_status('scope_validation', 'failed', str(e))
-                                self.print_error(f"scope_validation failed: {e}")
-
-                        if self.should_run_module('m365_tenant'):
-                            if not self.args.skip_m365:
-                                self.mark_module_status('m365_tenant', 'in_progress')
-                                try:
-                                    self.m365_tenant_attribution()
-                                    self.mark_module_status('m365_tenant', 'complete')
-                                except Exception as e:
-                                    self.mark_module_status('m365_tenant', 'failed', str(e))
-                                    self.print_error(f"m365_tenant failed: {e}")
-                            else:
-                                self.mark_module_status('m365_tenant', 'skipped')
-
-                        if self.should_run_module('adfs'):
-                            if not self.args.skip_adfs:
-                                self.mark_module_status('adfs', 'in_progress')
-                                try:
-                                    self.adfs_endpoint_discovery()
-                                    self.mark_module_status('adfs', 'complete')
-                                except Exception as e:
-                                    self.mark_module_status('adfs', 'failed', str(e))
-                                    self.print_error(f"adfs failed: {e}")
-                            else:
-                                self.mark_module_status('adfs', 'skipped')
-
-                        if self.should_run_module('email_security'):
-                            if not self.args.skip_email_security:
-                                self.mark_module_status('email_security', 'in_progress')
-                                try:
-                                    self.email_security_posture()
-                                    self.mark_module_status('email_security', 'complete')
-                                except Exception as e:
-                                    self.mark_module_status('email_security', 'failed', str(e))
-                                    self.print_error(f"email_security failed: {e}")
-                            else:
-                                self.mark_module_status('email_security', 'skipped')
-
-                        if self.should_run_module('dns_enumeration'):
-                            self.mark_module_status('dns_enumeration', 'in_progress')
-                            try:
-                                self.dns_enumeration()
-                                self.mark_module_status('dns_enumeration', 'complete')
-                            except Exception as e:
-                                self.mark_module_status('dns_enumeration', 'failed', str(e))
-                                self.print_error(f"dns_enumeration failed: {e}")
-
-                        # Phase 1.5: Post-DNS WHOIS lookup (when no IP ranges provided)
-                        if not self.ip_ranges and self.should_run_module('post_dns_whois'):
-                            self.mark_module_status('post_dns_whois', 'in_progress')
-                            try:
-                                self.post_dns_whois_lookup()
-                                self.mark_module_status('post_dns_whois', 'complete')
-                            except Exception as e:
-                                self.mark_module_status('post_dns_whois', 'failed', str(e))
-                                self.print_error(f"post_dns_whois failed: {e}")
-
-                        if self.should_run_module('technology_stack'):
-                            self.mark_module_status('technology_stack', 'in_progress')
-                            try:
-                                self.technology_stack_identification()
-                                self.mark_module_status('technology_stack', 'complete')
-                            except Exception as e:
-                                self.mark_module_status('technology_stack', 'failed', str(e))
-                                self.print_error(f"technology_stack failed: {e}")
-
-                        # Phase 2: OSINT and intelligence gathering
-                        # Email harvesting MUST run before LinkedIn to detect email format
-                        if self.should_run_module('email_harvesting'):
-                            self.mark_module_status('email_harvesting', 'in_progress')
-                            try:
-                                self.email_harvesting()
-                                self.mark_module_status('email_harvesting', 'complete')
-                            except Exception as e:
-                                self.mark_module_status('email_harvesting', 'failed', str(e))
-                                self.print_error(f"email_harvesting failed: {e}")
-
-                        # LinkedIn enumeration runs after email harvesting
-                        if self.should_run_module('linkedin_enumeration'):
-                            if self.config.get('linkedin_cookies'):
-                                self.mark_module_status('linkedin_enumeration', 'in_progress')
-                                try:
-                                    self.linkedin_enumeration()
-                                    self.mark_module_status('linkedin_enumeration', 'complete')
-                                except Exception as e:
-                                    self.mark_module_status('linkedin_enumeration', 'failed', str(e))
-                                    self.print_error(f"linkedin_enumeration failed: {e}")
-                            else:
-                                self.print_info("Skipping LinkedIn enumeration (no cookies provided)")
-                                self.mark_module_status('linkedin_enumeration', 'skipped')
-
-                        if self.should_run_module('breach_database_check'):
-                            if not self.args.skip_breach_check:
-                                self.mark_module_status('breach_database_check', 'in_progress')
-                                try:
-                                    self.breach_database_check()
-                                    self.mark_module_status('breach_database_check', 'complete')
-                                except Exception as e:
-                                    self.mark_module_status('breach_database_check', 'failed', str(e))
-                                    self.print_error(f"breach_database_check failed: {e}")
-                            else:
-                                self.mark_module_status('breach_database_check', 'skipped')
-
-                        # Phase 3: Advanced enumeration
-                        if self.should_run_module('github_secret_scanning'):
-                            if not self.args.skip_github:
-                                self.mark_module_status('github_secret_scanning', 'in_progress')
-                                try:
-                                    self.github_secret_scanning()
-                                    self.mark_module_status('github_secret_scanning', 'complete')
-                                except Exception as e:
-                                    self.mark_module_status('github_secret_scanning', 'failed', str(e))
-                                    self.print_error(f"github_secret_scanning failed: {e}")
-                            else:
-                                self.mark_module_status('github_secret_scanning', 'skipped')
-
-                        if self.should_run_module('asn_enumeration'):
-                            if not self.args.skip_asn:
-                                self.mark_module_status('asn_enumeration', 'in_progress')
-                                try:
-                                    self.asn_enumeration()
-                                    self.mark_module_status('asn_enumeration', 'complete')
-                                except Exception as e:
-                                    self.mark_module_status('asn_enumeration', 'failed', str(e))
-                                    self.print_error(f"asn_enumeration failed: {e}")
-                            else:
-                                self.mark_module_status('asn_enumeration', 'skipped')
-
-                        if self.should_run_module('subdomain_takeover_detection'):
-                            if not self.args.skip_subdomain_takeover:
-                                self.mark_module_status('subdomain_takeover_detection', 'in_progress')
-                                try:
-                                    self.subdomain_takeover_detection()
-                                    self.mark_module_status('subdomain_takeover_detection', 'complete')
-                                except Exception as e:
-                                    self.mark_module_status('subdomain_takeover_detection', 'failed', str(e))
-                                    self.print_error(f"subdomain_takeover_detection failed: {e}")
-                            else:
-                                self.mark_module_status('subdomain_takeover_detection', 'skipped')
-
-                        # Phase 4: Cloud storage enumeration
-                        if self.should_run_module('s3_bucket_enumeration'):
-                            if not self.args.skip_s3:
-                                self.mark_module_status('s3_bucket_enumeration', 'in_progress')
-                                try:
-                                    self.s3_bucket_enumeration()
-                                    self.mark_module_status('s3_bucket_enumeration', 'complete')
-                                except Exception as e:
-                                    self.mark_module_status('s3_bucket_enumeration', 'failed', str(e))
-                                    self.print_error(f"s3_bucket_enumeration failed: {e}")
-                            else:
-                                self.mark_module_status('s3_bucket_enumeration', 'skipped')
-
-                        if self.should_run_module('azure_storage_enumeration'):
-                            if not self.args.skip_azure:
-                                self.mark_module_status('azure_storage_enumeration', 'in_progress')
-                                try:
-                                    self.azure_storage_enumeration()
-                                    self.mark_module_status('azure_storage_enumeration', 'complete')
-                                except Exception as e:
-                                    self.mark_module_status('azure_storage_enumeration', 'failed', str(e))
-                                    self.print_error(f"azure_storage_enumeration failed: {e}")
-                            else:
-                                self.mark_module_status('azure_storage_enumeration', 'skipped')
-
-                        if self.should_run_module('gcp_storage_enumeration'):
-                            if not self.args.skip_gcp:
-                                self.mark_module_status('gcp_storage_enumeration', 'in_progress')
-                                try:
-                                    self.gcp_storage_enumeration()
-                                    self.mark_module_status('gcp_storage_enumeration', 'complete')
-                                except Exception as e:
-                                    self.mark_module_status('gcp_storage_enumeration', 'failed', str(e))
-                                    self.print_error(f"gcp_storage_enumeration failed: {e}")
-                            else:
-                                self.mark_module_status('gcp_storage_enumeration', 'skipped')
-
-                        # Phase 5: Network enumeration (if IP ranges provided)
-                        if self.should_run_module('network_enumeration'):
-                            if self.ip_ranges and not self.args.skip_scan:
-                                self.mark_module_status('network_enumeration', 'in_progress')
-                                try:
-                                    self.network_enumeration()
-                                    self.mark_module_status('network_enumeration', 'complete')
-                                except Exception as e:
-                                    self.mark_module_status('network_enumeration', 'failed', str(e))
-                                    self.print_error(f"network_enumeration failed: {e}")
-                            else:
-                                self.mark_module_status('network_enumeration', 'skipped')
-
-                        # Phase 6: Generate reports
-                        self.generate_report()
-
-                        # Mark session as complete
-                        self.state['session']['completed'] = True
-                        self.state['session']['completed_at'] = datetime.now().isoformat()
-                        self.save_state()
-
-                        self.print_section("RECONNAISSANCE COMPLETE")
-                        self.print_success(f"All results saved to: {self.output_dir}")
-
-                        # Show summary of module statuses
-                        self._print_final_summary()
-
-                    except KeyboardInterrupt:
-                        # Signal handler will take care of saving state
-                        pass
+                        self.scope_validation()
+                        self.mark_module_status('scope_validation', 'complete')
                     except Exception as e:
-                        self.print_error(f"Error during reconnaissance: {e}")
-                        import traceback
-                        traceback.print_exc()
-                        self.save_state()
+                        self.mark_module_status('scope_validation', 'failed', str(e))
+                        self.print_error(f"scope_validation failed: {e}")
+
+                if self.should_run_module('m365_tenant'):
+                    if not self.args.skip_m365:
+                        self.mark_module_status('m365_tenant', 'in_progress')
+                        try:
+                            self.m365_tenant_attribution()
+                            self.mark_module_status('m365_tenant', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('m365_tenant', 'failed', str(e))
+                            self.print_error(f"m365_tenant failed: {e}")
+                    else:
+                        self.mark_module_status('m365_tenant', 'skipped')
+
+                if self.should_run_module('adfs'):
+                    if not self.args.skip_adfs:
+                        self.mark_module_status('adfs', 'in_progress')
+                        try:
+                            self.adfs_endpoint_discovery()
+                            self.mark_module_status('adfs', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('adfs', 'failed', str(e))
+                            self.print_error(f"adfs failed: {e}")
+                    else:
+                        self.mark_module_status('adfs', 'skipped')
+
+                if self.should_run_module('email_security'):
+                    if not self.args.skip_email_security:
+                        self.mark_module_status('email_security', 'in_progress')
+                        try:
+                            self.email_security_posture()
+                            self.mark_module_status('email_security', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('email_security', 'failed', str(e))
+                            self.print_error(f"email_security failed: {e}")
+                    else:
+                        self.mark_module_status('email_security', 'skipped')
+
+                if self.should_run_module('dns_enumeration'):
+                    self.mark_module_status('dns_enumeration', 'in_progress')
+                    try:
+                        self.dns_enumeration()
+                        self.mark_module_status('dns_enumeration', 'complete')
+                    except Exception as e:
+                        self.mark_module_status('dns_enumeration', 'failed', str(e))
+                        self.print_error(f"dns_enumeration failed: {e}")
+
+                if not self.ip_ranges and self.should_run_module('post_dns_whois'):
+                    self.mark_module_status('post_dns_whois', 'in_progress')
+                    try:
+                        self.post_dns_whois_lookup()
+                        self.mark_module_status('post_dns_whois', 'complete')
+                    except Exception as e:
+                        self.mark_module_status('post_dns_whois', 'failed', str(e))
+                        self.print_error(f"post_dns_whois failed: {e}")
+
+                if self.should_run_module('technology_stack'):
+                    self.mark_module_status('technology_stack', 'in_progress')
+                    try:
+                        self.technology_stack_identification()
+                        self.mark_module_status('technology_stack', 'complete')
+                    except Exception as e:
+                        self.mark_module_status('technology_stack', 'failed', str(e))
+                        self.print_error(f"technology_stack failed: {e}")
+
+                if self.should_run_module('email_harvesting'):
+                    self.mark_module_status('email_harvesting', 'in_progress')
+                    try:
+                        self.email_harvesting()
+                        self.mark_module_status('email_harvesting', 'complete')
+                    except Exception as e:
+                        self.mark_module_status('email_harvesting', 'failed', str(e))
+                        self.print_error(f"email_harvesting failed: {e}")
+
+                if self.should_run_module('linkedin_enumeration'):
+                    if self.config.get('linkedin_cookies'):
+                        self.mark_module_status('linkedin_enumeration', 'in_progress')
+                        try:
+                            self.linkedin_enumeration()
+                            self.mark_module_status('linkedin_enumeration', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('linkedin_enumeration', 'failed', str(e))
+                            self.print_error(f"linkedin_enumeration failed: {e}")
+                    else:
+                        self.print_info("Skipping LinkedIn enumeration (no cookies provided)")
+                        self.mark_module_status('linkedin_enumeration', 'skipped')
+
+                if self.should_run_module('breach_database_check'):
+                    if not self.args.skip_breach_check:
+                        self.mark_module_status('breach_database_check', 'in_progress')
+                        try:
+                            self.breach_database_check()
+                            self.mark_module_status('breach_database_check', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('breach_database_check', 'failed', str(e))
+                            self.print_error(f"breach_database_check failed: {e}")
+                    else:
+                        self.mark_module_status('breach_database_check', 'skipped')
+
+                if self.should_run_module('github_secret_scanning'):
+                    if not self.args.skip_github:
+                        self.mark_module_status('github_secret_scanning', 'in_progress')
+                        try:
+                            self.github_secret_scanning()
+                            self.mark_module_status('github_secret_scanning', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('github_secret_scanning', 'failed', str(e))
+                            self.print_error(f"github_secret_scanning failed: {e}")
+                    else:
+                        self.mark_module_status('github_secret_scanning', 'skipped')
+
+                if self.should_run_module('asn_enumeration'):
+                    if not self.args.skip_asn:
+                        self.mark_module_status('asn_enumeration', 'in_progress')
+                        try:
+                            self.asn_enumeration()
+                            self.mark_module_status('asn_enumeration', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('asn_enumeration', 'failed', str(e))
+                            self.print_error(f"asn_enumeration failed: {e}")
+                    else:
+                        self.mark_module_status('asn_enumeration', 'skipped')
+
+                if self.should_run_module('subdomain_takeover_detection'):
+                    if not self.args.skip_subdomain_takeover:
+                        self.mark_module_status('subdomain_takeover_detection', 'in_progress')
+                        try:
+                            self.subdomain_takeover_detection()
+                            self.mark_module_status('subdomain_takeover_detection', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('subdomain_takeover_detection', 'failed', str(e))
+                            self.print_error(f"subdomain_takeover_detection failed: {e}")
+                    else:
+                        self.mark_module_status('subdomain_takeover_detection', 'skipped')
+
+                if self.should_run_module('s3_bucket_enumeration'):
+                    if not self.args.skip_s3:
+                        self.mark_module_status('s3_bucket_enumeration', 'in_progress')
+                        try:
+                            self.s3_bucket_enumeration()
+                            self.mark_module_status('s3_bucket_enumeration', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('s3_bucket_enumeration', 'failed', str(e))
+                            self.print_error(f"s3_bucket_enumeration failed: {e}")
+                    else:
+                        self.mark_module_status('s3_bucket_enumeration', 'skipped')
+
+                if self.should_run_module('azure_storage_enumeration'):
+                    if not self.args.skip_azure:
+                        self.mark_module_status('azure_storage_enumeration', 'in_progress')
+                        try:
+                            self.azure_storage_enumeration()
+                            self.mark_module_status('azure_storage_enumeration', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('azure_storage_enumeration', 'failed', str(e))
+                            self.print_error(f"azure_storage_enumeration failed: {e}")
+                    else:
+                        self.mark_module_status('azure_storage_enumeration', 'skipped')
+
+                if self.should_run_module('gcp_storage_enumeration'):
+                    if not self.args.skip_gcp:
+                        self.mark_module_status('gcp_storage_enumeration', 'in_progress')
+                        try:
+                            self.gcp_storage_enumeration()
+                            self.mark_module_status('gcp_storage_enumeration', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('gcp_storage_enumeration', 'failed', str(e))
+                            self.print_error(f"gcp_storage_enumeration failed: {e}")
+                    else:
+                        self.mark_module_status('gcp_storage_enumeration', 'skipped')
+
+    def _consolidate_results(self):
+                """Merge per-domain result slices into a single flat view for downstream tooling"""
+                def deep_merge(dst, src):
+                    for k, v in src.items():
+                        if k in dst:
+                            if isinstance(dst[k], list) and isinstance(v, list):
+                                for item in v:
+                                    if item not in dst[k]:
+                                        dst[k].append(item)
+                            elif isinstance(dst[k], dict) and isinstance(v, dict):
+                                deep_merge(dst[k], v)
+                            else:
+                                if not dst[k]:
+                                    dst[k] = v
+                        else:
+                            dst[k] = v
+                    return dst
+
+                merged = {
+                    'timestamp': datetime.now().isoformat(),
+                    'client': self.client_name,
+                    'domains': list(self.domains),
+                    'ip_ranges': self.ip_ranges
+                }
+                for d in self.domains:
+                    slice_copy = {k: v for k, v in self.all_results[d].items()
+                                  if k not in ('timestamp', 'domain', 'client')}
+                    deep_merge(merged, slice_copy)
+                merged['network_scan'] = self.client_results.get('network_scan', {})
+                self.consolidated = merged
+
+    def run_all(self):
+                """Run all reconnaissance modules across domains with state tracking"""
+                self.print_banner()
+
+                if not self.state['session'].get('api_keys_prompted'):
+                    self.prompt_for_api_keys()
+                    self.state['session']['api_keys_prompted'] = True
+                    self.save_state()
+
+                try:
+                    # Per-domain passes
+                    for domain in self.domains:
+                        self.current_domain = domain
+                        self.domain = domain
+                        self.results = self.all_results[domain]
+                        self.print_section(f"DOMAIN: {domain.upper()}")
+                        self._run_domain_modules()
+
+                    # Client-level network enumeration (run once over in-scope ranges)
+                    self.current_domain = None
+                    self.results = self.client_results
+                    if self.should_run_module('network_enumeration'):
+                        if self.ip_ranges and not self.args.skip_scan:
+                            self.mark_module_status('network_enumeration', 'in_progress')
+                            try:
+                                self.network_enumeration()
+                                self.mark_module_status('network_enumeration', 'complete')
+                            except Exception as e:
+                                self.mark_module_status('network_enumeration', 'failed', str(e))
+                                self.print_error(f"network_enumeration failed: {e}")
+                        else:
+                            self.mark_module_status('network_enumeration', 'skipped')
+
+                    # Consolidate per-domain slices, then report
+                    self._consolidate_results()
+                    self.generate_report()
+
+                    self.state['session']['completed'] = True
+                    self.state['session']['completed_at'] = datetime.now().isoformat()
+                    self.save_state()
+
+                    self.print_section("RECONNAISSANCE COMPLETE")
+                    self.print_success(f"All results saved to: {self.output_dir}")
+                    self._print_final_summary()
+
+                except KeyboardInterrupt:
+                    pass
+                except Exception as e:
+                    self.print_error(f"Error during reconnaissance: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    self.save_state()
 
     def _print_final_summary(self):
-        """Print summary of all module statuses"""
-        print(f"\n{Colors.HEADER}Module Summary:{Colors.ENDC}")
+                """Print summary of all module statuses across domains and client"""
+                print(f"\n{Colors.HEADER}Module Summary:{Colors.ENDC}")
 
-        for module_name, module_state in self.state['modules'].items():
-            status = module_state['status']
-            display_name = module_name.replace('_', ' ').title()
+                def render(label, module_name, module_state):
+                    status = module_state['status']
+                    display_name = module_name.replace('_', ' ').title()
+                    if status == 'complete':
+                        duration = ""
+                        if module_state.get('started_at') and module_state.get('completed_at'):
+                            try:
+                                start = datetime.fromisoformat(module_state['started_at'])
+                                end = datetime.fromisoformat(module_state['completed_at'])
+                                secs = (end - start).total_seconds()
+                                duration = f" ({secs/60:.1f}m)" if secs >= 60 else f" ({secs:.0f}s)"
+                            except:
+                                pass
+                        print(f"  {Colors.OKGREEN}✓{Colors.ENDC} [{label}] {display_name}{duration}")
+                    elif status == 'skipped':
+                        print(f"  {Colors.OKCYAN}○{Colors.ENDC} [{label}] {display_name} (skipped)")
+                    elif status == 'failed':
+                        error = module_state.get('error', 'Unknown error')
+                        print(f"  {Colors.FAIL}✗{Colors.ENDC} [{label}] {display_name} - {error[:50]}")
+                    elif status == 'in_progress':
+                        print(f"  {Colors.WARNING}⋯{Colors.ENDC} [{label}] {display_name} (incomplete)")
+                    else:
+                        print(f"  {Colors.OKCYAN}○{Colors.ENDC} [{label}] {display_name} (not run)")
 
-            if status == 'complete':
-                duration = ""
-                if module_state.get('started_at') and module_state.get('completed_at'):
-                    try:
-                        start = datetime.fromisoformat(module_state['started_at'])
-                        end = datetime.fromisoformat(module_state['completed_at'])
-                        secs = (end - start).total_seconds()
-                        if secs >= 60:
-                            duration = f" ({secs/60:.1f}m)"
-                        else:
-                            duration = f" ({secs:.0f}s)"
-                    except:
-                        pass
-                print(f"  {Colors.OKGREEN}✓{Colors.ENDC} {display_name}{duration}")
-            elif status == 'skipped':
-                print(f"  {Colors.OKCYAN}○{Colors.ENDC} {display_name} (skipped)")
-            elif status == 'failed':
-                error = module_state.get('error', 'Unknown error')
-                print(f"  {Colors.FAIL}✗{Colors.ENDC} {display_name} - {error[:50]}")
-            elif status == 'in_progress':
-                print(f"  {Colors.WARNING}⋯{Colors.ENDC} {display_name} (incomplete)")
-            else:
-                print(f"  {Colors.OKCYAN}○{Colors.ENDC} {display_name} (not run)")
+                for d in self.domains:
+                    for module_name, module_state in self.state['domains'][d]['modules'].items():
+                        render(d, module_name, module_state)
+                for module_name, module_state in self.state['client']['modules'].items():
+                    render('client', module_name, module_state)
 
     # =========================================================================
     # STATE MANAGEMENT METHODS
     # =========================================================================
 
     def init_state(self):
-                """Initialize state tracking structure"""
+                """Initialize state tracking structure (multi-domain, client-level)"""
+                per_domain_modules = [
+                    'scope_validation', 'm365_tenant', 'adfs', 'email_security',
+                    'dns_enumeration', 'post_dns_whois', 'technology_stack',
+                    'email_harvesting', 'linkedin_enumeration', 'breach_database_check',
+                    'github_secret_scanning', 'asn_enumeration',
+                    'subdomain_takeover_detection', 's3_bucket_enumeration',
+                    'azure_storage_enumeration', 'gcp_storage_enumeration'
+                ]
                 self.state = {
-                    'version': '1.0',
+                    'version': '2.0',
                     'target': {
-                        'domain': self.domain,
+                        'domains': self.domains,
                         'client': self.client_name,
                         'ip_ranges': self.ip_ranges,
                         'config_hash': self._generate_config_hash()
@@ -7720,23 +7852,14 @@ class ReconAutomation:
                         'interrupted': False,
                         'completed': False
                     },
-                    'modules': {
-                        'scope_validation': {'status': 'pending', 'progress': {}},
-                        'm365_tenant': {'status': 'pending', 'progress': {}},
-                        'adfs': {'status': 'pending', 'progress': {}},
-                        'dns_enumeration': {'status': 'pending', 'progress': {}},
-                        'post_dns_whois': {'status': 'pending', 'progress': {}},
-                        'technology_stack': {'status': 'pending', 'progress': {}},
-                        'email_harvesting': {'status': 'pending', 'progress': {}},
-                        'linkedin_enumeration': {'status': 'pending', 'progress': {}},
-                        'breach_database_check': {'status': 'pending', 'progress': {}},
-                        'github_secret_scanning': {'status': 'pending', 'progress': {}},
-                        'asn_enumeration': {'status': 'pending', 'progress': {}},
-                        'subdomain_takeover_detection': {'status': 'pending', 'progress': {}},
-                        's3_bucket_enumeration': {'status': 'pending', 'progress': {}},
-                        'azure_storage_enumeration': {'status': 'pending', 'progress': {}},
-                        'gcp_storage_enumeration': {'status': 'pending', 'progress': {}},
-                        'network_enumeration': {'status': 'pending', 'progress': {}},
+                    'domains': {
+                        d: {'modules': {m: {'status': 'pending', 'progress': {}} for m in per_domain_modules}}
+                        for d in self.domains
+                    },
+                    'client': {
+                        'modules': {
+                            'network_enumeration': {'status': 'pending', 'progress': {}}
+                        }
                     },
                     'results': {}
                 }
@@ -7744,9 +7867,15 @@ class ReconAutomation:
                 self._shutdown_in_progress = False
 
     def _generate_config_hash(self) -> str:
-        """Generate hash of target configuration for change detection"""
-        config_str = f"{self.domain}|{self.client_name}|{','.join(sorted(self.ip_ranges))}"
-        return hashlib.sha256(config_str.encode()).hexdigest()[:16]
+                """Generate hash of target configuration for change detection"""
+                config_str = f"{','.join(sorted(self.domains))}|{self.client_name}|{','.join(sorted(self.ip_ranges))}"
+                return hashlib.sha256(config_str.encode()).hexdigest()[:16]
+
+    def _module_bucket(self) -> Dict[str, Any]:
+                """Return the module-state bucket for the active context"""
+                if self.current_domain is None:
+                    return self.state['client']['modules']
+                return self.state['domains'][self.current_domain]['modules']
 
     def setup_signal_handlers(self):
         """Register signal handlers for graceful shutdown"""
@@ -7755,221 +7884,186 @@ class ReconAutomation:
         atexit.register(self._atexit_handler)
 
     def _signal_handler(self, signum, frame):
-            """Handle SIGINT/SIGTERM for graceful shutdown"""
-            if self._shutdown_in_progress:
-                self.print_error("\nForced exit - state may be incomplete")
-                sys.exit(1)
+                """Handle SIGINT/SIGTERM for graceful shutdown"""
+                if self._shutdown_in_progress:
+                    self.print_error("\nForced exit - state may be incomplete")
+                    sys.exit(1)
 
-            self._shutdown_in_progress = True
-            self.print_warning("\n\nInterrupt received - saving state before exit...")
+                self._shutdown_in_progress = True
+                self.print_warning("\n\nInterrupt received - saving state before exit...")
 
-            # Mark session as interrupted
-            self.state['session']['interrupted'] = True
-            self.state['session']['last_updated'] = datetime.now().isoformat()
+                self.state['session']['interrupted'] = True
+                self.state['session']['last_updated'] = datetime.now().isoformat()
 
-            # Find any in_progress modules and preserve their state
-            for module_name, module_state in self.state['modules'].items():
-                if module_state['status'] == 'in_progress':
-                    self.print_info(f"Module '{module_name}' was in progress - state preserved")
+                for d in self.domains:
+                    for module_name, module_state in self.state['domains'][d]['modules'].items():
+                        if module_state['status'] == 'in_progress':
+                            self.print_info(f"Module '{module_name}' ({d}) was in progress - state preserved")
+                for module_name, module_state in self.state['client']['modules'].items():
+                    if module_state['status'] == 'in_progress':
+                        self.print_info(f"Module '{module_name}' (client) was in progress - state preserved")
 
-            # Save current results to state
-            self.state['results'] = self.results
-
-            # Save state file
-            self.save_state()
-
-            self.print_success(f"State saved to: {self.state_file}")
-            self.print_info("Run the same command with --resume to continue")
-            sys.exit(0)
+                self.save_state()
+                self.print_success(f"State saved to: {self.state_file}")
+                self.print_info("Run the same command with --resume to continue")
+                sys.exit(0)
 
     def _atexit_handler(self):
-        """Handle normal exit - save state if not already saved"""
-        if not self._shutdown_in_progress and hasattr(self, 'state'):
-            self.state['session']['last_updated'] = datetime.now().isoformat()
-            self.state['results'] = self.results
-            self.save_state()
+                """Handle normal exit - save state if not already saved"""
+                if not self._shutdown_in_progress and hasattr(self, 'state'):
+                    self.state['session']['last_updated'] = datetime.now().isoformat()
+                    self.save_state()
 
     def load_state(self) -> bool:
-        """Load existing state file. Returns True if valid state was loaded."""
-        if not self.state_file.exists():
-            return False
+                """Load existing state file. Returns True if valid state was loaded."""
+                if not self.state_file.exists():
+                    return False
+                try:
+                    with open(self.state_file, 'r') as f:
+                        loaded_state = json.load(f)
 
-        try:
-            with open(self.state_file, 'r') as f:
-                loaded_state = json.load(f)
+                    if loaded_state.get('version') != '2.0':
+                        self.print_warning("State file version mismatch (expected 2.0)")
+                        return False
 
-            # Validate version
-            if loaded_state.get('version') != '1.0':
-                self.print_warning(f"State file version mismatch")
-                return False
+                    loaded_target = loaded_state.get('target', {})
+                    if (sorted(loaded_target.get('domains', [])) != sorted(self.domains) or
+                        loaded_target.get('client') != self.client_name):
+                        self.print_warning("State file is for a different target")
+                        return False
 
-            # Validate target matches
-            loaded_target = loaded_state.get('target', {})
-            if (loaded_target.get('domain') != self.domain or
-                loaded_target.get('client') != self.client_name):
-                self.print_warning("State file is for a different target")
-                return False
+                    self.state = loaded_state
 
-            # Load the state
-            self.state = loaded_state
+                    res = loaded_state.get('results', {})
+                    restored_domains = res.get('domains', {})
+                    for d in self.domains:
+                        if d in restored_domains:
+                            self.all_results[d] = restored_domains[d]
+                    self.client_results = res.get('client', self.client_results)
 
-            # Restore results
-            self.results = loaded_state.get('results', self.results)
+                    self.current_domain = self.domains[0]
+                    self.domain = self.domains[0]
+                    self.results = self.all_results[self.domain]
 
-            return True
-
-        except json.JSONDecodeError as e:
-            self.print_error(f"State file is corrupted: {e}")
-            return False
-        except Exception as e:
-            self.print_error(f"Error loading state file: {e}")
-            return False
+                    return True
+                except json.JSONDecodeError as e:
+                    self.print_error(f"State file is corrupted: {e}")
+                    return False
+                except Exception as e:
+                    self.print_error(f"Error loading state file: {e}")
+                    return False
 
     def save_state(self):
-        """Atomically save current state to file"""
-        try:
-            # Update timestamp
-            self.state['session']['last_updated'] = datetime.now().isoformat()
-
-            # Sync results to state
-            self.state['results'] = self.results
-
-            # Write to temp file first
-            temp_file = self.state_file.with_suffix('.json.tmp')
-
-            with open(temp_file, 'w') as f:
-                json.dump(self.state, f, indent=2, default=str)
-
-            # Atomic rename
-            temp_file.replace(self.state_file)
-
-        except Exception as e:
-            self.print_error(f"Failed to save state: {e}")
+                """Atomically save current state to file"""
+                try:
+                    self.state['session']['last_updated'] = datetime.now().isoformat()
+                    self.state['results'] = {
+                        'domains': self.all_results,
+                        'client': self.client_results
+                    }
+                    temp_file = self.state_file.with_suffix('.json.tmp')
+                    with open(temp_file, 'w') as f:
+                        json.dump(self.state, f, indent=2, default=str)
+                    temp_file.replace(self.state_file)
+                except Exception as e:
+                    self.print_error(f"Failed to save state: {e}")
 
     def checkpoint(self, module: str, subtask: str = None, progress_data: Dict = None):
-        """Save checkpoint during long-running operations"""
-        if module not in self.state['modules']:
-            return
-
-        module_state = self.state['modules'][module]
-
-        if subtask and progress_data:
-            if 'progress' not in module_state:
-                module_state['progress'] = {}
-            module_state['progress'][subtask] = progress_data
-
-        # Save state
-        self.save_state()
+                """Save checkpoint during long-running operations"""
+                bucket = self._module_bucket()
+                if module not in bucket:
+                    return
+                if subtask and progress_data is not None:
+                    if 'progress' not in bucket[module]:
+                        bucket[module]['progress'] = {}
+                    bucket[module]['progress'][subtask] = progress_data
+                self.save_state()
 
     def get_module_status(self, module: str) -> str:
-        """Get status of a module: pending, in_progress, complete, skipped, failed"""
-        if module not in self.state['modules']:
-            return 'pending'
-        return self.state['modules'][module].get('status', 'pending')
+                """Get status of a module in the active context"""
+                bucket = self._module_bucket()
+                if module not in bucket:
+                    return 'pending'
+                return bucket[module].get('status', 'pending')
 
     def get_module_progress(self, module: str, subtask: str = None) -> Optional[Dict]:
-        """Get progress data for a module/subtask"""
-        if module not in self.state['modules']:
-            return None
-
-        module_state = self.state['modules'][module]
-        progress = module_state.get('progress', {})
-
-        if subtask:
-            return progress.get(subtask)
-        return progress
+                """Get progress data for a module/subtask in the active context"""
+                bucket = self._module_bucket()
+                if module not in bucket:
+                    return None
+                progress = bucket[module].get('progress', {})
+                if subtask:
+                    return progress.get(subtask)
+                return progress
 
     def mark_module_status(self, module: str, status: str, error_msg: str = None):
-        """Update module status"""
-        if module not in self.state['modules']:
-            self.state['modules'][module] = {'status': status, 'progress': {}}
-        else:
-            self.state['modules'][module]['status'] = status
-
-        if status == 'in_progress':
-            self.state['modules'][module]['started_at'] = datetime.now().isoformat()
-        elif status == 'complete':
-            self.state['modules'][module]['completed_at'] = datetime.now().isoformat()
-        elif status == 'failed' and error_msg:
-            self.state['modules'][module]['error'] = error_msg
-
-        self.save_state()
+                """Update module status in the active context"""
+                bucket = self._module_bucket()
+                if module not in bucket:
+                    bucket[module] = {'status': status, 'progress': {}}
+                else:
+                    bucket[module]['status'] = status
+                if status == 'in_progress':
+                    bucket[module]['started_at'] = datetime.now().isoformat()
+                elif status == 'complete':
+                    bucket[module]['completed_at'] = datetime.now().isoformat()
+                elif status == 'failed' and error_msg:
+                    bucket[module]['error'] = error_msg
+                self.save_state()
 
     def prompt_resume(self) -> bool:
-        """Interactive prompt when existing state is detected. Returns True to resume."""
-        if self.auto_resume:
-            self.print_info("Auto-resume enabled - continuing from last checkpoint")
-            return True
+                """Interactive prompt when existing state is detected. Returns True to resume."""
+                if self.auto_resume:
+                    self.print_info("Auto-resume enabled - continuing from last checkpoint")
+                    return True
 
-        # Calculate module stats
-        complete_count = sum(1 for m in self.state['modules'].values() if m['status'] == 'complete')
-        in_progress_count = sum(1 for m in self.state['modules'].values() if m['status'] == 'in_progress')
-        pending_count = sum(1 for m in self.state['modules'].values() if m['status'] == 'pending')
-        total_count = len(self.state['modules'])
+                all_modules = []
+                for d in self.domains:
+                    for name, st in self.state['domains'][d]['modules'].items():
+                        all_modules.append((f"{d}/{name}", st))
+                for name, st in self.state['client']['modules'].items():
+                    all_modules.append((f"client/{name}", st))
 
-        # Find in-progress module for resume point
-        in_progress_module = None
-        for name, state in self.state['modules'].items():
-            if state['status'] == 'in_progress':
-                in_progress_module = name
-                break
+                complete_count = sum(1 for _, m in all_modules if m['status'] == 'complete')
+                total_count = len(all_modules)
+                in_progress = [n for n, m in all_modules if m['status'] == 'in_progress']
 
-        print(f"\n{'='*80}")
-        print(f"{Colors.HEADER}    PREVIOUS SCAN DETECTED{Colors.ENDC}")
-        print(f"{'='*80}")
-        print(f"    Target: {self.state['target']['domain']} ({self.state['target']['client']})")
-        print(f"    Started: {self.state['session']['started_at']}")
-        print(f"    Last activity: {self.state['session']['last_updated']}")
+                print(f"\n{'='*80}")
+                print(f"{Colors.HEADER}    PREVIOUS SCAN DETECTED{Colors.ENDC}")
+                print(f"{'='*80}")
+                print(f"    Target: {', '.join(self.state['target']['domains'])} ({self.state['target']['client']})")
+                print(f"    Started: {self.state['session']['started_at']}")
+                print(f"    Last activity: {self.state['session']['last_updated']}")
+                if self.state['session'].get('interrupted'):
+                    print(f"    {Colors.WARNING}Status: Interrupted{Colors.ENDC}")
 
-        if self.state['session'].get('interrupted'):
-            print(f"    {Colors.WARNING}Status: Interrupted{Colors.ENDC}")
+                print(f"\n    Progress ({complete_count}/{total_count} modules complete):")
+                for d in self.domains:
+                    dom_mods = self.state['domains'][d]['modules']
+                    dc = sum(1 for m in dom_mods.values() if m['status'] == 'complete')
+                    print(f"      {Colors.OKCYAN}{d}{Colors.ENDC}: {dc}/{len(dom_mods)} complete")
+                cm = self.state['client']['modules']
+                cc = sum(1 for m in cm.values() if m['status'] == 'complete')
+                print(f"      {Colors.OKCYAN}client{Colors.ENDC}: {cc}/{len(cm)} complete")
 
-        print(f"\n    Module Status ({complete_count}/{total_count} complete):")
+                print(f"\n    Options:")
+                if in_progress:
+                    print(f"      [R] Resume (in progress: {', '.join(in_progress)})")
+                else:
+                    print(f"      [R] Resume from next pending module")
+                print(f"      [S] Start fresh (backup existing results)")
+                print(f"      [Q] Quit")
 
-        for module_name, module_state in self.state['modules'].items():
-            status = module_state['status']
-            display_name = module_name.replace('_', ' ').title()
-
-            if status == 'complete':
-                print(f"      {Colors.OKGREEN}✓{Colors.ENDC} {display_name}")
-            elif status == 'in_progress':
-                progress = module_state.get('progress', {})
-                progress_info = ""
-                if progress:
-                    # Show most relevant progress info
-                    for subtask, data in progress.items():
-                        if isinstance(data, dict) and 'completed' in data:
-                            progress_info = f" ({data['completed']}/{data.get('total', '?')} {subtask})"
-                            break
-                print(f"      {Colors.WARNING}⋯{Colors.ENDC} {display_name}{progress_info}")
-            elif status == 'skipped':
-                print(f"      {Colors.OKCYAN}○{Colors.ENDC} {display_name} (skipped)")
-            elif status == 'failed':
-                print(f"      {Colors.FAIL}✗{Colors.ENDC} {display_name} (failed)")
-            else:
-                print(f"      {Colors.OKCYAN}○{Colors.ENDC} {display_name}")
-
-        print(f"\n    Options:")
-        if in_progress_module:
-            display_name = in_progress_module.replace('_', ' ').title()
-            print(f"      [R] Resume from {display_name} (recommended)")
-        else:
-            print(f"      [R] Resume from next pending module")
-        print(f"      [S] Start fresh (backup existing results)")
-        print(f"      [Q] Quit")
-
-        print()
-        choice = input(f"    Choice [R]: ").strip().upper()
-
-        if choice == 'Q':
-            self.print_info("Exiting without changes")
-            sys.exit(0)
-        elif choice == 'S':
-            self._backup_and_reset_state()
-            return False
-        else:
-            # Default to resume
-            return True
+                print()
+                choice = input(f"    Choice [R]: ").strip().upper()
+                if choice == 'Q':
+                    self.print_info("Exiting without changes")
+                    sys.exit(0)
+                elif choice == 'S':
+                    self._backup_and_reset_state()
+                    return False
+                else:
+                    return True
 
     def _backup_and_reset_state(self):
         """Backup existing state and results, then reset for fresh start"""
@@ -7992,28 +8086,25 @@ class ReconAutomation:
         self.print_info("Starting fresh scan")
 
     def should_run_module(self, module: str) -> bool:
-        """Determine if a module should run based on state and skip flags"""
-        status = self.get_module_status(module)
-
-        # Already complete - skip
-        if status == 'complete':
-            self.print_info(f"Skipping {module} (already complete)")
-            return False
-
-        # Already skipped - stay skipped
-        if status == 'skipped':
-            return False
-
-        return True
+                """Determine if a module should run based on state"""
+                status = self.get_module_status(module)
+                label = self.current_domain or 'client'
+                if status == 'complete':
+                    self.print_info(f"Skipping {module} for {label} (already complete)")
+                    return False
+                if status == 'skipped':
+                    return False
+                return True
 
     def get_resume_data(self, module: str) -> Dict:
-        """Get data needed to resume a module from checkpoint"""
-        module_state = self.state['modules'].get(module, {})
-        return {
-            'status': module_state.get('status', 'pending'),
-            'progress': module_state.get('progress', {}),
-            'results': self.results
-        }
+                """Get data needed to resume a module from checkpoint"""
+                bucket = self._module_bucket()
+                module_state = bucket.get(module, {})
+                return {
+                    'status': module_state.get('status', 'pending'),
+                    'progress': module_state.get('progress', {}),
+                    'results': self.results
+                }
 
 def main():
     parser = argparse.ArgumentParser(
@@ -8064,7 +8155,7 @@ Examples:
         '''
     )
 
-    parser.add_argument('-d', '--domain', required=True, help='Target domain (e.g., example.com)')
+    parser.add_argument('-d', '--domain', required=True, help='Target domain(s), comma-separated (e.g., a.com,b.com,c.com)')
     parser.add_argument('-i', '--ip-ranges', nargs='+', help='In-scope IP ranges (e.g., 192.168.1.0/24)')
     parser.add_argument('-f', '--file', help='File containing IP ranges (one CIDR per line)')
     parser.add_argument('-c', '--client', required=True, help='Client name for reporting')
@@ -8112,6 +8203,25 @@ Examples:
     if args.skip_osint:
         args.skip_github = True
 
+    # Parse and validate domain list (comma-separated)
+    raw_domains = [d.strip().lower() for d in args.domain.split(',') if d.strip()]
+    seen_d = set()
+    domains = []
+    for d in raw_domains:
+        if d in seen_d:
+            continue
+        if not re.match(r'^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)+$', d):
+            print(f"{Colors.WARNING}[!] Skipping invalid domain: {d}{Colors.ENDC}")
+            continue
+        seen_d.add(d)
+        domains.append(d)
+    if not domains:
+        print(f"{Colors.FAIL}[-] No valid domains supplied to -d{Colors.ENDC}")
+        sys.exit(1)
+    if len(domains) > 1:
+        print(f"{Colors.OKCYAN}[i] Multi-domain run: {', '.join(domains)}{Colors.ENDC}")
+    args.domains = domains
+
     # Set output directory based on client name if not specified
     if not args.output:
         safe_client_name = re.sub(r'[^\w\s-]', '', args.client).strip().replace(' ', '_')
@@ -8147,7 +8257,7 @@ Examples:
         print(f"{Colors.OKCYAN}[i] Output directory: {args.output}{Colors.ENDC}")
 
         recon = ReconAutomation(
-            domain=args.domain,
+            domain=[domains[0]],
             ip_ranges=[],
             output_dir=args.output,
             client_name=args.client,
@@ -8264,7 +8374,7 @@ Examples:
 
     # Create recon automation instance
     recon = ReconAutomation(
-        domain=args.domain,
+        domain=domains,
         ip_ranges=unique_ranges,
         output_dir=args.output,
         client_name=args.client,
