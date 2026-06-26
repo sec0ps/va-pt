@@ -73,6 +73,22 @@ class Colors:
     UNDERLINE = '\033[4m'
 
 class ReconAutomation:
+    # Shared secret-detection regexes (used by GitHub scanning and cloud content scanning)
+    SENSITIVE_PATTERNS = {
+        'aws_access_key': r'AKIA[0-9A-Z]{16}',
+        'aws_secret_key': r'aws_secret_access_key.*?["\']([^"\']{40})["\']',
+        'private_key': r'-----BEGIN (RSA|DSA|EC|OPENSSH) PRIVATE KEY-----',
+        'api_key': r'api[_-]?key.*?["\']([a-zA-Z0-9_\-]{20,})["\']',
+        'password': r'password.*?["\']([^"\']{8,})["\']',
+        'database_url': r'(postgresql|mysql|mongodb)://[^\s]+',
+        'jwt_token': r'eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*',
+        'slack_token': r'xox[baprs]-[0-9]{10,12}-[0-9]{10,12}-[a-zA-Z0-9]{24,32}',
+        'google_api': r'AIza[0-9A-Za-z\\-_]{35}',
+        's3_bucket': r'[a-z0-9.-]+\.s3\.amazonaws\.com',
+        'azure_storage': r'[a-z0-9]+\.blob\.core\.windows\.net',
+        'gcp_bucket': r'[a-z0-9._-]+\.storage\.googleapis\.com'
+    }
+
     def __init__(self, domain, ip_ranges: List[str], output_dir: str, client_name: str, auto_resume: bool = False):
                 # domain may be a single string or a list of domains
                 if isinstance(domain, str):
@@ -1818,20 +1834,7 @@ class ReconAutomation:
                 ]
 
                 # Sensitive patterns to look for
-                sensitive_patterns = {
-                    'aws_access_key': r'AKIA[0-9A-Z]{16}',
-                    'aws_secret_key': r'aws_secret_access_key.*?["\']([^"\']{40})["\']',
-                    'private_key': r'-----BEGIN (RSA|DSA|EC|OPENSSH) PRIVATE KEY-----',
-                    'api_key': r'api[_-]?key.*?["\']([a-zA-Z0-9_\-]{20,})["\']',
-                    'password': r'password.*?["\']([^"\']{8,})["\']',
-                    'database_url': r'(postgresql|mysql|mongodb)://[^\s]+',
-                    'jwt_token': r'eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*',
-                    'slack_token': r'xox[baprs]-[0-9]{10,12}-[0-9]{10,12}-[a-zA-Z0-9]{24,32}',
-                    'google_api': r'AIza[0-9A-Za-z\\-_]{35}',
-                    's3_bucket': r'[a-z0-9.-]+\.s3\.amazonaws\.com',
-                    'azure_storage': r'[a-z0-9]+\.blob\.core\.windows\.net',
-                    'gcp_bucket': r'[a-z0-9._-]+\.storage\.googleapis\.com'
-                }
+                sensitive_patterns = self.SENSITIVE_PATTERNS
 
                 # Create GitHub downloads directory
                 github_download_dir = self.output_dir / 'github_secrets'
@@ -2093,12 +2096,9 @@ class ReconAutomation:
 
                 # Commit history secret scan (targeted clone + scanner)
                 if not auth_failed:
-                    scanner = shutil.which('gitleaks') or shutil.which('trufflehog')
-                    if not scanner:
-                        self.print_info("No gitleaks/trufflehog on PATH - skipping commit history scan")
+                    if not shutil.which('git'):
+                        self.print_info("git not on PATH - skipping commit history scan")
                     else:
-                        tool = 'gitleaks' if scanner.endswith('gitleaks') else 'trufflehog'
-
                         # Targeted selection: HEAD-hit repos plus owner-name matches
                         domain_label = self.domain.split('.')[0].lower()
                         client_label = re.sub(r'[^a-z0-9]', '', (self.client_name or '').lower())
@@ -2136,11 +2136,11 @@ class ReconAutomation:
                                 break
 
                         if selected:
-                            self.print_info(f"Scanning {len(selected)} repo(s) for historical secrets ({tool})...")
+                            self.print_info(f"Scanning {len(selected)} repo(s) for historical secrets...")
                             tmp_root = tempfile.mkdtemp(prefix='qr_ghhist_')
                             try:
                                 for full_name in selected:
-                                    repo_findings = self._scan_repo_history(full_name, tmp_root, tool, headers)
+                                    repo_findings = self._scan_repo_history(full_name, tmp_root, headers)
                                     if repo_findings:
                                         github_findings['historical_findings'].extend(repo_findings)
                                         github_findings['total_secrets_found'] += len(repo_findings)
@@ -2168,22 +2168,15 @@ class ReconAutomation:
                 if github_findings['total_secrets_found'] > 0:
                     self.print_warning(f"\n[!] Downloaded files with secrets to: {github_download_dir}")
 
-    def _scan_repo_history(self, repo_full_name, tmp_root, tool, headers):
-                """Bare-clone a repo and scan full commit history for secrets. Returns normalized findings."""
-                def mask(s):
-                    s = s or ''
-                    if len(s) <= 8:
-                        return '*' * len(s)
-                    return f"{s[:4]}{'*' * (len(s) - 8)}{s[-4:]}"
-
+    def _scan_repo_history(self, repo_full_name, tmp_root, headers):
+                """Full-clone a repo and scan its complete commit history for secrets. Returns normalized findings."""
                 findings = []
                 safe = repo_full_name.replace('/', '_')
                 repo_dir = Path(tmp_root) / safe
-                report = Path(tmp_root) / f"{safe}.json"
                 token = self.config.get('github_token', '')
                 clone_url = f"https://x-access-token:{token}@github.com/{repo_full_name}.git"
 
-                # Full clone (complete history, all scanners compatible). Token never logged.
+                # Full clone (complete history). Token never logged.
                 try:
                     proc = subprocess.run(
                         ['git', 'clone', '--quiet', clone_url, str(repo_dir)],
@@ -2203,68 +2196,95 @@ class ReconAutomation:
                     return findings
 
                 try:
-                    if tool == 'gitleaks':
-                        cmd = ['gitleaks', 'detect', '--source', str(repo_dir),
-                               '--report-format', 'json', '--report-path', str(report),
-                               '--no-banner', '--exit-code', '0']
-                        try:
-                            subprocess.run(cmd, stdin=subprocess.DEVNULL,
-                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                           timeout=600)
-                        except subprocess.TimeoutExpired:
-                            self.print_error(f"  gitleaks timed out for {repo_full_name}")
-                        if report.exists():
-                            try:
-                                with open(report) as rf:
-                                    data = json.load(rf)
-                                for f in data or []:
-                                    findings.append({
-                                        'repository': repo_full_name,
-                                        'commit': f.get('Commit'),
-                                        'file': f.get('File'),
-                                        'rule': f.get('RuleID') or f.get('Description'),
-                                        'secret': mask(f.get('Secret', '')),
-                                        'date': f.get('Date'),
-                                        'author': f.get('Author'),
-                                        'email': f.get('Email')
-                                    })
-                            except Exception as e:
-                                self.print_error(f"  Failed to parse gitleaks output: {e}")
-                    else:
-                        cmd = ['trufflehog', 'git', f"file://{repo_dir}", '--json', '--no-update']
-                        try:
-                            proc = subprocess.run(cmd, stdin=subprocess.DEVNULL,
-                                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                                  timeout=600)
-                            for line in proc.stdout.decode('utf-8', errors='ignore').splitlines():
-                                line = line.strip()
-                                if not line:
-                                    continue
-                                try:
-                                    obj = json.loads(line)
-                                except Exception:
-                                    continue
-                                git_meta = obj.get('SourceMetadata', {}).get('Data', {}).get('Git', {})
-                                raw = obj.get('Raw') or obj.get('RawV2') or ''
-                                findings.append({
-                                    'repository': repo_full_name,
-                                    'commit': git_meta.get('commit'),
-                                    'file': git_meta.get('file'),
-                                    'rule': obj.get('DetectorName'),
-                                    'secret': mask(raw),
-                                    'date': git_meta.get('timestamp'),
-                                    'author': None,
-                                    'email': git_meta.get('email')
-                                })
-                        except subprocess.TimeoutExpired:
-                            self.print_error(f"  trufflehog timed out for {repo_full_name}")
+                    findings = self._walk_history_for_secrets(repo_full_name, repo_dir)
                 finally:
                     shutil.rmtree(repo_dir, ignore_errors=True)
-                    if report.exists():
+
+                return findings
+
+    def _walk_history_for_secrets(self, repo_full_name, repo_dir):
+                """Walk full commit history via git log and detect secrets in added lines using shared patterns."""
+                def mask(s):
+                    s = s or ''
+                    if len(s) <= 8:
+                        return '*' * len(s)
+                    return f"{s[:4]}{'*' * (len(s) - 8)}{s[-4:]}"
+
+                findings = []
+                marker = '__COMMIT__'
+                fmt = f"{marker}%x1f%H%x1f%an%x1f%aI"
+
+                cur_commit = cur_author = cur_date = None
+                cur_file = None
+                added = []
+
+                def flush():
+                    if not cur_file or not added:
+                        return
+                    blob = '\n'.join(added)
+                    for secret_type, pattern in self.SENSITIVE_PATTERNS.items():
                         try:
-                            report.unlink()
+                            matches = re.findall(pattern, blob, re.IGNORECASE)
                         except Exception:
-                            pass
+                            continue
+                        if matches and self._is_real_secret(secret_type, matches, blob):
+                            first = matches[0]
+                            if isinstance(first, tuple):
+                                first = next((x for x in first if x), '')
+                            findings.append({
+                                'repository': repo_full_name,
+                                'commit': cur_commit,
+                                'file': cur_file,
+                                'rule': secret_type,
+                                'secret': mask(first),
+                                'date': cur_date,
+                                'author': cur_author,
+                                'email': None
+                            })
+
+                try:
+                    proc = subprocess.Popen(
+                        ['git', '-C', str(repo_dir), 'log', '--all', '-p', '-U0',
+                         f"--format={fmt}", '--no-color'],
+                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL, text=True, errors='ignore'
+                    )
+                except Exception as e:
+                    self.print_error(f"  History walk error for {repo_full_name}: {e}")
+                    return findings
+
+                try:
+                    for line in proc.stdout:
+                        line = line.rstrip('\n')
+                        if line.startswith(marker):
+                            flush()
+                            added = []
+                            parts = line.split('\x1f')
+                            cur_commit = parts[1] if len(parts) > 1 else None
+                            cur_author = parts[2] if len(parts) > 2 else None
+                            cur_date = parts[3] if len(parts) > 3 else None
+                            cur_file = None
+                            continue
+                        if line.startswith('diff --git'):
+                            flush()
+                            added = []
+                            cur_file = None
+                            continue
+                        if line.startswith('+++ b/'):
+                            cur_file = line[6:].strip()
+                            continue
+                        if line.startswith('+') and not line.startswith('+++'):
+                            added.append(line[1:])
+                    flush()
+                finally:
+                    try:
+                        proc.stdout.close()
+                    except Exception:
+                        pass
+                    try:
+                        proc.wait(timeout=600)
+                    except Exception:
+                        proc.kill()
 
                 return findings
 
@@ -5372,6 +5392,36 @@ class ReconAutomation:
 
                 return True
 
+    def _scan_file_for_secrets(self, file_path, source_ref: str) -> list:
+                """Scan a downloaded file's content for secrets using shared patterns. Returns [{type, count}]."""
+                findings = []
+                try:
+                    p = Path(file_path)
+                    if not p.exists() or p.stat().st_size == 0:
+                        return findings
+                    # Bound the read; skip very large files
+                    if p.stat().st_size > 5 * 1024 * 1024:
+                        return findings
+                    raw = p.read_bytes()
+                    # Skip binary content (null bytes are a reliable signal)
+                    if b'\x00' in raw[:4096]:
+                        return findings
+                    content = raw.decode('utf-8', errors='ignore')
+                except Exception:
+                    return findings
+
+                for secret_type, pattern in self.SENSITIVE_PATTERNS.items():
+                    try:
+                        matches = re.findall(pattern, content, re.IGNORECASE)
+                    except Exception:
+                        continue
+                    if matches and self._is_real_secret(secret_type, matches, content):
+                        findings.append({'type': secret_type, 'count': len(matches)})
+
+                if findings:
+                    self.print_warning(f"  Secrets detected in {source_ref}: {', '.join(f['type'] for f in findings)}")
+                return findings
+
     def s3_bucket_enumeration(self):
                 """Perform S3 bucket enumeration with checkpoint support"""
                 self.print_section("S3 BUCKET ENUMERATION")
@@ -5723,6 +5773,9 @@ class ReconAutomation:
                         if self._download_file(f['url'], output_path):
                             downloaded_count += 1
                             self.print_success(f"      Saved to: {output_path}")
+                            hits = self._scan_file_for_secrets(output_path, f"s3:{bucket_name}/{f['key']}")
+                            if hits:
+                                bucket_info.setdefault('secret_findings', []).append({'file': f['key'], 'secrets': hits})
 
                         time.sleep(0.5)  # Rate limiting
 
@@ -6009,6 +6062,9 @@ class ReconAutomation:
                         if self._download_file(f['url'], output_path):
                             downloaded_count += 1
                             self.print_success(f"      Saved to: {output_path}")
+                            hits = self._scan_file_for_secrets(output_path, f"azure:{account_name}/{container}/{f['name']}")
+                            if hits:
+                                storage_info.setdefault('secret_findings', []).append({'file': f['name'], 'secrets': hits})
 
                         time.sleep(0.5)  # Rate limiting
 
@@ -6366,6 +6422,9 @@ class ReconAutomation:
                         if self._download_file(f['url'], output_path):
                             downloaded_count += 1
                             self.print_success(f"      Saved to: {output_path}")
+                            hits = self._scan_file_for_secrets(output_path, f"gcp:{bucket_name}/{f['key']}")
+                            if hits:
+                                bucket_info.setdefault('secret_findings', []).append({'file': f['key'], 'secrets': hits})
 
                         time.sleep(0.5)  # Rate limiting
 
