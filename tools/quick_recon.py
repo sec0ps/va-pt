@@ -89,6 +89,9 @@ class ReconAutomation:
         'gcp_bucket': r'[a-z0-9._-]+\.storage\.googleapis\.com'
     }
 
+    # Max unknown-type files to pull per bucket when download_unknown_files is enabled
+    UNKNOWN_DOWNLOAD_CAP = 10
+
     def __init__(self, domain, ip_ranges: List[str], output_dir: str, client_name: str, auto_resume: bool = False):
                 # domain may be a single string or a list of domains
                 if isinstance(domain, str):
@@ -100,6 +103,11 @@ class ReconAutomation:
                 self.output_dir = Path(output_dir)
                 self.client_name = client_name
                 self.auto_resume = auto_resume
+
+                # Cloud storage: pull unknown-type files only when enabled, capped
+                # at UNKNOWN_DOWNLOAD_CAP per bucket. Off by default so unknowns are
+                # logged to the manifest for manual review rather than bulk-downloaded.
+                self.download_unknown_files = False
 
                 # Initialize requests session
                 self.session = requests.Session()
@@ -252,8 +260,47 @@ class ReconAutomation:
 
             return False
 
-    def _is_sensitive_file(self, filename: str) -> tuple[bool, str]:
-            """Determine if a file is potentially sensitive based on extension and name patterns"""
+    def _write_unknown_manifest(self, source: str, location: str, unknown_files: list) -> None:
+            """Append unknown-type filenames to a run-level manifest for manual review.
+
+            Writes self.output_dir/unknown_files_manifest.csv with a header on
+            first use. Each entry is a file dict from any cloud analyzer; the
+            filename is read from 'key' or 'name' and size/url default safely so
+            the same call works for S3, GCP, and Azure listings.
+            """
+            if not unknown_files:
+                return
+
+            import csv
+
+            manifest_path = self.output_dir / 'unknown_files_manifest.csv'
+            write_header = not manifest_path.exists()
+
+            try:
+                with open(manifest_path, 'a', newline='', encoding='utf-8') as fh:
+                    writer = csv.writer(fh)
+                    if write_header:
+                        writer.writerow(['source', 'location', 'filename', 'size_kb', 'url'])
+
+                    for entry in unknown_files:
+                        filename = entry.get('key') or entry.get('name') or ''
+                        size_kb = entry.get('size', 0) / 1024
+                        url = entry.get('url', '')
+                        writer.writerow([source, location, filename, f'{size_kb:.1f}', url])
+
+                self.print_info(f"  Logged {len(unknown_files)} unknown file(s) to {manifest_path}")
+            except Exception as e:
+                self.print_error(f"Failed to write unknown-file manifest: {e}")
+
+
+    def _is_sensitive_file(self, filename: str) -> tuple[bool, str, str]:
+            """Classify a file by extension and name patterns.
+
+            Returns (should_download, category, reason). Category is one of
+            HIGH, MEDIUM, EXCLUDED, UNKNOWN. Unknown types are not downloaded
+            by default; the caller decides whether to pull them under a
+            per-bucket cap and logs them to the unknown-file manifest regardless.
+            """
             filename_lower = filename.lower()
 
             # Image extensions to exclude
@@ -361,30 +408,30 @@ class ReconAutomation:
             # Check if it's an excluded type
             for ext in image_extensions | media_extensions:
                 if filename_lower.endswith(ext):
-                    return (False, f'Excluded: {ext}')
+                    return (False, 'EXCLUDED', ext)
 
             # Check high interest extensions
             for ext, reason in high_interest.items():
                 if filename_lower.endswith(ext):
-                    return (True, f'HIGH: {reason}')
+                    return (True, 'HIGH', reason)
 
             # Check sensitive patterns in filename
             for pattern, reason in sensitive_patterns.items():
                 if pattern in filename_lower:
-                    return (True, f'HIGH: {reason}')
+                    return (True, 'HIGH', reason)
 
             # Check medium interest extensions
             for ext, reason in medium_interest.items():
                 if filename_lower.endswith(ext):
-                    return (True, f'MEDIUM: {reason}')
+                    return (True, 'MEDIUM', reason)
 
             # Check code extensions (medium interest, but lower priority)
             for ext, reason in code_extensions.items():
                 if filename_lower.endswith(ext):
-                    return (True, f'MEDIUM: {reason}')
+                    return (True, 'MEDIUM', reason)
 
-            # Unknown file type - might be interesting
-            return (True, 'UNKNOWN: Unknown file type')
+            # Unknown file type: do not download by default, log for manual review
+            return (False, 'UNKNOWN', 'Unknown file type')
 
     def scope_validation(self):
                 """Perform scope validation including WHOIS and DNS verification"""
