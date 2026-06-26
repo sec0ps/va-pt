@@ -48,6 +48,7 @@ from typing import List, Dict, Any, Optional
 import concurrent.futures
 import ipaddress
 import shutil
+import tempfile
 import urllib3
 import dns.resolver
 import time
@@ -1786,13 +1787,17 @@ class ReconAutomation:
                     'gists': progress.get('gists', []),
                     'issues': progress.get('issues', []),
                     'commits': progress.get('commits', []),
+                    'historical_findings': progress.get('historical_findings', []),
                     'total_secrets_found': progress.get('total_secrets_found', 0)
                 }
 
-                # Track which queries have been completed
+                # Track which queries/repos have been completed
                 completed_code_queries = set(progress.get('completed_code_queries', []))
                 completed_gist_queries = set(progress.get('completed_gist_queries', []))
                 completed_issue_queries = set(progress.get('completed_issue_queries', []))
+                completed_commit_queries = set(progress.get('completed_commit_queries', []))
+                completed_history_repos = set(progress.get('completed_history_repos', []))
+                candidate_repos = set(progress.get('candidate_repos', []))
 
                 headers = {
                     'Authorization': f"token {self.config['github_token']}",
@@ -1860,8 +1865,11 @@ class ReconAutomation:
                             data = response.json()
 
                             for item in data.get('items', []):
+                                repo_name = item.get('repository', {}).get('full_name')
+                                if repo_name:
+                                    candidate_repos.add(repo_name)
                                 repo_finding = {
-                                    'repository': item.get('repository', {}).get('full_name'),
+                                    'repository': repo_name,
                                     'file_path': item.get('path'),
                                     'html_url': item.get('html_url'),
                                     'secrets_found': []
@@ -1925,6 +1933,7 @@ class ReconAutomation:
                         completed_code_queries.add(query)
                         self.checkpoint('github_secret_scanning', 'completed_code_queries', list(completed_code_queries))
                         self.checkpoint('github_secret_scanning', 'repositories', github_findings['repositories'])
+                        self.checkpoint('github_secret_scanning', 'candidate_repos', list(candidate_repos))
                         self.checkpoint('github_secret_scanning', 'total_secrets_found', github_findings['total_secrets_found'])
 
                         time.sleep(2)  # Rate limiting
@@ -2034,6 +2043,117 @@ class ReconAutomation:
                         except Exception as e:
                             self.print_error(f"Error searching issues: {e}")
 
+                # Search Commits (commit message and authorship metadata)
+                if not auth_failed:
+                    self.print_info("Searching commits...")
+                    commit_headers = dict(headers)
+                    commit_headers['Accept'] = 'application/vnd.github+json'
+                    for query in search_queries[:3]:
+                        if query in completed_commit_queries:
+                            continue
+
+                        try:
+                            url = f"https://api.github.com/search/commits?q={query}&per_page=10"
+                            response = self.session.get(url, headers=commit_headers, timeout=15)
+
+                            if response.status_code == 200:
+                                data = response.json()
+                                for item in data.get('items', []):
+                                    commit = item.get('commit', {}) or {}
+                                    author = commit.get('author', {}) or {}
+                                    commit_finding = {
+                                        'repository': item.get('repository', {}).get('full_name'),
+                                        'sha': item.get('sha'),
+                                        'message': (commit.get('message') or '')[:200],
+                                        'author_name': author.get('name'),
+                                        'author_email': author.get('email'),
+                                        'date': author.get('date'),
+                                        'html_url': item.get('html_url')
+                                    }
+                                    github_findings['commits'].append(commit_finding)
+
+                                    # Harvest author email as actionable intel
+                                    email = author.get('email')
+                                    if email and '@' in email and not email.endswith('users.noreply.github.com'):
+                                        emails = self.results.setdefault('email_addresses', [])
+                                        if email not in emails:
+                                            emails.append(email)
+
+                            elif response.status_code == 401:
+                                self.print_error("GitHub token expired during commit search")
+                                break
+
+                            completed_commit_queries.add(query)
+                            self.checkpoint('github_secret_scanning', 'completed_commit_queries', list(completed_commit_queries))
+                            self.checkpoint('github_secret_scanning', 'commits', github_findings['commits'])
+
+                            time.sleep(2)
+                        except Exception as e:
+                            self.print_error(f"Error searching commits: {e}")
+
+                # Commit history secret scan (targeted clone + scanner)
+                if not auth_failed:
+                    scanner = shutil.which('gitleaks') or shutil.which('trufflehog')
+                    if not scanner:
+                        self.print_info("No gitleaks/trufflehog on PATH - skipping commit history scan")
+                    else:
+                        tool = 'gitleaks' if scanner.endswith('gitleaks') else 'trufflehog'
+
+                        # Targeted selection: HEAD-hit repos plus owner-name matches
+                        domain_label = self.domain.split('.')[0].lower()
+                        client_label = re.sub(r'[^a-z0-9]', '', (self.client_name or '').lower())
+                        targeted = set()
+                        for r in github_findings['repositories']:
+                            if r.get('repository'):
+                                targeted.add(r['repository'])
+                        for full_name in candidate_repos:
+                            owner = full_name.split('/')[0].lower()
+                            owner_norm = re.sub(r'[^a-z0-9]', '', owner)
+                            if domain_label and domain_label in owner:
+                                targeted.add(full_name)
+                            elif client_label and len(client_label) >= 4 and client_label in owner_norm:
+                                targeted.add(full_name)
+
+                        # Apply caps: skip already scanned, forks, oversized; max 10
+                        selected = []
+                        for full_name in sorted(targeted):
+                            if full_name in completed_history_repos:
+                                continue
+                            try:
+                                meta = self.session.get(f"https://api.github.com/repos/{full_name}", headers=headers, timeout=10)
+                                if meta.status_code != 200:
+                                    continue
+                                mj = meta.json()
+                                if mj.get('fork'):
+                                    continue
+                                if mj.get('size', 0) > 51200:
+                                    self.print_info(f"  Skipping {full_name} (>50MB)")
+                                    continue
+                            except Exception:
+                                continue
+                            selected.append(full_name)
+                            if len(selected) >= 10:
+                                break
+
+                        if selected:
+                            self.print_info(f"Scanning {len(selected)} repo(s) for historical secrets ({tool})...")
+                            tmp_root = tempfile.mkdtemp(prefix='qr_ghhist_')
+                            try:
+                                for full_name in selected:
+                                    repo_findings = self._scan_repo_history(full_name, tmp_root, tool, headers)
+                                    if repo_findings:
+                                        github_findings['historical_findings'].extend(repo_findings)
+                                        github_findings['total_secrets_found'] += len(repo_findings)
+                                        self.print_warning(f"Historical secrets in {full_name}: {len(repo_findings)}")
+                                    completed_history_repos.add(full_name)
+                                    self.checkpoint('github_secret_scanning', 'completed_history_repos', list(completed_history_repos))
+                                    self.checkpoint('github_secret_scanning', 'historical_findings', github_findings['historical_findings'])
+                                    self.checkpoint('github_secret_scanning', 'total_secrets_found', github_findings['total_secrets_found'])
+                            finally:
+                                shutil.rmtree(tmp_root, ignore_errors=True)
+                        else:
+                            self.print_info("No targeted repositories for history scan")
+
                 # Store results
                 self.results['github_secrets'] = github_findings
 
@@ -2041,10 +2161,112 @@ class ReconAutomation:
                 self.print_info("\nGitHub Secret Scanning Summary:")
                 self.print_info(f"  Repositories with secrets: {len(github_findings['repositories'])}")
                 self.print_info(f"  Issues with secrets: {len(github_findings['issues'])}")
+                self.print_info(f"  Commits matched: {len(github_findings['commits'])}")
+                self.print_info(f"  Historical secrets: {len(github_findings['historical_findings'])}")
                 self.print_info(f"  Total secrets found: {github_findings['total_secrets_found']}")
 
                 if github_findings['total_secrets_found'] > 0:
                     self.print_warning(f"\n[!] Downloaded files with secrets to: {github_download_dir}")
+
+    def _scan_repo_history(self, repo_full_name, tmp_root, tool, headers):
+                """Bare-clone a repo and scan full commit history for secrets. Returns normalized findings."""
+                def mask(s):
+                    s = s or ''
+                    if len(s) <= 8:
+                        return '*' * len(s)
+                    return f"{s[:4]}{'*' * (len(s) - 8)}{s[-4:]}"
+
+                findings = []
+                safe = repo_full_name.replace('/', '_')
+                repo_dir = Path(tmp_root) / safe
+                report = Path(tmp_root) / f"{safe}.json"
+                token = self.config.get('github_token', '')
+                clone_url = f"https://x-access-token:{token}@github.com/{repo_full_name}.git"
+
+                # Full clone (complete history, all scanners compatible). Token never logged.
+                try:
+                    proc = subprocess.run(
+                        ['git', 'clone', '--quiet', clone_url, str(repo_dir)],
+                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        timeout=300
+                    )
+                    if proc.returncode != 0:
+                        self.print_error(f"  Clone failed for {repo_full_name}")
+                        shutil.rmtree(repo_dir, ignore_errors=True)
+                        return findings
+                except subprocess.TimeoutExpired:
+                    self.print_error(f"  Clone timed out for {repo_full_name}")
+                    shutil.rmtree(repo_dir, ignore_errors=True)
+                    return findings
+                except Exception as e:
+                    self.print_error(f"  Clone error for {repo_full_name}: {e}")
+                    return findings
+
+                try:
+                    if tool == 'gitleaks':
+                        cmd = ['gitleaks', 'detect', '--source', str(repo_dir),
+                               '--report-format', 'json', '--report-path', str(report),
+                               '--no-banner', '--exit-code', '0']
+                        try:
+                            subprocess.run(cmd, stdin=subprocess.DEVNULL,
+                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                           timeout=600)
+                        except subprocess.TimeoutExpired:
+                            self.print_error(f"  gitleaks timed out for {repo_full_name}")
+                        if report.exists():
+                            try:
+                                with open(report) as rf:
+                                    data = json.load(rf)
+                                for f in data or []:
+                                    findings.append({
+                                        'repository': repo_full_name,
+                                        'commit': f.get('Commit'),
+                                        'file': f.get('File'),
+                                        'rule': f.get('RuleID') or f.get('Description'),
+                                        'secret': mask(f.get('Secret', '')),
+                                        'date': f.get('Date'),
+                                        'author': f.get('Author'),
+                                        'email': f.get('Email')
+                                    })
+                            except Exception as e:
+                                self.print_error(f"  Failed to parse gitleaks output: {e}")
+                    else:
+                        cmd = ['trufflehog', 'git', f"file://{repo_dir}", '--json', '--no-update']
+                        try:
+                            proc = subprocess.run(cmd, stdin=subprocess.DEVNULL,
+                                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                                  timeout=600)
+                            for line in proc.stdout.decode('utf-8', errors='ignore').splitlines():
+                                line = line.strip()
+                                if not line:
+                                    continue
+                                try:
+                                    obj = json.loads(line)
+                                except Exception:
+                                    continue
+                                git_meta = obj.get('SourceMetadata', {}).get('Data', {}).get('Git', {})
+                                raw = obj.get('Raw') or obj.get('RawV2') or ''
+                                findings.append({
+                                    'repository': repo_full_name,
+                                    'commit': git_meta.get('commit'),
+                                    'file': git_meta.get('file'),
+                                    'rule': obj.get('DetectorName'),
+                                    'secret': mask(raw),
+                                    'date': git_meta.get('timestamp'),
+                                    'author': None,
+                                    'email': git_meta.get('email')
+                                })
+                        except subprocess.TimeoutExpired:
+                            self.print_error(f"  trufflehog timed out for {repo_full_name}")
+                finally:
+                    shutil.rmtree(repo_dir, ignore_errors=True)
+                    if report.exists():
+                        try:
+                            report.unlink()
+                        except Exception:
+                            pass
+
+                return findings
 
     def linkedin_enumeration(self):
                         """LinkedIn intelligence gathering using authenticated session with checkpoint support and human-like delays"""
