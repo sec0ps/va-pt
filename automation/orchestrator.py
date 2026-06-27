@@ -24,10 +24,12 @@ import json
 import logging
 import os
 import secrets
+import shutil
 import signal
 import socket
 import stat
 import sys
+import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -37,7 +39,8 @@ from state import (RunState, HostState, Candidate, Verdict, TERMINAL_STATES,
                    is_exploitable_verdict)
 from scanner import Scanner, ScanConfig, NmapError, nse_scripts_for_cve
 from msf import MsfClient, MsfConfig
-from system import preflight, PreflightError, FirewallManager, MsfdManager
+from system import (preflight, PreflightError, FirewallManager, MsfdManager,
+                    find_msfrpcd)
 
 logger = logging.getLogger(__name__)
 
@@ -61,58 +64,83 @@ DEFAULT_CONFIG_FILE = ".orchestration_config"
 
 
 class OrchestrationConfig:
-    """Persisted run config in the working directory, mode 0600. Currently holds
-    only the msfrpcd RPC password so unattended runs reuse one credential instead
-    of needing MSF_RPC_PASS set by hand. The password guards a localhost-bound
-    msfrpcd, so a 0600 root-owned file is the right place for it. Stored as JSON
-    so the file can grow without a format change."""
+    """Persisted run config in the working directory, mode 0600. Holds the msfrpcd
+    RPC password (so unattended runs reuse one credential) and the resolved msfrpcd
+    binary path (so a nonstandard install is located once, not every run). Both
+    point at or guard a localhost-bound daemon, so a 0600 root-owned JSON file is
+    the right place. JSON so it can grow without a format change."""
 
     def __init__(self, path=DEFAULT_CONFIG_FILE):
         self.path = path
 
+    # -- accessors --
+
     def read_password(self):
-        """Return the stored password, or "" if the file is absent or unreadable.
-        Tightens perms to 0600 first if the existing file is looser."""
+        pw = self._load().get("msf_rpc_password", "")
+        return pw if isinstance(pw, str) else ""
+
+    def ensure_password(self):
+        """Return the stored password, generating and persisting one if absent."""
+        data = self._load()
+        pw = data.get("msf_rpc_password", "")
+        if isinstance(pw, str) and pw:
+            return pw
+        pw = secrets.token_urlsafe(32)
+        data["msf_rpc_password"] = pw
+        data.setdefault("version", 1)
+        data.setdefault(
+            "created",
+            datetime.datetime.now(datetime.timezone.utc).isoformat())
+        self._save(data)
+        logger.info("generated msfrpcd password, stored at %s (0600)",
+                    os.path.abspath(self.path))
+        return pw
+
+    def read_msfrpcd_path(self):
+        p = self._load().get("msfrpcd_path", "")
+        return p if isinstance(p, str) else ""
+
+    def set_msfrpcd_path(self, path):
+        """Persist the resolved msfrpcd path. No-op if already stored as given."""
+        data = self._load()
+        if data.get("msfrpcd_path") == path:
+            return
+        data["msfrpcd_path"] = path
+        data.setdefault("version", 1)
+        self._save(data)
+
+    # -- file io --
+
+    def _load(self):
         if not os.path.exists(self.path):
-            return ""
+            return {}
         self._enforce_perms()
         try:
             with open(self.path, "r") as f:
                 data = json.load(f)
         except (OSError, ValueError) as e:
             logger.warning("could not read %s: %s", self.path, e)
-            return ""
-        pw = data.get("msf_rpc_password", "")
-        return pw if isinstance(pw, str) else ""
+            return {}
+        return data if isinstance(data, dict) else {}
 
-    def ensure_password(self):
-        """Return the stored password, generating and persisting one (0600) if the
-        file has none. O_EXCL create keeps two concurrent runs in the same
-        directory from clobbering each other."""
-        pw = self.read_password()
-        if pw:
-            return pw
-        pw = secrets.token_urlsafe(32)
-        blob = json.dumps(
-            {"version": 1, "msf_rpc_password": pw,
-             "created": datetime.datetime.now(datetime.timezone.utc).isoformat()},
-            indent=2) + "\n"
+    def _save(self, data):
+        """Atomic 0600 write: temp file in the same dir, then replace."""
+        d = os.path.dirname(os.path.abspath(self.path)) or "."
         try:
-            fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        except FileExistsError:
-            # a concurrent run created it between our read and create; use theirs
-            return self.read_password() or pw
-        except OSError as e:
-            raise PreflightError(f"could not create {self.path}: {e}")
-        try:
-            with os.fdopen(fd, "w") as f:
-                f.write(blob)
-            os.chmod(self.path, 0o600)
+            fd, tmp = tempfile.mkstemp(prefix=".orch_", dir=d)
         except OSError as e:
             raise PreflightError(f"could not write {self.path}: {e}")
-        logger.info("generated msfrpcd password, stored at %s (0600)",
-                    os.path.abspath(self.path))
-        return pw
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(json.dumps(data, indent=2) + "\n")
+            os.replace(tmp, self.path)
+        except OSError as e:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise PreflightError(f"could not write {self.path}: {e}")
 
     def _enforce_perms(self):
         try:
@@ -597,6 +625,39 @@ def _parse_args(argv):
     return p.parse_args(argv)
 
 
+def _resolve_msfrpcd_path(args, cfgfile):
+    """Resolve and remember the msfrpcd binary for autostart. An explicit
+    --msfrpcd-path wins and is stored. Otherwise reuse a stored path that still
+    exists, then search PATH and common locations, storing whatever resolves.
+    Raises PreflightError if nothing usable is found."""
+    if args.msfrpcd_path != "msfrpcd":
+        chosen = args.msfrpcd_path
+        if not (os.access(chosen, os.X_OK) or shutil.which(chosen)):
+            raise PreflightError(f"--msfrpcd-path not executable: {chosen}")
+        cfgfile.set_msfrpcd_path(chosen)
+        return chosen
+    stored = cfgfile.read_msfrpcd_path()
+    if stored and os.access(stored, os.X_OK):
+        return stored
+    found = find_msfrpcd()
+    if found:
+        cfgfile.set_msfrpcd_path(found)
+        logger.info("located msfrpcd at %s (stored in %s)", found, cfgfile.path)
+        return found
+    raise PreflightError(
+        "msfrpcd not found on PATH or common locations; pass "
+        "--msfrpcd-path /path/to/msfrpcd and it will be remembered")
+
+
+def _startup_error(args, msg):
+    """Log a fatal pre-dashboard error and, in TUI mode, also print it to stderr.
+    TUI mode attaches no stderr log handler, so without this the terminal stays
+    silent and the only trace is the log file."""
+    logger.error(msg)
+    if not args.no_tui:
+        print(f"error: {msg}", file=sys.stderr)
+
+
 def main(argv=None):
     args = _parse_args(argv)
     _setup_logging(args)
@@ -619,7 +680,7 @@ def main(argv=None):
         excludes = set(expand_targets(exspecs, max_hosts=args.max_hosts))
         targets = [ip for ip in targets if ip not in excludes]
         if not targets:
-            logger.error("no targets in scope")
+            _startup_error(args, "no targets in scope")
             return 2
         _scope_guard(targets, args)
         run = RunState(mode=args.mode, checkpoint_path=args.checkpoint,
@@ -627,7 +688,7 @@ def main(argv=None):
         run.add_hosts(targets)
 
     if not run.snapshot_hosts():
-        logger.error("no targets in scope")
+        _startup_error(args, "no targets in scope")
         return 2
 
     scfg = ScanConfig(nmap_path=args.nmap_path, discovery_top_ports=args.top_ports,
@@ -638,24 +699,26 @@ def main(argv=None):
         host=args.msf_host, port=args.msf_port, password=args.msf_pass,
         ssl=args.msf_ssl, candidates_per_service=args.candidates_per_service,
         lhost=args.lhost or "")
-    if not mcfg.password:
-        # Nothing from --msf-pass or MSF_RPC_PASS. Reuse the persisted credential,
-        # generating one when we will be starting msfrpcd ourselves. When autostart
-        # is off we only read an existing file; connect() reports an empty password.
-        cfgfile = OrchestrationConfig(args.config_file)
-        try:
-            if args.no_msf_autostart:
-                mcfg.password = cfgfile.read_password()
-            else:
-                mcfg.password = cfgfile.ensure_password()
-        except PreflightError as e:
-            logger.error("preflight failed: %s", e)
-            return 1
+    cfgfile = OrchestrationConfig(args.config_file)
+    msfrpcd_path = args.msfrpcd_path
+    try:
+        # Password: --msf-pass or MSF_RPC_PASS, else the persisted credential,
+        # generating one only when we will start msfrpcd ourselves.
+        if not mcfg.password:
+            mcfg.password = (cfgfile.read_password() if args.no_msf_autostart
+                             else cfgfile.ensure_password())
+        # Binary: only needed when we start it. Resolved once and remembered.
+        if not args.no_msf_autostart:
+            msfrpcd_path = _resolve_msfrpcd_path(args, cfgfile)
+    except PreflightError as e:
+        _startup_error(args, f"preflight failed: {e}")
+        return 1
+
     msf_client = MsfClient(mcfg)
     fw = FirewallManager()
     msfd = MsfdManager(host=mcfg.host, port=mcfg.port, password=mcfg.password,
                        ssl=mcfg.ssl, username=mcfg.username,
-                       msfrpcd_path=args.msfrpcd_path,
+                       msfrpcd_path=msfrpcd_path,
                        autostart=not args.no_msf_autostart)
 
     try:
@@ -663,7 +726,7 @@ def main(argv=None):
         for w in warnings:
             logger.warning("preflight: %s", w)
     except PreflightError as e:
-        logger.error("preflight failed: %s", e)
+        _startup_error(args, f"preflight failed: {e}")
         return 1
 
     ocfg = OrchestratorConfig(
