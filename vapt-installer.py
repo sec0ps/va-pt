@@ -221,10 +221,10 @@ def cleanup_old_directories():
         print("Old Arachni directory removed.")
 
     old_responder_dir = "/vapt/exploits/Responder"
-        if os.path.exists(old_responder_dir):
-            print("Cleaning up old Responder directory...")
-            run_command(f"rm -rf {old_responder_dir}")
-            print("Old Responder directory removed. Replaced by Responder-NG.")
+    if os.path.exists(old_responder_dir):
+        print("Cleaning up old Responder directory...")
+        run_command(f"rm -rf {old_responder_dir}")
+        print("Old Responder directory removed. Replaced by Responder-NG.")
 
 def check_and_install(repo_url, install_dir, setup_commands=None):
     """Clone the repo if it doesn't exist and run optional setup commands."""
@@ -755,4 +755,3 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\nInterrupted. Exiting...")
         sys.exit(130)
-
