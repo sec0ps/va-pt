@@ -1,0 +1,82 @@
+# vapt-orchestrator
+
+Deterministic network exploitation pipeline. Discovers live hosts, scans them for
+known-vulnerable services, corroborates the findings, and optionally fires matching
+Metasploit modules. nmap handles discovery and detection, Metasploit handles
+exploitation, and a rich terminal dashboard shows live status.
+
+Pipeline: discover (SYN sweep) -> scan (version + vulners) -> analyze (module
+candidates) -> check (NSE + msf check) -> fire (autopwn only).
+
+## Requirements
+
+- Linux, run as root
+- nmap with the `vulners` NSE script, able to reach the vulners API
+- Metasploit (`msfrpcd`); started automatically when absent
+- Python 3 with `rich` and `pymetasploit3`
+
+```
+pip install rich pymetasploit3 --break-system-packages
+```
+
+## Usage
+
+Zero config. The first run generates an msfrpcd password, stores it in
+`.orchestration_config` (0600) in the working directory, starts msfrpcd, and runs.
+Later runs reuse it.
+
+```
+# check only (default): find and verify, never exploit
+sudo python3 orchestrator.py 10.0.0.0/24
+
+# autopwn: fire reverse payloads at confirmed/likely candidates
+sudo python3 orchestrator.py --mode autopwn 10.0.0.5
+
+# resume an interrupted run
+sudo python3 orchestrator.py --resume 10.0.0.0/24
+```
+
+Targets accept IPs, CIDRs, `a-b` ranges, hostnames, or `-iL file`. Exclude with
+`--exclude` / `--exclude-file`.
+
+## Key flags
+
+- `--mode {check,autopwn}` exploit or check-only (default check)
+- `--mincvss FLOAT` CVE floor for vulners (default 7.0)
+- `--top-ports N` / `--ports LIST` discovery surface
+- `--workers N` / `--fire-workers N` scan and fire parallelism
+- `--lhost IP` pin the reverse-payload callback address
+- `--no-msf-autostart` use an already-running msfrpcd instead of starting one
+- `--no-tui` headless
+- `--yes` skip the large-scope prompt
+
+Everything else: `--help`.
+
+## Output
+
+- `vapt_run_checkpoint.json` resumable state, flushed during the run
+- `vapt_findings.json` final findings
+- `vapt_run.log` run log (where logs go while the dashboard is up)
+
+## Behavior
+
+Root is required because the SYN scan, the firewall toggle, and reverse listeners
+all need it. The host firewall is detected, snapshotted, disabled for the run so
+callbacks are not blocked, and restored on teardown with an atexit backstop. Scopes
+over 4096 hosts prompt (or need `--yes`); over 65536 hard-stop. One Ctrl-C drains
+in-flight work, restores the firewall, and writes a final checkpoint; do not
+SIGKILL it.
+
+autopwn fires only on candidates that checked vulnerable or likely; safe and
+unsupported are never touched. A daemon the tool starts is stopped at teardown,
+which drops any sessions it opened. To keep shells alive, run your own msfrpcd or
+pass `--no-msf-autostart`.
+
+## Files
+
+- `orchestrator.py` entry point: CLI, run loop, threading, config
+- `state.py` data model and thread-safe run state with checkpointing
+- `scanner.py` nmap discovery, vulners scan, NSE verification
+- `msf.py` Metasploit RPC: candidate search, check, fire
+- `system.py` preflight, firewall save/restore, msfrpcd lifecycle
+- `tui.py` rich live dashboard
