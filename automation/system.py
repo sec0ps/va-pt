@@ -407,6 +407,35 @@ def _port_open(host, port, timeout=1.0):
         return False
 
 
+_MSFRPCD_CANDIDATES = (
+    "/opt/metasploit-framework/bin/msfrpcd",
+    "/opt/metasploit-framework/msfrpcd",
+    "/usr/share/metasploit-framework/msfrpcd",
+    "/usr/local/bin/msfrpcd",
+    "/usr/bin/msfrpcd",
+)
+
+
+def find_msfrpcd():
+    """Best-effort locate of the msfrpcd binary. Returns an absolute path or "".
+    Tries PATH, then common install locations, then the locate database (which
+    catches nonstandard trees). Only paths with an execute bit are accepted."""
+    found = shutil.which("msfrpcd")
+    if found:
+        return found
+    for cand in _MSFRPCD_CANDIDATES:
+        if os.access(cand, os.X_OK):
+            return cand
+    if _cmd_exists("locate"):
+        rc, out, _ = _run(["locate", "msfrpcd"])
+        if rc == 0:
+            for line in out.splitlines():
+                line = line.strip()
+                if line.endswith("/msfrpcd") and os.access(line, os.X_OK):
+                    return line
+    return ""
+
+
 def _run(cmd, data=None):
     """Run a command. Returns (returncode, stdout, stderr) as text. stdin is
     DEVNULL unless data is supplied (then it is piped in)."""
@@ -441,4 +470,4 @@ def _has_iptables_rules(out):
 
 
 __all__ = ["PreflightError", "preflight", "FirewallBackend", "FirewallManager",
-           "MsfdManager"]
+           "MsfdManager", "find_msfrpcd"]
