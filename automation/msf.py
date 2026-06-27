@@ -105,7 +105,7 @@ class MsfClient:
             raise MsfUnavailable(
                 f"cannot connect to msfrpcd at {self.cfg.host}:{self.cfg.port}: {e}")
         try:
-            ver = self._client.core.version()
+            ver = self._client.core.version
         except Exception as e:
             raise MsfUnavailable(f"msfrpcd auth/probe failed: {e}")
         logger.info("msfrpcd connected: %s", ver)
