@@ -40,7 +40,7 @@ from state import (RunState, HostState, Candidate, Verdict, TERMINAL_STATES,
 from scanner import Scanner, ScanConfig, NmapError, nse_scripts_for_cve
 from msf import MsfClient, MsfConfig
 from system import (preflight, PreflightError, FirewallManager, MsfdManager,
-                    find_msfrpcd)
+                    find_msfrpcd, resolve_run_as)
 
 logger = logging.getLogger(__name__)
 
@@ -618,6 +618,9 @@ def _parse_args(argv):
                    help="path to msfrpcd binary for autostart")
     p.add_argument("--no-msf-autostart", action="store_true",
                    help="do not start msfrpcd; require an already-running daemon")
+    p.add_argument("--msf-user", default=None,
+                   help="run autostarted msfrpcd as this user (default: the "
+                        "sudo-invoking user)")
     p.add_argument("--config-file", default=DEFAULT_CONFIG_FILE,
                    help="persisted run config (msfrpcd password), 0600")
     p.add_argument("--log-file", default=None)
@@ -701,15 +704,18 @@ def main(argv=None):
         lhost=args.lhost or "")
     cfgfile = OrchestrationConfig(args.config_file)
     msfrpcd_path = args.msfrpcd_path
+    run_as = None
     try:
         # Password: --msf-pass or MSF_RPC_PASS, else the persisted credential,
         # generating one only when we will start msfrpcd ourselves.
         if not mcfg.password:
             mcfg.password = (cfgfile.read_password() if args.no_msf_autostart
                              else cfgfile.ensure_password())
-        # Binary: only needed when we start it. Resolved once and remembered.
+        # Binary and run-as user: only needed when we start it. The user we drop
+        # to keeps msfrpcd in its own gem and ~/.msf4 environment.
         if not args.no_msf_autostart:
             msfrpcd_path = _resolve_msfrpcd_path(args, cfgfile)
+            run_as = resolve_run_as(args.msf_user)
     except PreflightError as e:
         _startup_error(args, f"preflight failed: {e}")
         return 1
@@ -719,7 +725,7 @@ def main(argv=None):
     msfd = MsfdManager(host=mcfg.host, port=mcfg.port, password=mcfg.password,
                        ssl=mcfg.ssl, username=mcfg.username,
                        msfrpcd_path=msfrpcd_path,
-                       autostart=not args.no_msf_autostart)
+                       autostart=not args.no_msf_autostart, run_as=run_as)
 
     try:
         warnings = preflight(args.nmap_path, msf_client, msfd)
