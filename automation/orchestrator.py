@@ -40,7 +40,8 @@ from state import (RunState, HostState, Candidate, Verdict, TERMINAL_STATES,
 from scanner import Scanner, ScanConfig, NmapError, nse_scripts_for_cve
 from msf import MsfClient, MsfConfig
 from system import (preflight, PreflightError, FirewallManager, MsfdManager,
-                    find_msfrpcd, resolve_run_as)
+                    find_msfrpcd, resolve_run_as, ensure_runtime,
+                    DEFAULT_VENV_DIR, RUNTIME_DEPS)
 
 logger = logging.getLogger(__name__)
 
@@ -623,6 +624,10 @@ def _parse_args(argv):
                         "sudo-invoking user)")
     p.add_argument("--config-file", default=DEFAULT_CONFIG_FILE,
                    help="persisted run config (msfrpcd password), 0600")
+    p.add_argument("--venv-dir", default=DEFAULT_VENV_DIR,
+                   help="root-owned venv holding the runtime deps")
+    p.add_argument("--no-venv", action="store_true",
+                   help="do not bootstrap a venv; use the current interpreter")
     p.add_argument("--log-file", default=None)
     p.add_argument("-v", "--verbose", action="store_true")
     return p.parse_args(argv)
@@ -663,6 +668,13 @@ def _startup_error(args, msg):
 
 def main(argv=None):
     args = _parse_args(argv)
+    try:
+        # First gate: ensure deps are importable. May re-exec under a root-owned
+        # venv and never return from this call on the first run.
+        ensure_runtime(args.venv_dir, RUNTIME_DEPS, enabled=not args.no_venv)
+    except PreflightError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
     _setup_logging(args)
 
     specs = list(args.targets)
