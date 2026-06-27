@@ -324,11 +324,19 @@ class MsfdManager:
                "-U", self.username, "-P", self.password]
         if not self.ssl:
             cmd.append("-S")            # msfrpcd: -S disables SSL (on by default)
+        # Source checkouts boot through Bundler, which resolves the framework
+        # Gemfile relative to the working directory, so msfrpcd only starts from
+        # inside the tree. Launch it with cwd set to the binary's directory, the
+        # same as running ./msfrpcd by hand; Bundler walks up to find the Gemfile.
+        resolved = shutil.which(self.path) or os.path.abspath(self.path)
+        bindir = os.path.dirname(resolved)
+        cwd = bindir if os.path.isdir(bindir) else None
         try:
             logf = open(path, "ab")
             try:
                 self._proc = subprocess.Popen(
-                    cmd, stdin=subprocess.DEVNULL, stdout=logf, stderr=logf)
+                    cmd, stdin=subprocess.DEVNULL, stdout=logf, stderr=logf,
+                    cwd=cwd)
             finally:
                 logf.close()            # child keeps its own dup of the fd
         except FileNotFoundError:
