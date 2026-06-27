@@ -21,9 +21,11 @@ from __future__ import annotations
 import atexit
 import logging
 import os
+import pwd
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -245,7 +247,8 @@ class MsfdManager:
     port probe here only decides whether a daemon needs starting."""
 
     def __init__(self, host, port, password, ssl=True, username="msf",
-                 msfrpcd_path="msfrpcd", autostart=True, boot_timeout=60):
+                 msfrpcd_path="msfrpcd", autostart=True, boot_timeout=60,
+                 run_as=None):
         self.host = host
         self.port = port
         self.password = password
@@ -254,6 +257,7 @@ class MsfdManager:
         self.path = msfrpcd_path
         self.autostart = autostart
         self.boot_timeout = boot_timeout
+        self.run_as = run_as            # pwd struct to drop to, or None
         self._lock = threading.Lock()
         self._proc = None
         self._logfile = None
@@ -315,6 +319,19 @@ class MsfdManager:
             logger.warning("atexit: msfrpcd still running, stopping")
             self.stop()
 
+    def _drop_target(self):
+        """Return (uid, gid, name, home) the child should drop to, or None to keep
+        the current identity. Drops only when running as root and a non-root target
+        is set, since only root can change uid."""
+        if self.run_as is None:
+            return None
+        if not hasattr(os, "geteuid") or os.geteuid() != 0:
+            return None
+        pw = self.run_as
+        if pw.pw_uid == 0:
+            return None
+        return (pw.pw_uid, pw.pw_gid, pw.pw_name, pw.pw_dir)
+
     def _spawn(self):
         fd, path = tempfile.mkstemp(prefix="rcs_msfd_", suffix=".log")
         os.close(fd)
@@ -325,23 +342,47 @@ class MsfdManager:
         if not self.ssl:
             cmd.append("-S")            # msfrpcd: -S disables SSL (on by default)
         # Source checkouts boot through Bundler, which resolves the framework
-        # Gemfile relative to the working directory, so msfrpcd only starts from
-        # inside the tree. Launch it with cwd set to the binary's directory, the
-        # same as running ./msfrpcd by hand; Bundler walks up to find the Gemfile.
+        # Gemfile relative to the working directory, so launch from the binary's
+        # directory (Bundler then walks up to the Gemfile).
         resolved = shutil.which(self.path) or os.path.abspath(self.path)
         bindir = os.path.dirname(resolved)
         cwd = bindir if os.path.isdir(bindir) else None
+
+        # Under sudo the process is root, but msfrpcd needs no privilege and the
+        # framework's gems and ~/.msf4 live in the invoking user's home. Drop the
+        # child to that user with their HOME so gem/bundler resolution matches an
+        # interactive run; nmap and the firewall stay root in the parent.
+        drop = self._drop_target()
+        if drop is not None and sys.version_info < (3, 9):
+            self._cleanup_log()
+            raise PreflightError(
+                "running msfrpcd as a non-root user needs Python 3.9+; upgrade, "
+                "or start msfrpcd yourself and pass --no-msf-autostart")
         try:
             logf = open(path, "ab")
             try:
-                self._proc = subprocess.Popen(
-                    cmd, stdin=subprocess.DEVNULL, stdout=logf, stderr=logf,
-                    cwd=cwd)
+                kwargs = dict(stdin=subprocess.DEVNULL, stdout=logf, stderr=logf,
+                              cwd=cwd)
+                if drop is not None:
+                    uid, gid, name, home = drop
+                    kwargs["user"] = uid
+                    kwargs["group"] = gid
+                    try:
+                        kwargs["extra_groups"] = os.getgrouplist(name, gid)
+                    except (KeyError, OSError):
+                        kwargs["extra_groups"] = [gid]
+                    kwargs["env"] = _child_env(name, home)
+                    logger.info("starting msfrpcd as %s (uid %d), HOME=%s",
+                                name, uid, home)
+                self._proc = subprocess.Popen(cmd, **kwargs)
             finally:
                 logf.close()            # child keeps its own dup of the fd
         except FileNotFoundError:
             self._cleanup_log()
             raise PreflightError(f"msfrpcd not found: '{self.path}'")
+        except PermissionError as e:
+            self._cleanup_log()
+            raise PreflightError(f"cannot start msfrpcd as that user: {e}")
         except OSError as e:
             self._cleanup_log()
             raise PreflightError(f"could not start msfrpcd: {e}")
@@ -444,6 +485,51 @@ def find_msfrpcd():
     return ""
 
 
+def resolve_run_as(name=None):
+    """Resolve the user msfrpcd should run as. An explicit name is looked up
+    directly; otherwise the sudo-invoking user (SUDO_USER) is used. Returns a pwd
+    struct, or None to run as the current user. Raises PreflightError on a bad
+    explicit name."""
+    if name:
+        try:
+            return pwd.getpwnam(name)
+        except KeyError:
+            raise PreflightError(f"--msf-user: no such user '{name}'")
+    sudo_user = os.environ.get("SUDO_USER")
+    if sudo_user and sudo_user != "root":
+        try:
+            return pwd.getpwnam(sudo_user)
+        except KeyError:
+            logger.warning("SUDO_USER '%s' not resolvable; running msfrpcd as "
+                           "current user", sudo_user)
+    return None
+
+
+def _child_env(name, home):
+    """Environment for a dropped msfrpcd: the parent env with HOME/USER/LOGNAME
+    pointed at the target user and any root-inherited gem/bundler overrides
+    removed, so resolution is purely HOME-based."""
+    env = dict(os.environ)
+    env["HOME"] = home
+    env["USER"] = name
+    env["LOGNAME"] = name
+    env["PATH"] = _user_path(home, env.get("PATH", ""))
+    for k in ("GEM_HOME", "GEM_PATH", "BUNDLE_GEMFILE", "BUNDLE_PATH",
+              "SUDO_USER", "SUDO_UID", "SUDO_GID", "SUDO_COMMAND"):
+        env.pop(k, None)
+    return env
+
+
+def _user_path(home, current):
+    extras = [os.path.join(home, ".rbenv", "shims"),
+              os.path.join(home, ".rvm", "bin"),
+              os.path.join(home, ".local", "bin"),
+              os.path.join(home, "bin")]
+    parts = [p for p in extras if os.path.isdir(p)]
+    base = current or "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    return os.pathsep.join(parts + [base]) if parts else base
+
+
 def _run(cmd, data=None):
     """Run a command. Returns (returncode, stdout, stderr) as text. stdin is
     DEVNULL unless data is supplied (then it is piped in)."""
@@ -478,4 +564,4 @@ def _has_iptables_rules(out):
 
 
 __all__ = ["PreflightError", "preflight", "FirewallBackend", "FirewallManager",
-           "MsfdManager", "find_msfrpcd"]
+           "MsfdManager", "find_msfrpcd", "resolve_run_as"]
