@@ -35,9 +35,84 @@ from msf import MsfUnavailable
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_VENV_DIR = "/opt/va-pt-venv"
+RUNTIME_DEPS = ("rich", "pymetasploit3")
+_REEXEC_SENTINEL = "VAPT_RUNTIME_BOOTSTRAPPED"
+
 
 class PreflightError(Exception):
     pass
+
+
+def ensure_runtime(venv_dir, deps, enabled=True):
+    """Make sure the program runs under an interpreter that can import deps.
+
+    Under sudo the process is root, and root does not see a user's pip --user
+    site-packages, so deps installed there are invisible. Rather than put a
+    user-writable directory on root's import path (a local privilege-escalation
+    risk), keep the runtime in a root-owned venv. If we are not already running
+    under that venv, build it on first use (root required) and re-exec the program
+    under the venv interpreter, preserving arguments, cwd, and identity.
+
+    Runs before logging is configured, so user-facing notices go to stderr.
+    Idempotent and loop-safe: a sentinel in the child environment and a prefix
+    check each short-circuit the second pass."""
+    if not enabled:
+        return
+    if os.environ.get(_REEXEC_SENTINEL):
+        return
+    if os.path.realpath(sys.prefix) == os.path.realpath(venv_dir):
+        return
+    venv_python = os.path.join(venv_dir, "bin", "python")
+    if not _venv_ready(venv_python, deps):
+        if not (hasattr(os, "geteuid") and os.geteuid() == 0):
+            raise PreflightError(
+                f"runtime venv at {venv_dir} is not built; re-run with sudo to "
+                f"create it (one time), or pass --no-venv if {', '.join(deps)} "
+                "are already importable by this interpreter")
+        _build_venv(venv_dir, venv_python, deps)
+    os.environ[_REEXEC_SENTINEL] = "1"
+    print(f"runtime: handing off to {venv_python}", file=sys.stderr)
+    try:
+        os.execv(venv_python,
+                 [venv_python, os.path.abspath(sys.argv[0])] + sys.argv[1:])
+    except OSError as e:
+        raise PreflightError(f"could not re-exec under venv python: {e}")
+
+
+def _venv_ready(venv_python, deps):
+    if not os.access(venv_python, os.X_OK):
+        return False
+    rc, _, _ = _run([venv_python, "-c", "import " + ", ".join(deps)])
+    return rc == 0
+
+
+def _build_venv(venv_dir, venv_python, deps):
+    if not os.path.exists(venv_python):
+        print(f"runtime: creating venv at {venv_dir} (one time)", file=sys.stderr)
+        rc, out, err = _run([sys.executable, "-m", "venv", venv_dir])
+        if rc != 0:
+            detail = (err or out).strip()
+            if "ensurepip" in detail or "venv" in detail.lower():
+                raise PreflightError(
+                    "could not create venv; install the python3-venv package "
+                    f"(e.g. apt install python3-venv). detail: {detail}")
+            raise PreflightError(f"could not create venv at {venv_dir}: {detail}")
+    print(f"runtime: installing {', '.join(deps)} into {venv_dir}",
+          file=sys.stderr)
+    if _pip_install(venv_python, deps) != 0:
+        raise PreflightError(
+            f"pip install of {', '.join(deps)} into {venv_dir} failed")
+
+
+def _pip_install(venv_python, deps):
+    cmd = [venv_python, "-m", "pip", "install", *deps]
+    try:
+        proc = subprocess.run(cmd, stdin=subprocess.DEVNULL)
+    except OSError as e:
+        print(f"runtime: pip not runnable: {e}", file=sys.stderr)
+        return 1
+    return proc.returncode
 
 
 def preflight(nmap_path, msf_client, msfd):
@@ -564,4 +639,5 @@ def _has_iptables_rules(out):
 
 
 __all__ = ["PreflightError", "preflight", "FirewallBackend", "FirewallManager",
-           "MsfdManager", "find_msfrpcd", "resolve_run_as"]
+           "MsfdManager", "find_msfrpcd", "resolve_run_as", "ensure_runtime",
+           "DEFAULT_VENV_DIR", "RUNTIME_DEPS"]
