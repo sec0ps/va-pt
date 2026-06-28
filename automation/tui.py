@@ -21,6 +21,7 @@ orchestrator falls back to headless.
 from __future__ import annotations
 
 import logging
+import sys
 import time
 
 from rich import box
@@ -93,23 +94,49 @@ class Dashboard:
         self.run = run
         self.console = Console()
         self._live = None
+        self._done = False          # set when the run completes, shows the footer
 
     # -- lifecycle (main thread only) --
 
     def start(self):
         if not self.console.is_terminal:
             raise RuntimeError("stdout is not a terminal; use --no-tui")
+        # Dashboard is its own renderable (see __rich__), and auto_refresh runs a
+        # background paint at refresh_per_second. That keeps the screen live even
+        # while the main thread is blocked in a long call (e.g. the discovery SYN
+        # sweep), which the old main-loop-only refresh could not do.
         self._live = Live(
-            self._render(),
+            self,
             console=self.console,
             screen=True,
-            auto_refresh=False)
+            auto_refresh=True,
+            refresh_per_second=4)
         self._live.start(refresh=True)
 
+    def __rich__(self):
+        return self._render()
+
     def refresh(self):
-        if self._live is None:
-            return
-        self._live.update(self._render(), refresh=True)
+        # The background thread drives most paints; this is a responsiveness nudge
+        # from the main loop. Safe to call concurrently (rich Live is locked).
+        if self._live is not None:
+            try:
+                self._live.refresh()
+            except Exception:
+                pass
+
+    def wait_for_exit(self):
+        """Hold the completed dashboard open until the user presses Enter (or sends
+        EOF / Ctrl-C). The background refresh keeps it live while we block. Callers
+        must have already made the host safe (firewall restored) before this."""
+        self._done = True
+        self.refresh()
+        try:
+            sys.stdin.readline()
+        except KeyboardInterrupt:
+            pass
+        except Exception:
+            pass
 
     def stop(self):
         if self._live is None:
@@ -124,7 +151,8 @@ class Dashboard:
 
     def _render(self):
         stats = self.run.stats()
-        body_rows = max(0, self.console.size.height - _HEADER_SIZE)
+        footer_rows = 1 if self._done else 0
+        body_rows = max(0, self.console.size.height - _HEADER_SIZE - footer_rows)
         active_h, results_h = _split_heights(body_rows)
         active = self.run.active_hosts(limit=max(1, active_h - _PANE_CHROME))
         results = self.run.result_hosts(limit=max(1, results_h - _PANE_CHROME))
@@ -142,11 +170,17 @@ class Dashboard:
             left,
             Layout(self._feed_panel(feed), name="feed", ratio=_FEED_RATIO))
 
+        children = [Layout(self._header(stats), name="header", size=_HEADER_SIZE),
+                    body]
+        if self._done:
+            children.append(Layout(self._footer(), name="footer", size=1))
         layout = Layout()
-        layout.split_column(
-            Layout(self._header(stats), name="header", size=_HEADER_SIZE),
-            body)
+        layout.split_column(*children)
         return layout
+
+    def _footer(self):
+        return Text("run complete   -   press Enter to exit",
+                    style="bold black on green", justify="center")
 
     def _feed_panel(self, feed):
         rows = []

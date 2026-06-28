@@ -172,6 +172,7 @@ class Orchestrator:
         self._stop = threading.Event()
         self._teardown_done = False
         self._teardown_lock = threading.Lock()
+        self._completed = False         # True only on normal completion (no signal)
         self._discovered_ports = {}
 
     # -- lifecycle --
@@ -191,6 +192,8 @@ class Orchestrator:
                     break
                 self._scan_pool.submit(self._process_host, ip)
             self._main_loop(display)
+            # Normal completion means the loop ended on _is_done, not a signal.
+            self._completed = not self._stop.is_set()
         finally:
             self._teardown(display)
 
@@ -426,6 +429,13 @@ class Orchestrator:
         except Exception:
             logger.exception("findings write failed")
         if display is not None:
+            if self._completed:
+                # Host is already safe here (firewall restored, findings written),
+                # so holding the dashboard open for review exposes nothing.
+                try:
+                    display.wait_for_exit()
+                except Exception:
+                    pass
             try:
                 display.stop()
             except Exception:
