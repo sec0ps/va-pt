@@ -36,7 +36,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from state import (RunState, HostState, Candidate, Verdict, TERMINAL_STATES,
-                   is_exploitable_verdict)
+                   is_exploitable_verdict, is_fireable_verdict)
 from scanner import Scanner, ScanConfig, NmapError, nse_scripts_for_cve
 from msf import MsfClient, MsfConfig, RANK_VALUES
 from system import (preflight, PreflightError, FirewallManager, MsfdManager,
@@ -47,8 +47,9 @@ logger = logging.getLogger(__name__)
 
 # Fire ordering: prefer confirmed-vulnerable, then likely, then unknown. Safe and
 # unsupported candidates are never fired.
-_FIRE_PRIORITY = {Verdict.VULNERABLE: 3, Verdict.LIKELY: 2, Verdict.UNKNOWN: 1}
-_RANK_ORDER = {"excellent": 600, "great": 500}
+_FIRE_PRIORITY = {Verdict.VULNERABLE: 4, Verdict.LIKELY: 3,
+                  Verdict.UNSUPPORTED: 2, Verdict.UNKNOWN: 1}
+_RANK_ORDER = RANK_VALUES
 
 
 @dataclass
@@ -321,6 +322,7 @@ class Orchestrator:
         # reset to msf-only so a resumed partial check does not duplicate nse rows
         self.run.set_candidates(ip, msf_cands)
         any_exploitable = False
+        any_fireable = False
         nse_done = set()
         for cand in msf_cands:
             if self._stop.is_set():
@@ -329,6 +331,8 @@ class Orchestrator:
             self.run.update_candidate_result(ip, cand.module, verdict, detail)
             if is_exploitable_verdict(verdict):
                 any_exploitable = True
+            if is_fireable_verdict(verdict):
+                any_fireable = True
             scripts = nse_scripts_for_cve(cand.cve_id)
             if scripts:
                 key = (cand.port, tuple(scripts))
@@ -342,8 +346,19 @@ class Orchestrator:
                     check_detail=nd))
                 if is_exploitable_verdict(nv):
                     any_exploitable = True
+        # In autopwn, anything the check did not rule out (non-SAFE) is worth
+        # firing -- backdoor modules report UNSUPPORTED yet are the real way in.
+        # In check mode, EXPLOITABLE stays strict (confirmed/likely only).
+        if self.run.mode == "autopwn":
+            enter_fire = any_fireable
+        else:
+            enter_fire = any_exploitable
+        logger.info("check done %s: %d candidate(s) exploitable=%s fireable=%s "
+                    "-> %s", ip, len(msf_cands), any_exploitable, any_fireable,
+                    "fire" if (enter_fire and self.run.mode == "autopwn")
+                    else ("EXPLOITABLE" if enter_fire else "not exploitable"))
         self.run.transition(
-            ip, HostState.EXPLOITABLE if any_exploitable
+            ip, HostState.EXPLOITABLE if enter_fire
             else HostState.NOT_EXPLOITABLE)
 
     def _fire_wrapper(self, ip):
@@ -463,7 +478,7 @@ def _fireable(host):
     for c in host.candidates:
         if c.source != "msf":
             continue
-        if c.check_result in (Verdict.SAFE, Verdict.UNSUPPORTED):
+        if c.check_result == Verdict.SAFE:
             continue
         out.append(c)
     out.sort(key=lambda c: (_FIRE_PRIORITY.get(c.check_result, 0),

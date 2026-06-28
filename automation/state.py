@@ -143,6 +143,15 @@ def is_exploitable_verdict(v: Verdict) -> bool:
     return v in (Verdict.VULNERABLE, Verdict.LIKELY)
 
 
+def is_fireable_verdict(v: Verdict) -> bool:
+    """Worth detonating in autopwn. Only SAFE is skipped, since SAFE means the
+    check positively determined the target is not vulnerable. Everything else,
+    including UNSUPPORTED and UNKNOWN, is attempted -- many high-value modules
+    (vsftpd 2.3.4 backdoor, UnrealIRCd backdoor, Samba usermap_script) have no
+    working check and report UNSUPPORTED."""
+    return v != Verdict.SAFE
+
+
 # --- models ----------------------------------------------------------------
 
 @dataclass

