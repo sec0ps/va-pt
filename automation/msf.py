@@ -37,6 +37,14 @@ _RANK_NAMES = {
 }
 _RANK_VALUES = {v: k for k, v in _RANK_NAMES.items()}
 
+# Public name->value map for callers tuning the rank floor (e.g. --min-rank).
+RANK_VALUES = dict(_RANK_VALUES)
+
+# nmap service names that carry no real version and are not worth searching:
+# tcpwrapped means the handshake completed but the service closed before any
+# banner, unknown/empty means no identification.
+_NON_ACTIONABLE_SERVICES = frozenset({"", "tcpwrapped", "unknown"})
+
 _MODULE_TYPES = ("exploit", "auxiliary", "post", "payload", "encoder", "nop", "evasion")
 
 _PLATFORMS = (
@@ -60,7 +68,7 @@ class MsfConfig:
     check_timeout: int = 60
     exploit_timeout: int = 90
     candidates_per_service: int = 5
-    rank_floor: int = 500           # Great and up
+    rank_floor: int = 400           # Good and up
     lport_base: int = 4444
     lport_count: int = 32
     lhost: str = ""                 # optional pin; empty means derive per target
@@ -172,6 +180,8 @@ class MsfClient:
     def candidates_for_service(self, service):
         """Search every CVE on the service, filter to fireable exploit modules,
         dedup, rank-sort, and cap. Returns a list of Candidate (unchecked)."""
+        if (service.name or "").strip().lower() in _NON_ACTIONABLE_SERVICES:
+            return []
         label = service.product or service.name or "service"
         self._activity("msf", f"search exploits {label} :{service.port} "
                               f"({len(service.cves)} cve)")
@@ -543,4 +553,4 @@ def _lhost_for(target):
         s.close()
 
 
-__all__ = ["MsfConfig", "MsfClient", "MsfUnavailable"]
+__all__ = ["MsfConfig", "MsfClient", "MsfUnavailable", "RANK_VALUES"]

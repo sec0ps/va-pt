@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from state import (RunState, HostState, Candidate, Verdict, TERMINAL_STATES,
                    is_exploitable_verdict)
 from scanner import Scanner, ScanConfig, NmapError, nse_scripts_for_cve
-from msf import MsfClient, MsfConfig
+from msf import MsfClient, MsfConfig, RANK_VALUES
 from system import (preflight, PreflightError, FirewallManager, MsfdManager,
                     find_msfrpcd, resolve_run_as, ensure_runtime,
                     DEFAULT_VENV_DIR, RUNTIME_DEPS)
@@ -290,7 +290,13 @@ class Orchestrator:
 
     def _do_scan(self, ip):
         self.run.transition(ip, HostState.SCANNING)
-        ports = self._discovered_ports.get(ip) or self._ports_from_state(ip)
+        if self.scanner.cfg.full_ports:
+            # Discovery only confirmed the host is up (via top-ports). Sweep every
+            # port now so version detection and vulners see services outside the
+            # discovery range too.
+            ports = self.scanner.port_scan(ip)
+        else:
+            ports = self._discovered_ports.get(ip) or self._ports_from_state(ip)
         hostname, services = self.scanner.vulners_scan(ip, ports)
         if hostname:
             self.run.set_hostname(ip, hostname)
@@ -605,11 +611,17 @@ def _parse_args(argv):
     p.add_argument("--fire-workers", type=int, default=1)
     p.add_argument("--chunk-size", type=int, default=2048)
     p.add_argument("--checkpoint-interval", type=float, default=15.0)
-    p.add_argument("--top-ports", type=int, default=1000)
-    p.add_argument("--ports", default="", help="discovery -p override")
+    p.add_argument("--top-ports", type=int, default=1000,
+                   help="phase 1 discovery: top N ports for liveness")
+    p.add_argument("--ports", default="", help="phase 1 discovery -p override")
+    p.add_argument("--no-full-ports", action="store_true",
+                   help="phase 2: scan only discovered ports instead of all 65535")
     p.add_argument("--mincvss", type=float, default=7.0)
     p.add_argument("--timing", default="-T4")
     p.add_argument("--candidates-per-service", type=int, default=5)
+    p.add_argument("--min-rank", default="good",
+                   choices=sorted(RANK_VALUES, key=RANK_VALUES.get),
+                   help="minimum Metasploit exploit rank to consider (default good)")
     p.add_argument("--lhost", default="", help="pin LHOST (else derived per target)")
     p.add_argument("--max-hosts", type=int, default=65536)
     p.add_argument("--confirm-threshold", type=int, default=4096)
@@ -719,11 +731,12 @@ def main(argv=None):
 
     scfg = ScanConfig(nmap_path=args.nmap_path, discovery_top_ports=args.top_ports,
                       discovery_ports=args.ports or "", timing=args.timing,
-                      mincvss=args.mincvss)
+                      mincvss=args.mincvss, full_ports=not args.no_full_ports)
     scanner = Scanner(scfg, on_activity=run.record_activity)
     mcfg = MsfConfig.from_env(
         host=args.msf_host, port=args.msf_port, password=args.msf_pass,
         ssl=args.msf_ssl, candidates_per_service=args.candidates_per_service,
+        rank_floor=RANK_VALUES[args.min_rank],
         lhost=args.lhost or "")
     cfgfile = OrchestrationConfig(args.config_file)
     msfrpcd_path = args.msfrpcd_path
