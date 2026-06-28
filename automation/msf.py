@@ -21,6 +21,7 @@ import os
 import queue
 import re
 import socket
+import sys
 import time
 from dataclasses import dataclass
 
@@ -134,6 +135,26 @@ class MsfClient:
                 self._client.logout()
             except Exception:
                 pass
+
+    # -- sessions --
+
+    def session_list(self):
+        """Live session table from msfrpcd as {id: meta_dict}. Empty on error."""
+        try:
+            return dict(self._client.sessions.list or {})
+        except Exception as e:
+            logger.warning("could not list sessions: %s", e)
+            return {}
+
+    def session_handle(self, sid):
+        """Resolve a session id to (handle, type_str). (None, '') if not found.
+        The handle is the pymetasploit3 session object for read/write."""
+        sessions = self.session_list()
+        key = next((k for k in sessions if str(k) == str(sid)), None)
+        if key is None:
+            return None, ""
+        return (self._client.sessions.session(key),
+                str(sessions[key].get("type", "")))
 
     def db_status(self):
         """Raw msfrpcd database status dict, or None if the call fails."""
@@ -577,3 +598,113 @@ def _lhost_for(target):
 
 
 __all__ = ["MsfConfig", "MsfClient", "MsfUnavailable", "RANK_VALUES"]
+
+
+# --- session console: python msf.py [-i ID] --------------------------------
+# Sessions opened during a run live inside msfrpcd, not in this process, so they
+# are reachable from any RPC client while the daemon runs. This entry point lists
+# them and gives an interactive prompt for one, reusing the run's stored password.
+
+_SESSION_CONFIG_FILE = ".orchestration_config"
+
+
+def _load_rpc_password(explicit):
+    if explicit:
+        return explicit
+    env = os.environ.get("MSF_RPC_PASS")
+    if env:
+        return env
+    try:
+        import json
+        with open(_SESSION_CONFIG_FILE) as f:
+            pw = json.load(f).get("msf_rpc_password", "")
+        if isinstance(pw, str) and pw:
+            return pw
+    except (OSError, ValueError):
+        pass
+    return ""
+
+
+def _print_sessions(sessions):
+    if not sessions:
+        print("no open sessions (the daemon may have been restarted, or a run "
+              "with no open sessions stopped it on exit)")
+        return
+    print(f"{'id':<4} {'type':<12} {'peer':<22} info")
+    print("-" * 60)
+    for sid, meta in sessions.items():
+        print(f"{str(sid):<4} {str(meta.get('type', '')):<12} "
+              f"{str(meta.get('tunnel_peer', '')):<22} {meta.get('info', '')}")
+
+
+def _session_console(client, sid):
+    handle, stype = client.session_handle(sid)
+    if handle is None:
+        print(f"session {sid} not found. open sessions:")
+        _print_sessions(client.session_list())
+        return
+    print(f"attached to session {sid} ({stype}); 'exit' or Ctrl-D detaches "
+          "(the session stays open)\n")
+    try:
+        handle.read()                      # drain any pending banner
+    except Exception:
+        pass
+    while True:
+        try:
+            cmd = input("session> ")
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if cmd.strip() in ("exit", "quit"):
+            break
+        if not cmd.strip():
+            continue
+        try:
+            if stype == "meterpreter":
+                sys.stdout.write(handle.run_with_output(cmd + "\n", ["\n"]))
+            else:
+                handle.write(cmd + "\n")
+                time.sleep(0.4)
+                sys.stdout.write(handle.read())
+            sys.stdout.flush()
+        except Exception as e:
+            print(f"error: {e}")
+    print("detached; session left open in msfrpcd")
+
+
+def _main(argv=None):
+    import argparse
+    p = argparse.ArgumentParser(
+        prog="msf.py",
+        description="list or interact with sessions in the orchestrator's msfrpcd")
+    p.add_argument("-i", "--interact", help="session id to attach to")
+    p.add_argument("--host", default=None)
+    p.add_argument("--port", type=int, default=None)
+    p.add_argument("--user", default=None)
+    p.add_argument("--password", default=None,
+                   help=f"else MSF_RPC_PASS env, else {_SESSION_CONFIG_FILE}")
+    ssl = p.add_mutually_exclusive_group()
+    ssl.add_argument("--ssl", dest="ssl", action="store_true", default=None)
+    ssl.add_argument("--no-ssl", dest="ssl", action="store_false")
+    args = p.parse_args(argv)
+    cfg = MsfConfig.from_env(
+        host=args.host, port=args.port, username=args.user, ssl=args.ssl,
+        password=_load_rpc_password(args.password))
+    if not cfg.password:
+        sys.exit("no msfrpcd password: pass --password, set MSF_RPC_PASS, or run "
+                 f"from the directory holding {_SESSION_CONFIG_FILE}")
+    try:
+        client = MsfClient(cfg).connect()
+    except MsfUnavailable as e:
+        sys.exit(f"{e}\nis msfrpcd still running? check: pgrep -af msfrpcd")
+    try:
+        if args.interact:
+            _session_console(client, args.interact)
+        else:
+            _print_sessions(client.session_list())
+    finally:
+        client.close()
+
+
+if __name__ == "__main__":
+    _main()

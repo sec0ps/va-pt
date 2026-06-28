@@ -377,6 +377,22 @@ class MsfdManager:
             self._cleanup_log()
             logger.info("msfrpcd stopped")
 
+    def detach(self):
+        """Leave msfrpcd running and relinquish ownership so neither stop() nor
+        the atexit backstop will kill it. Used when sessions are open and should
+        outlive the run. Returns the pid (or None if nothing was running). The
+        log file is left in place for inspection."""
+        with self._lock:
+            if self._proc is None:
+                self._started = False
+                return None
+            pid = self._proc.pid
+            self._started = False   # stop()/atexit guard on _started -> no kill
+            self._proc = None       # drop the handle; the process keeps running
+            logger.info("msfrpcd left running (pid %d); open sessions preserved",
+                        pid)
+            return pid
+
     def status(self):
         running = self._proc is not None and self._proc.poll() is None
         return {"host": self.host, "port": self.port,

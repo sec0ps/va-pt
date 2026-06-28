@@ -60,6 +60,7 @@ class OrchestratorConfig:
     checkpoint_interval: float = 15.0
     poll_interval: float = 0.25
     headless_status_interval: float = 5.0
+    keep_msfrpcd: bool = False       # force-keep even with no open sessions
 
 
 DEFAULT_CONFIG_FILE = ".orchestration_config"
@@ -460,14 +461,30 @@ class Orchestrator:
                 display.stop()
             except Exception:
                 pass
+        # Decide msfrpcd disposition before closing the client: by default keep
+        # the daemon alive when it holds open sessions, so the access gained
+        # survives the run. --keep-msfrpcd forces keep even with none. We only
+        # ever stop a daemon we started; a pre-existing one is always left alone.
+        keep = self.cfg.keep_msfrpcd
+        if not keep:
+            try:
+                keep = len(self.msf.session_list()) > 0
+            except Exception:
+                keep = self.run.stats().sessions > 0
         try:
             self.msf.close()
         except Exception:
             pass
         try:
-            self.msfd.stop()
+            if keep:
+                pid = self.msfd.detach()
+                logger.info("msfrpcd left running%s; reach sessions with "
+                            "'python msf.py' (list) or 'python msf.py -i <id>'",
+                            f" (pid {pid})" if pid else "")
+            else:
+                self.msfd.stop()
         except Exception:
-            logger.exception("msfrpcd stop in teardown failed")
+            logger.exception("msfrpcd disposition in teardown failed")
 
 
 # --- fire candidate selection ----------------------------------------------
@@ -656,6 +673,9 @@ def _parse_args(argv):
                    help="path to msfrpcd binary for autostart")
     p.add_argument("--no-msf-autostart", action="store_true",
                    help="do not start msfrpcd; require an already-running daemon")
+    p.add_argument("--keep-msfrpcd", action="store_true",
+                   help="leave an autostarted msfrpcd running on exit even with "
+                        "no open sessions (open sessions are kept either way)")
     p.add_argument("--msf-user", default=None,
                    help="run autostarted msfrpcd as this user (default: the "
                         "sudo-invoking user)")
@@ -787,7 +807,8 @@ def main(argv=None):
 
     ocfg = OrchestratorConfig(
         workers=args.workers, fire_workers=args.fire_workers,
-        chunk_size=args.chunk_size, checkpoint_interval=args.checkpoint_interval)
+        chunk_size=args.chunk_size, checkpoint_interval=args.checkpoint_interval,
+        keep_msfrpcd=args.keep_msfrpcd)
     orch = Orchestrator(run, scanner, msf_client, fw, msfd, ocfg)
 
     display = None
