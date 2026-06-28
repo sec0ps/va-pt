@@ -85,8 +85,29 @@ class DiscoveryResult:
 
 
 class Scanner:
-    def __init__(self, cfg: ScanConfig):
+    def __init__(self, cfg: ScanConfig, on_activity=None):
         self.cfg = cfg
+        self._on_activity = on_activity
+
+    def _activity(self, args):
+        """Report the nmap invocation to the feed, eliding temp-file paths."""
+        if not self._on_activity:
+            return
+        parts = ["nmap"]
+        skip = False
+        for a in args:
+            if skip:
+                parts.append("<targets>")
+                skip = False
+            elif a == "-iL":
+                parts.append(a)
+                skip = True
+            elif a:
+                parts.append(a)
+        try:
+            self._on_activity("nmap", " ".join(parts))
+        except Exception:
+            pass
 
     # -- discovery (bulk) --
 
@@ -170,6 +191,7 @@ class Scanner:
     # -- nmap exec --
 
     def _run_nmap(self, args, timeout):
+        self._activity(args)
         fd, xml_path = tempfile.mkstemp(suffix=".xml")
         os.close(fd)
         cmd = [self.cfg.nmap_path] + [a for a in args if a] + ["-oX", xml_path]

@@ -21,6 +21,7 @@ orchestrator falls back to headless.
 from __future__ import annotations
 
 import logging
+import time
 
 from rich import box
 from rich.console import Console, Group
@@ -36,13 +37,22 @@ from state import HostState, Verdict, TOOL, VERSION
 logger = logging.getLogger(__name__)
 
 # Header is fixed height: title + progress + counts = 3 lines, plus the 2 panel
-# border rows. The body below splits between the two panes on this ratio.
+# border rows. The body below splits left (active over results) and right (feed).
 _HEADER_SIZE = 5
 _ACTIVE_RATIO = 3
 _RESULTS_RATIO = 2
+_BODY_LEFT_RATIO = 3        # left column (host tables) vs the command feed
+_FEED_RATIO = 2
 
 # Rows lost per pane to the panel border (2) and the table header (1).
 _PANE_CHROME = 3
+
+_FEED_STYLE = {
+    "nmap": "cyan",
+    "msf": "yellow",
+    "fire": "bold magenta",
+    "phase": "bold white",
+}
 
 _STATE_STYLE = {
     HostState.QUEUED: "dim",
@@ -114,19 +124,40 @@ class Dashboard:
 
     def _render(self):
         stats = self.run.stats()
-        body_rows = self.console.size.height - _HEADER_SIZE
+        body_rows = max(0, self.console.size.height - _HEADER_SIZE)
         active_h, results_h = _split_heights(body_rows)
         active = self.run.active_hosts(limit=max(1, active_h - _PANE_CHROME))
         results = self.run.result_hosts(limit=max(1, results_h - _PANE_CHROME))
+        feed = self.run.recent_activity(max(1, body_rows - 2))
 
-        layout = Layout()
-        layout.split_column(
-            Layout(self._header(stats), name="header", size=_HEADER_SIZE),
+        left = Layout(name="left", ratio=_BODY_LEFT_RATIO)
+        left.split_column(
             Layout(self._active_panel(active, stats), name="active",
                    ratio=_ACTIVE_RATIO),
             Layout(self._results_panel(results, stats), name="results",
                    ratio=_RESULTS_RATIO))
+
+        body = Layout(name="body")
+        body.split_row(
+            left,
+            Layout(self._feed_panel(feed), name="feed", ratio=_FEED_RATIO))
+
+        layout = Layout()
+        layout.split_column(
+            Layout(self._header(stats), name="header", size=_HEADER_SIZE),
+            body)
         return layout
+
+    def _feed_panel(self, feed):
+        rows = []
+        for ev in feed:
+            t = Text(no_wrap=True, overflow="ellipsis")
+            t.append(_clock(ev.ts) + " ", style="grey42")
+            t.append(ev.text, style=_FEED_STYLE.get(ev.source, ""))
+            rows.append(t)
+        body = Group(*rows) if rows else Text("(idle)", style="grey42")
+        return Panel(body, title="commands", title_align="left",
+                     box=box.ROUNDED, border_style="green", padding=(0, 1))
 
     def _header(self, stats):
         title = Text.assemble(
@@ -319,6 +350,11 @@ def _fmt_elapsed(seconds):
     h, rem = divmod(s, 3600)
     m, sec = divmod(rem, 60)
     return f"{h:d}:{m:02d}:{sec:02d}"
+
+
+def _clock(ts):
+    lt = time.localtime(ts)
+    return f"{lt.tm_hour:02d}:{lt.tm_min:02d}:{lt.tm_sec:02d}"
 
 
 __all__ = ["Dashboard"]

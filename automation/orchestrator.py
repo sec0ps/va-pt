@@ -239,6 +239,7 @@ class Orchestrator:
                     self.run.transition(ip, HostState.DOWN)
             self.run.save_checkpoint()
         live = self.run.stats().live
+        self.run.record_activity("phase", f"discovered {live} live host(s)")
         logger.info("discovery complete: %d live host(s)", live)
 
     def _resumable_hosts(self):
@@ -709,7 +710,7 @@ def main(argv=None):
     scfg = ScanConfig(nmap_path=args.nmap_path, discovery_top_ports=args.top_ports,
                       discovery_ports=args.ports or "", timing=args.timing,
                       mincvss=args.mincvss)
-    scanner = Scanner(scfg)
+    scanner = Scanner(scfg, on_activity=run.record_activity)
     mcfg = MsfConfig.from_env(
         host=args.msf_host, port=args.msf_port, password=args.msf_pass,
         ssl=args.msf_ssl, candidates_per_service=args.candidates_per_service,
@@ -732,7 +733,7 @@ def main(argv=None):
         _startup_error(args, f"preflight failed: {e}")
         return 1
 
-    msf_client = MsfClient(mcfg)
+    msf_client = MsfClient(mcfg, on_activity=run.record_activity)
     fw = FirewallManager()
     msfd = MsfdManager(host=mcfg.host, port=mcfg.port, password=mcfg.password,
                        ssl=mcfg.ssl, username=mcfg.username,
