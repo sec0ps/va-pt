@@ -677,6 +677,9 @@ def _parse_args(argv):
     p.add_argument("--min-rank", default="good",
                    choices=sorted(RANK_VALUES, key=RANK_VALUES.get),
                    help="minimum Metasploit exploit rank to consider (default good)")
+    p.add_argument("--no-product-search", action="store_true",
+                   help="search Metasploit by CVE only, not by service/product "
+                        "name (skips name-keyed modules like distcc_exec)")
     p.add_argument("--lhost", default="", help="pin LHOST (else derived per target)")
     p.add_argument("--max-hosts", type=int, default=65536)
     p.add_argument("--confirm-threshold", type=int, default=4096)
@@ -795,6 +798,7 @@ def main(argv=None):
         host=args.msf_host, port=args.msf_port, password=args.msf_pass,
         ssl=args.msf_ssl, candidates_per_service=args.candidates_per_service,
         rank_floor=RANK_VALUES[args.min_rank],
+        product_search=not args.no_product_search,
         lhost=args.lhost or "")
     cfgfile = OrchestrationConfig(args.config_file)
     msfrpcd_path = args.msfrpcd_path
