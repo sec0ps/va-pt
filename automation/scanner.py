@@ -71,6 +71,8 @@ class ScanConfig:
     timing: str = "-T4"
     mincvss: float = 7.0
     discovery_timeout: int | None = None  # bulk pass; None means no wall limit
+    full_ports: bool = True             # phase 2: full SYN sweep of every port
+    port_scan_timeout: int = 900        # per-host -p- sweep wall limit
     vulners_timeout: int = 600
     nse_timeout: int = 180
     extra_args: list = field(default_factory=list)
@@ -142,6 +144,21 @@ class Scanner:
                 ip=ip, hostname=_host_name(host), up=bool(services),
                 services=services)
         return results
+
+    # -- full port sweep (per host) --
+
+    def port_scan(self, ip):
+        """Full SYN sweep of all 65535 ports on one live host. Returns the open
+        port numbers. No version detection, so the wide range stays cheap; the
+        expensive -sV plus vulners pass then runs only against these open ports."""
+        args = ["-sS", "-Pn", "-n", self.cfg.timing, "-p-"]
+        args += list(self.cfg.extra_args)
+        args += [ip]
+        root = self._run_nmap(args, self.cfg.port_scan_timeout)
+        host = root.find("host")
+        if host is None:
+            return []
+        return [svc.port for svc in _parse_open_services(host)]
 
     # -- vulners (per host) --
 
