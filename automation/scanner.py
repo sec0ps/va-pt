@@ -145,36 +145,29 @@ class Scanner:
                 services=services)
         return results
 
-    # -- full port sweep (per host) --
-
-    def port_scan(self, ip):
-        """Full SYN sweep of all 65535 ports on one live host. Returns the open
-        port numbers. No version detection, so the wide range stays cheap; the
-        expensive -sV plus vulners pass then runs only against these open ports."""
-        args = ["-sS", "-Pn", "-n", self.cfg.timing, "-p-"]
-        args += list(self.cfg.extra_args)
-        args += [ip]
-        root = self._run_nmap(args, self.cfg.port_scan_timeout)
-        host = root.find("host")
-        if host is None:
-            return []
-        return [svc.port for svc in _parse_open_services(host)]
-
     # -- vulners (per host) --
 
-    def vulners_scan(self, ip, ports):
-        """Version detection plus vulners against the given open ports. Returns
-        (hostname, [Service]) with CVEs attached."""
-        if not ports:
-            return "", []
-        portstr = ",".join(str(p) for p in ports)
+    def vulners_scan(self, ip, ports=None):
+        """Version detection plus vulners in a single nmap pass. With full_ports
+        set (and no explicit ports), sweeps all 65535 ports; -sV and vulners only
+        touch ports nmap finds open, so the wide range costs only the SYN sweep,
+        no separate port-discovery scan. Returns (hostname, [Service]) with CVEs
+        attached."""
+        if self.cfg.full_ports and not ports:
+            port_args = ["-p-"]
+            timeout = self.cfg.port_scan_timeout
+        else:
+            if not ports:
+                return "", []
+            port_args = ["-p", ",".join(str(p) for p in ports)]
+            timeout = self.cfg.vulners_timeout
         args = ["-sS", "-sV", "-Pn", self.cfg.timing,
                 "--script", "vulners",
-                "--script-args", f"mincvss={self.cfg.mincvss}",
-                "-p", portstr]
+                "--script-args", f"mincvss={self.cfg.mincvss}"]
+        args += port_args
         args += list(self.cfg.extra_args)
         args += [ip]
-        root = self._run_nmap(args, self.cfg.vulners_timeout)
+        root = self._run_nmap(args, timeout)
         host = root.find("host")
         if host is None:
             return "", []

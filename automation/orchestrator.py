@@ -292,13 +292,12 @@ class Orchestrator:
     def _do_scan(self, ip):
         self.run.transition(ip, HostState.SCANNING)
         if self.scanner.cfg.full_ports:
-            # Discovery only confirmed the host is up (via top-ports). Sweep every
-            # port now so version detection and vulners see services outside the
-            # discovery range too.
-            ports = self.scanner.port_scan(ip)
+            # Single pass: SYN-sweep every port, version-detect and vulners the
+            # ones found open. Discovery already confirmed the host is up.
+            hostname, services = self.scanner.vulners_scan(ip)
         else:
             ports = self._discovered_ports.get(ip) or self._ports_from_state(ip)
-        hostname, services = self.scanner.vulners_scan(ip, ports)
+            hostname, services = self.scanner.vulners_scan(ip, ports)
         if hostname:
             self.run.set_hostname(ip, hostname)
         self.run.set_services(ip, services)
