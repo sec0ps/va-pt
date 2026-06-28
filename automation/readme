@@ -13,11 +13,6 @@ candidates) -> check (NSE + msf check) -> fire (autopwn only).
 - Linux, run as root
 - nmap with the `vulners` NSE script, able to reach the vulners API
 - Metasploit (`msfrpcd`); started automatically when absent
-- Python 3 with `rich` and `pymetasploit3`
-
-```
-pip install rich pymetasploit3 --break-system-packages
-```
 
 ## Usage
 
