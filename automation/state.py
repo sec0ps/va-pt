@@ -24,7 +24,7 @@ from typing import Iterable
 logger = logging.getLogger(__name__)
 
 TOOL = "vapt-orchestrator"
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 
 
 def _now() -> float:

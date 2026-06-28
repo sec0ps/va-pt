@@ -138,6 +138,7 @@ class OrchestrationConfig:
             with os.fdopen(fd, "w") as f:
                 f.write(json.dumps(data, indent=2) + "\n")
             os.replace(tmp, self.path)
+            self._chown_to_invoker()
         except OSError as e:
             try:
                 os.unlink(tmp)
@@ -157,6 +158,29 @@ class OrchestrationConfig:
                 os.chmod(self.path, 0o600)
             except OSError as e:
                 logger.warning("could not tighten perms on %s: %s", self.path, e)
+        self._chown_to_invoker()
+
+    def _chown_to_invoker(self):
+        """Under sudo the file is created root-owned; hand it to the invoking
+        user so later non-sudo tools (e.g. msf.py reading the RPC password) can
+        read it. No-op when not running as root, not under sudo, or already
+        owned by the invoking user."""
+        try:
+            if os.geteuid() != 0:
+                return
+        except AttributeError:
+            return                          # non-POSIX; nothing to do
+        pw = resolve_run_as()
+        if pw is None:
+            return
+        try:
+            if os.stat(self.path).st_uid == pw.pw_uid:
+                return
+            os.chown(self.path, pw.pw_uid, pw.pw_gid)
+            logger.info("chowned %s to %s (sudo invoker)", self.path, pw.pw_name)
+        except OSError as e:
+            logger.warning("could not chown %s to invoking user: %s",
+                           self.path, e)
 
 
 class Orchestrator:
