@@ -46,6 +46,37 @@ RANK_VALUES = dict(_RANK_VALUES)
 # banner, unknown/empty means no identification.
 _NON_ACTIONABLE_SERVICES = frozenset({"", "tcpwrapped", "unknown"})
 
+# Generic service/product tokens too broad to search Metasploit by name: a bare
+# search floods candidates, and the CVE path already covers these. Product-name
+# search is skipped when the most specific token is one of these.
+_GENERIC_PRODUCT_TOKENS = frozenset({
+    "http", "https", "www", "html", "ssl", "tls", "ssh", "smtp", "smtps",
+    "imap", "imaps", "pop3", "pop3s", "dns", "domain", "tcp", "udp", "ftp",
+    "ftps", "telnet", "ident", "ntp", "snmp", "rpc", "rpcbind", "msrpc",
+    "netbios", "microsoft", "generic", "unknown", "service", "server",
+    "daemon", "linux", "unix", "windows",
+})
+
+
+def _product_search_term(service):
+    """Most specific lowercase alphanumeric token (>=4 chars) from the service
+    product (preferred) or name, to search Metasploit by. Returns "" when nothing
+    specific enough is available (e.g. only generic tokens like http)."""
+    source = service.product or service.name or ""
+    toks = [t for t in re.findall(r"[a-z0-9]+", source.lower())
+            if len(t) >= 4 and t not in _GENERIC_PRODUCT_TOKENS]
+    return max(toks, key=len) if toks else ""
+
+
+def _product_relevant(term, fullname):
+    """True if the module path plausibly matches the product term: the term as a
+    substring, or its daemon-stripped form (distccd -> distcc) so 'distccd'
+    matches exploit/unix/misc/distcc_exec."""
+    fn = (fullname or "").lower()
+    if term in fn:
+        return True
+    return term.endswith("d") and len(term) > 4 and term[:-1] in fn
+
 _MODULE_TYPES = ("exploit", "auxiliary", "post", "payload", "encoder", "nop", "evasion")
 
 _PLATFORMS = (
@@ -70,6 +101,7 @@ class MsfConfig:
     exploit_timeout: int = 90
     candidates_per_service: int = 5
     rank_floor: int = 400           # Good and up
+    product_search: bool = True     # also search msf by product/service name
     lport_base: int = 4444
     lport_count: int = 32
     lhost: str = ""                 # optional pin; empty means derive per target
@@ -188,6 +220,15 @@ class MsfClient:
             return []
         return res or []
 
+    def _search_term(self, term):
+        """Free-text Metasploit module search by product/service name."""
+        try:
+            res = self._client.modules.search(term)
+        except Exception as e:
+            logger.warning("module search failed for '%s': %s", term, e)
+            return []
+        return res or []
+
     def _acceptable(self, entry):
         if entry.get("type") != "exploit":
             return False
@@ -221,6 +262,29 @@ class MsfClient:
                 cur = by_module.get(full)
                 if cur is None or cve.cvss > cur[2]:
                     by_module[full] = (entry, cve.cve_id, cve.cvss)
+        # Product-name search: catches modules keyed to a service/product rather
+        # than a version CVE -- e.g. distcc, and the vsftpd/UnrealIRCd/Samba
+        # backdoors -- which vulners never attaches a CVE to. Filtered to
+        # relevant exploit modules so a broad term does not flood candidates.
+        if self.cfg.product_search:
+            term = _product_search_term(service)
+            if term:
+                self._activity("msf", f"search product {term} :{service.port}")
+                hits = self._search_term(term)
+                logger.debug("search product '%s' (%s:%s) -> %d msf module(s)",
+                             term, label, service.port, len(hits))
+                for entry in hits:
+                    full = entry.get("fullname", "")
+                    if full in by_module:
+                        continue
+                    if not self._acceptable(entry):
+                        continue
+                    if not _product_relevant(term, full):
+                        logger.debug("  skip irrelevant %s", full)
+                        continue
+                    logger.debug("  accept %s rank=%s via product '%s'",
+                                 full, entry.get("rank"), term)
+                    by_module[full] = (entry, "", 0.0)
         ranked = sorted(by_module.values(),
                         key=lambda t: _rank_value(t[0].get("rank")), reverse=True)
         ranked = ranked[: self.cfg.candidates_per_service]
