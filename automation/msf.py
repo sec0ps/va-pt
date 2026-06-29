@@ -188,6 +188,17 @@ class MsfClient:
         return (self._client.sessions.session(key),
                 str(sessions[key].get("type", "")))
 
+    def session_stop(self, sid):
+        """Close a session by id. Returns True if a matching session was found and
+        the stop was issued, False if no such session exists. Any RPC error from
+        the stop itself propagates to the caller."""
+        sessions = self.session_list()
+        key = next((k for k in sessions if str(k) == str(sid)), None)
+        if key is None:
+            return False
+        self._client.sessions.session(key).stop()
+        return True
+
     def db_status(self):
         """Raw msfrpcd database status dict, or None if the call fails."""
         try:
@@ -709,10 +720,11 @@ def _lhost_for(target):
 __all__ = ["MsfConfig", "MsfClient", "MsfUnavailable", "RANK_VALUES"]
 
 
-# --- session console: python msf.py [-i ID] --------------------------------
+# --- session console: python msf.py [-i ID | -k ID... | -K] ----------------
 # Sessions opened during a run live inside msfrpcd, not in this process, so they
 # are reachable from any RPC client while the daemon runs. This entry point lists
-# them and gives an interactive prompt for one, reusing the run's stored password.
+# them, attaches an interactive prompt to one, or closes one, several, or all,
+# reusing the run's stored password.
 
 _SESSION_CONFIG_FILE = ".orchestration_config"
 
@@ -744,6 +756,24 @@ def _print_sessions(sessions):
     for sid, meta in sessions.items():
         print(f"{str(sid):<4} {str(meta.get('type', '')):<12} "
               f"{str(meta.get('tunnel_peer', '')):<22} {meta.get('info', '')}")
+
+
+def _kill_sessions(client, ids):
+    """Stop each session id in turn, printing one result line per id. Returns the
+    number actually closed."""
+    closed = 0
+    for sid in ids:
+        try:
+            ok = client.session_stop(sid)
+        except Exception as e:
+            print(f"session {sid}: error closing: {e}")
+            continue
+        if ok:
+            print(f"session {sid}: closed")
+            closed += 1
+        else:
+            print(f"session {sid}: not found")
+    return closed
 
 
 def _session_console(client, sid):
@@ -785,8 +815,17 @@ def _main(argv=None):
     import argparse
     p = argparse.ArgumentParser(
         prog="msf.py",
-        description="list or interact with sessions in the orchestrator's msfrpcd")
-    p.add_argument("-i", "--interact", help="session id to attach to")
+        description="list, attach to, or close sessions in the orchestrator's "
+                    "msfrpcd")
+    action = p.add_mutually_exclusive_group()
+    action.add_argument("-i", "--interact", metavar="ID",
+                        help="attach an interactive prompt to a session id")
+    action.add_argument("-k", "--kill", nargs="+", metavar="ID",
+                        help="close the given session id(s)")
+    action.add_argument("-K", "--kill-all", action="store_true",
+                        help="close all open sessions")
+    p.add_argument("-y", "--yes", action="store_true",
+                   help="skip the confirmation prompt for --kill-all")
     p.add_argument("--host", default=None)
     p.add_argument("--port", type=int, default=None)
     p.add_argument("--user", default=None)
@@ -807,7 +846,27 @@ def _main(argv=None):
     except MsfUnavailable as e:
         sys.exit(f"{e}\nis msfrpcd still running? check: pgrep -af msfrpcd")
     try:
-        if args.interact:
+        if args.kill_all:
+            sessions = client.session_list()
+            if not sessions:
+                print("no open sessions to close")
+                return
+            ids = list(sessions.keys())
+            if not args.yes:
+                if not sys.stdin.isatty():
+                    sys.exit("refusing to close all sessions non-interactively; "
+                             "pass --yes")
+                _print_sessions(sessions)
+                resp = input(f"\nClose all {len(ids)} session(s)? [y/N] "
+                             ).strip().lower()
+                if resp not in ("y", "yes"):
+                    sys.exit("aborted")
+            n = _kill_sessions(client, ids)
+            print(f"closed {n} of {len(ids)} session(s)")
+        elif args.kill:
+            n = _kill_sessions(client, args.kill)
+            print(f"closed {n} of {len(args.kill)} session(s)")
+        elif args.interact:
             _session_console(client, args.interact)
         else:
             _print_sessions(client.session_list())
