@@ -22,6 +22,7 @@ import queue
 import re
 import socket
 import sys
+import threading
 import time
 from dataclasses import dataclass
 
@@ -129,6 +130,10 @@ class MsfClient:
         self._lport_pool: queue.Queue = queue.Queue()
         for p in range(cfg.lport_base, cfg.lport_base + cfg.lport_count):
             self._lport_pool.put(p)
+        # Modules found to have no check method, remembered for the run so the
+        # same module is never re-probed across hosts and ports.
+        self._no_check: set[str] = set()
+        self._no_check_lock = threading.Lock()
 
     def _activity(self, source, text):
         if not self._on_activity:
@@ -318,7 +323,14 @@ class MsfClient:
 
     def check(self, candidate, rhost, port):
         """Run the module check on a fresh isolated console. Returns
-        (Verdict, detail_text)."""
+        (Verdict, detail_text). A module with no check method is remembered for
+        the run and short-circuited on every later host and port: check support
+        is a property of the module code, not the target, and the only way MSF
+        reveals it is to run check once, so we run it once and cache the answer."""
+        if self._is_no_check(candidate.module):
+            logger.debug("check %s @ %s:%s -> unsupported (cached, no check)",
+                         candidate.module, rhost, port)
+            return Verdict.UNSUPPORTED, "no check method (cached)"
         self._activity("msf", f"check {candidate.module} @ {rhost}:{port}")
         cid = None
         try:
@@ -334,6 +346,8 @@ class MsfClient:
             data = self._console_run(console, "\n".join(lines) + "\n",
                                      self.cfg.check_timeout)
             code = _parse_check_output(data)
+            if code == "unsupported":
+                self._mark_no_check(candidate.module)
             verdict = verdict_from_msf(code)
             detail = _summarize_check(data)
             logger.info("check %s @ %s:%s -> %s (%s)", candidate.module,
@@ -373,6 +387,16 @@ class MsfClient:
             if time.time() - start > timeout:
                 break
         return data
+
+    def _is_no_check(self, module):
+        """True if this module reported no check method earlier in the run."""
+        with self._no_check_lock:
+            return module in self._no_check
+
+    def _mark_no_check(self, module):
+        """Remember a module has no check method so it is not re-probed."""
+        with self._no_check_lock:
+            self._no_check.add(module)
 
     # -- fire --
 
