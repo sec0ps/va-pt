@@ -407,21 +407,33 @@ class Orchestrator:
     def _do_fire(self, ip):
         self.run.transition(ip, HostState.EXPLOITING)
         host = self.run.host_copy(ip)
-        session = None
+        # Identify each service by product so the same daemon exposed on two ports
+        # (Samba on 139 and 445, UnrealIRCd on 6667 and 6697) counts once: a session
+        # on either port satisfies the service and we stop firing the rest of it.
+        # This collects one session per distinct service (vsftpd, Samba, UnrealIRCd,
+        # distcc) instead of stopping at the first session for the whole host, while
+        # firing each service's modules in rank order and stopping the moment one
+        # lands -- so a risky overflow like trans2open is never fired against a
+        # daemon usermap_script already popped, on this port or the sibling port.
+        port_service = {}
+        for svc in host.services:
+            port_service[svc.port] = svc.product or f"port-{svc.port}"
+        got_any = False
+        popped = set()
         for cand in _fireable(host):
             if self._stop.is_set():
                 break
+            key = port_service.get(cand.port, f"port-{cand.port}")
+            if key in popped:
+                continue
             session, status, detail = self.msf.fire(cand, host, ip, cand.port)
-            # Record each candidate's fire outcome so a blocked attempt (an option
-            # we could not set, MSF refusing the module) is preserved distinctly
-            # from a clean miss and surfaced at teardown, never lost in the host
-            # rolling up to FAILED.
             self.run.update_candidate_fire(ip, cand.module, status, detail)
             if session is not None:
                 self.run.add_session(ip, session)
-                break
+                got_any = True
+                popped.add(key)
         self.run.transition(
-            ip, HostState.EXPLOITED if session is not None else HostState.FAILED)
+            ip, HostState.EXPLOITED if got_any else HostState.FAILED)
 
     def _ports_from_state(self, ip):
         host = self.run.host_copy(ip)
