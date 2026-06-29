@@ -70,13 +70,18 @@ def _product_search_term(service):
 
 
 def _product_relevant(term, fullname):
-    """True if the module path plausibly matches the product term: the term as a
-    substring, or its daemon-stripped form (distccd -> distcc) so 'distccd'
-    matches exploit/unix/misc/distcc_exec."""
-    fn = (fullname or "").lower()
-    if term in fn:
+    """True if the module path plausibly matches the product term. Both sides are
+    compared with non-alphanumerics stripped, so a concatenated product token
+    (unrealircd, from nmap's product field) matches a module path that splits the
+    same words (unreal_ircd_3281_backdoor), while the daemon-stripped form still
+    matches (distccd -> distcc_exec)."""
+    fn = re.sub(r"[^a-z0-9]", "", (fullname or "").lower())
+    t = re.sub(r"[^a-z0-9]", "", (term or "").lower())
+    if not t:
+        return False
+    if t in fn:
         return True
-    return term.endswith("d") and len(term) > 4 and term[:-1] in fn
+    return t.endswith("d") and len(t) > 4 and t[:-1] in fn
 
 _MODULE_TYPES = ("exploit", "auxiliary", "post", "payload", "encoder", "nop", "evasion")
 
