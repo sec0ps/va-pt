@@ -224,6 +224,7 @@ class Dashboard:
         _seg(counts, "  fail ", str(stats.failed), "red")
         _seg(counts, "  err ", str(stats.errored), "bold red")
         _seg(counts, "  sess ", str(stats.sessions), "cyan")
+        _seg(counts, "  cred ", str(stats.credentials), "bold cyan")
         _seg(counts, "  cve ", str(stats.cves), "white")
         counts.append("/", style="dim")
         counts.append(str(stats.exploit_cves), style="bold white")
@@ -297,7 +298,7 @@ class Dashboard:
                     module, _session_cell(h))
                 rows += 1
         title = (f"results   vuln {stats.exploitable}   pwn {stats.exploited}"
-                 f"   sessions {stats.sessions}")
+                 f"   sessions {stats.sessions}   creds {stats.credentials}")
         return Panel(t, title=title, title_align="left", box=box.ROUNDED,
                      border_style="magenta", padding=(0, 1))
 
@@ -314,24 +315,43 @@ class Dashboard:
             (f"{stats.live} live", "green"), ("   ", ""),
             (f"{stats.exploitable} exploitable", "magenta"), ("   ", ""),
             (f"{stats.exploited} exploited", "bold green"), ("   ", ""),
-            (f"{stats.sessions} session(s)", "cyan"))
+            (f"{stats.sessions} session(s)", "cyan"), ("   ", ""),
+            (f"{stats.credentials} credential(s)", "bold cyan"))
         self.console.print(head)
 
-        exploited = [h for h in self.run.result_hosts()
-                     if h.state == HostState.EXPLOITED and h.sessions]
-        if not exploited:
-            return
-        t = Table(box=box.SIMPLE_HEAD, title="sessions", title_justify="left")
-        t.add_column("ip", no_wrap=True)
-        t.add_column("host", overflow="ellipsis")
-        t.add_column("module", overflow="ellipsis")
-        t.add_column("session")
-        t.add_column("payload", overflow="ellipsis")
-        for h in exploited:
-            for s in h.sessions:
-                t.add_row(h.ip, h.hostname or "-", s.module or "-",
-                          str(s.session_id), s.payload or "-")
-        self.console.print(t)
+        # Sessions across every host, so brute-opened shells on hosts that were
+        # not exploited are listed too, not just the exploited ones.
+        with_sessions = [h for h in self.run.snapshot_hosts() if h.sessions]
+        if with_sessions:
+            t = Table(box=box.SIMPLE_HEAD, title="sessions", title_justify="left")
+            t.add_column("ip", no_wrap=True)
+            t.add_column("host", overflow="ellipsis")
+            t.add_column("module", overflow="ellipsis")
+            t.add_column("session")
+            t.add_column("payload", overflow="ellipsis")
+            for h in with_sessions:
+                for s in h.sessions:
+                    t.add_row(h.ip, h.hostname or "-", s.module or "-",
+                              str(s.session_id), s.payload or "-")
+            self.console.print(t)
+
+        with_creds = [h for h in self.run.snapshot_hosts() if h.credentials]
+        if with_creds:
+            t = Table(box=box.SIMPLE_HEAD, title="credentials",
+                      title_justify="left")
+            t.add_column("ip", no_wrap=True)
+            t.add_column("host", overflow="ellipsis")
+            t.add_column("service")
+            t.add_column("port", no_wrap=True)
+            t.add_column("username", overflow="ellipsis")
+            t.add_column("password", overflow="ellipsis")
+            t.add_column("session")
+            for h in with_creds:
+                for c in h.credentials:
+                    t.add_row(h.ip, h.hostname or "-", c.service or "-",
+                              str(c.port or "-"), c.username,
+                              c.password or "(blank)", c.session_id or "-")
+            self.console.print(t)
 
 
 # --- cell + format helpers -------------------------------------------------

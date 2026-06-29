@@ -229,6 +229,25 @@ class Session:
 
 
 @dataclass
+class Credential:
+    service: str                   # nmap service name (ssh, mysql, ...)
+    port: int
+    username: str
+    password: str
+    module: str                    # the login scanner that found it
+    session_id: str = ""           # set when the login opened a session
+    found_at: float = field(default_factory=_now)
+
+    @classmethod
+    def from_dict(cls, d):
+        return cls(service=d.get("service", ""), port=int(d.get("port", 0)),
+                   username=d.get("username", ""), password=d.get("password", ""),
+                   module=d.get("module", ""),
+                   session_id=str(d.get("session_id", "")),
+                   found_at=float(d.get("found_at", _now())))
+
+
+@dataclass
 class Host:
     ip: str
     hostname: str = ""
@@ -238,6 +257,7 @@ class Host:
     services: list[Service] = field(default_factory=list)
     candidates: list[Candidate] = field(default_factory=list)
     sessions: list[Session] = field(default_factory=list)
+    credentials: list[Credential] = field(default_factory=list)
     error: str = ""
     notes: str = ""
     created_at: float = field(default_factory=_now)
@@ -259,6 +279,10 @@ class Host:
     def session_count(self) -> int:
         return len(self.sessions)
 
+    @property
+    def credential_count(self) -> int:
+        return len(self.credentials)
+
     @classmethod
     def from_dict(cls, d):
         h = cls(ip=d["ip"])
@@ -276,6 +300,8 @@ class Host:
         h.services = [Service.from_dict(x) for x in d.get("services", [])]
         h.candidates = [Candidate.from_dict(x) for x in d.get("candidates", [])]
         h.sessions = [Session.from_dict(x) for x in d.get("sessions", [])]
+        h.credentials = [Credential.from_dict(x)
+                         for x in d.get("credentials", [])]
         return h
 
 
@@ -298,6 +324,7 @@ class Stats:
     errored: int
     completed: int
     sessions: int
+    credentials: int
     cves: int
     exploit_cves: int
     active_workers: int
@@ -437,6 +464,12 @@ class RunState:
             h.sessions.append(session)
             h.updated_at = _now()
 
+    def add_credential(self, ip, cred: Credential):
+        with self._lock:
+            h = self._hosts[ip]
+            h.credentials.append(cred)
+            h.updated_at = _now()
+
     def set_note(self, ip, note):
         with self._lock:
             h = self._hosts[ip]
@@ -476,10 +509,11 @@ class RunState:
     def stats(self) -> Stats:
         with self._lock:
             counts = {s: 0 for s in HostState}
-            sessions = cves = exploit_cves = 0
+            sessions = cves = exploit_cves = credentials = 0
             for h in self._hosts.values():
                 counts[h.state] += 1
                 sessions += len(h.sessions)
+                credentials += len(h.credentials)
                 cves += h.cve_count
                 exploit_cves += h.exploit_cve_count
             total = len(self._hosts)
@@ -506,6 +540,7 @@ class RunState:
                 errored=counts[HostState.ERROR],
                 completed=completed,
                 sessions=sessions,
+                credentials=credentials,
                 cves=cves,
                 exploit_cves=exploit_cves,
                 active_workers=self._active_workers,
@@ -634,6 +669,9 @@ class RunState:
                     if c.module not in emitted:
                         findings.append(
                             _finding_row(h, None, None, c, sess_by_module))
+                # brute-forced credentials, one finding each
+                for cred in h.credentials:
+                    findings.append(_credential_row(h, cred))
             return {
                 "run": {
                     "tool": TOOL,
@@ -648,6 +686,23 @@ class RunState:
 
 
 # --- module helpers --------------------------------------------------------
+
+def _credential_row(host, cred):
+    return {
+        "ip": host.ip,
+        "hostname": host.hostname or None,
+        "host_state": host.state.value,
+        "finding_type": "credential",
+        "port": cred.port or None,
+        "protocol": "tcp",
+        "service": cred.service or None,
+        "module": cred.module or None,
+        "username": cred.username,
+        "password": cred.password,
+        "exploited": bool(cred.session_id),
+        "session_id": cred.session_id or None,
+    }
+
 
 def _finding_row(host, svc, cve, cand, sess_by_module):
     exploited = False
@@ -697,7 +752,7 @@ def _atomic_write_json(path, data):
 
 __all__ = [
     "HostState", "Verdict", "CVE", "Service", "Candidate", "Session",
-    "Host", "Stats", "RunState", "InvalidTransition",
+    "Credential", "Host", "Stats", "RunState", "InvalidTransition",
     "ACTIVE_STATES", "RESULT_STATES", "TERMINAL_STATES",
     "verdict_from_msf", "verdict_from_nse", "is_exploitable_verdict",
     "TOOL", "VERSION",
