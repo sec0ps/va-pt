@@ -41,6 +41,7 @@ import ipaddress
 import json
 import logging
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -249,12 +250,18 @@ def ip_in_use(ip, iface):
 
 
 def first_free_ip(network, gateway, iface, exclude=()):
-    """Probe the top of the range downward for a free host address."""
+    """Probe host addresses in random order and return the first free one.
+
+    Random order keeps two hosts deploying simultaneously from both starting
+    at the same end of the range and claiming the same address before either
+    container is live. It narrows the race but does not close it; the
+    post-deploy check in cmd_up self-heals a genuine collision.
+    """
     skip = {gateway} | set(exclude)
+    candidates = [ip for ip in network.hosts() if ip not in skip]
+    random.shuffle(candidates)
     tried = 0
-    for ip in reversed(list(network.hosts())):
-        if ip in skip:
-            continue
+    for ip in candidates:
         if not ip_in_use(ip, iface):
             return ip
         tried += 1
@@ -408,6 +415,32 @@ def host_can_reach(ip):
     return run(["ping", "-c", "2", "-W", "1", str(ip)], check=False).returncode == 0
 
 
+def detect_ip_conflict(name, container_ip, iface):
+    """Return the set of foreign MACs answering ARP for container_ip.
+
+    The container's own MAC is excluded, so a non-empty result means a second
+    host on the LAN has claimed the same address. Probes through the shim when
+    it is up (macvlan siblings can reach each other) and through the parent NIC
+    otherwise. Needs arping; returns empty (check skipped) if it is missing.
+    """
+    if not shutil.which("arping"):
+        log.warning("arping not installed; skipping duplicate-IP check")
+        return set()
+
+    p = run(["docker", "inspect", "-f",
+             "{{range .NetworkSettings.Networks}}{{.MacAddress}}{{end}}", name],
+            check=False)
+    own = p.stdout.strip().lower()
+
+    probe_if = SHIM_IF if shim_exists() else iface
+    r = run(["arping", "-c", "3", "-w", "3", "-I", probe_if, str(container_ip)],
+            check=False)
+    macs = {m.lower() for m in
+            re.findall(r"[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}", r.stdout)}
+    macs.discard(own)
+    return macs
+
+
 # --------------------------------------------------------------------------- #
 # actions
 # --------------------------------------------------------------------------- #
@@ -453,36 +486,58 @@ def cmd_up(args):
                     "Wi-Fi (AP drops spoofed MACs). Use a wired NIC, or pass "
                     "--allow-wifi to try anyway.", iface)
 
-    container_ip = resolve_container_ip(args, state, network, gateway, iface, name)
-
-    ensure_network(args.network_name, network, gateway, iface, args.force)
-    deploy_container(name, args.image, args.network_name, container_ip, args.force)
-
-    if not wait_running(name):
-        die(f"container {name} did not reach running state; "
-            f"see `docker logs {name}`")
-
-    log.info("waiting for vulnerable services to come up...")
-    seen = wait_for_services(name)
-    if CORE_PORTS.issubset(seen):
-        log.info("core services are listening")
-    else:
-        log.warning("not all core services up: missing %s",
-                    sorted(CORE_PORTS - seen))
-
     shim_enabled = not args.no_shim
     if state and not args.no_shim:
         shim_enabled = state.get("shim_enabled", True)
+
+    container_ip = resolve_container_ip(args, state, network, gateway, iface, name)
+    ensure_network(args.network_name, network, gateway, iface, args.force)
+
     shim_ip = None
-    if shim_enabled:
-        prev_shim = state.get("shim_ip") if state else None
-        shim_ip = setup_shim(iface, network, container_ip, gateway,
-                             args.shim_ip or prev_shim)
-        if host_can_reach(container_ip):
-            log.info("host reaches target at %s via shim", container_ip)
+    attempts = 1 if args.ip else 3
+    for attempt in range(1, attempts + 1):
+        deploy_container(name, args.image, args.network_name, container_ip,
+                         args.force)
+
+        if not wait_running(name):
+            die(f"container {name} did not reach running state; "
+                f"see `docker logs {name}`")
+
+        log.info("waiting for vulnerable services to come up...")
+        seen = wait_for_services(name)
+        if CORE_PORTS.issubset(seen):
+            log.info("core services are listening")
         else:
-            log.warning("host still cannot ping %s — likely a Wi-Fi parent or "
-                        "AP MAC filtering", container_ip)
+            log.warning("not all core services up: missing %s",
+                        sorted(CORE_PORTS - seen))
+
+        if shim_enabled:
+            prev_shim = state.get("shim_ip") if state else None
+            shim_ip = setup_shim(iface, network, container_ip, gateway,
+                                 args.shim_ip or prev_shim)
+            if host_can_reach(container_ip):
+                log.info("host reaches target at %s via shim", container_ip)
+            else:
+                log.warning("host still cannot ping %s — likely a Wi-Fi parent "
+                            "or AP MAC filtering", container_ip)
+
+        foreign = detect_ip_conflict(name, container_ip, iface)
+        if not foreign:
+            break
+
+        if args.ip:
+            die(f"--ip {container_ip} is already in use on the LAN by "
+                f"{', '.join(sorted(foreign))}; choose another address")
+
+        log.warning("IP %s also claimed on the LAN by %s (attempt %d/%d)",
+                    container_ip, ", ".join(sorted(foreign)), attempt, attempts)
+        if attempt < attempts:
+            run(["docker", "rm", "-f", name], check=False)
+            container_ip = first_free_ip(network, gateway, iface)
+            log.info("selected new target IP %s", container_ip)
+    else:
+        die(f"IP conflict persisted after {attempts} attempts; "
+            f"specify --ip explicitly")
 
     save_state(args.state_file, {
         "container": name,
