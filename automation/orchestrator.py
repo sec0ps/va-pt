@@ -325,12 +325,14 @@ class Orchestrator:
         if self.scanner.cfg.full_ports:
             # Single pass: SYN-sweep every port, version-detect and vulners the
             # ones found open. Discovery already confirmed the host is up.
-            hostname, services = self.scanner.vulners_scan(ip)
+            hostname, os_family, services = self.scanner.vulners_scan(ip)
         else:
             ports = self._discovered_ports.get(ip) or self._ports_from_state(ip)
-            hostname, services = self.scanner.vulners_scan(ip, ports)
+            hostname, os_family, services = self.scanner.vulners_scan(ip, ports)
         if hostname:
             self.run.set_hostname(ip, hostname)
+        if os_family:
+            self.run.set_fingerprint(ip, os_match=os_family)
         self.run.set_services(ip, services)
         self.run.transition(ip, HostState.ANALYZED)
 
@@ -338,7 +340,8 @@ class Orchestrator:
         host = self.run.host_copy(ip)
         candidates = []
         for svc in host.services:
-            candidates.extend(self.msf.candidates_for_service(svc))
+            candidates.extend(
+                self.msf.candidates_for_service(svc, host.os_match))
         if not candidates:
             self.run.transition(ip, HostState.NO_CANDIDATES)
             return
@@ -694,7 +697,7 @@ def _parse_args(argv):
     p.add_argument("--mode", choices=("check", "autopwn"), default="check",
                    help="check only (default) or autopwn (fire)")
     p.add_argument("--workers", type=int, default=10)
-    p.add_argument("--fire-workers", type=int, default=1)
+    p.add_argument("--fire-workers", type=int, default=8)
     p.add_argument("--chunk-size", type=int, default=2048)
     p.add_argument("--checkpoint-interval", type=float, default=15.0)
     p.add_argument("--top-ports", type=int, default=1000,
