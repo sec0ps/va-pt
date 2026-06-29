@@ -196,6 +196,8 @@ class Candidate:
     source: str = "msf"            # msf | nse
     check_result: Verdict = Verdict.UNKNOWN
     check_detail: str = ""
+    fire_status: str = ""          # "" until fired: session|no_session|blocked|error
+    fire_detail: str = ""          # reason a fire blocked/failed, for review
 
     @classmethod
     def from_dict(cls, d):
@@ -206,7 +208,9 @@ class Candidate:
         return cls(module=d["module"], cve_id=d.get("cve_id", ""),
                    rank=d.get("rank", ""), port=int(d.get("port", 0)),
                    source=d.get("source", "msf"), check_result=v,
-                   check_detail=d.get("check_detail", ""))
+                   check_detail=d.get("check_detail", ""),
+                   fire_status=d.get("fire_status", ""),
+                   fire_detail=d.get("fire_detail", ""))
 
 
 @dataclass
@@ -415,6 +419,16 @@ class RunState:
                     c.check_result = verdict
                     if detail:
                         c.check_detail = detail
+            h.updated_at = _now()
+
+    def update_candidate_fire(self, ip, module, status, detail=""):
+        with self._lock:
+            h = self._hosts[ip]
+            for c in h.candidates:
+                if c.module == module:
+                    c.fire_status = status or ""
+                    if detail:
+                        c.fire_detail = detail
             h.updated_at = _now()
 
     def add_session(self, ip, session: Session):
@@ -662,6 +676,8 @@ def _finding_row(host, svc, cve, cand, sess_by_module):
         "module_rank": cand.rank if cand else None,
         "verification": cand.check_result.value if cand else None,
         "verification_source": cand.source if cand else None,
+        "fire_status": cand.fire_status or None if cand else None,
+        "fire_detail": cand.fire_detail or None if cand else None,
         "exploited": exploited,
         "session_id": session_id,
         "payload": payload,

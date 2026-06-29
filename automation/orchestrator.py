@@ -45,8 +45,8 @@ from system import (preflight, PreflightError, FirewallManager, MsfdManager,
 
 logger = logging.getLogger(__name__)
 
-# Fire ordering: prefer confirmed-vulnerable, then likely, then unknown. Safe and
-# unsupported candidates are never fired.
+# Fire ordering in autopwn: confirmed-vulnerable first, then likely, then
+# unsupported (no-check backdoors), then unknown. Only SAFE is never fired.
 _FIRE_PRIORITY = {Verdict.VULNERABLE: 4, Verdict.LIKELY: 3,
                   Verdict.UNSUPPORTED: 2, Verdict.UNKNOWN: 1}
 _RANK_ORDER = RANK_VALUES
@@ -402,7 +402,12 @@ class Orchestrator:
         for cand in _fireable(host):
             if self._stop.is_set():
                 break
-            session = self.msf.fire(cand, host, ip, cand.port)
+            session, status, detail = self.msf.fire(cand, host, ip, cand.port)
+            # Record each candidate's fire outcome so a blocked attempt (an option
+            # we could not set, MSF refusing the module) is preserved distinctly
+            # from a clean miss and surfaced at teardown, never lost in the host
+            # rolling up to FAILED.
+            self.run.update_candidate_fire(ip, cand.module, status, detail)
             if session is not None:
                 self.run.add_session(ip, session)
                 break
@@ -473,6 +478,7 @@ class Orchestrator:
                 logger.info("findings written to %s", path)
         except Exception:
             logger.exception("findings write failed")
+        self._log_blocked_fires()
         if display is not None:
             if self._completed:
                 # Host is already safe here (firewall restored, findings written),
@@ -509,6 +515,25 @@ class Orchestrator:
                 self.msfd.stop()
         except Exception:
             logger.exception("msfrpcd disposition in teardown failed")
+
+    def _log_blocked_fires(self):
+        """Surface every candidate that never got a fair attempt: an option we
+        could not set or that was rejected, no payload or LHOST, an empty LPORT
+        pool, MSF refusing the module, or an exception mid-fire. These are tooling
+        gaps, not clean negatives, so they are reported at WARNING on exit and
+        must never be read as the host being safe."""
+        blocked = []
+        for h in self.run.snapshot_hosts():
+            for c in h.candidates:
+                if c.fire_status in ("blocked", "error"):
+                    blocked.append((h.ip, c.module, c.fire_status, c.fire_detail))
+        if not blocked:
+            return
+        logger.warning("%d candidate(s) could not be fired (config/option gaps, "
+                       "review before trusting these hosts):", len(blocked))
+        for ip, module, status, detail in blocked:
+            logger.warning("  %s %s @ %s: %s", status, module, ip,
+                           detail or "(no detail)")
 
 
 # --- fire candidate selection ----------------------------------------------
