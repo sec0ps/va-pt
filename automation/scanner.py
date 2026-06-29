@@ -153,14 +153,15 @@ class Scanner:
         """Version detection plus vulners in a single nmap pass. With full_ports
         set (and no explicit ports), sweeps all 65535 ports; -sV and vulners only
         touch ports nmap finds open, so the wide range costs only the SYN sweep,
-        no separate port-discovery scan. Returns (hostname, [Service]) with CVEs
-        attached."""
+        no separate port-discovery scan. Returns (hostname, os_family, [Service])
+        with CVEs attached. os_family is a best-effort OS token (linux, windows,
+        unix, ...) from -sV ostype/CPE hints, or "" when nothing identifies it."""
         if self.cfg.full_ports and not ports:
             port_args = ["-p-"]
             timeout = self.cfg.port_scan_timeout
         else:
             if not ports:
-                return "", []
+                return "", "", []
             port_args = ["-p", ",".join(str(p) for p in ports)]
             timeout = self.cfg.vulners_timeout
         args = ["-sS", "-sV", "-Pn", self.cfg.timing,
@@ -172,10 +173,10 @@ class Scanner:
         root = self._run_nmap(args, timeout)
         host = root.find("host")
         if host is None:
-            return "", []
+            return "", "", []
         services = _parse_open_services(host, with_vulners=True,
                                         mincvss=self.cfg.mincvss)
-        return _host_name(host), services
+        return _host_name(host), _parse_os(host), services
 
     # -- nse verify (check phase) --
 
@@ -271,6 +272,73 @@ def _host_addr(host):
 def _host_name(host):
     hn = host.find("./hostnames/hostname")
     return hn.get("name", "") if hn is not None else ""
+
+
+def _parse_os(host):
+    """Best-effort OS family from -sV hints: per-service ostype attributes and
+    OS-level CPEs (cpe:/o:vendor:product). Aggregates across the host's services
+    and prefers a specific OS over the generic 'unix'. Returns a lowercase family
+    token (linux, windows, unix, solaris, bsd, osx) or "" if nothing identifies it.
+    This is the same data nmap rolls into its 'Service Info: OSs: ...' line."""
+    fams = []
+    for port in host.findall("./ports/port"):
+        svc = port.find("service")
+        if svc is None:
+            continue
+        ot = svc.get("ostype")
+        if ot:
+            f = _os_family_from_text(ot)
+            if f:
+                fams.append(f)
+        for cpe in svc.findall("cpe"):
+            txt = (cpe.text or "").lower()
+            if txt.startswith("cpe:/o:"):
+                f = _os_family_from_cpe(txt)
+                if f:
+                    fams.append(f)
+    if not fams:
+        return ""
+    specific = [f for f in fams if f != "unix"]
+    return (specific or fams)[0]
+
+
+def _os_family_from_cpe(cpe):
+    """Map an OS-level CPE (cpe:/o:...) to a family token."""
+    if any(k in cpe for k in (":linux", "ubuntu", "debian", "redhat",
+                              "centos", "fedora", "canonical")):
+        return "linux"
+    if ":windows" in cpe or "microsoft:windows" in cpe:
+        return "windows"
+    if "solaris" in cpe or "sunos" in cpe:
+        return "solaris"
+    if any(k in cpe for k in ("mac_os", "macos", "apple:mac")):
+        return "osx"
+    if any(k in cpe for k in ("freebsd", "openbsd", "netbsd", ":bsd")):
+        return "bsd"
+    if ":aix" in cpe:
+        return "aix"
+    return ""
+
+
+def _os_family_from_text(text):
+    """Map a free-text OS hint (nmap service ostype) to a family token. 'unix' is
+    the weakest signal and only used when nothing more specific is present."""
+    t = (text or "").lower()
+    if "windows" in t:
+        return "windows"
+    if "linux" in t:
+        return "linux"
+    if "solaris" in t or "sunos" in t:
+        return "solaris"
+    if "mac os" in t or "macos" in t or "darwin" in t:
+        return "osx"
+    if "bsd" in t:
+        return "bsd"
+    if "aix" in t:
+        return "aix"
+    if "unix" in t:
+        return "unix"
+    return ""
 
 
 def _parse_open_services(host, with_vulners=False, mincvss=0.0):
