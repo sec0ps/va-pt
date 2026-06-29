@@ -55,7 +55,7 @@ _RANK_ORDER = RANK_VALUES
 @dataclass
 class OrchestratorConfig:
     workers: int = 10
-    fire_workers: int = 1
+    fire_workers: int = 8
     chunk_size: int = 2048
     checkpoint_interval: float = 15.0
     poll_interval: float = 0.25
