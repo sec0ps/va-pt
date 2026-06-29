@@ -868,7 +868,7 @@ __all__ = ["MsfConfig", "MsfClient", "MsfUnavailable", "RANK_VALUES"]
 # the resolved absolute paths in .orchestration_config and reuses them; if locate
 # returns nothing it falls back to the small built-in lists below.
 BRUTE_USER_SEED = "top-usernames-shortlist.txt"
-BRUTE_PASS_SEED = "10-million-password-list-top-1000.txt"
+BRUTE_PASS_SEED = "xato-net-10-million-passwords.txt"
 
 _BUILTIN_USERS = [
     "root", "admin", "administrator", "user", "guest", "msfadmin",
