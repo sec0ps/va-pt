@@ -234,8 +234,7 @@ class Dashboard:
     def _active_panel(self, hosts, stats):
         t = Table(box=box.SIMPLE_HEAD, expand=True, pad_edge=False,
                   show_edge=False)
-        t.add_column("ip", no_wrap=True, overflow="ellipsis", ratio=3,
-                     min_width=12)
+        t.add_column("ip", no_wrap=True, overflow="ellipsis", width=15)
         t.add_column("host", no_wrap=True, overflow="ellipsis", ratio=4)
         t.add_column("state", no_wrap=True, width=15)
         t.add_column("prt", justify="right", width=4)
@@ -259,8 +258,7 @@ class Dashboard:
     def _results_panel(self, hosts, stats):
         t = Table(box=box.SIMPLE_HEAD, expand=True, pad_edge=False,
                   show_edge=False)
-        t.add_column("ip", no_wrap=True, overflow="ellipsis", ratio=3,
-                     min_width=12)
+        t.add_column("ip", no_wrap=True, overflow="ellipsis", width=15)
         t.add_column("host", no_wrap=True, overflow="ellipsis", ratio=3)
         t.add_column("state", no_wrap=True, width=13)
         t.add_column("verdict", no_wrap=True, width=11)
