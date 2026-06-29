@@ -840,15 +840,35 @@ def _load_rpc_password(explicit):
 
 
 def _print_sessions(sessions):
+    from rich import box
+    from rich.console import Console
+    from rich.table import Table
+    console = Console()
     if not sessions:
-        print("no open sessions (the daemon may have been restarted, or a run "
-              "with no open sessions stopped it on exit)")
+        console.print("no open sessions (the daemon may have been restarted, or a "
+                      "run with no open sessions stopped it on exit)")
         return
-    print(f"{'id':<4} {'type':<12} {'peer':<22} info")
-    print("-" * 60)
+    t = Table(box=box.SIMPLE_HEAD)
+    t.add_column("ip", no_wrap=True)
+    t.add_column("host", overflow="ellipsis")
+    t.add_column("module", overflow="ellipsis")
+    t.add_column("session")
+    t.add_column("payload", overflow="ellipsis")
     for sid, meta in sessions.items():
-        print(f"{str(sid):<4} {str(meta.get('type', '')):<12} "
-              f"{str(meta.get('tunnel_peer', '')):<22} {meta.get('info', '')}")
+        ip = (meta.get("session_host") or meta.get("target_host")
+              or _peer_host(meta.get("tunnel_peer", "")))
+        module = meta.get("via_exploit") or "-"
+        payload = (meta.get("via_payload") or "").removeprefix("payload/") or "-"
+        t.add_row(str(ip or "-"), "-", module, str(sid), payload)
+    console.print(t)
+
+
+def _peer_host(peer):
+    """IP from a 'host:port' tunnel peer, tolerating IPv6 in brackets."""
+    peer = (peer or "").strip()
+    if peer.startswith("[") and "]" in peer:
+        return peer[1:peer.index("]")]
+    return peer.rsplit(":", 1)[0] if ":" in peer else peer
 
 
 def _kill_sessions(client, ids):
