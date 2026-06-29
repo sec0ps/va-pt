@@ -85,7 +85,7 @@ _TRANSITIONS = {
     HostState.DISCOVERED: frozenset({HostState.SCANNING}),
     HostState.SCANNING: frozenset({HostState.ANALYZED}),
     HostState.ANALYZED: frozenset({HostState.CANDIDATES, HostState.NO_CANDIDATES}),
-    HostState.CANDIDATES: frozenset({HostState.CHECKING}),
+    HostState.CANDIDATES: frozenset({HostState.CHECKING, HostState.EXPLOITABLE}),
     HostState.CHECKING: frozenset({HostState.EXPLOITABLE, HostState.NOT_EXPLOITABLE}),
     HostState.EXPLOITABLE: frozenset({HostState.EXPLOITING}),
     HostState.EXPLOITING: frozenset({HostState.EXPLOITED, HostState.FAILED}),

@@ -295,7 +295,13 @@ class Orchestrator:
                     if state in TERMINAL_STATES:
                         return
                 if state == HostState.CANDIDATES:
-                    self._do_check(ip)
+                    # autopwn fires every ranked candidate with no pre-check; only
+                    # check mode runs the per-candidate check phase. The fire loop
+                    # tries candidates in rank order until one lands.
+                    if self.run.mode == "autopwn":
+                        self.run.transition(ip, HostState.EXPLOITABLE)
+                    else:
+                        self._do_check(ip)
                     state = self.run.get_state(ip)
                     if state in TERMINAL_STATES:
                         return
