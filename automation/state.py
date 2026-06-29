@@ -562,8 +562,18 @@ class RunState:
             return self._select(ACTIVE_STATES, limit)
 
     def result_hosts(self, limit=None):
+        """Hosts to show as results: those in a result state, plus any host that has
+        already landed a session or credential. A session shows the moment it opens
+        even while the host keeps firing other candidates, so the header count and
+        the panel never disagree, and brute-forced credentials surface on hosts that
+        were never exploited."""
         with self._lock:
-            return self._select(RESULT_STATES, limit)
+            hosts = [h for h in self._hosts.values()
+                     if h.state in RESULT_STATES or h.sessions or h.credentials]
+            hosts.sort(key=lambda h: h.updated_at, reverse=True)
+            if limit is not None:
+                hosts = hosts[:limit]
+            return [copy.deepcopy(h) for h in hosts]
 
     def snapshot_hosts(self):
         with self._lock:

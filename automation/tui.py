@@ -270,12 +270,25 @@ class Dashboard:
         for h in hosts:
             if rows >= max_rows:
                 break
-            sessions = list(h.sessions)
-            if sessions:
-                # One row per session so every successfully fired module is shown.
-                # ip/host/state print once on the first row and are blank on the
-                # rest, so a host's sessions read as a group beneath it.
-                for i, s in enumerate(sessions):
+            # One row per session, then one row per credential that did not open a
+            # session (session-bearing creds already show as their session row).
+            entries = []
+            for s in h.sessions:
+                entries.append((
+                    _verdict_text(_verdict_for_module(h, s.module)),
+                    s.module or "-",
+                    Text(f"{s.session_id} {s.payload}".strip(), style="bold green")))
+            for c in h.credentials:
+                if c.session_id:
+                    continue
+                entries.append((
+                    Text("cred", style="bold cyan"),
+                    c.module or "-",
+                    Text(f"{c.username}:{c.password or '(blank)'}", style="cyan")))
+            if entries:
+                # ip/host/state print once on the first row, blank after, so a
+                # host's sessions and creds read as a group beneath it.
+                for i, (verdict, module, last) in enumerate(entries):
                     if rows >= max_rows:
                         break
                     first = i == 0
@@ -283,10 +296,7 @@ class Dashboard:
                         h.ip if first else "",
                         Text(h.hostname or "-", style="dim") if first else Text(""),
                         _state_text(h.state) if first else Text(""),
-                        _verdict_text(_verdict_for_module(h, s.module)),
-                        s.module or "-",
-                        Text(f"{s.session_id} {s.payload}".strip(),
-                             style="bold green"))
+                        verdict, module, last)
                     rows += 1
             else:
                 best = _best_candidate(h)
