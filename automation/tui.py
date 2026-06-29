@@ -162,8 +162,9 @@ class Dashboard:
         left.split_column(
             Layout(self._active_panel(active, stats), name="active",
                    ratio=_ACTIVE_RATIO),
-            Layout(self._results_panel(results, stats), name="results",
-                   ratio=_RESULTS_RATIO))
+            Layout(self._results_panel(results, stats,
+                                       max(1, results_h - _PANE_CHROME)),
+                   name="results", ratio=_RESULTS_RATIO))
 
         body = Layout(name="body")
         body.split_row(
@@ -255,7 +256,7 @@ class Dashboard:
         return Panel(t, title=title, title_align="left", box=box.ROUNDED,
                      border_style="cyan", padding=(0, 1))
 
-    def _results_panel(self, hosts, stats):
+    def _results_panel(self, hosts, stats, max_rows):
         t = Table(box=box.SIMPLE_HEAD, expand=True, pad_edge=False,
                   show_edge=False)
         t.add_column("ip", no_wrap=True, overflow="ellipsis", width=15)
@@ -264,17 +265,37 @@ class Dashboard:
         t.add_column("verdict", no_wrap=True, width=11)
         t.add_column("module", no_wrap=True, overflow="ellipsis", ratio=6)
         t.add_column("session", no_wrap=True, overflow="ellipsis", ratio=4)
+        rows = 0
         for h in hosts:
-            best = _best_candidate(h)
-            verdict = best.check_result if best else Verdict.UNKNOWN
-            module = best.module if best else "-"
-            t.add_row(
-                h.ip,
-                Text(h.hostname or "-", style="dim"),
-                _state_text(h.state),
-                _verdict_text(verdict),
-                module,
-                _session_cell(h))
+            if rows >= max_rows:
+                break
+            sessions = list(h.sessions)
+            if sessions:
+                # One row per session so every successfully fired module is shown.
+                # ip/host/state print once on the first row and are blank on the
+                # rest, so a host's sessions read as a group beneath it.
+                for i, s in enumerate(sessions):
+                    if rows >= max_rows:
+                        break
+                    first = i == 0
+                    t.add_row(
+                        h.ip if first else "",
+                        Text(h.hostname or "-", style="dim") if first else Text(""),
+                        _state_text(h.state) if first else Text(""),
+                        _verdict_text(_verdict_for_module(h, s.module)),
+                        s.module or "-",
+                        Text(f"{s.session_id} {s.payload}".strip(),
+                             style="bold green"))
+                    rows += 1
+            else:
+                best = _best_candidate(h)
+                verdict = best.check_result if best else Verdict.UNKNOWN
+                module = best.module if best else "-"
+                t.add_row(
+                    h.ip, Text(h.hostname or "-", style="dim"),
+                    _state_text(h.state), _verdict_text(verdict),
+                    module, _session_cell(h))
+                rows += 1
         title = (f"results   vuln {stats.exploitable}   pwn {stats.exploited}"
                  f"   sessions {stats.sessions}")
         return Panel(t, title=title, title_align="left", box=box.ROUNDED,
@@ -348,6 +369,16 @@ def _detail_cell(host):
     if host.notes:
         return Text(host.notes, style="dim")
     return Text("")
+
+
+def _verdict_for_module(host, module):
+    """The check verdict of the candidate behind a session's module, or UNKNOWN.
+    In autopwn (no check phase) this is UNKNOWN; in check mode it reflects the
+    module's verdict."""
+    for c in host.candidates:
+        if c.module == module:
+            return c.check_result
+    return Verdict.UNKNOWN
 
 
 def _session_cell(host):
