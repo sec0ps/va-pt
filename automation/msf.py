@@ -59,14 +59,19 @@ _GENERIC_PRODUCT_TOKENS = frozenset({
 })
 
 
-def _product_search_term(service):
-    """Most specific lowercase alphanumeric token (>=4 chars) from the service
-    product (preferred) or name, to search Metasploit by. Returns "" when nothing
-    specific enough is available (e.g. only generic tokens like http)."""
+def _product_search_terms(service):
+    """Distinctive lowercase alphanumeric tokens (>=4 chars, non-generic) from the
+    service product (preferred) or name, longest first. Returns a list so a
+    multi-word product like 'Apache Tomcat' searches every component rather than
+    only the longest token. Empty when nothing specific enough is present."""
     source = service.product or service.name or ""
     toks = [t for t in re.findall(r"[a-z0-9]+", source.lower())
             if len(t) >= 4 and t not in _GENERIC_PRODUCT_TOKENS]
-    return max(toks, key=len) if toks else ""
+    out = []
+    for t in sorted(toks, key=len, reverse=True):
+        if t not in out:
+            out.append(t)
+    return out
 
 
 def _product_relevant(term, fullname):
@@ -90,6 +95,46 @@ _PLATFORMS = (
     "bsd", "aix", "java", "php", "python", "ruby", "nodejs", "multi",
     "firefox", "mainframe", "netware",
 )
+
+# OS-family compatibility for the candidate platform filter. A module's OS-specific
+# platform is fired only if it matches the host's detected family. Language and
+# runtime platforms and 'multi' are OS-agnostic and always allowed. An unknown host
+# family disables the filter entirely (fire-all fallback).
+_OS_AGNOSTIC_PLATFORMS = frozenset({
+    "multi", "java", "php", "python", "ruby", "nodejs", "firefox",
+})
+_OS_COMPATIBLE = {
+    "linux":   frozenset({"linux", "unix"}),
+    "unix":    frozenset({"unix", "linux", "bsd", "solaris", "aix", "osx"}),
+    "bsd":     frozenset({"bsd", "unix"}),
+    "solaris": frozenset({"solaris", "unix"}),
+    "osx":     frozenset({"osx", "unix", "bsd"}),
+    "aix":     frozenset({"aix", "unix"}),
+    "windows": frozenset({"windows"}),
+}
+
+
+def _module_platform_segment(full):
+    """The platform segment of a module path (the token after the type), including
+    'multi'. None if that segment is not a known platform."""
+    parts = (full or "").split("/")
+    if len(parts) >= 2 and parts[1] in _PLATFORMS:
+        return parts[1]
+    return None
+
+
+def _platform_ok(module_fullname, host_os):
+    """True if the module's OS platform is compatible with the host's detected OS
+    family. Unknown host_os allows everything; OS-agnostic platforms (multi, java,
+    php, ...) and modules with no recognizable platform segment are always allowed;
+    otherwise the module platform must fall in the host family's compatible set, so
+    a Solaris or Windows module is not fired at a Linux host."""
+    if not host_os:
+        return True
+    plat = _module_platform_segment(module_fullname)
+    if plat is None or plat in _OS_AGNOSTIC_PLATFORMS:
+        return True
+    return plat in _OS_COMPATIBLE.get(host_os, frozenset({plat}))
 
 
 class MsfUnavailable(Exception):
@@ -254,15 +299,24 @@ class MsfClient:
         if entry.get("type") != "exploit":
             return False
         full = entry.get("fullname", "")
-        if "dos" in full.split("/"):
+        segs = full.split("/")
+        if "dos" in segs:
+            return False
+        if "local" in segs:
+            # local priv-esc modules need an existing SESSION; they are not remote
+            # entry points and only block with "unset required: SESSION" if fired.
             return False
         if _rank_value(entry.get("rank")) < self.cfg.rank_floor:
             return False
         return True
 
-    def candidates_for_service(self, service):
-        """Search every CVE on the service, filter to fireable exploit modules,
-        dedup, rank-sort, and cap. Returns a list of Candidate (unchecked)."""
+    def candidates_for_service(self, service, host_os=""):
+        """Search every CVE on the service plus the product name, filter to fireable
+        exploit modules, dedup, rank-sort, and cap. Returns a list of Candidate
+        (unchecked). host_os is the target's detected OS family (e.g. 'linux');
+        when set, modules built for a different OS family are dropped so we do not
+        fire a Solaris or Windows exploit at a Linux host. An empty host_os keeps
+        every platform, the fire-all fallback for an unfingerprinted target."""
         if (service.name or "").strip().lower() in _NON_ACTIONABLE_SERVICES:
             return []
         label = service.product or service.name or "service"
@@ -279,17 +333,21 @@ class MsfClient:
                     logger.debug("  reject %s type=%s rank=%s",
                                  full, entry.get("type"), entry.get("rank"))
                     continue
+                if not _platform_ok(full, host_os):
+                    logger.debug("  skip %s (platform vs host '%s')", full, host_os)
+                    continue
                 logger.debug("  accept %s rank=%s", full, entry.get("rank"))
                 cur = by_module.get(full)
                 if cur is None or cve.cvss > cur[2]:
                     by_module[full] = (entry, cve.cve_id, cve.cvss)
         # Product-name search: catches modules keyed to a service/product rather
-        # than a version CVE -- e.g. distcc, and the vsftpd/UnrealIRCd/Samba
-        # backdoors -- which vulners never attaches a CVE to. Filtered to
-        # relevant exploit modules so a broad term does not flood candidates.
+        # than a version CVE -- distcc, and the vsftpd/UnrealIRCd/Samba backdoors --
+        # which vulners never attaches a CVE to. Every distinctive product token is
+        # searched, not just the longest, so multi-word products (Apache Tomcat)
+        # are not missed; a hit is kept only if the token that found it appears in
+        # the module path (separators ignored, so unrealircd matches unreal_ircd).
         if self.cfg.product_search:
-            term = _product_search_term(service)
-            if term:
+            for term in _product_search_terms(service):
                 self._activity("msf", f"search product {term} :{service.port}")
                 hits = self._search_term(term)
                 logger.debug("search product '%s' (%s:%s) -> %d msf module(s)",
@@ -303,6 +361,10 @@ class MsfClient:
                     if not _product_relevant(term, full):
                         logger.debug("  skip irrelevant %s", full)
                         continue
+                    if not _platform_ok(full, host_os):
+                        logger.debug("  skip %s (platform vs host '%s')",
+                                     full, host_os)
+                        continue
                     logger.debug("  accept %s rank=%s via product '%s'",
                                  full, entry.get("rank"), term)
                     by_module[full] = (entry, "", 0.0)
@@ -313,15 +375,17 @@ class MsfClient:
         for entry, cve_id, _cvss in ranked:
             out.append(Candidate(
                 module=entry.get("fullname", ""), cve_id=cve_id,
-                rank=_rank_name(entry.get("rank")), port=service.port, source="msf"))
+                rank=_rank_name(entry.get("rank")), port=service.port,
+                source="msf"))
         if out:
             logger.info("search %s:%s cves=%d -> %d candidate(s): %s",
                         label, service.port, len(service.cves), len(out),
                         ", ".join(c.module for c in out))
         else:
             logger.info("search %s:%s cves=%d -> 0 fireable modules "
-                        "(rank floor %d)", label, service.port,
-                        len(service.cves), self.cfg.rank_floor)
+                        "(rank floor %d%s)", label, service.port,
+                        len(service.cves), self.cfg.rank_floor,
+                        f", host '{host_os}'" if host_os else "")
         return out
 
     # -- check (console path) --
