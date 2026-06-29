@@ -75,6 +75,8 @@ class ScanConfig:
     port_scan_timeout: int = 900        # per-host -p- sweep wall limit
     vulners_timeout: int = 600
     nse_timeout: int = 180
+    max_retries: int | None = 2         # nmap --max-retries; None keeps nmap default
+    host_timeout: str = ""              # nmap --host-timeout; "" derives from the wall
     extra_args: list = field(default_factory=list)
 
 
@@ -201,10 +203,11 @@ class Scanner:
     # -- nmap exec --
 
     def _run_nmap(self, args, timeout):
-        self._activity(args)
         fd, xml_path = tempfile.mkstemp(suffix=".xml")
         os.close(fd)
-        cmd = [self.cfg.nmap_path] + [a for a in args if a] + ["-oX", xml_path]
+        eff = self._with_limits(args, timeout)
+        self._activity(eff)
+        cmd = [self.cfg.nmap_path] + [a for a in eff if a] + ["-oX", xml_path]
         try:
             proc = subprocess.run(
                 cmd, stdin=subprocess.DEVNULL,
@@ -226,6 +229,30 @@ class Scanner:
             raise NmapError(f"could not parse nmap XML: {e}; stderr: {err}")
         finally:
             _unlink(xml_path)
+
+    def _with_limits(self, args, timeout):
+        """Add per-host time and retry bounds unless the caller already set them.
+        --host-timeout lets nmap stop a slow, heavily filtered host and flush the
+        partial results it gathered, instead of being hard-killed by the subprocess
+        wall with nothing. --max-retries stops nmap spending its full retransmit
+        budget on every dropped port, which is what makes a -p- sweep of a filtered
+        host run for many minutes."""
+        eff = list(args)
+        if self.cfg.max_retries is not None and "--max-retries" not in eff:
+            eff += ["--max-retries", str(self.cfg.max_retries)]
+        if "--host-timeout" not in eff:
+            ht = self.cfg.host_timeout or self._derived_host_timeout(timeout)
+            if ht:
+                eff += ["--host-timeout", ht]
+        return eff
+
+    def _derived_host_timeout(self, timeout):
+        """A per-host budget just under the subprocess wall, so nmap self-limits and
+        writes partial XML before the hard kill fires. A None wall (bulk discovery)
+        yields no derived bound; set host_timeout explicitly to bound those."""
+        if timeout and timeout > 60:
+            return f"{int(timeout * 0.9)}s"
+        return ""
 
 
 # --- parsing helpers (operate on ElementTree elements) ---------------------
