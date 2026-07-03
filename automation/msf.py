@@ -666,8 +666,8 @@ class MsfClient:
             ]
             data = self._console_run(console, "\n".join(lines) + "\n",
                                      self.cfg.brute_timeout)
-            creds, sessions = _parse_brute_output(data, service, port,
-                                                  login_module)
+            creds = _parse_brute_creds(data, service, port, login_module)
+            sessions = self._brute_sessions_for(login_module, rhost, creds)
             logger.info("brute %s @ %s:%s -> %d credential(s), %d session(s)",
                         login_module, rhost, port, len(creds), len(sessions))
             return creds, sessions
@@ -680,6 +680,39 @@ class MsfClient:
                     self._client.consoles.destroy(cid)
                 except Exception:
                     pass
+
+    def _brute_sessions_for(self, login_module, rhost, creds):
+        """Sessions this login scanner opened on rhost, read from the session list
+        by (via_exploit, host) rather than scraped from console output. MSF
+        broadcasts the 'session N opened' event to every console reading at once,
+        so with a wide brute pool output scraping counts other modules' sessions;
+        the session list attributes each session to the module and host that
+        created it. Brute targets are deduped per (host, module), so this pair is
+        unique to this call. Found credentials are linked to the opened sessions in
+        id order (a login scanner only opens a session on success)."""
+        try:
+            live = self._client.sessions.list or {}
+        except Exception:
+            return []
+        matched = []
+        for sid, meta in live.items():
+            if meta.get("via_exploit") != login_module:
+                continue
+            host = (meta.get("session_host") or meta.get("target_host")
+                    or _peer_host(meta.get("tunnel_peer", "")))
+            if host != rhost:
+                continue
+            matched.append(str(sid))
+        matched.sort(key=lambda s: int(s) if s.isdigit() else 0)
+        sessions = []
+        for i, sid in enumerate(matched):
+            cred = creds[i] if i < len(creds) else None
+            if cred is not None:
+                cred.session_id = sid
+            info = f"{cred.username}:{cred.password}" if cred else ""
+            sessions.append(Session(session_id=sid, module=login_module,
+                                    payload="", info=info))
+        return sessions
 
 
 # --- module helpers (no live server required) ------------------------------
@@ -959,7 +992,6 @@ _LOGIN_PORTS = {
 _BRUTE_SUCCESS_RE = re.compile(r"Success:\s*'([^']*)'")
 _BRUTE_SUCCESS_ALT_RE = re.compile(r"Login Successful:\s*([^\s,()]+)",
                                    re.IGNORECASE)
-_BRUTE_SESSION_RE = re.compile(r"session\s+(\d+)\s+opened", re.IGNORECASE)
 
 
 def login_module_for(service_name, port):
@@ -1004,12 +1036,14 @@ def write_builtin_wordlists():
     return _write(_BUILTIN_USERS), _write(_BUILTIN_PASSWORDS)
 
 
-def _parse_brute_output(data, service, port, module):
-    """Pull credentials and opened-session ids from a login scanner's console
-    output. MSF prints `[+] host:port - Success: 'user:pass' (...)` and, when a
-    session opens, `... session N opened ...`. STOP_ON_SUCCESS yields one success
-    per service, but the parser tolerates several and pairs each opened session
-    with its credential in order."""
+def _parse_brute_creds(data, service, port, module):
+    """Credentials from a login scanner's console output. MSF prints
+    `[+] host:port - Success: 'user:pass' (...)`. STOP_ON_SUCCESS yields one
+    success per service, but several are tolerated and de-duplicated. Session
+    attribution is NOT done here: MSF broadcasts the 'session N opened' event to
+    every console reading concurrently, so scraping it double-counts other modules'
+    sessions. Sessions are read from the session list instead (see
+    MsfClient._brute_sessions_for)."""
     raw = []
     for line in data.splitlines():
         m = _BRUTE_SUCCESS_RE.search(line) or _BRUTE_SUCCESS_ALT_RE.search(line)
@@ -1021,15 +1055,7 @@ def _parse_brute_output(data, service, port, module):
         creds.append(Credential(service=service or "", port=int(port or 0),
                                 username=user, password=pw if sep else "",
                                 module=module))
-    sessions = []
-    for i, sid in enumerate(_BRUTE_SESSION_RE.findall(data)):
-        cred = creds[i] if i < len(creds) else None
-        if cred is not None:
-            cred.session_id = sid
-        info = f"{cred.username}:{cred.password}" if cred else ""
-        sessions.append(Session(session_id=sid, module=module, payload="",
-                                info=info))
-    return creds, sessions
+    return creds
 
 
 # --- session console: python msf.py [-i ID | -k ID... | -K] ----------------
