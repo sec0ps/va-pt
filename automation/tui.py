@@ -127,16 +127,26 @@ class Dashboard:
 
     def wait_for_exit(self):
         """Hold the completed dashboard open until the user presses Enter (or sends
-        EOF / Ctrl-C). The background refresh keeps it live while we block. Callers
-        must have already made the host safe (firewall restored) before this."""
+        EOF / Ctrl-C). Reads the controlling terminal directly rather than fd 0:
+        the venv re-exec (os.execv) and sudo's pty handling can leave sys.stdin as
+        an EOF/non-blocking stream, so sys.stdin.readline() returns at once and the
+        dashboard drops instead of holding. /dev/tty survives both. The background
+        refresh keeps the screen live while we block. Callers must have already made
+        the host safe (firewall restored) before this."""
         self._done = True
         self.refresh()
         try:
-            sys.stdin.readline()
+            with open("/dev/tty") as tty:
+                tty.readline()
         except KeyboardInterrupt:
             pass
-        except Exception:
-            pass
+        except OSError:
+            # No controlling terminal (piped/detached). Fall back to stdin so a
+            # plain interactive pipe still works; if that is EOF too, just return.
+            try:
+                sys.stdin.readline()
+            except Exception:
+                pass
 
     def stop(self):
         if self._live is None:
