@@ -153,6 +153,8 @@ class MsfConfig:
     exploit_timeout: int = 90
     brute_timeout: int = 600        # per-service login scanner cap
     brute_threads: int = 8          # parallel attempts within one login scanner
+    cred_user: str = ""             # default USERNAME for credentialed exploits
+    cred_pass: str = ""             # default PASSWORD for credentialed exploits
     candidates_per_service: int = 5
     rank_floor: int = 400           # Good and up
     product_search: bool = True     # also search msf by product/service name
@@ -519,6 +521,16 @@ class MsfClient:
             supplied = set(payload.runoptions)
             outstanding = [o for o in exploit.missing_required
                            if o not in supplied]
+            if outstanding:
+                # Credential options (USERNAME/PASSWORD and friends) that the module
+                # requires with no default get a best-guess value so a credentialed
+                # module gets a fair attempt instead of a block. Everything else
+                # still blocks: we do not invent target URIs or module-specific
+                # values. Recompute after filling.
+                fails += self._satisfy_outstanding(exploit, outstanding)
+                supplied = set(payload.runoptions)
+                outstanding = [o for o in exploit.missing_required
+                               if o not in supplied]
             if outstanding or fails:
                 parts = []
                 if outstanding:
@@ -576,6 +588,26 @@ class MsfClient:
                        candidate.module, rhost, detail)
         self._activity("fire", f"blocked {candidate.module}: {detail}")
         return None, "blocked", detail
+
+    def _satisfy_outstanding(self, exploit, outstanding):
+        """Fill required credential options the module left unset, so a module that
+        only needs a login gets a fair attempt instead of a block. USERNAME-type
+        options take cfg.cred_user (the seclists username list top entry, resolved
+        once per run) and PASSWORD-type options take cfg.cred_pass, each with a
+        built-in fallback. Non-credential options are left outstanding. Returns any
+        sets the module rejected."""
+        fails = []
+        for opt in outstanding:
+            if _is_user_opt(opt):
+                val = self.cfg.cred_user or _BUILTIN_USERS[0]
+            elif _is_pass_opt(opt):
+                val = self.cfg.cred_pass or _BUILTIN_PASSWORDS[1]
+            else:
+                continue
+            logger.debug("filling required %s=%r on %s", opt, val,
+                         exploit.modulename)
+            fails += _apply_options(exploit, [(opt, val)])
+        return fails
 
     def _await_session(self, uuid, timeout):
         start = time.time()
@@ -793,6 +825,18 @@ def _select_payload(exploit, full_module, host):
     logger.warning("no reverse payload for %s; falling back to %s",
                    full_module, fallback)
     return fallback
+
+
+def _is_user_opt(name):
+    """Option name that takes a username (USERNAME, SMBUser, HttpUsername, ...)."""
+    n = name.lower()
+    return n in ("user", "login") or n.endswith("user") or n.endswith("username")
+
+
+def _is_pass_opt(name):
+    """Option name that takes a password (PASSWORD, SMBPass, HttpPassword, ...)."""
+    n = name.lower()
+    return n == "pass" or n.endswith("pass") or n.endswith("password")
 
 
 def _apply_options(mod, pairs):

@@ -286,16 +286,15 @@ class Dashboard:
                     c.module or "-",
                     Text(f"{c.username}:{c.password or '(blank)'}", style="cyan")))
             if entries:
-                # ip/host/state print once on the first row, blank after, so a
-                # host's sessions and creds read as a group beneath it.
-                for i, (verdict, module, last) in enumerate(entries):
+                # ip/host/state repeat on every row so each session or credential
+                # is self-contained, even when several land on the same host.
+                for verdict, module, last in entries:
                     if rows >= max_rows:
                         break
-                    first = i == 0
                     t.add_row(
-                        h.ip if first else "",
-                        Text(h.hostname or "-", style="dim") if first else Text(""),
-                        _state_text(h.state) if first else Text(""),
+                        h.ip,
+                        Text(h.hostname or "-", style="dim"),
+                        _state_text(h.state),
                         verdict, module, last)
                     rows += 1
             else:

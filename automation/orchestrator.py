@@ -203,6 +203,19 @@ class OrchestrationConfig:
                            self.path, e)
 
 
+def _first_line(path):
+    """First non-empty, stripped line of a file, or "" if unreadable/empty."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                s = line.strip()
+                if s:
+                    return s
+    except OSError:
+        pass
+    return ""
+
+
 class Orchestrator:
     def __init__(self, run: RunState, scanner: Scanner, msf_client: MsfClient,
                  firewall: FirewallManager, msfd: MsfdManager,
@@ -222,6 +235,7 @@ class Orchestrator:
         self._teardown_lock = threading.Lock()
         self._completed = False         # True only on normal completion (no signal)
         self._discovered_ports = {}
+        self._wordlists = None           # (user_file, pass_file, temp_files), resolved once
 
     # -- lifecycle --
 
@@ -230,6 +244,11 @@ class Orchestrator:
         try:
             self.fw.disable()
             self._discover_phase()
+            # Resolve wordlists once, before firing, so credentialed exploits can
+            # draw a default USERNAME/PASSWORD from the seclists top entries, and so
+            # the brute phase reuses the same resolution. autopwn only.
+            if self.run.mode == "autopwn":
+                self._prime_credentials()
             self.run.set_phase("scan")
             self._scan_pool = ThreadPoolExecutor(
                 max_workers=self.cfg.workers, thread_name_prefix="scan")
@@ -510,7 +529,7 @@ class Orchestrator:
         if not targets:
             return
         self.run.set_phase("brute")
-        user_file, pass_file, temp_files = self._resolve_wordlists()
+        user_file, pass_file, _ = self._resolve_wordlists()
         self.run.record_activity(
             "brute", f"brute phase: {len(targets)} service(s), "
                      f"users={os.path.basename(user_file)} "
@@ -524,11 +543,6 @@ class Orchestrator:
             self._await_brute(futures, display)
         finally:
             self._brute_pool.shutdown(wait=True)
-            for p in temp_files:
-                try:
-                    os.unlink(p)
-                except OSError:
-                    pass
             self.run.save_checkpoint()
 
     def _brute_targets(self):
@@ -583,25 +597,43 @@ class Orchestrator:
                 break
             time.sleep(self.cfg.poll_interval)
 
+    def _prime_credentials(self):
+        """Resolve the wordlists up front and seed the default credential used to
+        fill required USERNAME/PASSWORD options on credentialed exploits, from the
+        list top entries. Cheap and idempotent; the brute phase reuses the result."""
+        user_file, pass_file, _ = self._resolve_wordlists()
+        self.msf.cfg.cred_user = _first_line(user_file) or self.msf.cfg.cred_user
+        self.msf.cfg.cred_pass = _first_line(pass_file) or self.msf.cfg.cred_pass
+        if self.msf.cfg.cred_user:
+            logger.info("default credential for credentialed exploits: %s / %s",
+                        self.msf.cfg.cred_user, self.msf.cfg.cred_pass)
+
     def _resolve_wordlists(self):
-        """(user_file, pass_file, temp_files_to_clean). Prefer paths stored in the
-        config; else `locate` the seed files and store the hits; else fall back to
-        the built-in lists written to temp files (left out of the config so a
-        later run can find real lists once updatedb has run). A stored path that
-        has since vanished is treated as absent and re-resolved."""
+        """(user_file, pass_file, temp_files_to_clean), resolved once per run and
+        memoized so fire-time credential priming and the brute phase share it.
+        Prefer paths stored in the config; else `locate` the seed files and store
+        the hits; else fall back to the built-in lists written to temp files (left
+        out of the config so a later run can find real lists once updatedb has run).
+        A stored path that has since vanished is treated as absent and re-resolved.
+        Temp files are removed in teardown."""
+        if self._wordlists is not None:
+            return self._wordlists
         user, passw = self.config_file.read_brute_wordlists()
         if user and passw and os.path.isfile(user) and os.path.isfile(passw):
-            return user, passw, []
+            self._wordlists = (user, passw, [])
+            return self._wordlists
         located_user = locate_wordlist(BRUTE_USER_SEED)
         located_pass = locate_wordlist(BRUTE_PASS_SEED)
         if located_user and located_pass:
             self.config_file.set_brute_wordlists(located_user, located_pass)
             logger.info("brute wordlists located: users=%s passwords=%s",
                         located_user, located_pass)
-            return located_user, located_pass, []
+            self._wordlists = (located_user, located_pass, [])
+            return self._wordlists
         u, p = write_builtin_wordlists()
         logger.info("brute wordlists not found via locate; using built-in lists")
-        return u, p, [u, p]
+        self._wordlists = (u, p, [u, p])
+        return self._wordlists
 
     # -- teardown --
 
@@ -617,6 +649,12 @@ class Orchestrator:
             self._scan_pool.shutdown(wait=True, cancel_futures=True)
         if self._fire_pool is not None:
             self._fire_pool.shutdown(wait=True, cancel_futures=True)
+        if self._wordlists is not None:
+            for p in self._wordlists[2]:
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
         try:
             self.fw.restore()
         except Exception:
