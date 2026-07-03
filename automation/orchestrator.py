@@ -23,11 +23,13 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import secrets
 import shutil
 import signal
 import socket
 import stat
+import subprocess
 import sys
 import tempfile
 import threading
@@ -57,7 +59,7 @@ _RANK_ORDER = RANK_VALUES
 @dataclass
 class OrchestratorConfig:
     workers: int = 10
-    fire_workers: int = 8
+    fire_workers: int = 16           # concurrent (host, service) fires; LPORT pool is the ceiling
     brute_workers: int = 16          # concurrent (host, service) login scanners
     chunk_size: int = 2048
     checkpoint_interval: float = 15.0
@@ -236,6 +238,12 @@ class Orchestrator:
         self._completed = False         # True only on normal completion (no signal)
         self._discovered_ports = {}
         self._wordlists = None           # (user_file, pass_file, temp_files), resolved once
+        # Fire runs one task per (host, service) so a host's services fire in
+        # parallel; these track outstanding services per host so the host finalizes
+        # to exploited/failed only when its last service completes.
+        self._fire_lock = threading.Lock()
+        self._fire_pending = {}          # ip -> outstanding service-fire count
+        self._fire_got = {}              # ip -> any session opened on the host
 
     # -- lifecycle --
 
@@ -360,11 +368,81 @@ class Orchestrator:
     def _submit_fire(self, ip):
         if self._stop.is_set():
             return
-        try:
-            self._fire_pool.submit(self._fire_wrapper, ip)
-        except RuntimeError:
-            # pool shutting down during teardown
-            pass
+        self.run.transition(ip, HostState.EXPLOITING)
+        host = self.run.host_copy(ip)
+        groups = self._service_groups(host)
+        if not groups:
+            self.run.transition(ip, HostState.FAILED)
+            return
+        with self._fire_lock:
+            self._fire_pending[ip] = len(groups)
+            self._fire_got[ip] = False
+        for key, cands in groups.items():
+            try:
+                self._fire_pool.submit(self._fire_service_wrapper, ip, key, cands)
+            except RuntimeError:
+                # Pool shutting down during teardown. Account for the un-submitted
+                # service so the host still finalizes rather than hanging pending.
+                self._service_done(ip, False)
+
+    def _service_groups(self, host):
+        """Group a host's fireable candidates by service, preserving rank order
+        within each group. The same daemon on two ports (Samba 139/445, UnrealIRCd
+        6667/6697) shares one product key so it is one group -- a session on either
+        port satisfies it. Each group fires as one parallel task; the group stops at
+        its first session, so a risky overflow like trans2open is never fired at a
+        daemon usermap_script already popped on this port or its sibling."""
+        port_service = {}
+        for svc in host.services:
+            port_service[svc.port] = svc.product or f"port-{svc.port}"
+        groups = {}
+        for cand in _fireable(host):
+            key = port_service.get(cand.port, f"port-{cand.port}")
+            groups.setdefault(key, []).append(cand)
+        return groups
+
+    def _fire_service_wrapper(self, ip, key, cands):
+        if self._stop.is_set():
+            self._service_done(ip, False)
+            return
+        got = False
+        with self.run.worker_slot():
+            try:
+                got = self._do_fire_service(ip, cands)
+            except Exception:
+                logger.exception("fire failed for %s service %s", ip, key)
+        self._service_done(ip, got)
+
+    def _do_fire_service(self, ip, cands):
+        """Fire one service's candidates in rank order, stopping at the first
+        session. Returns True if a session opened. Runs concurrently with the
+        host's other services on the fire pool."""
+        host = self.run.host_copy(ip)
+        for cand in cands:
+            if self._stop.is_set():
+                break
+            session, status, detail = self.msf.fire(cand, host, ip, cand.port)
+            self.run.update_candidate_fire(ip, cand.module, status, detail)
+            if session is not None:
+                self.run.add_session(ip, session)
+                return True
+        return False
+
+    def _service_done(self, ip, got):
+        """Record a finished service fire and finalize the host when its last
+        service completes: exploited if any service opened a session, else failed."""
+        with self._fire_lock:
+            if ip not in self._fire_pending:
+                return
+            if got:
+                self._fire_got[ip] = True
+            self._fire_pending[ip] -= 1
+            if self._fire_pending[ip] > 0:
+                return
+            self._fire_pending.pop(ip, None)
+            final_got = self._fire_got.pop(ip, False)
+        self.run.transition(
+            ip, HostState.EXPLOITED if final_got else HostState.FAILED)
 
     def _do_scan(self, ip):
         self.run.transition(ip, HostState.SCANNING)
@@ -439,47 +517,6 @@ class Orchestrator:
         self.run.transition(
             ip, HostState.EXPLOITABLE if enter_fire
             else HostState.NOT_EXPLOITABLE)
-
-    def _fire_wrapper(self, ip):
-        if self._stop.is_set():
-            return
-        with self.run.worker_slot():
-            try:
-                self._do_fire(ip)
-            except Exception as e:
-                self.run.set_error(ip, f"fire error: {e}")
-                logger.exception("fire failed for %s", ip)
-
-    def _do_fire(self, ip):
-        self.run.transition(ip, HostState.EXPLOITING)
-        host = self.run.host_copy(ip)
-        # Identify each service by product so the same daemon exposed on two ports
-        # (Samba on 139 and 445, UnrealIRCd on 6667 and 6697) counts once: a session
-        # on either port satisfies the service and we stop firing the rest of it.
-        # This collects one session per distinct service (vsftpd, Samba, UnrealIRCd,
-        # distcc) instead of stopping at the first session for the whole host, while
-        # firing each service's modules in rank order and stopping the moment one
-        # lands -- so a risky overflow like trans2open is never fired against a
-        # daemon usermap_script already popped, on this port or the sibling port.
-        port_service = {}
-        for svc in host.services:
-            port_service[svc.port] = svc.product or f"port-{svc.port}"
-        got_any = False
-        popped = set()
-        for cand in _fireable(host):
-            if self._stop.is_set():
-                break
-            key = port_service.get(cand.port, f"port-{cand.port}")
-            if key in popped:
-                continue
-            session, status, detail = self.msf.fire(cand, host, ip, cand.port)
-            self.run.update_candidate_fire(ip, cand.module, status, detail)
-            if session is not None:
-                self.run.add_session(ip, session)
-                got_any = True
-                popped.add(key)
-        self.run.transition(
-            ip, HostState.EXPLOITED if got_any else HostState.FAILED)
 
     def _ports_from_state(self, ip):
         host = self.run.host_copy(ip)
@@ -744,6 +781,38 @@ def _fireable(host):
 
 # --- scope expansion -------------------------------------------------------
 
+def _local_ips():
+    """All local interface IP addresses (v4 and v6), normalized, for self-exclusion.
+    Uses `ip -o addr`, falling back to `hostname -I`. Enumerating every interface
+    (not one routing lookup) catches a multi-homed tester with several addresses on
+    the scanned network."""
+    raw = set()
+    try:
+        out = subprocess.run(
+            ["ip", "-o", "addr", "show"], stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            timeout=10, text=True).stdout
+        raw.update(re.findall(r"inet6?\s+([0-9A-Fa-f:.]+)/", out))
+    except (OSError, subprocess.SubprocessError):
+        pass
+    if not raw:
+        try:
+            out = subprocess.run(
+                ["hostname", "-I"], stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                timeout=10, text=True).stdout
+            raw.update(out.split())
+        except (OSError, subprocess.SubprocessError):
+            pass
+    norm = set()
+    for x in raw:
+        try:
+            norm.add(str(ipaddress.ip_address(x)))
+        except ValueError:
+            pass
+    return norm
+
+
 def expand_targets(specs, max_hosts=None):
     """Expand IPs, CIDRs, ranges, and hostnames into a deduped IP list. Counts
     lazily and aborts before materializing an oversized CIDR."""
@@ -876,10 +945,12 @@ def _parse_args(argv):
     p.add_argument("--exclude", action="append", default=[],
                    help="exclude a target spec (repeatable)")
     p.add_argument("--exclude-file", help="file of exclusions, one per line")
+    p.add_argument("--include-self", action="store_true",
+                   help="do not auto-exclude the tester's own in-scope addresses")
     p.add_argument("--mode", choices=("check", "autopwn"), default="check",
                    help="check only (default) or autopwn (fire)")
     p.add_argument("--workers", type=int, default=10)
-    p.add_argument("--fire-workers", type=int, default=8)
+    p.add_argument("--fire-workers", type=int, default=16)
     p.add_argument("--chunk-size", type=int, default=2048)
     p.add_argument("--checkpoint-interval", type=float, default=15.0)
     p.add_argument("--top-ports", type=int, default=1000,
@@ -993,6 +1064,16 @@ def main(argv=None):
     else:
         targets = expand_targets(specs, max_hosts=args.max_hosts)
         excludes = set(expand_targets(exspecs, max_hosts=args.max_hosts))
+        if not args.include_self:
+            # Drop the tester's own addresses, but only those inside the scan scope,
+            # so unrelated management interfaces are untouched. This is what keeps
+            # the run from scanning, exploiting, and brute-forcing the box it runs on.
+            selfies = _local_ips() & set(targets)
+            if selfies:
+                excludes |= selfies
+                logger.info("self-exclude: dropping local address(es) in scope: "
+                            "%s (use --include-self to test them)",
+                            ", ".join(sorted(selfies)))
         targets = [ip for ip in targets if ip not in excludes]
         if not targets:
             _startup_error(args, "no targets in scope")
