@@ -2,16 +2,26 @@
 """
 tsexit - Tailscale exit node manager
 
-View, set, and unset the active exit node on a Linux Tailscale client.
+View, set, verify, and unset the active exit node on a Linux Tailscale client.
 Reads node data from `tailscale status --json` and applies changes through
 `tailscale set` so existing prefs are preserved (avoids the `tailscale up`
 full-preference reset).
+
 """
 
 import argparse
 import json
 import subprocess
 import sys
+import urllib.request
+
+# Public IP echo services used by `verify` to read the current egress address.
+# Tried in order; the first one that answers wins.
+EGRESS_ENDPOINTS = [
+    "https://api.ipify.org",
+    "https://ifconfig.me/ip",
+    "https://icanhazip.com",
+]
 
 
 def run_tailscale(args):
@@ -67,6 +77,34 @@ def resolve_exit_node(status, target):
     return None, f"{target} not found in tailnet"
 
 
+def exit_node_connection(status, ip):
+    # Report how the local node reaches the active exit node. A non-empty
+    # CurAddr means a direct path; otherwise traffic is relayed through DERP.
+    for peer in status.get("Peer", {}).values():
+        ips = peer.get("TailscaleIPs") or []
+        if ip in ips:
+            if peer.get("CurAddr"):
+                return f"direct {peer['CurAddr']}"
+            relay = peer.get("Relay") or "unknown"
+            return f"via DERP ({relay})"
+    return "unknown"
+
+
+def get_egress_ip():
+    # Read the public address the VM's traffic is currently leaving from. When
+    # an exit node is active this call routes through it, so the value reflects
+    # the exit node's egress, which is what attribution checks care about.
+    for url in EGRESS_ENDPOINTS:
+        try:
+            with urllib.request.urlopen(url, timeout=10) as resp:
+                ip = resp.read().decode().strip()
+                if ip:
+                    return ip, None
+        except Exception:
+            continue
+    return None, "could not determine egress IP (no endpoint reachable)"
+
+
 def cmd_list(_args):
     status = get_status()
     nodes, current = collect_exit_nodes(status)
@@ -94,6 +132,34 @@ def cmd_set(args):
     print(f"exit node set to {args.node} ({ip})")
 
 
+def cmd_verify(args):
+    # Pre-test gate: show the active exit node, how it is reached, and the
+    # public egress address. With --expect, fail on any mismatch so an
+    # engagement never starts from the wrong source.
+    status = get_status()
+    _, current = collect_exit_nodes(status)
+    if current:
+        conn = exit_node_connection(status, current["ip"])
+        print(f"exit node: {current['host']} ({current['ip']}) [{conn}]")
+    else:
+        print("exit node: none set")
+
+    ip, err = get_egress_ip()
+    if err:
+        print(err)
+        if args.expect:
+            sys.exit("egress IP could not be confirmed against expected value")
+        return
+
+    print(f"egress IP: {ip}")
+    if args.expect:
+        expected = args.expect.strip()
+        if ip == expected:
+            print(f"match: egress IP equals expected attribution IP {expected}")
+        else:
+            sys.exit(f"MISMATCH: egress IP {ip} does not equal expected {expected}")
+
+
 def cmd_unset(_args):
     result = run_tailscale(["set", "--exit-node="])
     if result.returncode != 0:
@@ -112,10 +178,20 @@ def main():
     p_set.add_argument("--lan", action="store_true",
                        help="keep access to the local LAN while the exit node is active")
 
+    p_verify = sub.add_parser("verify",
+                              help="show the active exit node and confirm the public egress IP")
+    p_verify.add_argument("--expect", metavar="IP",
+                          help="attribution IP the egress must match; exit non-zero on mismatch")
+
     sub.add_parser("unset", help="stop routing through any exit node")
 
     args = parser.parse_args()
-    {"list": cmd_list, "set": cmd_set, "unset": cmd_unset}[args.command](args)
+    {
+        "list": cmd_list,
+        "set": cmd_set,
+        "verify": cmd_verify,
+        "unset": cmd_unset,
+    }[args.command](args)
 
 
 if __name__ == "__main__":
