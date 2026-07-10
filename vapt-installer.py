@@ -465,6 +465,7 @@ def install_toolkit_packages():
         ("https://github.com/wireghoul/htshells.git", "/vapt/web/htshells", None),
         ("https://github.com/urbanadventurer/WhatWeb.git", "/vapt/web/WhatWeb", None),
         ("https://github.com/siberas/watobo.git", "/vapt/web/watobo", None),
+        ("https://github.com/projectdiscovery/nuclei.git", "/vapt/web/nuclei", None),
         ("https://github.com/rezasp/joomscan.git", "/vapt/web/joomscan", None),
         ("https://github.com/s0md3v/XSStrike.git", "/vapt/web/XSStrike", ["python3 -m pip install -r requirements.txt"]),
         ("https://github.com/wapiti-scanner/wapiti.git", "/vapt/web/wapiti", ["sudo python3 setup.py install"]),
@@ -492,7 +493,6 @@ def install_toolkit_packages():
     # network and infrastructure tools
     network_tools = [
         ("https://github.com/robertdavidgraham/masscan.git", "/vapt/network/masscan", ["make"]),
-        ("https://github.com/projectdiscovery/nuclei.git", "/vapt/network/nuclei", None),
         ("https://github.com/OWASP/Amass.git", "/vapt/network/Amass", ["/usr/lib/go-1.23/bin/go install -v ./cmd/amass/..."]),
     ]
 
@@ -620,7 +620,7 @@ def update_toolsets():
         "/vapt/web/php-webshells", "/vapt/web/watobo", "/vapt/web/WhatWeb",
         "/vapt/web/XSStrike", "/vapt/web/wapiti", "/vapt/web/Links-Extractor",
         "/vapt/web/kiterunner", "/vapt/web/httpx", "/vapt/web/ffuf",
-        "/vapt/web/dirsearch"
+        "/vapt/web/dirsearch", "/vapt/web/nuclei"
     ]
     for tool in web_tools:
         run_command(f"cd {tool} && git pull")
@@ -650,7 +650,7 @@ def update_toolsets():
 
     print("Updating Network & Infrastructure Tools")
     network_tools = [
-        "/vapt/network/masscan", "/vapt/network/nuclei", "/vapt/network/Amass"
+        "/vapt/network/masscan", "/vapt/network/Amass"
     ]
     for tool in network_tools:
         run_command(f"cd {tool} && git pull")
