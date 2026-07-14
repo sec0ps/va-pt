@@ -141,19 +141,39 @@ def build_target_set(args, iface):
     return vetted, removed, gateway
 
 
-def preflight(args):
+def resolve_dependencies(cfg):
+    """
+    Return absolute paths for every required dependency. Cached config values are
+    trusted when they still point at a real file, otherwise the dependency is
+    rediscovered and the cache is refreshed. Exits if one cannot be located.
+    """
+    cached = cfg.get("binaries", {})
+    resolved = {}
+    for key in system.DEPENDENCIES:
+        path = cached.get(key)
+        if path and os.path.isfile(path):
+            resolved[key] = path
+            continue
+        found = system.discover_dependency(key)
+        if not found:
+            die("dependency %s not found, install it or set binaries.%s in %s"
+                % (key, key, CONFIG_FILE))
+        resolved[key] = found
+    cfg["binaries"] = resolved
+    return resolved
+
+
+def preflight(args, cfg):
     system.ensure_root()
-    missing = system.check_binaries()
-    if missing:
-        die("missing required binaries %s" % ", ".join(missing))
     if not system.interface_exists(args.interface):
         die("interface %s does not exist" % args.interface)
     if not system.interface_is_up(args.interface):
         die("interface %s is not up" % args.interface)
-    responder_path = system.find_responder(args.responder_path)
-    if not responder_path:
-        die("Responder.py not found, pass --responder-path")
-    return responder_path
+    if args.responder_path:
+        if not os.path.isfile(args.responder_path):
+            die("responder path %s does not exist" % args.responder_path)
+        cfg.setdefault("binaries", {})["responder"] = args.responder_path
+    return resolve_dependencies(cfg)
 
 
 def main():
@@ -161,17 +181,20 @@ def main():
 
     args = parse_args()
     cfg = load_config()
-    if not args.responder_path and cfg.get("responder_path"):
-        args.responder_path = cfg["responder_path"]
 
-    responder_path = preflight(args)
-    cfg["responder_path"] = responder_path
+    paths = preflight(args, cfg)
     save_config(cfg)
+    responder_path = paths["responder"]
+    bettercap_bin = paths["bettercap"]
+    msfrpcd_bin = paths["msfrpcd"]
 
     iface = args.interface
     lhost = resolve_lhost(iface, args.lhost)
     targets, removed, gateway = build_target_set(args, iface)
 
+    print("[*] bettercap %s" % bettercap_bin)
+    print("[*] msfrpcd %s" % msfrpcd_bin)
+    print("[*] responder %s" % responder_path)
     print("[*] operator lhost %s on %s" % (lhost, iface))
     print("[*] default gateway %s" % (gateway or "unknown"))
     if removed:
@@ -191,10 +214,11 @@ def main():
 
     msf = MetasploitAutopwn(state, password=args.msf_pass, port=args.msf_port,
                             lhost=lhost, srvport=args.srvport, uripath=args.uripath,
-                            exclude_pattern=args.exclude_pattern)
+                            exclude_pattern=args.exclude_pattern, binary=msfrpcd_bin)
     responder = ResponderRunner(responder_path, iface, state)
     bettercap = BettercapClient(iface, state, api_port=args.bettercap_port,
-                                api_user=args.bettercap_user, api_pass=args.bettercap_pass)
+                                api_user=args.bettercap_user, api_pass=args.bettercap_pass,
+                                binary=bettercap_bin)
     lure = None
 
     torn = threading.Event()

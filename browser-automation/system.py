@@ -1,9 +1,11 @@
 """
 Environment preparation and preflight checks for the MITM autopwn orchestrator.
-Handles root enforcement, a self bootstrapping virtualenv, python and binary
-dependency verification, and interface and routing lookups used by the scope
-guard. Routing and address data come from iproute2 json output to avoid extra
-python dependencies before the venv exists.
+Handles root enforcement, a self bootstrapping virtualenv, python dependency
+verification, dependency discovery, and interface and routing lookups used by the
+scope guard. Discovered binary and script paths are cached by the orchestrator in
+its config file so the search only runs when a cached path is missing. Routing and
+address data come from iproute2 json output to avoid extra python dependencies
+before the venv exists.
 """
 
 import os
@@ -15,12 +17,24 @@ import venv
 
 VENV_PATH = "/opt/mitm-autopwn-venv"
 PYTHON_DEPS = ["rich", "pymetasploit3", "requests"]
-REQUIRED_BINARIES = ["bettercap", "msfrpcd"]
-RESPONDER_CANDIDATES = [
-    "/opt/Responder/Responder.py",
-    "/usr/share/responder/Responder.py",
-    "/opt/responder/Responder.py",
-    "/vapt/network/Responder/Responder.py",
+
+# Logical dependency name mapped to the executable or script filename to search
+# for and whether a match must carry the executable bit. Responder is a plain
+# python script so it is accepted without the executable bit.
+DEPENDENCIES = {
+    "bettercap": ("bettercap", True),
+    "msfrpcd": ("msfrpcd", True),
+    "responder": ("Responder.py", False),
+}
+
+_PATH_ORDER = [
+    "/usr/local/sbin",
+    "/usr/local/bin",
+    "/usr/sbin",
+    "/usr/bin",
+    "/sbin",
+    "/bin",
+    "/opt",
 ]
 
 
@@ -78,18 +92,49 @@ def _installed_packages(py):
         return set()
 
 
-def check_binaries():
-    return [b for b in REQUIRED_BINARIES if shutil.which(b) is None]
+def _path_rank(path):
+    for i, prefix in enumerate(_PATH_ORDER):
+        if path.startswith(prefix + "/"):
+            return (i, len(path))
+    return (len(_PATH_ORDER), len(path))
 
 
-def find_responder(explicit=None):
-    if explicit:
-        return explicit if os.path.isfile(explicit) else None
-    for path in RESPONDER_CANDIDATES:
-        if os.path.isfile(path):
-            return path
-    which = shutil.which("responder") or shutil.which("Responder.py")
-    return which
+def locate_path(name, require_exec=True):
+    """
+    Resolve an executable or script path. PATH is tried first via which since it
+    is fast and always current, then the plocate or mlocate database is consulted
+    as a fallback for things not on PATH. Matches are filtered to real files,
+    optionally requiring the executable bit, and ranked so canonical bin
+    directories win over cache copies. Returns an absolute path or None.
+    """
+    hit = shutil.which(name)
+    if hit:
+        return hit
+    try:
+        out = subprocess.check_output(
+            ["locate", "-b", "-i", "-l", "100", name],
+            stderr=subprocess.DEVNULL, text=True)
+    except Exception:
+        return None
+    matches = []
+    for line in out.splitlines():
+        candidate = line.strip()
+        if not candidate or not os.path.isfile(candidate):
+            continue
+        if require_exec and not os.access(candidate, os.X_OK):
+            continue
+        matches.append(candidate)
+    matches.sort(key=_path_rank)
+    return matches[0] if matches else None
+
+
+def discover_dependency(key):
+    """
+    Locate a single dependency by its logical name from DEPENDENCIES. Returns an
+    absolute path or None.
+    """
+    name, require_exec = DEPENDENCIES[key]
+    return locate_path(name, require_exec=require_exec)
 
 
 def interface_exists(iface):
