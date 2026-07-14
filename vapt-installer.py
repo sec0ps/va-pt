@@ -292,7 +292,7 @@ def install_base_dependencies():
     pip_packages = [
         "build", "dnspython", "kerberoast", "certipy-ad", "knowsmore", "sherlock-project",
         "wafw00f", "pypykatz", "zeep", "netaddr", "ujson", "aiomultiprocess", "censys",
-        "shodan", "playwright", "uvloop", "easysnmp", "pysnmp", "tftpy", "aiohttp", "fierce, aioquic"
+        "shodan", "playwright", "uvloop", "easysnmp", "pysnmp", "tftpy", "aiohttp", "fierce", "aioquic"
     ]
 
     missing_pip = filter_uninstalled_pip(pip_packages)
@@ -428,6 +428,8 @@ def install_base_dependencies():
         run_command("sudo ufw --force enable")
 
     print("Base toolkit dependencies installed successfully.")
+    if os.path.exists(LOG_PATH):
+        print(f"Some steps logged errors. Review: {LOG_PATH}")
 
 def install_toolkit_packages():
     os.environ['PATH'] = f"/usr/lib/go-1.23/bin:{os.path.expanduser('~/go/bin')}:{os.environ.get('PATH', '')}"
