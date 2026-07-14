@@ -7,9 +7,12 @@ session list polling feeds confirmed shells. Sessions are deduplicated by id and
 recorded with via_exploit so phantom broadcast counts are not inflated.
 """
 
+import os
 import re
 import time
+import shlex
 import socket
+import tempfile
 import subprocess
 
 from pymetasploit3.msfrpc import MsfRpcClient
@@ -43,16 +46,33 @@ class MetasploitAutopwn:
         self.exclude_pattern = exclude_pattern
         self.binary = binary
         self.proc = None
+        self.logfile = None
         self.client = None
         self.console = None
         self.cid = None
         self.srvuri = None
 
     def start_daemon(self, ready_timeout=40):
-        cmd = [self.binary, "-P", self.password, "-a", self.host, "-p", str(self.port), "-S"]
+        base = [self.binary, "-P", self.password, "-a", self.host,
+                "-p", str(self.port), "-S", "-f"]
+        # A source tree metasploit finds its gems through the invoking user's
+        # bundler environment. The orchestrator runs as root for the raw socket
+        # work but msfrpcd does not need root, so when we were launched through
+        # sudo the daemon is run as the original user in an interactive shell,
+        # which loads the same ruby setup that works when it is started by hand.
+        user = os.environ.get("SUDO_USER")
+        if os.geteuid() == 0 and user and user != "root":
+            inner = "exec " + " ".join(shlex.quote(a) for a in base)
+            cmd = ["sudo", "-u", user, "bash", "-ic", inner]
+        else:
+            cmd = base
+        workdir = os.path.dirname(os.path.realpath(self.binary))
+        self.logfile = tempfile.NamedTemporaryFile(
+            prefix="msfrpcd-", suffix=".log", delete=False)
         self.proc = subprocess.Popen(
-            cmd, stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            cmd, cwd=workdir if os.path.isdir(workdir) else None,
+            stdin=subprocess.DEVNULL,
+            stdout=self.logfile, stderr=subprocess.STDOUT,
         )
         self._wait_for_port(ready_timeout)
 
@@ -60,14 +80,28 @@ class MetasploitAutopwn:
         deadline = time.time() + timeout
         while time.time() < deadline:
             if self.proc.poll() is not None:
-                raise RuntimeError("msfrpcd exited during startup")
+                raise RuntimeError(
+                    "msfrpcd exited during startup, last output below\n%s"
+                    % self._read_log_tail())
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.settimeout(2)
                 if s.connect_ex((self.host, self.port)) == 0:
                     time.sleep(2)
                     return
             time.sleep(1)
-        raise RuntimeError("msfrpcd did not open port %d" % self.port)
+        raise RuntimeError(
+            "msfrpcd did not open port %d in %ds, last output below\n%s"
+            % (self.port, timeout, self._read_log_tail()))
+
+    def _read_log_tail(self, lines=30):
+        if not self.logfile:
+            return "(no output captured)"
+        try:
+            with open(self.logfile.name) as fh:
+                tail = fh.readlines()[-lines:]
+            return "".join(tail).strip() or "(no output captured)"
+        except Exception:
+            return "(no output captured)"
 
     def connect(self, retries=20):
         last = None
@@ -180,3 +214,9 @@ class MetasploitAutopwn:
                 self.proc.wait(timeout=5)
             except Exception:
                 self.proc.kill()
+        if self.logfile is not None:
+            try:
+                self.logfile.close()
+                os.unlink(self.logfile.name)
+            except Exception:
+                pass
