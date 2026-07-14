@@ -1,13 +1,4 @@
-"""
-Three panel rich TUI for the MITM autopwn orchestrator.
-Panel one shows Responder poisoning and captured NetNTLM hashes. Panel two shows
-bettercap spoofing, DNS lure hits, and autopwn page delivery including failures
-distinct from successes. Panel three shows confirmed Metasploit sessions. Reads
-snapshots from shared state and never mutates it. The dashboard is a compact
-fixed height block rather than a full screen layout, which keeps it stable over
-an ssh plus sudo pty where a full height render scrolled because the reported
-terminal height was wrong.
-"""
+"""Compact three panel rich TUI for the MITM autopwn orchestrator. Reads state snapshots and renders a fixed height dashboard that stays stable over an ssh plus sudo pty."""
 
 import time
 
