@@ -404,6 +404,18 @@ def install_base_dependencies():
         else:
             print("All Perl modules already installed, skipping.")
 
+    # bettercap (precompiled release binary; the source build needs a newer Go
+    # than this toolkit installs. Runs as root for interface manipulation and
+    # packet injection, so the binary is placed in /usr/local/bin)
+    if os.path.exists("/usr/local/bin/bettercap"):
+        print("bettercap already installed, skipping.")
+    else:
+        print("Installing bettercap")
+        run_command("cd /tmp && curl -sL -o bettercap.zip https://github.com/bettercap/bettercap/releases/latest/download/bettercap_linux_amd64.zip")
+        run_command("cd /tmp && 7z x bettercap.zip -y")
+        run_command("cd /tmp && sudo install -m 755 bettercap /usr/local/bin/bettercap")
+        run_command("cd /tmp && rm -f bettercap.zip bettercap bettercap_linux_amd64.sha256")
+
     # Set up firewall rules (idempotent; --force avoids the interactive y/n prompt)
     print("Configuring firewall rules...")
     ufw_status = subprocess.run("sudo ufw status", shell=True, capture_output=True, text=True)
@@ -556,18 +568,6 @@ def install_toolkit_packages():
         run_command(f"cd {aircrack_dir} && sudo make install")
         run_command("sudo ldconfig")
         run_command("cd /vapt/wireless && rm -rf aircrack-ng-1.7.tar.gz")
-
-    # bettercap (precompiled release binary; the source build needs a newer Go
-    # than this toolkit installs. Runs as root for interface manipulation and
-    # packet injection, so the binary is placed in /usr/local/bin)
-    if os.path.exists("/usr/local/bin/bettercap"):
-        print("bettercap already installed, skipping.")
-    else:
-        print("Installing bettercap")
-        run_command("cd /tmp && curl -sL -o bettercap.zip https://github.com/bettercap/bettercap/releases/latest/download/bettercap_linux_amd64.zip")
-        run_command("cd /tmp && 7z x bettercap.zip -y")
-        run_command("cd /tmp && sudo install -m 755 bettercap /usr/local/bin/bettercap")
-        run_command("cd /tmp && rm -f bettercap.zip bettercap bettercap_linux_amd64.sha256")
 
     # OWASP ZAP installation
     zap_dir = "/vapt/web/zap"
