@@ -18,13 +18,16 @@ from rich.console import Group
 
 def run_tui(state, stop_event, refresh_hz=2):
     layout = _build_layout()
-    with Live(layout, refresh_per_second=refresh_hz, screen=True):
+    with Live(layout, refresh_per_second=refresh_hz, screen=True) as live:
         while not stop_event.is_set():
             snap = state.snapshot()
+            height = live.console.size.height
+            rows = max(1, height - 9)
+            mitm_rows = max(1, height - 10)
             layout["header"].update(_header(snap))
-            layout["hashes"].update(_hashes_panel(snap))
-            layout["mitm"].update(_mitm_panel(snap))
-            layout["sessions"].update(_sessions_panel(snap))
+            layout["hashes"].update(_hashes_panel(snap, rows))
+            layout["mitm"].update(_mitm_panel(snap, mitm_rows))
+            layout["sessions"].update(_sessions_panel(snap, rows))
             layout["footer"].update(_footer(snap))
             time.sleep(1.0 / refresh_hz)
 
@@ -61,19 +64,19 @@ def _header(snap):
     return Panel(text, border_style="blue")
 
 
-def _hashes_panel(snap):
+def _hashes_panel(snap, rows=14):
     table = Table(expand=True, show_edge=False, pad_edge=False)
     table.add_column("Client", style="cyan", no_wrap=True)
     table.add_column("User", style="white")
     table.add_column("Type", style="magenta", no_wrap=True)
-    for h in snap["hashes"][-14:]:
+    for h in snap["hashes"][-rows:]:
         user = h["domain"] + "\\" + h["user"] if h["domain"] not in ("", "?") else h["user"]
         table.add_row(h["client"], user, h["htype"])
     title = "Poisoning and Hashes   poison=%d   creds=%d" % (len(snap["poison_hits"]), len(snap["hashes"]))
     return Panel(table, title=title, border_style="green")
 
 
-def _mitm_panel(snap):
+def _mitm_panel(snap, rows=12):
     victims = snap["victims"]
 
     vtable = Table(expand=True, show_edge=False, pad_edge=False)
@@ -81,7 +84,7 @@ def _mitm_panel(snap):
     vtable.add_column("Browser/OS", style="white")
     vtable.add_column("State", no_wrap=True)
     ordered = sorted(victims.items(), key=lambda kv: kv[1]["ts"], reverse=True)
-    for ip, v in ordered[:12]:
+    for ip, v in ordered[:rows]:
         label, style = _victim_state(v)
         bo = " ".join(x for x in [v.get("browser"), v.get("os")] if x) or "-"
         vtable.add_row(ip, bo, Text(label, style=style))
@@ -109,13 +112,13 @@ def _victim_state(v):
     return v.get("last") or "seen", "white"
 
 
-def _sessions_panel(snap):
+def _sessions_panel(snap, rows=14):
     table = Table(expand=True, show_edge=False, pad_edge=False)
     table.add_column("ID", style="yellow", no_wrap=True)
     table.add_column("Host", style="cyan", no_wrap=True)
     table.add_column("Platform", style="white")
     table.add_column("Via", style="magenta")
-    for sid, s in snap["sessions"].items():
+    for sid, s in list(snap["sessions"].items())[-rows:]:
         via = s["via_exploit"].split("/")[-1] if s["via_exploit"] else "-"
         table.add_row(str(sid), s["host"], s.get("platform") or "-", via)
     return Panel(table, title="Sessions   count=%d" % len(snap["sessions"]), border_style="yellow")
