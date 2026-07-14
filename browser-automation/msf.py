@@ -11,6 +11,7 @@ import os
 import re
 import time
 import shlex
+import signal
 import socket
 import tempfile
 import subprocess
@@ -73,6 +74,7 @@ class MetasploitAutopwn:
             cmd, cwd=workdir if os.path.isdir(workdir) else None,
             stdin=subprocess.DEVNULL,
             stdout=self.logfile, stderr=subprocess.STDOUT,
+            start_new_session=True,
         )
         self._wait_for_port(ready_timeout)
 
@@ -209,11 +211,17 @@ class MetasploitAutopwn:
         except Exception:
             pass
         if self.proc and self.proc.poll() is None:
-            self.proc.terminate()
+            try:
+                os.killpg(self.proc.pid, signal.SIGTERM)
+            except Exception:
+                self.proc.terminate()
             try:
                 self.proc.wait(timeout=5)
             except Exception:
-                self.proc.kill()
+                try:
+                    os.killpg(self.proc.pid, signal.SIGKILL)
+                except Exception:
+                    self.proc.kill()
         if self.logfile is not None:
             try:
                 self.logfile.close()
