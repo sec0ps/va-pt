@@ -3,7 +3,10 @@ Three panel rich TUI for the MITM autopwn orchestrator.
 Panel one shows Responder poisoning and captured NetNTLM hashes. Panel two shows
 bettercap spoofing, DNS lure hits, and autopwn page delivery including failures
 distinct from successes. Panel three shows confirmed Metasploit sessions. Reads
-snapshots from shared state and never mutates it.
+snapshots from shared state and never mutates it. The dashboard is a compact
+fixed height block rather than a full screen layout, which keeps it stable over
+an ssh plus sudo pty where a full height render scrolled because the reported
+terminal height was wrong.
 """
 
 import time
@@ -12,39 +15,22 @@ from rich.live import Live
 from rich.text import Text
 from rich.panel import Panel
 from rich.table import Table
-from rich.layout import Layout
+from rich.columns import Columns
 from rich.console import Group
+
+PANEL_HEIGHT = 18
 
 
 def run_tui(state, stop_event, refresh_hz=2):
-    layout = _build_layout()
-    with Live(layout, refresh_per_second=refresh_hz, screen=True) as live:
+    with Live(refresh_per_second=refresh_hz, screen=True) as live:
         while not stop_event.is_set():
             snap = state.snapshot()
-            height = live.console.size.height
-            rows = max(1, height - 9)
-            mitm_rows = max(1, height - 10)
-            layout["header"].update(_header(snap))
-            layout["hashes"].update(_hashes_panel(snap, rows))
-            layout["mitm"].update(_mitm_panel(snap, mitm_rows))
-            layout["sessions"].update(_sessions_panel(snap, rows))
-            layout["footer"].update(_footer(snap))
+            body = Columns(
+                [_hashes_panel(snap), _mitm_panel(snap), _sessions_panel(snap)],
+                equal=True, expand=True,
+            )
+            live.update(Group(_header(snap), body, _footer(snap)))
             time.sleep(1.0 / refresh_hz)
-
-
-def _build_layout():
-    layout = Layout()
-    layout.split_column(
-        Layout(name="header", size=3),
-        Layout(name="body"),
-        Layout(name="footer", size=3),
-    )
-    layout["body"].split_row(
-        Layout(name="hashes"),
-        Layout(name="mitm"),
-        Layout(name="sessions"),
-    )
-    return layout
 
 
 def _fmt_uptime(seconds):
@@ -64,7 +50,8 @@ def _header(snap):
     return Panel(text, border_style="blue")
 
 
-def _hashes_panel(snap, rows=14):
+def _hashes_panel(snap):
+    rows = PANEL_HEIGHT - 3
     table = Table(expand=True, show_edge=False, pad_edge=False)
     table.add_column("Client", style="cyan", no_wrap=True)
     table.add_column("User", style="white")
@@ -73,10 +60,11 @@ def _hashes_panel(snap, rows=14):
         user = h["domain"] + "\\" + h["user"] if h["domain"] not in ("", "?") else h["user"]
         table.add_row(h["client"], user, h["htype"])
     title = "Poisoning and Hashes   poison=%d   creds=%d" % (len(snap["poison_hits"]), len(snap["hashes"]))
-    return Panel(table, title=title, border_style="green")
+    return Panel(table, title=title, border_style="green", height=PANEL_HEIGHT)
 
 
-def _mitm_panel(snap, rows=12):
+def _mitm_panel(snap):
+    rows = PANEL_HEIGHT - 4
     victims = snap["victims"]
 
     vtable = Table(expand=True, show_edge=False, pad_edge=False)
@@ -97,7 +85,7 @@ def _mitm_panel(snap, rows=12):
     summary.append("   served=%d" % served, style="green")
     summary.append("   failed=%d" % failed, style="red")
 
-    return Panel(Group(summary, vtable), title="MITM and Delivery", border_style="magenta")
+    return Panel(Group(summary, vtable), title="MITM and Delivery", border_style="magenta", height=PANEL_HEIGHT)
 
 
 def _victim_state(v):
@@ -112,7 +100,8 @@ def _victim_state(v):
     return v.get("last") or "seen", "white"
 
 
-def _sessions_panel(snap, rows=14):
+def _sessions_panel(snap):
+    rows = PANEL_HEIGHT - 3
     table = Table(expand=True, show_edge=False, pad_edge=False)
     table.add_column("ID", style="yellow", no_wrap=True)
     table.add_column("Host", style="cyan", no_wrap=True)
@@ -121,7 +110,7 @@ def _sessions_panel(snap, rows=14):
     for sid, s in list(snap["sessions"].items())[-rows:]:
         via = s["via_exploit"].split("/")[-1] if s["via_exploit"] else "-"
         table.add_row(str(sid), s["host"], s.get("platform") or "-", via)
-    return Panel(table, title="Sessions   count=%d" % len(snap["sessions"]), border_style="yellow")
+    return Panel(table, title="Sessions   count=%d" % len(snap["sessions"]), border_style="yellow", height=PANEL_HEIGHT)
 
 
 def _footer(snap):
