@@ -31,7 +31,8 @@ IP_RE = re.compile(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})")
 
 class MetasploitAutopwn:
     def __init__(self, state, password, host="127.0.0.1", port=55553,
-                 lhost=None, srvport=8888, uripath="update", exclude_pattern=None):
+                 lhost=None, srvport=8888, uripath="update", exclude_pattern=None,
+                 binary="msfrpcd"):
         self.state = state
         self.password = password
         self.host = host
@@ -40,6 +41,7 @@ class MetasploitAutopwn:
         self.srvport = srvport
         self.uripath = uripath.strip("/")
         self.exclude_pattern = exclude_pattern
+        self.binary = binary
         self.proc = None
         self.client = None
         self.console = None
@@ -47,7 +49,7 @@ class MetasploitAutopwn:
         self.srvuri = None
 
     def start_daemon(self, ready_timeout=40):
-        cmd = ["msfrpcd", "-P", self.password, "-a", self.host, "-p", str(self.port), "-S"]
+        cmd = [self.binary, "-P", self.password, "-a", self.host, "-p", str(self.port), "-S"]
         self.proc = subprocess.Popen(
             cmd, stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,

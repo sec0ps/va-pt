@@ -103,8 +103,10 @@ def locate_path(name, require_exec=True):
     """
     Resolve an executable or script path. PATH is tried first via which since it
     is fast and always current, then the plocate or mlocate database is consulted
-    as a fallback for things not on PATH. Matches are filtered to real files,
-    optionally requiring the executable bit, and ranked so canonical bin
+    as a fallback for things not on PATH. The locate match is case sensitive and
+    the basename must equal name exactly, so a search for Responder.py never grabs
+    this tool's own responder.py module. Matches inside this tool's own directory
+    are skipped for the same reason. Survivors are ranked so canonical bin
     directories win over cache copies. Returns an absolute path or None.
     """
     hit = shutil.which(name)
@@ -112,14 +114,19 @@ def locate_path(name, require_exec=True):
         return hit
     try:
         out = subprocess.check_output(
-            ["locate", "-b", "-i", "-l", "100", name],
+            ["locate", "-b", "-l", "500", name],
             stderr=subprocess.DEVNULL, text=True)
     except Exception:
         return None
+    selfdir = os.path.dirname(os.path.realpath(__file__))
     matches = []
     for line in out.splitlines():
         candidate = line.strip()
         if not candidate or not os.path.isfile(candidate):
+            continue
+        if os.path.basename(candidate) != name:
+            continue
+        if os.path.realpath(candidate).startswith(selfdir + os.sep):
             continue
         if require_exec and not os.access(candidate, os.X_OK):
             continue
