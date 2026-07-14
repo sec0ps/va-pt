@@ -274,7 +274,7 @@ def install_base_dependencies():
         "build-essential", "bison", "libedit-dev", "libxml2-utils", "automake", "libtool",
         "pkg-config", "libnl-3-dev", "libnl-genl-3-dev", "ethtool", "shtool", "rfkill",
         "libpcre3-dev", "libhwloc-dev", "libcmocka-dev", "hostapd", "wpasupplicant",
-        "tcpdump", "iw", "usbutils", "python3-dnspython", "python3-aiofiles", "bettercap",
+        "tcpdump", "iw", "usbutils", "python3-dnspython", "python3-aiofiles",
         "python3-watchdog", "python3-pandas"
     ]
 
