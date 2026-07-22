@@ -328,22 +328,22 @@ def install_base_dependencies():
         os.environ['PATH'] = f"{go_paths}:{os.environ['PATH']}"
 
     # Install Rust (skip if already present)
-        cargo_bin = os.path.expanduser("~/.cargo/bin/rustc")
-        if os.path.exists(cargo_bin) or subprocess.run("command -v rustc", shell=True, capture_output=True, text=True).returncode == 0:
-            print("Rust already installed, skipping.")
-        else:
-            print("Installing Rust...")
-            run_command("curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y")
-            run_command('bash -c "source $HOME/.cargo/env"')
+    cargo_bin = os.path.expanduser("~/.cargo/bin/rustc")
+    if os.path.exists(cargo_bin) or subprocess.run("command -v rustc", shell=True, capture_output=True, text=True).returncode == 0:
+        print("Rust already installed, skipping.")
+    else:
+        print("Installing Rust...")
+        run_command("curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y")
+        run_command('bash -c "source $HOME/.cargo/env"')
 
-        # Install NetExec (skip if already present)
-        netexec_check = subprocess.run("pipx list", shell=True, capture_output=True, text=True)
-        if "netexec" in netexec_check.stdout.lower():
-            print("NetExec already installed, skipping.")
-        else:
-            print("Installing NetExec...")
-            run_command("pipx ensurepath")
-            run_command("pipx install git+https://github.com/Pennyw0rth/NetExec")
+    # Install NetExec (skip if already present)
+    netexec_check = subprocess.run("pipx list", shell=True, capture_output=True, text=True)
+    if "netexec" in netexec_check.stdout.lower():
+        print("NetExec already installed, skipping.")
+    else:
+        print("Installing NetExec...")
+        run_command("pipx ensurepath")
+        run_command("pipx install git+https://github.com/Pennyw0rth/NetExec")
 
     print("Checking Ruby version...")
 
@@ -392,17 +392,17 @@ def install_base_dependencies():
         print("CPANminus is already installed, skipping installation.")
 
     # Perl CPAN modules
-        cpan_modules = [
-            "Cisco::CopyConfig", "Net::Netmask", "XML::Writer",
-            "String::Random", "Net::IP", "Net::DNS"
-        ]
-        missing_cpan = filter_uninstalled_cpan(cpan_modules)
-        if missing_cpan:
-            for module in missing_cpan:
-                print(f"Installing Perl module {module}...")
-                run_command(f"sudo cpanm {module}")
-        else:
-            print("All Perl modules already installed, skipping.")
+    cpan_modules = [
+        "Cisco::CopyConfig", "Net::Netmask", "XML::Writer",
+        "String::Random", "Net::IP", "Net::DNS"
+    ]
+    missing_cpan = filter_uninstalled_cpan(cpan_modules)
+    if missing_cpan:
+        for module in missing_cpan:
+            print(f"Installing Perl module {module}...")
+            run_command(f"sudo cpanm {module}")
+    else:
+        print("All Perl modules already installed, skipping.")
 
     # bettercap (precompiled release binary; the source build needs a newer Go
     # than this toolkit installs. Runs as root for interface manipulation and
