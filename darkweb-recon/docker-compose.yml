@@ -1,0 +1,16 @@
+services:
+  recon:
+    build: .
+    image: darkweb-recon:latest
+    volumes:
+      - tordata:/app/tordata
+    networks:
+      - recon
+    restart: "no"
+
+volumes:
+  tordata:
+
+networks:
+  recon:
+    driver: bridge
