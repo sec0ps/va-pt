@@ -1,47 +1,101 @@
-# Darkweb Recon
+# darkweb-recon
 
-Dedicated Tor-based reconnaissance service for authorized client engagements. This is increment 1, the manual search foundation. It launches a managed Tor process, fetches over SOCKS with hostile-content safeguards, and queries Ahmia for onion results.
+Tor-based dark web reconnaissance for authorized OSINT and VAPT engagements. Runs manual searches from the CLI and scheduled or on-demand content searches from a multi-user web console. All fetching goes through a managed Tor instance with per-engagement stream isolation.
 
-## Install on the host
+## Warning
 
-Unzip, then run the installer as root. It installs Docker if it is missing, verifies the daemon, and builds the image.
+This tool fetches hostile content from onion services. A container is packaging, not an isolation boundary. Run it inside a dedicated research VM or a segmented network. Do not run it on a host you care about.
 
-    cd darkweb-recon
-    sudo bash install.sh
+## Components
 
-The installer needs the host to reach apt, pypi, and get.docker.com during setup. Progress is written to install.log.
+The container runs one console daemon that starts Tor, a bounded worker pool, the APScheduler engine, and a waitress-served Flask console together. Tor bootstraps in the background so the console comes up immediately. A job that fires before Tor is ready fails cleanly rather than hanging.
 
-## Build manually
+- Search sources query Ahmia over Tor and return onion hits.
+- Watch terms drive both the search queries and the match engine that scans returned titles and snippets.
+- Findings are deduplicated per workspace on a content hash and carry a triage status of new, confirmed, or dismissed.
+- Monitor sources are a plugin interface placeholder for curated source crawling and are not implemented yet.
 
-    docker build -t darkweb-recon:latest .
+## Match engine
 
-## Run a manual search
+Matching runs against Ahmia result titles and snippets only. Deep matching against fetched onion page bodies is tagged in the code and deferred to a later increment.
 
-    docker run --rm darkweb-recon:latest --term "acme corp breach" --engagement acme
+Watch term types are literal, regex, domain, email, ipv4, ipv6, credential, card, btc, eth, and hash. Entity types match a specific value when the term is set, or extract every value of that type when the term is left blank. Credential and card matches are masked at rest by default and can be unmasked with `CREDENTIAL_MASK=false`.
 
-Repeat --term for multiple queries in one Tor session.
+## Install
 
-    docker run --rm darkweb-recon:latest -t "acme creds" -t "acme dump" -e acme --json
+Requires a Linux host with Docker. From the repo:
 
-## Persisting the Tor consensus
+```
+cd va-pt/darkweb-recon
+sudo bash install.sh
+```
 
-Use compose so the Tor data directory survives between runs and bootstrap is faster.
+The installer installs Docker if missing, verifies the daemon, adds the invoking user to the docker group, and builds the image. Output is logged to `install.log`.
 
-    docker compose build
-    docker compose run --rm recon --term "acme corp" --engagement acme
+## First admin
+
+Seed an admin on first boot with environment variables, then remove them:
+
+```
+CONSOLE_ADMIN_USER=admin CONSOLE_ADMIN_PASSWORD=change-me docker compose up -d
+```
+
+Or create one with the management CLI against the shared data volume:
+
+```
+docker compose run --rm recon manage.py create-admin --username admin
+```
+
+## Running the console
+
+```
+docker compose up -d
+```
+
+The console listens on `0.0.0.0:8080` by default. Admins manage users, workspaces, sources, watch terms, and schedules and see every workspace. Operators are scoped to the workspaces they are assigned to and can add terms, run jobs, and triage findings within those.
+
+## Management CLI
+
+```
+docker compose run --rm recon manage.py create-admin --username admin
+docker compose run --rm recon manage.py create-user --username analyst --role operator
+docker compose run --rm recon manage.py list-users
+docker compose run --rm recon manage.py create-workspace --name acme --client "Acme Corp"
+docker compose run --rm recon manage.py assign --username analyst --workspace acme
+```
+
+## Manual search CLI
+
+The manual search tool stays ephemeral and does not persist to the database. It shares the image entrypoint:
+
+```
+docker compose run --rm recon search.py --term "acme.com" --engagement acme
+docker compose run --rm recon search.py -t "target one" -t "target two" --json
+```
+
+Persisted manual runs happen through the console run-now button on a workspace.
 
 ## Configuration
 
-All settings are environment variables read in config.py. Notable ones.
+All settings are environment variables.
 
-    AHMIA_BASE_URL      default https://ahmia.fi, set to the Ahmia onion to skip the exit hop
-    FETCH_MAX_BYTES     hard response size cap, default 2 MiB
-    TOR_BOOTSTRAP_TIMEOUT  seconds to wait for tor to bootstrap, default 180
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| CONSOLE_BIND | 0.0.0.0:8080 | Console listen address |
+| CONSOLE_SECRET | generated | Flask session secret, persisted under the data dir if unset |
+| CONSOLE_ADMIN_USER | unset | Seed admin username on first boot |
+| CONSOLE_ADMIN_PASSWORD | unset | Seed admin password on first boot |
+| WORKER_POOL_SIZE | 4 | Concurrent jobs |
+| JOB_TOR_WAIT | 180 | Seconds a job waits for Tor readiness before failing |
+| AHMIA_BASE_URL | https://ahmia.fi | Ahmia endpoint, routed through Tor |
+| CREDENTIAL_MASK | true | Mask credential and card matches at rest |
+| SNIPPET_MAX_CHARS | 500 | Stored snippet cap |
+| MATCH_VALUE_MAX_CHARS | 200 | Stored match value cap |
+| MATCH_PER_TERM_CAP | 25 | Max matches kept per term per document |
+| DARKWEB_DATA_DIR | /app/data | Database and secret location |
+| TOR_SOCKS_PORT | 9050 | Tor SOCKS port |
+| TOR_CONTROL_PORT | 9051 | Tor control port |
 
-## Safeguards in this build
+## Data
 
-Content-type allowlist limited to text and json. Hard response size cap. No redirect following. No raw media written to disk. Per-engagement SOCKS auth gives circuit isolation so separate engagements do not share Tor circuits.
-
-## Not yet built
-
-Persistence and the typed-entity match engine arrive in increment 2, alongside the bounded worker pool and the scheduler. The Flask operator console arrives in increment 3.
+The SQLite database and generated session secret live under the data volume. Tor state lives under the tordata volume. Both persist across restarts.
