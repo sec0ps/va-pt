@@ -180,7 +180,7 @@ This software is provided "as-is," without warranty of any kind, express or impl
 **Email**: <operations@redcellsecurity.org>
 **Website**: [www.redcellsecurity.org](http://www.redcellsecurity.org)
 
-© 2026 Keith Pachulski. All rights reserved.
+© 2026 Red Cell Security, LLC. All rights reserved.
 
 **License**: MIT License. You are free to use, modify, and distribute this software in accordance with the terms of the license.
 
