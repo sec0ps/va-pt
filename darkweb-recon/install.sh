@@ -88,11 +88,15 @@ main() {
     build_image
     log "install complete"
     echo ""
-    echo "run a manual search"
-    echo "    docker run --rm ${IMAGE_NAME} --term \"acme corp breach\" --engagement acme"
+    echo "start the console"
+    echo "    docker compose -f ${SCRIPT_DIR}/docker-compose.yml up -d"
+    echo "    then open http://localhost:8080"
     echo ""
-    echo "or with persistent tor state via compose"
-    echo "    docker compose -f ${SCRIPT_DIR}/docker-compose.yml run --rm recon --term \"acme corp\" --engagement acme"
+    echo "create the first admin"
+    echo "    docker compose -f ${SCRIPT_DIR}/docker-compose.yml run --rm recon manage.py create-admin --username admin"
+    echo ""
+    echo "run an ephemeral manual search"
+    echo "    docker compose -f ${SCRIPT_DIR}/docker-compose.yml run --rm recon search.py --term \"acme corp breach\" --engagement acme"
 }
 
 main "$@"
