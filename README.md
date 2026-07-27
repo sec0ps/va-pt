@@ -164,7 +164,7 @@ The installer provisions a broad third-party tool set across the following categ
 
 For enterprise deployments, custom integrations, or professional security assessments:
 
-- **Email**: <keith@redcellsecurity.org>
+- **Email**: <operations@redcellsecurity.org>
 - **Website**: [www.redcellsecurity.org](http://www.redcellsecurity.org)
 - **Services**: Custom RF security solutions, threat hunting, defensive countermeasures
 
@@ -176,9 +176,8 @@ This software is provided "as-is," without warranty of any kind, express or impl
 
 ## License and Copyright
 
-**Author**: Keith Pachulski
 **Company**: Red Cell Security, LLC
-**Email**: <keith@redcellsecurity.org>
+**Email**: <operations@redcellsecurity.org>
 **Website**: [www.redcellsecurity.org](http://www.redcellsecurity.org)
 
 © 2026 Keith Pachulski. All rights reserved.
