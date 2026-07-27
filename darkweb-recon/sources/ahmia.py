@@ -5,12 +5,12 @@ from urllib.parse import urlencode, urlparse, parse_qs, unquote
 
 from bs4 import BeautifulSoup
 
-from sources.base import BaseSource, Hit
+from sources.base import SearchSource, Hit
 
 log = logging.getLogger("recon.ahmia")
 
 
-class AhmiaSource(BaseSource):
+class AhmiaSource(SearchSource):
     name = "ahmia"
     kind = "search"
 

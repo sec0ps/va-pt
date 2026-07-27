@@ -2,14 +2,25 @@ services:
   recon:
     build: .
     image: darkweb-recon:latest
+    ports:
+      - "8080:8080"
     volumes:
       - tordata:/app/tordata
+      - recondata:/app/data
+    environment:
+      - CONSOLE_BIND=0.0.0.0:8080
+      # Set these on first run to seed an admin, then remove them.
+      # - CONSOLE_ADMIN_USER=admin
+      # - CONSOLE_ADMIN_PASSWORD=change-me
+      # Override the Ahmia endpoint if needed.
+      # - AHMIA_BASE_URL=https://ahmia.fi
     networks:
       - recon
-    restart: "no"
+    restart: unless-stopped
 
 volumes:
   tordata:
+  recondata:
 
 networks:
   recon:

@@ -1,6 +1,7 @@
 """Environment-driven configuration for the darkweb recon service."""
 
 import os
+import secrets
 
 
 def _int(name, default):
@@ -43,3 +44,43 @@ class Config:
         )
 
         self.ahmia_base_url = os.environ.get("AHMIA_BASE_URL", "https://ahmia.fi")
+
+        self.data_dir = os.environ.get("DARKWEB_DATA_DIR", "/app/data")
+        self.db_path = os.environ.get("DARKWEB_DB", os.path.join(self.data_dir, "recon.db"))
+        self.secret_path = os.path.join(self.data_dir, "secret.key")
+
+        self.console_bind = os.environ.get("CONSOLE_BIND", "0.0.0.0:8080")
+        self._console_secret_env = os.environ.get("CONSOLE_SECRET")
+
+        self.worker_pool_size = _int("WORKER_POOL_SIZE", 4)
+        self.job_tor_wait = _int("JOB_TOR_WAIT", 180)
+
+        self.admin_user = os.environ.get("CONSOLE_ADMIN_USER")
+        self.admin_password = os.environ.get("CONSOLE_ADMIN_PASSWORD")
+
+        self.snippet_max_chars = _int("SNIPPET_MAX_CHARS", 500)
+        self.match_value_max_chars = _int("MATCH_VALUE_MAX_CHARS", 200)
+        self.match_per_term_cap = _int("MATCH_PER_TERM_CAP", 25)
+        self.credential_mask = _bool("CREDENTIAL_MASK", True)
+
+    def ensure_dirs(self):
+        os.makedirs(self.data_dir, exist_ok=True)
+        os.makedirs(self.tor_data_dir, exist_ok=True)
+
+    def console_secret(self):
+        if self._console_secret_env:
+            return self._console_secret_env
+        try:
+            if os.path.exists(self.secret_path):
+                with open(self.secret_path, "r") as handle:
+                    value = handle.read().strip()
+                    if value:
+                        return value
+            os.makedirs(self.data_dir, exist_ok=True)
+            value = secrets.token_hex(32)
+            with open(self.secret_path, "w") as handle:
+                handle.write(value)
+            os.chmod(self.secret_path, 0o600)
+            return value
+        except OSError:
+            return secrets.token_hex(32)

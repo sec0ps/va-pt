@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>finding {{ f.id }}</h1>
+<p class="mono">{{ f.url }}</p>
+<p><strong>title</strong> {{ f.title or '(none)' }}</p>
+<p><strong>source</strong> {{ f.source }} &nbsp; <strong>status</strong> {{ f.status }}</p>
+<p><strong>first seen</strong> {{ f.first_seen[:19] }} &nbsp; <strong>last seen</strong> {{ f.last_seen[:19] }}</p>
+<p><strong>snippet</strong></p>
+<pre>{{ f.snippet or '' }}</pre>
+
+<h2>matches</h2>
+<table>
+<thead><tr><th>type</th><th>value</th><th>seen</th></tr></thead>
+<tbody>
+{% for m in matches %}
+<tr><td>{{ m.term_type }}</td><td class="mono">{{ m.matched_value }}</td><td>{{ m.created_at[:19] }}</td></tr>
+{% else %}
+<tr><td colspan="3">none</td></tr>
+{% endfor %}
+</tbody>
+</table>
+
+<p class="row">
+<a href="{{ url_for('ui.workspace_detail', wid=f.workspace_id) }}">back to workspace</a>
+</p>
+{% endblock %}

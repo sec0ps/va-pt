@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>workspaces</h1>
+<table>
+<thead><tr><th>name</th><th>client</th><th>created</th></tr></thead>
+<tbody>
+{% for w in workspaces %}
+<tr>
+<td><a href="{{ url_for('ui.workspace_detail', wid=w.id) }}">{{ w.name }}</a></td>
+<td>{{ w.client or '' }}</td>
+<td>{{ w.created_at[:19] }}</td>
+</tr>
+{% else %}
+<tr><td colspan="3">no workspaces</td></tr>
+{% endfor %}
+</tbody>
+</table>
+
+{% if current_user.role == 'admin' %}
+<div class="card">
+<h2>new workspace</h2>
+<form method="post" action="{{ url_for('ui.create_workspace') }}">
+  <label>name<input name="name"></label>
+  <label>client<input name="client"></label>
+  <button type="submit">create</button>
+</form>
+</div>
+
+<h2>recent jobs</h2>
+<table>
+<thead><tr><th>id</th><th>workspace</th><th>status</th><th>trigger</th><th>created</th></tr></thead>
+<tbody>
+{% for j in recent %}
+<tr>
+<td><a href="{{ url_for('ui.job_detail', jid=j.id) }}">{{ j.id }}</a></td>
+<td>{{ j.workspace_name }}</td>
+<td>{{ j.status }}</td>
+<td>{{ j.trigger }}</td>
+<td>{{ j.created_at[:19] }}</td>
+</tr>
+{% else %}
+<tr><td colspan="5">none</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endif %}
+{% endblock %}

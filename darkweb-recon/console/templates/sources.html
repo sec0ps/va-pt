@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>sources</h1>
+<table>
+<thead><tr><th>name</th><th>kind</th><th>enabled</th><th>base url override</th><th></th></tr></thead>
+<tbody>
+{% for s in sources %}
+<tr>
+<td>{{ s.name }}</td>
+<td>{{ s.kind }}</td>
+<td>{{ 'yes' if s.enabled else 'no' }}</td>
+<td>
+<form method="post" action="{{ url_for('ui.source_config', sid=s.id) }}" class="inline">
+<input name="base_url" value="{{ s.base_url }}" placeholder="blank uses AHMIA_BASE_URL default" size="36">
+<button>save</button>
+</form>
+</td>
+<td>
+<form method="post" action="{{ url_for('ui.toggle_source', sid=s.id) }}" class="inline"><button>toggle</button></form>
+</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+<p class="hint">only search sources are queried today. monitor sources are a plugin interface placeholder.</p>
+{% endblock %}

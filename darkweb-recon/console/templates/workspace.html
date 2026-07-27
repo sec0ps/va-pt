@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ ws.name }} {% if ws.client %}<small>{{ ws.client }}</small>{% endif %}</h1>
+
+<div class="row">
+<form method="post" action="{{ url_for('ui.run_now', wid=ws.id) }}">
+  <button type="submit">run now</button>
+  <span class="hint">runs enabled terms against selected sources, or all enabled if none picked</span>
+  <div class="sources">
+  {% for s in sources %}
+    <label class="inline"><input type="checkbox" name="sources" value="{{ s.name }}"> {{ s.name }}</label>
+  {% endfor %}
+  </div>
+</form>
+</div>
+
+<h2>watch terms</h2>
+<table>
+<thead><tr><th>type</th><th>term</th><th>enabled</th><th></th></tr></thead>
+<tbody>
+{% for t in terms %}
+<tr>
+<td>{{ t.term_type }}</td>
+<td class="mono">{{ t.term or '(any)' }}</td>
+<td>{{ 'yes' if t.enabled else 'no' }}</td>
+<td>
+<form method="post" action="{{ url_for('ui.toggle_term', tid=t.id) }}" class="inline"><button>toggle</button></form>
+<form method="post" action="{{ url_for('ui.delete_term', tid=t.id) }}" class="inline"><button class="danger">delete</button></form>
+</td>
+</tr>
+{% else %}
+<tr><td colspan="4">no terms</td></tr>
+{% endfor %}
+</tbody>
+</table>
+
+<div class="card">
+<h3>add term</h3>
+<form method="post" action="{{ url_for('ui.add_term', wid=ws.id) }}">
+<label>type
+<select name="term_type">
+{% for tt in term_types %}<option value="{{ tt }}">{{ tt }}</option>{% endfor %}
+</select></label>
+<label>term<input name="term" placeholder="value, or blank to extract all of the type"></label>
+<button type="submit">add</button>
+</form>
+</div>
+
+<h2>schedules</h2>
+<table>
+<thead><tr><th>name</th><th>kind</th><th>spec</th><th>enabled</th><th>last run</th><th></th></tr></thead>
+<tbody>
+{% for s in schedules %}
+<tr>
+<td>{{ s.name or '' }}</td>
+<td>{{ s.kind }}</td>
+<td class="mono">{% if s.kind == 'interval' %}{{ s.interval_seconds }}s{% else %}{{ s.cron }}{% endif %}</td>
+<td>{{ 'yes' if s.enabled else 'no' }}</td>
+<td>{{ (s.last_run_at or '')[:19] }}</td>
+<td>
+<form method="post" action="{{ url_for('ui.toggle_schedule', sid=s.id) }}" class="inline"><button>toggle</button></form>
+<form method="post" action="{{ url_for('ui.delete_schedule', sid=s.id) }}" class="inline"><button class="danger">delete</button></form>
+</td>
+</tr>
+{% else %}
+<tr><td colspan="6">no schedules</td></tr>
+{% endfor %}
+</tbody>
+</table>
+
+<div class="card">
+<h3>add schedule</h3>
+<form method="post" action="{{ url_for('ui.add_schedule', wid=ws.id) }}">
+<label>name<input name="name"></label>
+<label>kind
+<select name="kind">
+<option value="interval">interval</option>
+<option value="cron">cron</option>
+</select></label>
+<label>interval seconds<input name="interval_seconds" placeholder="e.g. 3600"></label>
+<label>cron<input name="cron" placeholder="e.g. */30 * * * *"></label>
+<div class="sources">
+{% for s in sources %}
+<label class="inline"><input type="checkbox" name="sources" value="{{ s.name }}"> {{ s.name }}</label>
+{% endfor %}
+</div>
+<button type="submit">add</button>
+</form>
+</div>
+
+<h2>findings <small>new {{ counts.get('new', 0) }} confirmed {{ counts.get('confirmed', 0) }} dismissed {{ counts.get('dismissed', 0) }}</small></h2>
+<div class="row">
+<a href="{{ url_for('ui.workspace_detail', wid=ws.id) }}">all</a>
+<a href="{{ url_for('ui.workspace_detail', wid=ws.id, status='new') }}">new</a>
+<a href="{{ url_for('ui.workspace_detail', wid=ws.id, status='confirmed') }}">confirmed</a>
+<a href="{{ url_for('ui.workspace_detail', wid=ws.id, status='dismissed') }}">dismissed</a>
+</div>
+<table>
+<thead><tr><th>status</th><th>source</th><th>title</th><th>url</th><th>last seen</th><th></th></tr></thead>
+<tbody>
+{% for f in findings %}
+<tr>
+<td>{{ f.status }}</td>
+<td>{{ f.source }}</td>
+<td><a href="{{ url_for('ui.finding_detail', fid=f.id) }}">{{ f.title or '(no title)' }}</a></td>
+<td class="mono">{{ f.url }}</td>
+<td>{{ f.last_seen[:19] }}</td>
+<td>
+<form method="post" action="{{ url_for('ui.finding_status', fid=f.id) }}" class="inline">
+<input type="hidden" name="next" value="{{ url_for('ui.workspace_detail', wid=ws.id, status=status) }}">
+<button name="status" value="confirmed">confirm</button>
+<button name="status" value="dismissed" class="danger">dismiss</button>
+<button name="status" value="new">reset</button>
+</form>
+</td>
+</tr>
+{% else %}
+<tr><td colspan="6">no findings</td></tr>
+{% endfor %}
+</tbody>
+</table>
+
+<h2>recent jobs</h2>
+<table>
+<thead><tr><th>id</th><th>status</th><th>trigger</th><th>created</th></tr></thead>
+<tbody>
+{% for j in jobs %}
+<tr>
+<td><a href="{{ url_for('ui.job_detail', jid=j.id) }}">{{ j.id }}</a></td>
+<td>{{ j.status }}</td>
+<td>{{ j.trigger }}</td>
+<td>{{ j.created_at[:19] }}</td>
+</tr>
+{% else %}
+<tr><td colspan="4">none</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock %}

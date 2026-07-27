@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>users</h1>
+<table>
+<thead><tr><th>username</th><th>role</th><th>active</th><th>workspaces</th><th></th></tr></thead>
+<tbody>
+{% for u in users %}
+<tr>
+<td>{{ u.username }}</td>
+<td>{{ u.role }}</td>
+<td>{{ 'yes' if u.active else 'no' }}</td>
+<td>
+{% if u.role == 'admin' %}
+<span class="hint">all (admin)</span>
+{% else %}
+<form method="post" action="{{ url_for('ui.assign_workspaces', uid=u.id) }}" class="inline">
+<select name="workspaces" multiple size="3">
+{% for w in workspaces %}
+<option value="{{ w.id }}" {% if w.id in membership[u.id] %}selected{% endif %}>{{ w.name }}</option>
+{% endfor %}
+</select>
+<button>save</button>
+</form>
+{% endif %}
+</td>
+<td>
+<form method="post" action="{{ url_for('ui.toggle_user', uid=u.id) }}" class="inline"><button>toggle active</button></form>
+</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+
+<div class="card">
+<h2>new user</h2>
+<form method="post" action="{{ url_for('ui.create_user') }}">
+<label>username<input name="username" autocomplete="off"></label>
+<label>password<input name="password" type="password" autocomplete="new-password"></label>
+<label>role
+<select name="role">
+<option value="operator">operator</option>
+<option value="admin">admin</option>
+</select></label>
+<button type="submit">create</button>
+</form>
+</div>
+{% endblock %}

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>darkweb recon</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header>
+  <span class="brand">darkweb recon</span>
+  {% if current_user %}
+  <nav>
+    <a href="{{ url_for('ui.dashboard') }}">workspaces</a>
+    {% if current_user.role == 'admin' %}
+    <a href="{{ url_for('ui.admin_users') }}">users</a>
+    <a href="{{ url_for('ui.admin_sources') }}">sources</a>
+    {% endif %}
+    <span class="who">{{ current_user.username }} ({{ current_user.role }})</span>
+    <a href="{{ url_for('ui.logout') }}">logout</a>
+  </nav>
+  {% endif %}
+</header>
+<main>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+      <div class="flash {{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>
