@@ -1,8 +1,15 @@
 """Administrative CLI for user and workspace management."""
 
+import os
+import sys
+
+_venv_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv")
+_venv_python = os.path.join(_venv_dir, "bin", "python")
+if os.path.exists(_venv_python) and os.path.abspath(sys.prefix) != os.path.abspath(_venv_dir):
+    os.execv(_venv_python, [_venv_python] + sys.argv)
+
 import argparse
 import getpass
-import sys
 
 import db
 from config import Config
