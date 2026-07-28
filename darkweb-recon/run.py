@@ -37,7 +37,7 @@ def main():
     seed_admin(config)
 
     tor = TorManager(config)
-    tor.start_async()
+    tor.start()
     fetcher = TorFetcher(tor.controller, config)
     registry = SourceRegistry(config)
     worker = Worker(config, tor, fetcher, registry)
