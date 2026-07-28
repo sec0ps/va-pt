@@ -1,4 +1,4 @@
-"""Local installer that provisions a venv and prepares the darkweb recon service."""
+"""Local installer that provisions system deps, a venv, and prepares the darkweb recon service."""
 
 import os
 import shutil
@@ -29,13 +29,54 @@ def check_python():
         fail("python 3.9 or newer is required")
 
 
-def check_tor():
+def package_manager():
+    if shutil.which("apt-get"):
+        return "apt-get"
+    return None
+
+
+def venv_supported():
+    try:
+        import ensurepip  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def sudo_prefix():
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        return []
+    if shutil.which("sudo") is None:
+        fail("sudo not found and not running as root, install the missing packages manually then re-run")
+    return ["sudo"]
+
+
+def ensure_system_deps():
+    needed = []
     if shutil.which("tor") is None:
-        print("tor binary not found on PATH")
-        print("install it first, then re-run this installer")
-        print("    sudo apt install -y tor")
+        needed.append("tor")
+    else:
+        print("tor binary found")
+    if not venv_supported():
+        needed.append("python3-venv")
+    else:
+        print("venv support found")
+    if not needed:
+        return
+    print("missing system packages %s" % " ".join(needed))
+    if package_manager() != "apt-get":
+        print("automatic install only supports apt, install these with your package manager then re-run")
         sys.exit(1)
-    print("tor binary found")
+    prefix = sudo_prefix()
+    print("installing with apt, you may be prompted for your sudo password")
+    subprocess.call(prefix + ["apt-get", "update"])
+    if subprocess.call(prefix + ["apt-get", "install", "-y"] + needed) != 0:
+        fail("system package install failed, install %s manually then re-run" % " ".join(needed))
+    if shutil.which("tor") is None:
+        fail("tor still not on PATH after install")
+    if not venv_supported():
+        fail("venv support still missing after install")
+    print("system packages ready")
 
 
 def port_in_use(port):
@@ -109,7 +150,7 @@ def summary():
 def main():
     check_not_root()
     check_python()
-    check_tor()
+    ensure_system_deps()
     make_venv()
     pip_install()
     make_dirs()
