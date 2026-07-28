@@ -1,4 +1,4 @@
-"""Background Tor manager that bootstraps tor without blocking console startup."""
+"""Tor manager that launches and supervises the managed tor process."""
 
 import logging
 import threading
@@ -15,6 +15,9 @@ class TorManager:
         self._ready = threading.Event()
         self._failed = False
         self._error = None
+
+    def start(self):
+        self._run()
 
     def start_async(self):
         thread = threading.Thread(target=self._run, name="tor-boot", daemon=True)
