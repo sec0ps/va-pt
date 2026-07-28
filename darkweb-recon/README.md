@@ -4,11 +4,11 @@ Tor-based dark web reconnaissance for authorized OSINT and VAPT engagements. Run
 
 ## Warning
 
-This tool fetches hostile content from onion services. A container is packaging, not an isolation boundary. Run it inside a dedicated research VM or a segmented network. Do not run it on a host you care about.
+This tool fetches hostile content from onion services. A container is packaging, not an isolation boundary. Run it inside a dedicated research VM or a segmented network. Do not run it on a host you care about. This holds whether you run under a venv or under Docker.
 
 ## Components
 
-The container runs one console daemon that starts Tor, a bounded worker pool, the APScheduler engine, and a waitress-served Flask console together. Tor bootstraps in the background so the console comes up immediately. A job that fires before Tor is ready fails cleanly rather than hanging.
+The service runs one console daemon that starts Tor, a bounded worker pool, the APScheduler engine, and a waitress-served Flask console together. Tor bootstraps in the background so the console comes up immediately. A job that fires before Tor is ready fails cleanly rather than hanging.
 
 - Search sources query Ahmia over Tor and return onion hits.
 - Watch terms drive both the search queries and the match engine that scans returned titles and snippets.
@@ -21,59 +21,85 @@ Matching runs against Ahmia result titles and snippets only. Deep matching again
 
 Watch term types are literal, regex, domain, email, ipv4, ipv6, credential, card, btc, eth, and hash. Entity types match a specific value when the term is set, or extract every value of that type when the term is left blank. Credential and card matches are masked at rest by default and can be unmasked with `CREDENTIAL_MASK=false`.
 
-## Install
+## Two ways to run
 
-Requires a Linux host with Docker. From the repo:
+Both models run the same code and rely on the VM for isolation. Pick by phase.
+
+- Venv is the leaner loop for a single research box and for active development. Code edits run in place with no rebuild. Tor runs as a process on the host.
+- Docker packages one frozen artifact with the same Tor, Python, and dependencies for every host. Use it when you freeze a build for the team or standardize across many hosts. Tor lives inside the image and the host stays clean.
+
+Develop in the venv, package with Docker for release.
+
+## Install with a venv
+
+Requires a Linux host with Python 3.9 or newer, and apt for the automatic dependency step.
 
 ```
 cd va-pt/darkweb-recon
-sudo bash install.sh
+python install.py
 ```
 
-The installer installs Docker if missing, verifies the daemon, adds the invoking user to the docker group, and builds the image. Output is logged to `install.log`.
+The installer checks for the tor binary and venv support, installs tor and python3-venv through apt with a single sudo prompt if either is missing, then builds `.venv`, installs the Python requirements, and creates `data/` and `tordata/` inside the project. It refuses to run as root so the venv stays owned by your user. Only the apt step elevates.
 
-## First admin
+Create the first admin and start the console.
 
-Seed an admin on first boot with environment variables, then remove them:
+```
+.venv/bin/python manage.py create-admin --username admin
+.venv/bin/python run.py
+```
+
+The console listens on `0.0.0.0:8080`. Run an ephemeral manual search that does not persist.
+
+```
+.venv/bin/python search.py --term "acme corp" --engagement acme
+```
+
+Tor port note. Installing the distro tor package starts a system service on 9050 that collides with the managed instance the app launches. The installer warns if it sees this. Free the port with `sudo systemctl disable --now tor`, or run with alternate ports using `export TOR_SOCKS_PORT=9060 TOR_CONTROL_PORT=9061`.
+
+## Install with Docker
+
+Requires Docker on the host. Tor and all dependencies are built into the image.
+
+```
+cd va-pt/darkweb-recon
+docker compose up -d
+```
+
+The image builds on first up, or build it directly with `docker build -t darkweb-recon:latest .`. Seed the first admin with environment variables on first boot, then remove them.
 
 ```
 CONSOLE_ADMIN_USER=admin CONSOLE_ADMIN_PASSWORD=change-me docker compose up -d
 ```
 
-Or create one with the management CLI against the shared data volume:
+Or create one against the shared data volume.
 
 ```
 docker compose run --rm recon manage.py create-admin --username admin
 ```
 
-## Running the console
+Run an ephemeral manual search.
 
 ```
-docker compose up -d
+docker compose run --rm recon search.py --term "acme corp" --engagement acme
 ```
 
-The console listens on `0.0.0.0:8080` by default. Admins manage users, workspaces, sources, watch terms, and schedules and see every workspace. Operators are scoped to the workspaces they are assigned to and can add terms, run jobs, and triage findings within those.
+The console listens on `0.0.0.0:8080`. State persists in the recondata and tordata volumes.
+
+## Roles and scoping
+
+Admins manage users, workspaces, sources, watch terms, and schedules and see every workspace. Operators are scoped to the workspaces they are assigned to and can add terms, run jobs, and triage findings within those.
 
 ## Management CLI
 
-```
-docker compose run --rm recon manage.py create-admin --username admin
-docker compose run --rm recon manage.py create-user --username analyst --role operator
-docker compose run --rm recon manage.py list-users
-docker compose run --rm recon manage.py create-workspace --name acme --client "Acme Corp"
-docker compose run --rm recon manage.py assign --username analyst --workspace acme
-```
-
-## Manual search CLI
-
-The manual search tool stays ephemeral and does not persist to the database. It shares the image entrypoint:
+The management commands run through manage.py. Under a venv prefix with `.venv/bin/python`, under Docker prefix with `docker compose run --rm recon`.
 
 ```
-docker compose run --rm recon search.py --term "acme.com" --engagement acme
-docker compose run --rm recon search.py -t "target one" -t "target two" --json
+.venv/bin/python manage.py create-admin --username admin
+.venv/bin/python manage.py create-user --username analyst --role operator
+.venv/bin/python manage.py list-users
+.venv/bin/python manage.py create-workspace --name acme --client "Acme Corp"
+.venv/bin/python manage.py assign --username analyst --workspace acme
 ```
-
-Persisted manual runs happen through the console run-now button on a workspace.
 
 ## Configuration
 
@@ -92,10 +118,13 @@ All settings are environment variables.
 | SNIPPET_MAX_CHARS | 500 | Stored snippet cap |
 | MATCH_VALUE_MAX_CHARS | 200 | Stored match value cap |
 | MATCH_PER_TERM_CAP | 25 | Max matches kept per term per document |
-| DARKWEB_DATA_DIR | /app/data | Database and secret location |
+| DARKWEB_DATA_DIR | beside the code | Database and secret location |
+| TOR_DATA_DIR | beside the code | Tor state location |
 | TOR_SOCKS_PORT | 9050 | Tor SOCKS port |
 | TOR_CONTROL_PORT | 9051 | Tor control port |
 
+The data and Tor directories default to `data/` and `tordata/` next to the code. Under a local venv that is the repo folder, and in the image the code sits at /app so they resolve to /app/data and /app/tordata. Set the variables to override either.
+
 ## Data
 
-The SQLite database and generated session secret live under the data volume. Tor state lives under the tordata volume. Both persist across restarts.
+The SQLite database and generated session secret live under the data dir. Tor state lives under the tor data dir. Under Docker these are the recondata and tordata volumes. Both persist across restarts.
