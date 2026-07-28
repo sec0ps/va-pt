@@ -1,5 +1,6 @@
 """Local installer that provisions system deps, a venv, and prepares the darkweb recon service."""
 
+import getpass
 import os
 import shutil
 import socket
@@ -131,6 +132,32 @@ def make_dirs():
     print("tor dir  %s" % TOR_DATA_DIR)
 
 
+SERVICE_TEMPLATE = """[Unit]
+Description=darkweb recon console
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%(user)s
+WorkingDirectory=%(root)s
+ExecStart=%(python)s run.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+"""
+
+
+def systemd_unit():
+    return SERVICE_TEMPLATE % {
+        "user": getpass.getuser(),
+        "root": ROOT,
+        "python": venv_python(),
+    }
+
+
 def summary():
     python = venv_python()
     print("")
@@ -145,6 +172,11 @@ def summary():
     print("")
     print("run an ephemeral manual search")
     print("    %s search.py --term \"acme corp\" --engagement acme" % python)
+    print("")
+    print("run it as a systemd service that stays up and restarts")
+    print("    python install.py --service | sudo tee /etc/systemd/system/darkweb-recon.service")
+    print("    sudo systemctl daemon-reload")
+    print("    sudo systemctl enable --now darkweb-recon")
 
 
 def main():
@@ -159,4 +191,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if "--service" in sys.argv:
+        print(systemd_unit())
+    else:
+        main()
