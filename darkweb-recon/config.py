@@ -3,6 +3,8 @@
 import os
 import secrets
 
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+
 
 def _int(name, default):
     value = os.environ.get(name)
@@ -23,7 +25,7 @@ class Config:
         self.tor_cmd = os.environ.get("TOR_CMD", "tor")
         self.tor_socks_port = _int("TOR_SOCKS_PORT", 9050)
         self.tor_control_port = _int("TOR_CONTROL_PORT", 9051)
-        self.tor_data_dir = os.environ.get("TOR_DATA_DIR", "/app/tordata")
+        self.tor_data_dir = os.environ.get("TOR_DATA_DIR", os.path.join(_ROOT, "tordata"))
         self.tor_bootstrap_timeout = _int("TOR_BOOTSTRAP_TIMEOUT", 180)
         self.tor_newnym_guard = _int("TOR_NEWNYM_GUARD", 10)
         self.tor_verbose = _bool("TOR_VERBOSE", True)
@@ -45,7 +47,7 @@ class Config:
 
         self.ahmia_base_url = os.environ.get("AHMIA_BASE_URL", "https://ahmia.fi")
 
-        self.data_dir = os.environ.get("DARKWEB_DATA_DIR", "/app/data")
+        self.data_dir = os.environ.get("DARKWEB_DATA_DIR", os.path.join(_ROOT, "data"))
         self.db_path = os.environ.get("DARKWEB_DB", os.path.join(self.data_dir, "recon.db"))
         self.secret_path = os.path.join(self.data_dir, "secret.key")
 
