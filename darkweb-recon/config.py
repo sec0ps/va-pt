@@ -69,6 +69,10 @@ class Config:
         self.match_per_term_cap = _int("MATCH_PER_TERM_CAP", 25)
         self.credential_mask = _bool("CREDENTIAL_MASK", True)
 
+        self.analyze_max_pages = _int("ANALYZE_MAX_PAGES", 15)
+        self.analyze_max_links_per_page = _int("ANALYZE_MAX_LINKS_PER_PAGE", 200)
+        self.analyze_page_text_cap = _int("ANALYZE_PAGE_TEXT_CAP", 20000)
+
     def ensure_dirs(self):
         os.makedirs(self.data_dir, exist_ok=True)
         os.makedirs(self.tor_data_dir, exist_ok=True)
