@@ -13,6 +13,8 @@ from console.auth import login_required, admin_required
 
 ui = Blueprint("ui", __name__)
 
+PAGE_SIZES = (10, 25, 50, 100)
+
 
 def _worker():
     return current_app.config["WORKER"]
@@ -90,17 +92,36 @@ def workspace_detail(wid):
     if not auth.can_access_workspace(g.user, wid):
         abort(403)
     status = request.args.get("status") or None
+    try:
+        per_page = int(request.args.get("per_page", "10"))
+    except ValueError:
+        per_page = 10
+    if per_page not in PAGE_SIZES:
+        per_page = 10
+    total = db.count_findings(wid, status)
+    pages = max(1, (total + per_page - 1) // per_page)
+    try:
+        page = int(request.args.get("page", "1"))
+    except ValueError:
+        page = 1
+    page = max(1, min(page, pages))
+    offset = (page - 1) * per_page
     return render_template(
         "workspace.html",
         ws=ws,
         terms=db.list_watch_terms(wid),
         schedules=db.list_schedules(wid),
         jobs=db.list_jobs(wid, 15),
-        findings=db.list_findings(wid, status),
+        findings=db.list_findings(wid, status, limit=per_page, offset=offset),
         counts=db.count_findings_by_status(wid),
         sources=db.list_enabled_sources(),
         term_types=matching.TERM_TYPES,
         status=status,
+        per_page=per_page,
+        page=page,
+        pages=pages,
+        total=total,
+        page_sizes=PAGE_SIZES,
     )
 
 
