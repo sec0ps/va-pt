@@ -5,6 +5,7 @@ import logging
 
 import db
 from sources.ahmia import AhmiaSource
+from sources.torch import TorchSource
 
 log = logging.getLogger("recon.registry")
 
@@ -21,6 +22,9 @@ class SourceRegistry:
         if row["name"] == "ahmia":
             base_url = cfg.get("base_url") or self.config.ahmia_base_url
             return AhmiaSource(base_url)
+        if row["name"] == "torch":
+            base_url = cfg.get("base_url") or self.config.torch_base_url
+            return TorchSource(base_url)
         log.warning("no plugin implementation for source %s, skipping", row["name"])
         return None
 
