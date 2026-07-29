@@ -26,12 +26,16 @@ class TorFetcher:
         url = "socks5h://%s@%s:%d" % (auth, host, port)
         return {"http": url, "https": url}
 
-    def get(self, url, isolation="default"):
+    def _request(self, method, url, isolation, data=None):
         headers = {"User-Agent": self.config.fetch_user_agent}
+        if data is not None:
+            headers["X-Requested-With"] = "XMLHttpRequest"
         timeout = (self.config.fetch_connect_timeout, self.config.fetch_read_timeout)
         try:
-            resp = self._session.get(
+            resp = self._session.request(
+                method,
                 url,
+                data=data,
                 proxies=self._proxies(isolation),
                 headers=headers,
                 timeout=timeout,
@@ -54,17 +58,29 @@ class TorFetcher:
             "text": body,
         }
 
+    def get(self, url, isolation="default"):
+        return self._request("GET", url, isolation)
+
+    def post(self, url, data, isolation="default"):
+        return self._request("POST", url, isolation, data=data)
+
     def get_with_retry(self, url, isolation="default", retries=2):
+        return self._with_retry("GET", url, None, isolation, retries)
+
+    def post_with_retry(self, url, data, isolation="default", retries=2):
+        return self._with_retry("POST", url, data, isolation, retries)
+
+    def _with_retry(self, method, url, data, isolation, retries):
         last_exc = None
         for attempt in range(retries + 1):
             tag = isolation if attempt == 0 else "%s-%d" % (isolation, attempt)
             try:
-                return self.get(url, isolation=tag)
+                return self._request(method, url, tag, data=data)
             except ContentRejected:
                 raise
             except FetchError as exc:
                 last_exc = exc
-                if attempt < retries:
+                if attempt < retries and self.tor is not None:
                     self.tor.new_identity()
         raise last_exc
 
