@@ -135,11 +135,12 @@
 <td>{{ f.last_seen[:19] }}</td>
 <td>
 <form method="post" action="{{ url_for('ui.finding_status', fid=f.id) }}" class="inline">
-<input type="hidden" name="next" value="{{ url_for('ui.workspace_detail', wid=ws.id, status=status) }}">
+<input type="hidden" name="next" value="{{ url_for('ui.workspace_detail', wid=ws.id, status=status, per_page=per_page, page=page) }}">
 <button name="status" value="confirmed">confirm</button>
 <button name="status" value="dismissed" class="danger">dismiss</button>
 <button name="status" value="new">reset</button>
 </form>
+<form method="post" action="{{ url_for('ui.analyze_finding', fid=f.id) }}" class="inline"><button>analyze</button></form>
 </td>
 </tr>
 {% else %}
