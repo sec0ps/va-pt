@@ -278,7 +278,8 @@ def finding_detail(fid):
     if not auth.can_access_workspace(g.user, finding["workspace_id"]):
         abort(403)
     matches = db.list_matches_for_finding(fid)
-    return render_template("finding.html", f=finding, matches=matches)
+    analyses = db.list_analyses_for_finding(fid)
+    return render_template("finding.html", f=finding, matches=matches, analyses=analyses)
 
 
 @ui.route("/findings/<int:fid>/status", methods=["POST"])
@@ -296,6 +297,44 @@ def finding_status(fid):
     db.set_finding_status(fid, status)
     nxt = request.form.get("next")
     return redirect(nxt or url_for("ui.workspace_detail", wid=finding["workspace_id"]))
+
+
+@ui.route("/findings/<int:fid>/analyze", methods=["POST"])
+@login_required
+def analyze_finding(fid):
+    finding = db.get_finding(fid)
+    if finding is None:
+        abort(404)
+    if not auth.can_access_workspace(g.user, finding["workspace_id"]):
+        abort(403)
+    analysis_id = _worker().submit_analysis(
+        fid, finding["workspace_id"], finding["url"], g.user["id"])
+    flash("analysis queued", "ok")
+    return redirect(url_for("ui.analysis_report", aid=analysis_id))
+
+
+@ui.route("/analyses/<int:aid>")
+@login_required
+def analysis_report(aid):
+    analysis = db.get_analysis(aid)
+    if analysis is None:
+        abort(404)
+    if not auth.can_access_workspace(g.user, analysis["workspace_id"]):
+        abort(403)
+    finding = db.get_finding(analysis["finding_id"])
+    stats = json.loads(analysis["stats_json"]) if analysis["stats_json"] else {}
+    pages = db.list_analysis_pages(aid) if analysis["status"] == "completed" else []
+    onion_links = []
+    seen = set()
+    for page in pages:
+        page["links"] = json.loads(page["links_json"]) if page["links_json"] else []
+        for link in page["links"]:
+            if link.get("is_onion") and link["url"] not in seen:
+                seen.add(link["url"])
+                onion_links.append(link["url"])
+    return render_template(
+        "report.html", analysis=analysis, finding=finding,
+        pages=pages, stats=stats, onion_links=onion_links)
 
 
 @ui.route("/jobs/<int:jid>")
