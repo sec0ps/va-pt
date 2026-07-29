@@ -1,77 +1,123 @@
-"""Environment-driven configuration for the darkweb recon service."""
+"""Environment plus database-backed configuration for the darkweb recon service."""
 
 import os
 import secrets
+import sqlite3
 
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 
+_DEFAULT_UA = "Mozilla/5.0 (Windows NT 10.0; rv:115.0) Gecko/20100101 Firefox/115.0"
+_TORCH_DEFAULT = "http://rz6wxogwwbqdadlncnp2q26kbgcbbaqnitzueohj73fzmlx3mt467wqd.onion"
 
-def _int(name, default):
-    value = os.environ.get(name)
-    if value is None or value == "":
-        return default
-    return int(value)
+# Settings that can be overridden from the database via the admin settings page.
+# Precedence per value is database override, then environment variable, then default.
+SETTINGS = [
+    {"name": "fetch_connect_timeout", "env": "FETCH_CONNECT_TIMEOUT", "type": "int",
+     "default": 30, "group": "live", "min": 1, "max": 600, "label": "fetch connect timeout (s)"},
+    {"name": "fetch_read_timeout", "env": "FETCH_READ_TIMEOUT", "type": "int",
+     "default": 60, "group": "live", "min": 1, "max": 600, "label": "fetch read timeout (s)"},
+    {"name": "fetch_max_bytes", "env": "FETCH_MAX_BYTES", "type": "int",
+     "default": 2 * 1024 * 1024, "group": "live", "min": 65536, "max": 52428800,
+     "label": "fetch max bytes"},
+    {"name": "fetch_user_agent", "env": "FETCH_USER_AGENT", "type": "str",
+     "default": _DEFAULT_UA, "group": "live", "label": "fetch user agent"},
+    {"name": "job_tor_wait", "env": "JOB_TOR_WAIT", "type": "int",
+     "default": 180, "group": "live", "min": 1, "max": 1200, "label": "job tor wait (s)"},
+    {"name": "snippet_max_chars", "env": "SNIPPET_MAX_CHARS", "type": "int",
+     "default": 500, "group": "live", "min": 50, "max": 20000, "label": "snippet max chars"},
+    {"name": "match_value_max_chars", "env": "MATCH_VALUE_MAX_CHARS", "type": "int",
+     "default": 200, "group": "live", "min": 20, "max": 2000, "label": "match value max chars"},
+    {"name": "match_per_term_cap", "env": "MATCH_PER_TERM_CAP", "type": "int",
+     "default": 25, "group": "live", "min": 1, "max": 1000, "label": "match per term cap"},
+    {"name": "credential_mask", "env": "CREDENTIAL_MASK", "type": "bool",
+     "default": True, "group": "live", "label": "mask credentials and cards"},
+    {"name": "analyze_max_pages", "env": "ANALYZE_MAX_PAGES", "type": "int",
+     "default": 15, "group": "live", "min": 1, "max": 200, "label": "analyze max pages"},
+    {"name": "analyze_max_links_per_page", "env": "ANALYZE_MAX_LINKS_PER_PAGE", "type": "int",
+     "default": 200, "group": "live", "min": 1, "max": 2000, "label": "analyze max links per page"},
+    {"name": "analyze_page_text_cap", "env": "ANALYZE_PAGE_TEXT_CAP", "type": "int",
+     "default": 20000, "group": "live", "min": 500, "max": 500000, "label": "analyze page text cap"},
+    {"name": "worker_pool_size", "env": "WORKER_POOL_SIZE", "type": "int",
+     "default": 4, "group": "restart", "min": 1, "max": 32, "label": "worker pool size"},
+    {"name": "tor_socks_port", "env": "TOR_SOCKS_PORT", "type": "int",
+     "default": 9050, "group": "restart", "min": 1, "max": 65535, "label": "tor socks port"},
+    {"name": "tor_control_port", "env": "TOR_CONTROL_PORT", "type": "int",
+     "default": 9051, "group": "restart", "min": 1, "max": 65535, "label": "tor control port"},
+    {"name": "tor_bootstrap_timeout", "env": "TOR_BOOTSTRAP_TIMEOUT", "type": "int",
+     "default": 180, "group": "restart", "min": 30, "max": 1200, "label": "tor bootstrap timeout (s)"},
+    {"name": "tor_newnym_guard", "env": "TOR_NEWNYM_GUARD", "type": "int",
+     "default": 10, "group": "restart", "min": 1, "max": 120, "label": "tor newnym guard (s)"},
+    {"name": "tor_verbose", "env": "TOR_VERBOSE", "type": "bool",
+     "default": True, "group": "restart", "label": "tor verbose logging"},
+    {"name": "console_bind", "env": "CONSOLE_BIND", "type": "str",
+     "default": "0.0.0.0:8080", "group": "restart", "label": "console bind address"},
+]
 
 
-def _bool(name, default):
-    value = os.environ.get(name)
-    if value is None:
-        return default
-    return value.strip().lower() in ("1", "true", "yes", "on")
+def _coerce(type_, raw):
+    if type_ == "int":
+        return int(raw)
+    if type_ == "bool":
+        if isinstance(raw, bool):
+            return raw
+        return str(raw).strip().lower() in ("1", "true", "yes", "on")
+    return str(raw)
 
 
 class Config:
     def __init__(self):
         self.tor_cmd = os.environ.get("TOR_CMD", "tor")
-        self.tor_socks_port = _int("TOR_SOCKS_PORT", 9050)
-        self.tor_control_port = _int("TOR_CONTROL_PORT", 9051)
         self.tor_data_dir = os.environ.get("TOR_DATA_DIR", os.path.join(_ROOT, "tordata"))
-        self.tor_bootstrap_timeout = _int("TOR_BOOTSTRAP_TIMEOUT", 180)
-        self.tor_newnym_guard = _int("TOR_NEWNYM_GUARD", 10)
-        self.tor_verbose = _bool("TOR_VERBOSE", True)
         self.tor_extra_config = {}
-
-        self.fetch_max_bytes = _int("FETCH_MAX_BYTES", 2 * 1024 * 1024)
-        self.fetch_connect_timeout = _int("FETCH_CONNECT_TIMEOUT", 30)
-        self.fetch_read_timeout = _int("FETCH_READ_TIMEOUT", 60)
-        self.fetch_user_agent = os.environ.get(
-            "FETCH_USER_AGENT",
-            "Mozilla/5.0 (Windows NT 10.0; rv:115.0) Gecko/20100101 Firefox/115.0",
-        )
         self.fetch_allowed_content_types = (
             "text/html",
             "text/plain",
             "application/json",
             "application/xhtml+xml",
         )
-
         self.ahmia_base_url = os.environ.get("AHMIA_BASE_URL", "https://ahmia.fi")
-        self.torch_base_url = os.environ.get(
-            "TORCH_BASE_URL",
-            "http://rz6wxogwwbqdadlncnp2q26kbgcbbaqnitzueohj73fzmlx3mt467wqd.onion",
-        )
+        self.torch_base_url = os.environ.get("TORCH_BASE_URL", _TORCH_DEFAULT)
 
         self.data_dir = os.environ.get("DARKWEB_DATA_DIR", os.path.join(_ROOT, "data"))
         self.db_path = os.environ.get("DARKWEB_DB", os.path.join(self.data_dir, "recon.db"))
         self.secret_path = os.path.join(self.data_dir, "secret.key")
-
-        self.console_bind = os.environ.get("CONSOLE_BIND", "0.0.0.0:8080")
         self._console_secret_env = os.environ.get("CONSOLE_SECRET")
-
-        self.worker_pool_size = _int("WORKER_POOL_SIZE", 4)
-        self.job_tor_wait = _int("JOB_TOR_WAIT", 180)
-
         self.admin_user = os.environ.get("CONSOLE_ADMIN_USER")
         self.admin_password = os.environ.get("CONSOLE_ADMIN_PASSWORD")
 
-        self.snippet_max_chars = _int("SNIPPET_MAX_CHARS", 500)
-        self.match_value_max_chars = _int("MATCH_VALUE_MAX_CHARS", 200)
-        self.match_per_term_cap = _int("MATCH_PER_TERM_CAP", 25)
-        self.credential_mask = _bool("CREDENTIAL_MASK", True)
+        self._apply_settings()
 
-        self.analyze_max_pages = _int("ANALYZE_MAX_PAGES", 15)
-        self.analyze_max_links_per_page = _int("ANALYZE_MAX_LINKS_PER_PAGE", 200)
-        self.analyze_page_text_cap = _int("ANALYZE_PAGE_TEXT_CAP", 20000)
+    def _load_overrides(self):
+        if not os.path.exists(self.db_path):
+            return {}
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=5)
+            try:
+                rows = conn.execute("SELECT key, value FROM settings").fetchall()
+                return {key: value for key, value in rows}
+            finally:
+                conn.close()
+        except Exception:
+            return {}
+
+    def _apply_settings(self):
+        overrides = self._load_overrides()
+        for spec in SETTINGS:
+            name = spec["name"]
+            if name in overrides:
+                raw = overrides[name]
+            elif spec["env"] in os.environ and os.environ[spec["env"]] != "":
+                raw = os.environ[spec["env"]]
+            else:
+                raw = spec["default"]
+            try:
+                value = _coerce(spec["type"], raw)
+            except (ValueError, TypeError):
+                value = spec["default"]
+            setattr(self, name, value)
+
+    def refresh(self):
+        self._apply_settings()
 
     def ensure_dirs(self):
         os.makedirs(self.data_dir, exist_ok=True)
