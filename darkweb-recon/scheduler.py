@@ -11,6 +11,13 @@ import db
 
 log = logging.getLogger("recon.scheduler")
 
+PRESET_CRON = {
+    "hourly": "0 * * * *",
+    "daily": "0 0 * * *",
+    "weekly": "0 0 * * 0",
+    "monthly": "0 0 1 * *",
+}
+
 
 class Scheduler:
     def __init__(self, worker):
@@ -23,12 +30,15 @@ class Scheduler:
             self.add_schedule(row)
 
     def _trigger(self, row):
-        if row["kind"] == "interval":
+        kind = row["kind"]
+        if kind in PRESET_CRON:
+            return CronTrigger.from_crontab(PRESET_CRON[kind])
+        if kind == "interval":
             seconds = row["interval_seconds"] or 3600
             return IntervalTrigger(seconds=seconds)
-        if row["kind"] == "cron":
+        if kind == "cron":
             return CronTrigger.from_crontab(row["cron"])
-        raise ValueError("unknown schedule kind %s" % row["kind"])
+        raise ValueError("unknown schedule kind %s" % kind)
 
     def add_schedule(self, row):
         try:
