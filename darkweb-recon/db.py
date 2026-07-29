@@ -153,6 +153,36 @@ SCHEMA = [
     "CREATE INDEX IF NOT EXISTS idx_findings_ws_status ON findings(workspace_id, status)",
     "CREATE INDEX IF NOT EXISTS idx_terms_ws ON watch_terms(workspace_id)",
     "CREATE INDEX IF NOT EXISTS idx_jobs_ws ON jobs(workspace_id)",
+    """
+    CREATE TABLE IF NOT EXISTS analyses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        finding_id INTEGER NOT NULL,
+        workspace_id INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        root_url TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        finished_at TEXT,
+        error TEXT,
+        stats_json TEXT,
+        created_by INTEGER,
+        FOREIGN KEY (finding_id) REFERENCES findings(id) ON DELETE CASCADE
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS analysis_pages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        analysis_id INTEGER NOT NULL,
+        url TEXT NOT NULL,
+        title TEXT,
+        text TEXT,
+        links_json TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (analysis_id) REFERENCES analyses(id) ON DELETE CASCADE
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_analyses_finding ON analyses(finding_id)",
+    "CREATE INDEX IF NOT EXISTS idx_analysis_pages_analysis ON analysis_pages(analysis_id)",
 ]
 
 
@@ -531,3 +561,56 @@ def count_findings_by_status(workspace_id):
             "SELECT status, COUNT(*) AS c FROM findings WHERE workspace_id = ? GROUP BY status",
             (workspace_id,)))
         return {row["status"]: row["c"] for row in rows}
+
+
+# analyses
+
+def create_analysis(finding_id, workspace_id, root_url, created_by):
+    with connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO analyses (finding_id, workspace_id, status, root_url, created_at, created_by) "
+            "VALUES (?, ?, 'queued', ?, ?, ?)",
+            (finding_id, workspace_id, root_url, _now(), created_by),
+        )
+        return cur.lastrowid
+
+
+def get_analysis(analysis_id):
+    with connection() as conn:
+        return _row(conn.execute("SELECT * FROM analyses WHERE id = ?", (analysis_id,)))
+
+
+def mark_analysis_running(analysis_id):
+    with connection() as conn:
+        conn.execute(
+            "UPDATE analyses SET status = 'running', started_at = ? WHERE id = ?",
+            (_now(), analysis_id))
+
+
+def mark_analysis_finished(analysis_id, status, stats, error):
+    with connection() as conn:
+        conn.execute(
+            "UPDATE analyses SET status = ?, finished_at = ?, stats_json = ?, error = ? WHERE id = ?",
+            (status, _now(), json.dumps(stats) if stats else None, error, analysis_id),
+        )
+
+
+def add_analysis_page(analysis_id, url, title, text, links):
+    with connection() as conn:
+        conn.execute(
+            "INSERT INTO analysis_pages (analysis_id, url, title, text, links_json, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (analysis_id, url, title, text, json.dumps(links), _now()),
+        )
+
+
+def list_analysis_pages(analysis_id):
+    with connection() as conn:
+        return _rows(conn.execute(
+            "SELECT * FROM analysis_pages WHERE analysis_id = ? ORDER BY id", (analysis_id,)))
+
+
+def list_analyses_for_finding(finding_id):
+    with connection() as conn:
+        return _rows(conn.execute(
+            "SELECT * FROM analyses WHERE finding_id = ? ORDER BY id DESC", (finding_id,)))
