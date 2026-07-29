@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% macro row(r) %}
+<tr>
+<td>{{ r.label }}</td>
+<td>
+{% if r.type == 'bool' %}
+<select name="{{ r.name }}">
+<option value="true" {% if r.value %}selected{% endif %}>true</option>
+<option value="false" {% if not r.value %}selected{% endif %}>false</option>
+</select>
+{% elif r.type == 'int' %}
+<input type="number" name="{{ r.name }}" value="{{ r.value }}"{% if r.min is not none %} min="{{ r.min }}"{% endif %}{% if r.max is not none %} max="{{ r.max }}"{% endif %}>
+{% else %}
+<input type="text" name="{{ r.name }}" value="{{ r.value }}" size="44">
+{% endif %}
+</td>
+<td class="hint">{{ r.source }}</td>
+<td class="hint mono">{{ r.default }}</td>
+<td><label class="inline"><input type="checkbox" name="reset_{{ r.name }}"> reset</label></td>
+</tr>
+{% endmacro %}
+{% block content %}
+<h1>settings</h1>
+<p class="hint">saved values override environment variables, which override defaults. check reset on a row to clear the saved value and fall back to env or default when you save.</p>
+
+<form method="post" action="{{ url_for('ui.save_settings') }}">
+
+<h2>live <small>apply on the next search or analyze</small></h2>
+<table>
+<thead><tr><th>setting</th><th>value</th><th>source</th><th>default</th><th></th></tr></thead>
+<tbody>
+{% for r in live %}{{ row(r) }}{% endfor %}
+</tbody>
+</table>
+
+<h2>restart <small>apply after the service is restarted</small></h2>
+<table>
+<thead><tr><th>setting</th><th>value</th><th>source</th><th>default</th><th></th></tr></thead>
+<tbody>
+{% for r in restart %}{{ row(r) }}{% endfor %}
+</tbody>
+</table>
+
+<div class="row"><button type="submit">save</button></div>
+</form>
+{% endblock %}
