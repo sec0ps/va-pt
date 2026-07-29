@@ -1,11 +1,13 @@
 """All console HTTP routes."""
 
 import json
+import os
 
 from flask import (Blueprint, render_template, request, redirect, url_for,
                    flash, abort, g, session, current_app)
 from apscheduler.triggers.cron import CronTrigger
 
+import config
 import db
 import matching
 from console import auth
@@ -449,3 +451,80 @@ def source_config(sid):
     db.update_source_config(sid, cfg)
     flash("source updated", "ok")
     return redirect(url_for("ui.admin_sources"))
+
+
+# admin settings
+
+def _validate_setting(spec, raw):
+    kind = spec["type"]
+    if kind == "int":
+        try:
+            number = int(raw)
+        except (ValueError, TypeError):
+            return False, None, "must be a whole number"
+        if "min" in spec and number < spec["min"]:
+            return False, None, "minimum is %d" % spec["min"]
+        if "max" in spec and number > spec["max"]:
+            return False, None, "maximum is %d" % spec["max"]
+        return True, str(number), ""
+    if kind == "bool":
+        value = "true" if str(raw).strip().lower() in ("1", "true", "yes", "on") else "false"
+        return True, value, ""
+    text = str(raw).strip()
+    if not text:
+        return False, None, "cannot be empty"
+    if len(text) > 500:
+        return False, None, "too long"
+    return True, text, ""
+
+
+@ui.route("/admin/settings")
+@admin_required
+def admin_settings():
+    cfg = config.Config()
+    overrides = db.get_settings()
+    rows = []
+    for spec in config.SETTINGS:
+        name = spec["name"]
+        if name in overrides:
+            source = "saved"
+        elif spec["env"] in os.environ and os.environ[spec["env"]] != "":
+            source = "env"
+        else:
+            source = "default"
+        rows.append({
+            "name": name,
+            "label": spec["label"],
+            "group": spec["group"],
+            "type": spec["type"],
+            "value": getattr(cfg, name),
+            "source": source,
+            "min": spec.get("min"),
+            "max": spec.get("max"),
+            "default": spec["default"],
+        })
+    live = [r for r in rows if r["group"] == "live"]
+    restart = [r for r in rows if r["group"] == "restart"]
+    return render_template("settings.html", live=live, restart=restart)
+
+
+@ui.route("/admin/settings", methods=["POST"])
+@admin_required
+def save_settings():
+    errors = []
+    for spec in config.SETTINGS:
+        name = spec["name"]
+        if request.form.get("reset_" + name):
+            db.delete_setting(name)
+            continue
+        ok, value, msg = _validate_setting(spec, request.form.get(name, ""))
+        if not ok:
+            errors.append("%s %s" % (spec["label"], msg))
+            continue
+        db.set_setting(name, value)
+    if errors:
+        for message in errors:
+            flash(message, "error")
+    else:
+        flash("settings saved, live values apply to the next job", "ok")
+    return redirect(url_for("ui.admin_settings"))
