@@ -183,6 +183,13 @@ SCHEMA = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_analyses_finding ON analyses(finding_id)",
     "CREATE INDEX IF NOT EXISTS idx_analysis_pages_analysis ON analysis_pages(analysis_id)",
+    """
+    CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
 ]
 
 
@@ -614,3 +621,25 @@ def list_analyses_for_finding(finding_id):
     with connection() as conn:
         return _rows(conn.execute(
             "SELECT * FROM analyses WHERE finding_id = ? ORDER BY id DESC", (finding_id,)))
+
+
+# settings
+
+def get_settings():
+    with connection() as conn:
+        return {row["key"]: row["value"]
+                for row in _rows(conn.execute("SELECT key, value FROM settings"))}
+
+
+def set_setting(key, value):
+    with connection() as conn:
+        conn.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            (key, value, _now()),
+        )
+
+
+def delete_setting(key):
+    with connection() as conn:
+        conn.execute("DELETE FROM settings WHERE key = ?", (key,))
