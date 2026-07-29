@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+{% if analysis.status in ('queued', 'running') %}
+<meta http-equiv="refresh" content="5">
+{% endif %}
+<h1>analysis {{ analysis.id }}</h1>
+<p class="mono">{{ analysis.root_url }}</p>
+<p><strong>finding</strong> {{ finding.title if finding else '' }} &nbsp; <strong>status</strong> {{ analysis.status }}</p>
+<p><strong>created</strong> {{ analysis.created_at[:19] }}{% if analysis.finished_at %} &nbsp; <strong>finished</strong> {{ analysis.finished_at[:19] }}{% endif %}</p>
+
+{% if analysis.status in ('queued', 'running') %}
+<div class="card">analyzing. crawling the site over Tor and extracting text. this page refreshes on its own.</div>
+{% elif analysis.status == 'failed' %}
+<div class="flash error">{{ analysis.error }}</div>
+{% else %}
+<div class="card">
+<strong>summary</strong> {{ stats.get('pages_fetched', 0) }} pages, {{ stats.get('onion_links_found', 0) }} onion links. this report is extracted text only, nothing from the site is rendered or loaded.
+</div>
+
+{% if onion_links %}
+<h2>onion links discovered</h2>
+<pre>{% for u in onion_links %}{{ u }}
+{% endfor %}</pre>
+{% endif %}
+
+<h2>pages</h2>
+{% for p in pages %}
+<div class="card">
+<p class="mono">{{ p.url }}</p>
+{% if p.title %}<p><strong>{{ p.title }}</strong></p>{% endif %}
+<pre>{{ p.text }}</pre>
+{% if p.links %}
+<details>
+<summary>{{ p.links|length }} links on this page</summary>
+<pre>{% for l in p.links %}{{ '[onion] ' if l.is_onion else '        ' }}{{ l.anchor }}  {{ l.url }}
+{% endfor %}</pre>
+</details>
+{% endif %}
+</div>
+{% else %}
+<p>no pages captured</p>
+{% endfor %}
+{% endif %}
+
+<p class="row"><a href="{{ url_for('ui.finding_detail', fid=analysis.finding_id) }}">back to finding</a></p>
+{% endblock %}
