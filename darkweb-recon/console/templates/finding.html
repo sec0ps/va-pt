@@ -20,6 +20,27 @@
 </tbody>
 </table>
 
+<h2>analysis</h2>
+<div class="row">
+<form method="post" action="{{ url_for('ui.analyze_finding', fid=f.id) }}" class="inline"><button>analyze this site</button></form>
+<span class="hint">fetches the site over Tor and extracts text into an inert report, no browser needed</span>
+</div>
+<table>
+<thead><tr><th>id</th><th>status</th><th>created</th><th></th></tr></thead>
+<tbody>
+{% for a in analyses %}
+<tr>
+<td>{{ a.id }}</td>
+<td>{{ a.status }}</td>
+<td>{{ a.created_at[:19] }}</td>
+<td><a href="{{ url_for('ui.analysis_report', aid=a.id) }}">view report</a></td>
+</tr>
+{% else %}
+<tr><td colspan="4">no analyses yet</td></tr>
+{% endfor %}
+</tbody>
+</table>
+
 <p class="row">
 <a href="{{ url_for('ui.workspace_detail', wid=f.workspace_id) }}">back to workspace</a>
 </p>
