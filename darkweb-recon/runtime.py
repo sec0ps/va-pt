@@ -46,5 +46,12 @@ class TorManager:
     def is_ready(self):
         return self._ready.is_set()
 
+    def status(self):
+        if self._ready.is_set():
+            return "ready"
+        if self._failed:
+            return "failed"
+        return "starting"
+
     def stop(self):
         self.controller.stop()
