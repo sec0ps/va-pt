@@ -15,6 +15,7 @@
     {% if current_user.role == 'admin' %}
     <a href="{{ url_for('ui.admin_users') }}">users</a>
     <a href="{{ url_for('ui.admin_sources') }}">sources</a>
+    <a href="{{ url_for('ui.admin_settings') }}">settings</a>
     {% endif %}
     <a href="{{ url_for('ui.help_page') }}">help</a>
     <span class="who">{{ current_user.username }} ({{ current_user.role }})</span>
