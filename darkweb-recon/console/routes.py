@@ -56,17 +56,55 @@ def help_page():
 
 # dashboard and workspaces
 
+def _system_status():
+    worker = _worker()
+    scheduler = _sched()
+    cfg = current_app.config["APP_CONFIG"]
+    tor = getattr(worker, "tor", None)
+    tor_state = tor.status() if tor is not None and hasattr(tor, "status") else "unknown"
+    sched = scheduler.status() if hasattr(scheduler, "status") else {"running": False, "jobs": 0}
+    return {
+        "tor": tor_state,
+        "pool_size": getattr(cfg, "worker_pool_size", 0),
+        "running_jobs": db.count_running(),
+        "scheduler_running": sched["running"],
+        "scheduler_jobs": sched["jobs"],
+    }
+
+
 @ui.route("/")
 @login_required
 def dashboard():
     user = g.user
     if user["role"] == "admin":
         workspaces = db.list_workspaces()
-        recent = db.list_recent_jobs(15)
     else:
         workspaces = db.list_workspaces_for_user(user["id"])
-        recent = []
-    return render_template("dashboard.html", workspaces=workspaces, recent=recent)
+    visible_ids = [w["id"] for w in workspaces]
+
+    recent = db.list_recent_jobs_for_workspaces(visible_ids, 15)
+    status_counts = db.findings_status_counts(visible_ids)
+    source_counts = db.findings_source_counts(visible_ids)
+    day_counts = db.jobs_per_day(visible_ids, 7)
+
+    finding_bars = [
+        {"label": "new", "value": status_counts.get("new", 0)},
+        {"label": "confirmed", "value": status_counts.get("confirmed", 0)},
+        {"label": "dismissed", "value": status_counts.get("dismissed", 0)},
+    ]
+    source_bars = [{"label": r["source"], "value": r["c"]} for r in source_counts]
+    job_bars = [{"label": r["day"][5:], "value": r["c"]} for r in reversed(day_counts)]
+
+    system = _system_status() if user["role"] == "admin" else None
+    return render_template(
+        "dashboard.html",
+        workspaces=workspaces,
+        recent=recent,
+        finding_bars=finding_bars,
+        source_bars=source_bars,
+        job_bars=job_bars,
+        system=system,
+    )
 
 
 @ui.route("/workspaces", methods=["POST"])
