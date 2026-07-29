@@ -71,3 +71,9 @@ class Scheduler:
             self._scheduler.shutdown(wait=False)
         except Exception:
             pass
+
+    def status(self):
+        try:
+            return {"running": self._scheduler.running, "jobs": len(self._scheduler.get_jobs())}
+        except Exception:
+            return {"running": False, "jobs": 0}
