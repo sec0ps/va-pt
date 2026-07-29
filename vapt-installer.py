@@ -38,9 +38,13 @@ import os
 import subprocess
 import sys
 import re
+import glob
 import datetime
 
 LOG_PATH = "/vapt/install_failures.log"
+
+# Names of packages that failed to install, collected for an end-of-run summary.
+FAILED_PACKAGES = []
 
 def run_command(command):
     """Execute a command, suppressing output. On failure, log captured
@@ -58,6 +62,82 @@ def run_command(command):
                 f.write(f"--- STDERR ---\n{result.stderr}\n")
         return False
     return True
+
+def pip_flags():
+    """Return extra pip flags this environment needs. On PEP 668 marked
+    interpreters (Ubuntu 23.04+, and 24.04 hosts) a plain system pip3 install
+    is refused, so add --break-system-packages when the marker is present and
+    the installed pip is new enough to accept the flag. On Ubuntu 22.04 there
+    is no marker, so this returns an empty string and behavior is unchanged."""
+    marked = (glob.glob("/usr/lib/python3.*/EXTERNALLY-MANAGED")
+              or glob.glob("/usr/lib/python3/EXTERNALLY-MANAGED"))
+    if marked:
+        help_out = subprocess.run("pip3 install --help", shell=True,
+                                  capture_output=True, text=True).stdout
+        if "--break-system-packages" in help_out:
+            return " --break-system-packages"
+    return ""
+
+# Computed once at import and refreshed after apt installs pip in the base step.
+PIP = "pip3 install" + pip_flags()
+
+def install_one(kind, install_cmd, name):
+    """Attempt a single package install. Always returns rather than raising, so
+    the caller moves on to the next package whether this one succeeded or not.
+    Failures are logged by run_command and recorded for the end-of-run summary."""
+    print(f"  [{kind}] {name} ...", end=" ", flush=True)
+    if run_command(install_cmd):
+        print("ok")
+        return True
+    print("FAILED")
+    FAILED_PACKAGES.append(f"{kind}: {name}")
+    return False
+
+def apt_install(packages):
+    """Install apt packages one at a time. A failure on any single package does
+    not stop the rest; each is attempted independently. apt-get is used rather
+    than apt because apt warns that its CLI is not stable for scripting."""
+    for pkg in packages:
+        install_one("apt", f"sudo apt-get install -y {pkg}", pkg)
+
+def pip_install(packages):
+    """Install pip packages one at a time, continuing past any failure."""
+    for pkg in packages:
+        install_one("pip", f"{PIP} {pkg}", pkg)
+
+def print_failure_summary():
+    """Print a consolidated list of everything that failed to install."""
+    if FAILED_PACKAGES:
+        print("\n" + "=" * 60)
+        print(f"{len(FAILED_PACKAGES)} item(s) failed to install:")
+        for item in FAILED_PACKAGES:
+            print(f"  - {item}")
+        print(f"Full errors: {LOG_PATH}")
+        print("=" * 60)
+    else:
+        print("\nAll attempted packages installed successfully.")
+
+def git_pull_changed(path):
+    """Run 'git pull' in path, logging failures the same way run_command does.
+    Returns True only if the pull actually brought in changes. A repo that was
+    already current, or a pull that failed, returns False so nothing is rebuilt
+    needlessly."""
+    result = subprocess.run(f"cd {path} && git pull", shell=True,
+                            capture_output=True, text=True)
+    if result.returncode != 0:
+        with open(LOG_PATH, 'a') as f:
+            f.write(f"\n{'=' * 70}\n")
+            f.write(f"{datetime.datetime.now().isoformat()}\n")
+            f.write(f"COMMAND: cd {path} && git pull\n")
+            f.write(f"EXIT CODE: {result.returncode}\n")
+            if result.stdout.strip():
+                f.write(f"--- STDOUT ---\n{result.stdout}\n")
+            if result.stderr.strip():
+                f.write(f"--- STDERR ---\n{result.stderr}\n")
+        return False
+    low = result.stdout.lower()
+    # git wording varies by version: "Already up to date." / "up-to-date."
+    return "already up to date" not in low and "already up-to-date" not in low
 
 def filter_uninstalled_apt(packages):
     """Return only the apt packages not already installed (status 'installed')."""
@@ -227,13 +307,64 @@ def cleanup_old_directories():
         print("Old Responder directory removed. Replaced by Responder-NG.")
 
 def check_and_install(repo_url, install_dir, setup_commands=None):
-    """Clone the repo if it doesn't exist and run optional setup commands."""
+    """Clone the repo if missing, otherwise update it, then always run the
+    setup commands. Running setup on an existing repo lets a partial or
+    interrupted prior install self-heal on the next run instead of being
+    skipped because the directory already exists."""
     if not os.path.exists(install_dir):
         print(f"Installing {os.path.basename(install_dir)}")
-        run_command(f"git clone {repo_url} {install_dir}")
-        if setup_commands:
-            for command in setup_commands:
-                run_command(f"cd {install_dir} && {command}")
+        if not run_command(f"git clone {repo_url} {install_dir}"):
+            print(f"  WARNING: clone failed for {install_dir} (see {LOG_PATH})")
+            return
+    else:
+        print(f"Updating {os.path.basename(install_dir)}")
+        run_command(f"cd {install_dir} && git pull")
+
+    if setup_commands:
+        for command in setup_commands:
+            run_command(f"cd {install_dir} && {command}")
+
+def install_go():
+    """Install a current Go toolchain to /usr/local/go from go.dev.
+
+    nuclei v3 and the other projectdiscovery tools require Go 1.24.2 or newer,
+    which is newer than the distro golang packages carry on some releases, so a
+    managed toolchain avoids apt version and availability problems. The latest
+    stable is fetched at runtime with a pinned fallback. Skips the download if a
+    Go at least this new is already present at /usr/local/go.
+
+    Assumes linux/amd64, which matches the x86_64 dropbox and tester VM base."""
+    go_bin = "/usr/local/go/bin/go"
+    min_major, min_minor = 1, 24
+
+    if os.path.exists(go_bin):
+        out = subprocess.run(f"{go_bin} version", shell=True,
+                             capture_output=True, text=True).stdout
+        m = re.search(r"go(\d+)\.(\d+)", out)
+        if m and (int(m.group(1)), int(m.group(2))) >= (min_major, min_minor):
+            print(f"Go already installed: {out.strip()}")
+            return
+
+    # Ask go.dev for the current stable, fall back to a known-good pin
+    ver_out = subprocess.run("curl -sL https://go.dev/VERSION?m=text",
+                             shell=True, capture_output=True, text=True).stdout.split()
+    version = ver_out[0] if ver_out and ver_out[0].startswith("go") else "go1.26.5"
+    tarball = f"{version}.linux-amd64.tar.gz"
+
+    print(f"Installing Go toolchain {version} to /usr/local/go...")
+    run_command(f"curl -sL -o /tmp/{tarball} https://go.dev/dl/{tarball}")
+    run_command("sudo rm -rf /usr/local/go")
+    run_command(f"sudo tar -C /usr/local -xzf /tmp/{tarball}")
+    run_command(f"rm -f /tmp/{tarball}")
+
+    check = subprocess.run(f"{go_bin} version", shell=True,
+                           capture_output=True, text=True)
+    if check.returncode == 0:
+        print(f"Go installed: {check.stdout.strip()}")
+    else:
+        print(f"  WARNING: Go did not verify after install (see {LOG_PATH}). "
+              "Go-based tool builds will fail until this is resolved.")
+        FAILED_PACKAGES.append("go: toolchain")
 
 def install_wordlist_files():
     """Install the Weakpass dictionary for password cracking."""
@@ -251,7 +382,73 @@ def install_wordlist_files():
     else:
         print("Weakpass dictionary already installed, skipping.")
 
+def install_ruby():
+    """Install Ruby 3.3.9 through rbenv with an explicitly managed ruby-build
+    plugin. The key reliability fixes over the prior version:
+      - ruby-build is cloned if missing and always updated, so the 3.3.9
+        definition is present (a stale plugin causes
+        'ruby-build: definition not found: 3.3.9').
+      - ruby-build is ensured even when rbenv is already installed from a
+        prior partial run, instead of only as a side effect of installing rbenv.
+      - the rbenv shims directory is placed on PATH for this process, so the
+        install can be verified and later steps (Metasploit's bundle) resolve
+        the 3.3.9 Ruby rather than system Ruby.
+      - the critical install call's return code is actually checked."""
+    print("Checking Ruby version...")
+
+    ruby_check = subprocess.run("ruby -v", shell=True, capture_output=True, text=True)
+    if ruby_check.returncode == 0 and "3.3.9" in ruby_check.stdout:
+        print("Ruby 3.3.9 already installed and active, skipping.")
+        return
+
+    rbenv_root = os.path.expanduser("~/.rbenv")
+    rbenv_bin = f"{rbenv_root}/bin/rbenv"
+    ruby_build_dir = f"{rbenv_root}/plugins/ruby-build"
+
+    # 1. rbenv itself
+    if not os.path.exists(rbenv_bin):
+        print("Installing rbenv...")
+        run_command(f"git clone https://github.com/rbenv/rbenv.git {rbenv_root}")
+        for line in ['export PATH="$HOME/.rbenv/bin:$PATH"', 'eval "$(rbenv init - bash)"']:
+            run_command(f"grep -qxF '{line}' ~/.bashrc || echo '{line}' >> ~/.bashrc")
+
+    # 2. ruby-build plugin: clone if missing, always update definitions
+    if not os.path.exists(ruby_build_dir):
+        print("Installing ruby-build plugin...")
+        run_command(f"git clone https://github.com/rbenv/ruby-build.git {ruby_build_dir}")
+    else:
+        print("Updating ruby-build definitions...")
+        run_command(f"cd {ruby_build_dir} && git pull")
+
+    # 3. Make rbenv and its shims usable for the rest of THIS process
+    os.environ["RBENV_ROOT"] = rbenv_root
+    os.environ["PATH"] = f"{rbenv_root}/bin:{rbenv_root}/shims:{os.environ.get('PATH', '')}"
+
+    # 4. Confirm the definition exists before a multi-minute compile
+    if not os.path.exists(f"{ruby_build_dir}/share/ruby-build/3.3.9"):
+        print("  ERROR: ruby-build has no 3.3.9 definition even after update. "
+              f"Confirm the ruby-build git pull succeeded (see {LOG_PATH}).")
+
+    # 5. Build, checking the result this time
+    print("Installing Ruby 3.3.9 (compiles from source, several minutes)...")
+    if not run_command(f"{rbenv_bin} install -s 3.3.9"):
+        print("  ERROR: rbenv install 3.3.9 failed. Usual causes: stale "
+              f"ruby-build definitions or a missing compile header (see {LOG_PATH}).")
+        return
+
+    run_command(f"{rbenv_bin} global 3.3.9")
+    run_command(f"{rbenv_bin} rehash")
+
+    verify = subprocess.run(f"{rbenv_root}/shims/ruby -v",
+                            shell=True, capture_output=True, text=True)
+    if "3.3.9" in verify.stdout:
+        print("Ruby 3.3.9 installed and active.")
+    else:
+        print(f"  WARNING: install ran but active ruby is: {verify.stdout.strip()} "
+              "(shims or PATH issue). Run: source ~/.bashrc")
+
 def install_base_dependencies():
+    global PIP
     print("Performing system update and upgrade before installing package dependencies...")
     run_command("sudo apt-get update -qq && sudo apt-get upgrade -y -qq")
 
@@ -265,7 +462,7 @@ def install_base_dependencies():
         "libbson-dev", "libmongoc-dev", "python3-pip", "netsniff-ng", "httptunnel",
         "ptunnel-ng", "udptunnel", "pipx", "python3-venv", "ruby-dev", "webhttrack",
         "minicom", "openjdk-21-jre", "gnome-tweaks", "macchanger", "recordmydesktop",
-        "postgresql", "golang-1.23-go", "hydra-gtk", "hydra", "wine-development",
+        "postgresql", "hydra-gtk", "hydra", "wine-development",
         "libcurl4-openssl-dev", "smbclient", "hackrf", "nfs-common", "samba", "gpsd",
         "snmp", "libsnmp-dev", "libsnmp-perl", "snmp-mibs-downloader", "docker.io",
         "docker-compose", "hcxtools", "httrack", "tshark", "git", "python-is-python3",
@@ -281,9 +478,13 @@ def install_base_dependencies():
     missing_apt = filter_uninstalled_apt(apt_packages)
     if missing_apt:
         print(f"Installing {len(missing_apt)} missing apt packages...")
-        run_command(f"sudo apt install -y {' '.join(missing_apt)}")
+        apt_install(missing_apt)
     else:
         print("All apt packages already installed, skipping.")
+
+    # pip may have just been installed or upgraded; refresh the flag detection
+    # so PEP 668 handling reflects the interpreter that is actually present.
+    PIP = "pip3 install" + pip_flags()
 
     run_command("sudo usermod -aG docker $USER")
     run_command("sudo snap install powershell --classic")
@@ -298,32 +499,37 @@ def install_base_dependencies():
     missing_pip = filter_uninstalled_pip(pip_packages)
     if missing_pip:
         print(f"Installing {len(missing_pip)} missing pip packages...")
-        run_command(f"pip3 install {' '.join(missing_pip)}")
+        pip_install(missing_pip)
     else:
         print("All pip packages already installed, skipping.")
 
     # Install each pipx package separately
     pipx_packages = ["urh", "scoutsuite", "checkov", "dnsrecon"]
     for package in pipx_packages:
-        run_command(f"pipx install {package}")
+        install_one("pipx", f"pipx install {package}", package)
 
     # impacket forced: it drops many scripts into ~/.local/bin that can collide
     # with stale copies from older installs; --force claims them cleanly
-    run_command("pipx install --force impacket")
+    install_one("pipx", "pipx install --force impacket", "impacket")
 
-    # Configure Go environment
-    # prior run can't leave any export missing)
+    # Install a current Go toolchain (see install_go), then point the
+    # environment at it. GOROOT is /usr/local/go rather than a distro path so
+    # the build tools all use the managed toolchain.
+    install_go()
+
     go_lines = [
-        'export GOROOT=/usr/lib/go-1.23',
+        'export GOROOT=/usr/local/go',
         'export GOPATH=$HOME/go',
-        'export PATH=$PATH:/usr/lib/go-1.23/bin',
+        'export PATH=$PATH:/usr/local/go/bin',
         'export PATH=$PATH:$GOPATH/bin',
     ]
     for line in go_lines:
         run_command(f"grep -qxF '{line}' ~/.bashrc || echo '{line}' >> ~/.bashrc")
 
     # Make Go usable for the rest of this run regardless of .bashrc state
-    go_paths = f"/usr/lib/go-1.23/bin:{os.path.expanduser('~/go/bin')}"
+    os.environ['GOROOT'] = '/usr/local/go'
+    os.environ.setdefault('GOPATH', os.path.expanduser('~/go'))
+    go_paths = f"/usr/local/go/bin:{os.path.expanduser('~/go/bin')}"
     if go_paths not in os.environ.get('PATH', ''):
         os.environ['PATH'] = f"{go_paths}:{os.environ['PATH']}"
 
@@ -345,31 +551,8 @@ def install_base_dependencies():
         run_command("pipx ensurepath")
         run_command("pipx install git+https://github.com/Pennyw0rth/NetExec")
 
-    print("Checking Ruby version...")
-
-    # Check if Ruby 3.3.9 is already installed and active
-    ruby_check = subprocess.run("ruby -v", shell=True, capture_output=True, text=True)
-    if ruby_check.returncode == 0 and "3.3.9" in ruby_check.stdout:
-        print("Ruby 3.3.9 already installed and active, skipping.")
-    else:
-            # Check if rbenv exists in the expected location instead of just checking PATH
-            rbenv_path = os.path.expanduser("~/.rbenv/bin/rbenv")
-            if not os.path.exists(rbenv_path):
-                print("Installing rbenv...")
-                run_command("curl -fsSL https://github.com/rbenv/rbenv-installer/raw/HEAD/bin/rbenv-installer | bash")
-                run_command('grep -q "rbenv init" ~/.bashrc || echo \'export PATH="$HOME/.rbenv/bin:$PATH"\' >> ~/.bashrc')
-                run_command('grep -q "rbenv init" ~/.bashrc || echo \'eval "$(rbenv init - bash)"\' >> ~/.bashrc')
-                # Source rbenv in the current session
-                os.environ['PATH'] = f"{os.path.expanduser('~/.rbenv/bin')}:{os.environ.get('PATH', '')}"
-                print("rbenv installed and configured.")
-
-            print("Installing Ruby 3.3.9...")
-            # Use the full path to rbenv if it's not in PATH yet
-            rbenv_cmd = rbenv_path if os.path.exists(rbenv_path) else "rbenv"
-            run_command(f"{rbenv_cmd} install -s 3.3.9")  # -s flag skips if already installed
-            run_command(f"{rbenv_cmd} global 3.3.9")
-            run_command(f"{rbenv_cmd} rehash")
-            print("Ruby 3.3.9 installed. Restart terminal or run: source ~/.bashrc")
+    # Ruby via rbenv (self-contained and idempotent)
+    install_ruby()
 
     # Check if CPANminus is installed
     if not os.path.isfile("/usr/local/bin/cpanm"):
@@ -399,8 +582,7 @@ def install_base_dependencies():
     missing_cpan = filter_uninstalled_cpan(cpan_modules)
     if missing_cpan:
         for module in missing_cpan:
-            print(f"Installing Perl module {module}...")
-            run_command(f"sudo cpanm {module}")
+            install_one("cpan", f"sudo cpanm {module}", module)
     else:
         print("All Perl modules already installed, skipping.")
 
@@ -427,29 +609,38 @@ def install_base_dependencies():
         run_command("sudo ufw allow 22/tcp")
         run_command("sudo ufw --force enable")
 
-    print("Base toolkit dependencies installed successfully.")
-    if os.path.exists(LOG_PATH):
-        print(f"Some steps logged errors. Review: {LOG_PATH}")
+    print("Base toolkit dependency install pass complete.")
+    print_failure_summary()
 
 def install_toolkit_packages():
-    os.environ['PATH'] = f"/usr/lib/go-1.23/bin:{os.path.expanduser('~/go/bin')}:{os.environ.get('PATH', '')}"
+    # Put rbenv shims (Ruby 3.3.9), rbenv bin, and Go on PATH for this process.
+    # rbenv shims first so Metasploit's bundle resolves the 3.3.9 Ruby pinned by
+    # its .ruby-version rather than the system Ruby.
+    os.environ['GOROOT'] = '/usr/local/go'
+    os.environ.setdefault('GOPATH', os.path.expanduser('~/go'))
+    os.environ['PATH'] = (
+        f"{os.path.expanduser('~/.rbenv/shims')}:"
+        f"{os.path.expanduser('~/.rbenv/bin')}:"
+        f"/usr/local/go/bin:{os.path.expanduser('~/go/bin')}:"
+        f"{os.environ.get('PATH', '')}"
+    )
     print("Installing toolkit packages...")
 
     # Define installations for exploitation tools
     exploitation_tools = [
-        ("https://github.com/trustedsec/social-engineer-toolkit.git", "/vapt/exploits/social-engineer-toolkit", ["pip3 install -r requirements.txt"]),
+        ("https://github.com/trustedsec/social-engineer-toolkit.git", "/vapt/exploits/social-engineer-toolkit", [f"{PIP} -r requirements.txt"]),
         ("https://gitlab.com/exploit-database/exploitdb.git", "/vapt/exploits/exploitdb", None),
         ("https://github.com/Tantalum-Labs/Responder-NG.git", "/vapt/exploits/Responder-NG", None),
         ("https://github.com/beefproject/beef.git", "/vapt/exploits/beef", None),
-        ("https://github.com/xFreed0m/ADFSpray.git", "/vapt/exploits/ADFSpray", ["pip3 install -r requirements.txt"]),
+        ("https://github.com/xFreed0m/ADFSpray.git", "/vapt/exploits/ADFSpray", [f"{PIP} -r requirements.txt"]),
         ("https://github.com/gentilkiwi/mimikatz.git", "/vapt/exploits/mimikatz", None),
-        ("https://github.com/byt3bl33d3r/DeathStar.git", "/vapt/exploits/DeathStar", ["pip3 install -r requirements.txt"]),
+        ("https://github.com/byt3bl33d3r/DeathStar.git", "/vapt/exploits/DeathStar", [f"{PIP} -r requirements.txt"]),
         ("https://github.com/cobbr/Covenant.git", "/vapt/exploits/Covenant", None),
-        ("https://github.com/Ne0nd0g/merlin.git", "/vapt/exploits/merlin", ["sed -i 's/go 1.23.0/go 1.23/' go.mod", "sed -i '/^toolchain/d' go.mod", "PATH=/usr/lib/go-1.23/bin:$PATH go mod tidy", "PATH=/usr/lib/go-1.23/bin:$PATH make"]),
-        ("https://github.com/byt3bl33d3r/SILENTTRINITY.git", "/vapt/exploits/SILENTTRINITY", ["pip3 install -r requirements.txt"]),
+        ("https://github.com/Ne0nd0g/merlin.git", "/vapt/exploits/merlin", ["sed -i '/^toolchain/d' go.mod", "PATH=/usr/local/go/bin:$PATH /usr/local/go/bin/go mod tidy", "PATH=/usr/local/go/bin:$PATH make"]),
+        ("https://github.com/byt3bl33d3r/SILENTTRINITY.git", "/vapt/exploits/SILENTTRINITY", [f"{PIP} -r requirements.txt"]),
         ("https://github.com/assetnote/kiterunner.git", "/vapt/web/kiterunner", ["make build"]),
-        ("https://github.com/projectdiscovery/httpx.git", "/vapt/web/httpx", ["/usr/lib/go-1.23/bin/go install ./cmd/httpx"]),
-        ("https://github.com/ffuf/ffuf.git", "/vapt/web/ffuf", ["/usr/lib/go-1.23/bin/go build"]),
+        ("https://github.com/projectdiscovery/httpx.git", "/vapt/web/httpx", ["/usr/local/go/bin/go install ./cmd/httpx"]),
+        ("https://github.com/ffuf/ffuf.git", "/vapt/web/ffuf", ["/usr/local/go/bin/go build"]),
         ("https://github.com/maurosoria/dirsearch.git", "/vapt/web/dirsearch", None),
         ("https://github.com/MatheuZSecurity/D3m0n1z3dShell.git", "/vapt/exploits/D3m0n1z3dShell", ["chmod +x demonizedshell.sh"])
     ]
@@ -479,11 +670,11 @@ def install_toolkit_packages():
         ("https://github.com/wireghoul/htshells.git", "/vapt/web/htshells", None),
         ("https://github.com/urbanadventurer/WhatWeb.git", "/vapt/web/WhatWeb", None),
         ("https://github.com/siberas/watobo.git", "/vapt/web/watobo", None),
-        ("https://github.com/projectdiscovery/nuclei.git", "/vapt/web/nuclei", None),
+        ("https://github.com/projectdiscovery/nuclei.git", "/vapt/web/nuclei", ["/usr/local/go/bin/go build -o nuclei ./cmd/nuclei", "sudo install -m 755 nuclei /usr/local/bin/nuclei"]),
         ("https://github.com/rezasp/joomscan.git", "/vapt/web/joomscan", None),
-        ("https://github.com/s0md3v/XSStrike.git", "/vapt/web/XSStrike", ["python3 -m pip install -r requirements.txt"]),
-        ("https://github.com/wapiti-scanner/wapiti.git", "/vapt/web/wapiti", ["sudo python3 setup.py install"]),
-        ("https://github.com/com-puter-tips/Links-Extractor.git", "/vapt/web/Links-Extractor", ["pip3 install -r requirements.txt"]),
+        ("https://github.com/s0md3v/XSStrike.git", "/vapt/web/XSStrike", [f"{PIP} -r requirements.txt"]),
+        ("https://github.com/wapiti-scanner/wapiti.git", "/vapt/web/wapiti", [f"sudo {PIP} ."]),
+        ("https://github.com/com-puter-tips/Links-Extractor.git", "/vapt/web/Links-Extractor", [f"{PIP} -r requirements.txt"]),
     ]
 
     # Active Directory and Windows security tools
@@ -495,19 +686,19 @@ def install_toolkit_packages():
        ("https://github.com/p3nt4/PowerShdll.git", "/vapt/ad_windows/PowerShdll", None),
        ("https://github.com/GhostPack/Rubeus.git", "/vapt/ad_windows/Rubeus", None),
        ("https://github.com/dirkjanm/ldapdomaindump.git", "/vapt/ad_windows/ldapdomaindump", ["pipx install /vapt/ad_windows/ldapdomaindump"]),
-       ("https://github.com/adityatelange/evil-winrm-py.git", "/vapt/ad_windows/evil-winrm-py", ["sudo python3 setup.py install"]),
+       ("https://github.com/adityatelange/evil-winrm-py.git", "/vapt/ad_windows/evil-winrm-py", [f"sudo {PIP} ."]),
     ]
 
     # Mobile security testing tools
     mobile_tools = [
-        ("https://github.com/MobSF/Mobile-Security-Framework-MobSF.git", "/vapt/mobile/MobSF", ["pip3 install -r requirements.txt"]),
-        ("https://github.com/sensepost/objection.git", "/vapt/mobile/objection", ["pip3 install objection"]),
+        ("https://github.com/MobSF/Mobile-Security-Framework-MobSF.git", "/vapt/mobile/MobSF", [f"{PIP} -r requirements.txt"]),
+        ("https://github.com/sensepost/objection.git", "/vapt/mobile/objection", [f"{PIP} objection"]),
     ]
 
     # network and infrastructure tools
     network_tools = [
         ("https://github.com/robertdavidgraham/masscan.git", "/vapt/network/masscan", ["make"]),
-        ("https://github.com/OWASP/Amass.git", "/vapt/network/Amass", ["/usr/lib/go-1.23/bin/go install -v ./cmd/amass/..."]),
+        ("https://github.com/OWASP/Amass.git", "/vapt/network/Amass", ["/usr/local/go/bin/go install -v ./cmd/amass/..."]),
     ]
 
     # Password cracking tools
@@ -535,7 +726,7 @@ def install_toolkit_packages():
     # Misc Audit tools
     audit_tools = [
         ("https://github.com/hausec/PowerZure.git", "/vapt/audit/PowerZure", None),
-        ("https://github.com/PlumHound/PlumHound.git", "/vapt/audit/PlumHound", ["pip3 install -r requirements.txt"]),
+        ("https://github.com/PlumHound/PlumHound.git", "/vapt/audit/PlumHound", [f"{PIP} -r requirements.txt"]),
         ("https://github.com/wireghoul/graudit.git", "/vapt/audit/graudit", None),
     ]
 
@@ -545,14 +736,14 @@ def install_toolkit_packages():
         (
             "https://github.com/g4ixt/QtTinySA.git",
             "/vapt/wireless/QtTinySA",
-            ["pip3 install -r requirements.txt"]
+            [f"{PIP} -r requirements.txt"]
         ),
 
         # qspectrumanalyzer
         (
             "https://github.com/xmikos/qspectrumanalyzer.git",
             "/vapt/wireless/qspectrumanalyzer",
-            ["sudo python3 setup.py install"]
+            [f"sudo {PIP} ."]
         ),
     ]
 
@@ -585,24 +776,24 @@ def install_toolkit_packages():
     # Vulnerability scanner tools
     vulnerability_scanners = [
         ("https://github.com/sqlmapproject/sqlmap.git", "/vapt/scanners/sqlmap", None),
-(       "https://github.com/nmap/nmap.git", "/vapt/scanners/nmap", ["./configure --without-zenmap", "make", "sudo make install"]),
+        ("https://github.com/nmap/nmap.git", "/vapt/scanners/nmap", ["./configure --without-zenmap", "make", "sudo make install"]),
         ("https://github.com/makefu/dnsmap.git", "/vapt/scanners/dnsmap", ["gcc -o dnsmap dnsmap.c"]),
         ("https://github.com/fwaeytens/dnsenum.git", "/vapt/scanners/dnsenum", None),
         ("https://github.com/nccgroup/cisco-SNMP-enumeration.git", "/vapt/scanners/cisco-SNMP-enumeration", None),
-        ("https://github.com/aas-n/spraykatz.git", "/vapt/scanners/spraykatz", ["pip3 install -r requirements.txt"]),
-        ("https://github.com/p0dalirius/pyFindUncommonShares.git", "/vapt/scanners/pyFindUncommonShares", ["pip install -r requirements.txt"]),
+        ("https://github.com/aas-n/spraykatz.git", "/vapt/scanners/spraykatz", [f"{PIP} -r requirements.txt"]),
+        ("https://github.com/p0dalirius/pyFindUncommonShares.git", "/vapt/scanners/pyFindUncommonShares", [f"{PIP} -r requirements.txt"]),
         ("https://github.com/CiscoCXSecurity/enum4linux.git", "/vapt/scanners/enum4linux", None)
     ]
 
     # OSINT/Intel tools
     osint_tools = [
-        ("https://github.com/lanmaster53/recon-ng.git", "/vapt/intel/recon-ng", ["pip3 install -r REQUIREMENTS"]),
-        ("https://github.com/smicallef/spiderfoot.git", "/vapt/intel/spiderfoot", ["pip3 install -r requirements.txt"]),
-        ("https://github.com/laramies/theHarvester.git", "/vapt/intel/theHarvester", ["pip3 install -r requirements.txt"]),
+        ("https://github.com/lanmaster53/recon-ng.git", "/vapt/intel/recon-ng", [f"{PIP} -r REQUIREMENTS"]),
+        ("https://github.com/smicallef/spiderfoot.git", "/vapt/intel/spiderfoot", [f"{PIP} -r requirements.txt"]),
+        ("https://github.com/laramies/theHarvester.git", "/vapt/intel/theHarvester", [f"{PIP} -r requirements.txt"]),
         ("https://github.com/nccgroup/scrying.git", "/vapt/intel/scrying", None),
         ("https://github.com/FortyNorthSecurity/EyeWitness.git", "/vapt/intel/EyeWitness", None),
-        ("https://github.com/l4rm4nd/LinkedInDumper.git", "/vapt/intel/LinkedInDumper", ["pip install -r requirements.txt"]),
-        ("https://github.com/OsmanKandemir/indicator-intelligence.git", "/vapt/intel/indicator-intelligence", ["pip3 install -r requirements.txt", "sudo python3 setup.py install"])
+        ("https://github.com/l4rm4nd/LinkedInDumper.git", "/vapt/intel/LinkedInDumper", [f"{PIP} -r requirements.txt"]),
+        ("https://github.com/OsmanKandemir/indicator-intelligence.git", "/vapt/intel/indicator-intelligence", [f"{PIP} -r requirements.txt", f"sudo {PIP} ."])
     ]
 
     # Install all tools
@@ -611,18 +802,26 @@ def install_toolkit_packages():
                 audit_tools + vulnerability_scanners + osint_tools + wireless_tools):
         check_and_install(*tool)
 
-    print("Toolkit packages installation complete.")
-    if os.path.exists(LOG_PATH):
-        print(f"Some steps logged errors. Review: {LOG_PATH}")
+    print("Toolkit packages install pass complete.")
+    print_failure_summary()
 
 def update_toolsets():
     """Update all toolsets by performing a git pull in each directory."""
+    # Refresh the managed Go toolchain first so any Go-based tool rebuilt during
+    # this run (and anyone pulling toolkit updates) builds against current Go.
+    install_go()
+    os.environ['GOROOT'] = '/usr/local/go'
+    os.environ.setdefault('GOPATH', os.path.expanduser('~/go'))
+    go_paths = f"/usr/local/go/bin:{os.path.expanduser('~/go/bin')}"
+    if go_paths not in os.environ.get('PATH', ''):
+        os.environ['PATH'] = f"{go_paths}:{os.environ['PATH']}"
+
     print("Updating Exploit Tools")
     exploit_tools = [
         "/vapt/exploits/social-engineer-toolkit", "/vapt/exploits/metasploit-framework",
         "/vapt/exploits/ADFSpray", "/vapt/exploits/beef", "/vapt/exploits/DeathStar",
         "/vapt/exploits/mimikatz", "/vapt/exploits/Responder-NG",
-        "/vapt/exploits/exploitdb", "/vapt/exploits/Covenant", "/vapt/exploits/merlin",
+        "/vapt/exploits/exploitdb", "/vapt/exploits/Covenant",
         "/vapt/exploits/SILENTTRINITY", "/vapt/exploits/D3m0n1z3dShell"
     ]
     for tool in exploit_tools:
@@ -633,8 +832,7 @@ def update_toolsets():
         "/vapt/web/htshells", "/vapt/web/joomscan", "/vapt/web/nikto",
         "/vapt/web/php-webshells", "/vapt/web/watobo", "/vapt/web/WhatWeb",
         "/vapt/web/XSStrike", "/vapt/web/wapiti", "/vapt/web/Links-Extractor",
-        "/vapt/web/kiterunner", "/vapt/web/httpx", "/vapt/web/ffuf",
-        "/vapt/web/dirsearch", "/vapt/web/nuclei"
+        "/vapt/web/kiterunner", "/vapt/web/dirsearch"
     ]
     for tool in web_tools:
         run_command(f"cd {tool} && git pull")
@@ -664,7 +862,7 @@ def update_toolsets():
 
     print("Updating Network & Infrastructure Tools")
     network_tools = [
-        "/vapt/network/masscan", "/vapt/network/Amass"
+        "/vapt/network/masscan"
     ]
     for tool in network_tools:
         run_command(f"cd {tool} && git pull")
@@ -692,9 +890,10 @@ def update_toolsets():
         run_command(f"cd {tool} && git pull")
 
     print("Updating Vulnerability Scanners")
+    # fierce is a pip package, not a cloned repo, so it is not pulled here.
     vulnerability_scanners = [
         "/vapt/scanners/sqlmap", "/vapt/scanners/nmap",
-        "/vapt/scanners/fierce", "/vapt/scanners/dnsmap", "/vapt/scanners/dnsenum",
+        "/vapt/scanners/dnsmap", "/vapt/scanners/dnsenum",
         "/vapt/scanners/cisco-SNMP-enumeration", "/vapt/scanners/spraykatz",
         "/vapt/scanners/pyFindUncommonShares", "/vapt/scanners/enum4linux"
     ]
@@ -716,6 +915,29 @@ def update_toolsets():
     ]
     for tool in wireless_tools:
         run_command(f"cd {tool} && git pull")
+
+    # Go-based tools: pull each one, and rebuild only when the pull actually
+    # brought in changes. A repo already up to date is left alone so the update
+    # does not burn time recompiling unchanged source. These are handled here
+    # rather than in the plain git-pull loops above so each is pulled once.
+    print("Updating Go-based tools")
+    go_tools = [
+        ("httpx",  "/vapt/web/httpx",      "/usr/local/go/bin/go install ./cmd/httpx"),
+        ("ffuf",   "/vapt/web/ffuf",       "/usr/local/go/bin/go build"),
+        ("amass",  "/vapt/network/Amass",  "/usr/local/go/bin/go install -v ./cmd/amass/..."),
+        ("merlin", "/vapt/exploits/merlin",
+         "sed -i '/^toolchain/d' go.mod && PATH=/usr/local/go/bin:$PATH /usr/local/go/bin/go mod tidy && PATH=/usr/local/go/bin:$PATH make"),
+        ("nuclei", "/vapt/web/nuclei",
+         "/usr/local/go/bin/go build -o nuclei ./cmd/nuclei && sudo install -m 755 nuclei /usr/local/bin/nuclei"),
+    ]
+    for name, path, build in go_tools:
+        if not os.path.exists(path):
+            continue
+        if git_pull_changed(path):
+            print(f"  {name}: changes pulled, rebuilding")
+            run_command(f"cd {path} && {build}")
+        else:
+            print(f"  {name}: already up to date, skipping rebuild")
 
     # bettercap ships as a precompiled release binary, so updating pulls the
     # latest release over the existing binary rather than doing a git pull
