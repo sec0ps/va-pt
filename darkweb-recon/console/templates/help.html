@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>how to use</h1>
+
+<p>A workspace holds watch terms. When you run a search, every enabled term is used two ways. Terms that carry a value are sent to Ahmia as the search query. Then every enabled term, including extract all terms, is run against the titles and snippets Ahmia returns, and anything that matches becomes a finding. Matching today covers the result title and snippet, not the full onion page.</p>
+
+<div class="card">
+<strong>Start here.</strong> You need at least one term with a value to pull pages. A term left blank is an extract all term, it does not run a search on its own, it only pulls data out of pages that your valued terms surface. Add a literal, domain, or email with a value to drive the search, then add blank extractors on top to enrich.
+</div>
+
+<h2>term types</h2>
+<table>
+<thead><tr><th>type</th><th>how it matches</th><th>example term</th></tr></thead>
+<tbody>
+<tr><td>literal</td><td>exact text, case insensitive, sent as the search query</td><td class="mono">red cell security</td></tr>
+<tr><td>domain</td><td>a domain, or blank for every domain found</td><td class="mono">redcellsecurity.org</td></tr>
+<tr><td>email</td><td>an address or address fragment, or blank for every address found</td><td class="mono">ceo@redcellsecurity.org</td></tr>
+<tr><td>ipv4</td><td>an address, or blank for every ipv4 found</td><td class="mono">203.0.113.10</td></tr>
+<tr><td>ipv6</td><td>an address, or blank for every ipv6 found</td><td class="mono">2001:db8::1</td></tr>
+<tr><td>credential</td><td>blank to pull user and password pairs, or a username to filter</td><td class="mono">(blank)</td></tr>
+<tr><td>card</td><td>blank to pull card numbers, or leading digits to filter by BIN</td><td class="mono">(blank)</td></tr>
+<tr><td>btc</td><td>a bitcoin address, or blank for every one found</td><td class="mono">bc1qxy2k...</td></tr>
+<tr><td>eth</td><td>an ethereum address, or blank for every one found</td><td class="mono">0x71C765...</td></tr>
+<tr><td>hash</td><td>an md5 sha1 or sha256, or blank for every one found</td><td class="mono">(blank)</td></tr>
+<tr><td>regex</td><td>a pattern, matched against results only, never sent as a query</td><td class="mono">\+?1?\d{10}</td></tr>
+</tbody>
+</table>
+
+<h2>examples</h2>
+
+<h3>a full name</h3>
+<p>type literal, term <span class="mono">jane doe</span>. Literal is a plain substring, so it also covers a name embedded in longer text.</p>
+
+<h3>a company or brand</h3>
+<p>type literal, term <span class="mono">red cell security</span>.</p>
+
+<h3>a domain</h3>
+<p>type domain, term <span class="mono">redcellsecurity.org</span>. Add a second term, type email with <span class="mono">@redcellsecurity.org</span>, to catch that domain's addresses in the results.</p>
+
+<h3>an email address</h3>
+<p>type email, term <span class="mono">ceo@redcellsecurity.org</span> for one address, or <span class="mono">@redcellsecurity.org</span> for the whole domain. Leave the term blank to harvest every address on the pages your other terms surface.</p>
+
+<h3>a phone number</h3>
+<p>There is no phone type. For a specific number use type literal with the number written the way it appears, for example <span class="mono">+1 214 555 0100</span> or <span class="mono">(214) 555-0100</span>. Because formatting varies, add a type regex term to catch variants in the results, for example</p>
+<pre>\+?1?[\s.-]*\(?\d{3}\)?[\s.-]*\d{3}[\s.-]*\d{4}</pre>
+<p>Regex only matches pages your valued terms surface, it does not run a search on its own.</p>
+
+<h3>leaked credentials for a target</h3>
+<p>Use a valued term to surface pages, for example domain <span class="mono">redcellsecurity.org</span>, then add a blank credential term to pull user and password pairs out of those pages. Passwords are masked by default.</p>
+
+<h3>crypto or card exposure</h3>
+<p>Add blank btc, eth, or card terms, paired with a valued term so pages get pulled. Card numbers are validated and masked.</p>
+
+<h2>notes</h2>
+<p>Credential and card values are masked where they are stored. They can be unmasked with the CREDENTIAL_MASK setting if you have a reason.</p>
+<p>Matching runs on titles and snippets for now. Deep matching against full onion pages is planned.</p>
+<p>After a run, hits appear in findings with a status of new. Confirm or dismiss each to triage.</p>
+{% endblock %}
