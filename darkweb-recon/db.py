@@ -440,6 +440,57 @@ def list_recent_jobs(limit=25):
             "JOIN workspaces w ON w.id = j.workspace_id ORDER BY j.id DESC LIMIT ?", (limit,)))
 
 
+def _placeholders(values):
+    return ",".join("?" * len(values))
+
+
+def count_running():
+    with connection() as conn:
+        jobs = conn.execute("SELECT COUNT(*) AS c FROM jobs WHERE status = 'running'").fetchone()["c"]
+        analyses = conn.execute(
+            "SELECT COUNT(*) AS c FROM analyses WHERE status = 'running'").fetchone()["c"]
+        return jobs + analyses
+
+
+def list_recent_jobs_for_workspaces(workspace_ids, limit=15):
+    if not workspace_ids:
+        return []
+    query = (
+        "SELECT j.*, w.name AS workspace_name FROM jobs j "
+        "JOIN workspaces w ON w.id = j.workspace_id "
+        "WHERE j.workspace_id IN (%s) ORDER BY j.id DESC LIMIT ?" % _placeholders(workspace_ids))
+    with connection() as conn:
+        return _rows(conn.execute(query, list(workspace_ids) + [limit]))
+
+
+def findings_status_counts(workspace_ids):
+    if not workspace_ids:
+        return {}
+    query = ("SELECT status, COUNT(*) AS c FROM findings WHERE workspace_id IN (%s) "
+             "GROUP BY status" % _placeholders(workspace_ids))
+    with connection() as conn:
+        return {r["status"]: r["c"] for r in _rows(conn.execute(query, list(workspace_ids)))}
+
+
+def findings_source_counts(workspace_ids):
+    if not workspace_ids:
+        return []
+    query = ("SELECT source, COUNT(*) AS c FROM findings WHERE workspace_id IN (%s) "
+             "GROUP BY source ORDER BY c DESC" % _placeholders(workspace_ids))
+    with connection() as conn:
+        return _rows(conn.execute(query, list(workspace_ids)))
+
+
+def jobs_per_day(workspace_ids, days=7):
+    if not workspace_ids:
+        return []
+    query = ("SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS c FROM jobs "
+             "WHERE workspace_id IN (%s) GROUP BY day ORDER BY day DESC LIMIT ?"
+             % _placeholders(workspace_ids))
+    with connection() as conn:
+        return _rows(conn.execute(query, list(workspace_ids) + [days]))
+
+
 # schedules
 
 def create_schedule(workspace_id, name, kind, interval_seconds, cron, source_subset, created_by):
