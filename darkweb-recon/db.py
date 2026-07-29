@@ -486,16 +486,27 @@ def add_finding_match(finding_id, term_id, term_type, matched_value):
         )
 
 
-def list_findings(workspace_id, status=None, limit=200):
+def list_findings(workspace_id, status=None, limit=200, offset=0):
     query = "SELECT * FROM findings WHERE workspace_id = ?"
     params = [workspace_id]
     if status:
         query += " AND status = ?"
         params.append(status)
-    query += " ORDER BY last_seen DESC LIMIT ?"
+    query += " ORDER BY last_seen DESC LIMIT ? OFFSET ?"
     params.append(limit)
+    params.append(offset)
     with connection() as conn:
         return _rows(conn.execute(query, params))
+
+
+def count_findings(workspace_id, status=None):
+    query = "SELECT COUNT(*) AS c FROM findings WHERE workspace_id = ?"
+    params = [workspace_id]
+    if status:
+        query += " AND status = ?"
+        params.append(status)
+    with connection() as conn:
+        return conn.execute(query, params).fetchone()["c"]
 
 
 def get_finding(finding_id):
