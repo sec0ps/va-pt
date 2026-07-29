@@ -1,6 +1,54 @@
 {% extends "base.html" %}
+
+{% macro bars(title, items, accent) %}
+{% set vals = items | map(attribute='value') | list %}
+{% set m = (vals | max) if vals and (vals | max) > 0 else 1 %}
+<div class="card chart">
+<h3>{{ title }}</h3>
+{% if items %}
+{% for it in items %}
+<div class="bar-row">
+<span class="bar-label">{{ it.label }}</span>
+<span class="bar-track"><span class="bar-fill {{ accent }}" style="width: {{ (it.value / m * 100) | round(1) }}%;"></span></span>
+<span class="bar-value">{{ it.value }}</span>
+</div>
+{% endfor %}
+{% else %}
+<p class="hint">no data yet</p>
+{% endif %}
+</div>
+{% endmacro %}
+
 {% block content %}
-<h1>workspaces</h1>
+<meta http-equiv="refresh" content="30">
+<h1>dashboard</h1>
+
+{% if system %}
+<div class="tiles">
+<div class="tile {{ 'ok' if system.tor == 'ready' else ('bad' if system.tor == 'failed' else 'warn') }}">
+<span class="tile-label">tor</span><span class="tile-value">{{ system.tor }}</span>
+</div>
+<div class="tile {{ 'ok' if system.running_jobs > 0 else '' }}">
+<span class="tile-label">running jobs</span><span class="tile-value">{{ system.running_jobs }}</span>
+</div>
+<div class="tile">
+<span class="tile-label">worker pool</span><span class="tile-value">{{ system.pool_size }}</span>
+</div>
+<div class="tile {{ 'ok' if system.scheduler_running else 'warn' }}">
+<span class="tile-label">scheduler</span><span class="tile-value">{{ 'up' if system.scheduler_running else 'down' }} · {{ system.scheduler_jobs }}</span>
+</div>
+</div>
+{% endif %}
+
+<div class="charts">
+{{ bars('findings by status', finding_bars, 'accent-blue') }}
+{{ bars('findings by source', source_bars, 'accent-green') }}
+{{ bars('jobs per day', job_bars, 'accent-amber') }}
+</div>
+
+<div class="dash-grid">
+<div class="card panel">
+<h2>workspaces</h2>
 <table>
 <thead><tr><th>name</th><th>client</th><th>created</th></tr></thead>
 <tbody>
@@ -8,27 +56,19 @@
 <tr>
 <td><a href="{{ url_for('ui.workspace_detail', wid=w.id) }}">{{ w.name }}</a></td>
 <td>{{ w.client or '' }}</td>
-<td>{{ w.created_at[:19] }}</td>
+<td>{{ w.created_at[:10] }}</td>
 </tr>
 {% else %}
 <tr><td colspan="3">no workspaces</td></tr>
 {% endfor %}
 </tbody>
 </table>
-
-{% if current_user.role == 'admin' %}
-<div class="card">
-<h2>new workspace</h2>
-<form method="post" action="{{ url_for('ui.create_workspace') }}">
-  <label>name<input name="name"></label>
-  <label>client<input name="client"></label>
-  <button type="submit">create</button>
-</form>
 </div>
 
+<div class="card panel">
 <h2>recent jobs</h2>
 <table>
-<thead><tr><th>id</th><th>workspace</th><th>status</th><th>trigger</th><th>created</th></tr></thead>
+<thead><tr><th>id</th><th>workspace</th><th>status</th><th>trigger</th></tr></thead>
 <tbody>
 {% for j in recent %}
 <tr>
@@ -36,12 +76,23 @@
 <td>{{ j.workspace_name }}</td>
 <td>{{ j.status }}</td>
 <td>{{ j.trigger }}</td>
-<td>{{ j.created_at[:19] }}</td>
 </tr>
 {% else %}
-<tr><td colspan="5">none</td></tr>
+<tr><td colspan="4">none</td></tr>
 {% endfor %}
 </tbody>
 </table>
+</div>
+
+{% if current_user.role == 'admin' %}
+<div class="card panel full">
+<h2>new workspace</h2>
+<form method="post" action="{{ url_for('ui.create_workspace') }}">
+<label>name<input name="name"></label>
+<label>client<input name="client"></label>
+<button type="submit">create</button>
+</form>
+</div>
 {% endif %}
+</div>
 {% endblock %}
