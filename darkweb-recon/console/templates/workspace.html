@@ -47,6 +47,7 @@
 </div>
 
 <h2>schedules</h2>
+{% set preset_specs = {'hourly': 'every hour', 'daily': 'daily 00:00', 'weekly': 'sun 00:00', 'monthly': '1st 00:00'} %}
 <table>
 <thead><tr><th>name</th><th>kind</th><th>spec</th><th>enabled</th><th>last run</th><th></th></tr></thead>
 <tbody>
@@ -54,7 +55,7 @@
 <tr>
 <td>{{ s.name or '' }}</td>
 <td>{{ s.kind }}</td>
-<td class="mono">{% if s.kind == 'interval' %}{{ s.interval_seconds }}s{% else %}{{ s.cron }}{% endif %}</td>
+<td class="mono">{% if s.kind == 'interval' %}{{ s.interval_seconds }}s{% elif s.kind == 'cron' %}{{ s.cron }}{% else %}{{ preset_specs.get(s.kind, s.kind) }}{% endif %}</td>
 <td>{{ 'yes' if s.enabled else 'no' }}</td>
 <td>{{ (s.last_run_at or '')[:19] }}</td>
 <td>
@@ -72,13 +73,23 @@
 <h3>add schedule</h3>
 <form method="post" action="{{ url_for('ui.add_schedule', wid=ws.id) }}">
 <label>name<input name="name"></label>
-<label>kind
-<select name="kind">
+<label>frequency
+<select name="frequency" id="freqSelect">
+<option value="hourly">hourly</option>
+<option value="daily">daily</option>
+<option value="weekly">weekly</option>
+<option value="monthly">monthly</option>
+<option value="other">other</option>
+</select></label>
+<span id="customFields">
+<label>custom kind
+<select name="custom_kind">
 <option value="interval">interval</option>
 <option value="cron">cron</option>
 </select></label>
 <label>interval seconds<input name="interval_seconds" placeholder="e.g. 3600"></label>
 <label>cron<input name="cron" placeholder="e.g. */30 * * * *"></label>
+</span>
 <div class="sources">
 {% for s in sources %}
 <label class="inline"><input type="checkbox" name="sources" value="{{ s.name }}"> {{ s.name }}</label>
@@ -86,6 +97,16 @@
 </div>
 <button type="submit">add</button>
 </form>
+<p class="hint">hourly runs at the top of the hour, daily at 00:00, weekly sunday 00:00, monthly on the 1st at 00:00. use other to set a custom interval in seconds or a cron expression.</p>
+<script>
+(function () {
+  var sel = document.getElementById('freqSelect');
+  var custom = document.getElementById('customFields');
+  function update() { custom.style.display = sel.value === 'other' ? '' : 'none'; }
+  sel.addEventListener('change', update);
+  update();
+})();
+</script>
 </div>
 
 <h2>findings <small>new {{ counts.get('new', 0) }} confirmed {{ counts.get('confirmed', 0) }} dismissed {{ counts.get('dismissed', 0) }}</small></h2>
