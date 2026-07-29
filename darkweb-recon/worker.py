@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import db
 import matching
+from analyzer import Analyzer
 from fetch import FetchError
 from torctl import TorError
 
@@ -18,6 +19,7 @@ class Worker:
         self.tor = tor_manager
         self.fetcher = fetcher
         self.registry = registry
+        self.analyzer = Analyzer(config)
         self._executor = ThreadPoolExecutor(
             max_workers=config.worker_pool_size, thread_name_prefix="job")
 
@@ -100,3 +102,45 @@ class Worker:
 
     def shutdown(self):
         self._executor.shutdown(wait=False, cancel_futures=True)
+
+    def submit_analysis(self, finding_id, workspace_id, root_url, created_by):
+        analysis_id = db.create_analysis(finding_id, workspace_id, root_url, created_by)
+        self._executor.submit(self._run_analysis, analysis_id)
+        return analysis_id
+
+    def _run_analysis(self, analysis_id):
+        try:
+            self.execute_analysis(analysis_id)
+        except Exception as exc:
+            log.exception("analysis %s crashed", analysis_id)
+            db.mark_analysis_finished(analysis_id, "failed", None, str(exc))
+
+    def execute_analysis(self, analysis_id):
+        analysis = db.get_analysis(analysis_id)
+        if analysis is None:
+            return
+        db.mark_analysis_running(analysis_id)
+
+        try:
+            self.tor.wait_ready(self.config.job_tor_wait)
+        except TorError as exc:
+            db.mark_analysis_finished(analysis_id, "failed", None, "tor not available: %s" % exc)
+            return
+
+        try:
+            pages = self.analyzer.crawl(
+                analysis["root_url"], self.fetcher, isolation="an%d" % analysis_id)
+        except (FetchError, TorError) as exc:
+            db.mark_analysis_finished(analysis_id, "failed", None, str(exc))
+            return
+
+        onion_links = set()
+        for page in pages:
+            db.add_analysis_page(
+                analysis_id, page["url"], page["title"], page["text"], page["links"])
+            for link in page["links"]:
+                if link["is_onion"]:
+                    onion_links.add(link["url"])
+
+        stats = {"pages_fetched": len(pages), "onion_links_found": len(onion_links)}
+        db.mark_analysis_finished(analysis_id, "completed", stats, None)
