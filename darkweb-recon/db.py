@@ -169,6 +169,13 @@ def init_db():
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 ("ahmia", "search", 1, json.dumps({}), None, _now()),
             )
+        cur = conn.execute("SELECT id FROM sources WHERE name = ?", ("torch",))
+        if cur.fetchone() is None:
+            conn.execute(
+                "INSERT INTO sources (name, kind, enabled, config_json, auth_blob, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                ("torch", "search", 1, json.dumps({}), None, _now()),
+            )
 
 
 # users
