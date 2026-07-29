@@ -39,6 +39,7 @@ class Worker:
         job = db.get_job(job_id)
         if job is None:
             return
+        self.config.refresh()
         db.mark_job_running(job_id)
         workspace_id = job["workspace_id"]
         subset = json.loads(job["source_subset"]) if job["source_subset"] else None
@@ -119,6 +120,7 @@ class Worker:
         analysis = db.get_analysis(analysis_id)
         if analysis is None:
             return
+        self.config.refresh()
         db.mark_analysis_running(analysis_id)
 
         try:
