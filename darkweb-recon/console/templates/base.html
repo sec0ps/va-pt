@@ -16,6 +16,7 @@
     <a href="{{ url_for('ui.admin_users') }}">users</a>
     <a href="{{ url_for('ui.admin_sources') }}">sources</a>
     {% endif %}
+    <a href="{{ url_for('ui.help_page') }}">help</a>
     <span class="who">{{ current_user.username }} ({{ current_user.role }})</span>
     <a href="{{ url_for('ui.logout') }}">logout</a>
   </nav>
