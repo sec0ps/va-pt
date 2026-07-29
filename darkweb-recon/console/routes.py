@@ -44,6 +44,12 @@ def logout():
     return redirect(url_for("ui.login"))
 
 
+@ui.route("/help")
+@login_required
+def help_page():
+    return render_template("help.html")
+
+
 # dashboard and workspaces
 
 @ui.route("/")
