@@ -42,6 +42,7 @@ def main():
     config = Config()
     config.ensure_dirs()
     db.init_db()
+    config.refresh()
     seed_admin(config)
 
     tor = TorManager(config)
