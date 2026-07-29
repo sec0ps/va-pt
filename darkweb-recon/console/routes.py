@@ -177,27 +177,37 @@ def add_schedule(wid):
     if not auth.can_access_workspace(g.user, wid):
         abort(403)
     name = request.form.get("name", "").strip()
-    kind = request.form.get("kind", "").strip()
+    frequency = request.form.get("frequency", "").strip()
     subset = request.form.getlist("sources") or None
     interval_seconds = None
     cron = None
-    if kind == "interval":
-        try:
-            interval_seconds = int(request.form.get("interval_seconds", "0"))
-        except ValueError:
-            interval_seconds = 0
-        if interval_seconds < 60:
-            flash("interval must be at least 60 seconds", "error")
-            return redirect(url_for("ui.workspace_detail", wid=wid))
-    elif kind == "cron":
-        cron = request.form.get("cron", "").strip()
-        try:
-            CronTrigger.from_crontab(cron)
-        except Exception:
-            flash("invalid cron expression", "error")
+    presets = ("hourly", "daily", "weekly", "monthly")
+    if frequency in presets:
+        kind = frequency
+    elif frequency == "other":
+        custom_kind = request.form.get("custom_kind", "").strip()
+        if custom_kind == "interval":
+            kind = "interval"
+            try:
+                interval_seconds = int(request.form.get("interval_seconds", "0"))
+            except ValueError:
+                interval_seconds = 0
+            if interval_seconds < 60:
+                flash("interval must be at least 60 seconds", "error")
+                return redirect(url_for("ui.workspace_detail", wid=wid))
+        elif custom_kind == "cron":
+            kind = "cron"
+            cron = request.form.get("cron", "").strip()
+            try:
+                CronTrigger.from_crontab(cron)
+            except Exception:
+                flash("invalid cron expression", "error")
+                return redirect(url_for("ui.workspace_detail", wid=wid))
+        else:
+            flash("choose interval or cron for a custom schedule", "error")
             return redirect(url_for("ui.workspace_detail", wid=wid))
     else:
-        flash("invalid schedule kind", "error")
+        flash("choose a frequency", "error")
         return redirect(url_for("ui.workspace_detail", wid=wid))
     sid = db.create_schedule(wid, name, kind, interval_seconds, cron, subset, g.user["id"])
     _sched().add_schedule(db.get_schedule(sid))
