@@ -46,6 +46,10 @@ class Config:
         )
 
         self.ahmia_base_url = os.environ.get("AHMIA_BASE_URL", "https://ahmia.fi")
+        self.torch_base_url = os.environ.get(
+            "TORCH_BASE_URL",
+            "http://rz6wxogwwbqdadlncnp2q26kbgcbbaqnitzueohj73fzmlx3mt467wqd.onion",
+        )
 
         self.data_dir = os.environ.get("DARKWEB_DATA_DIR", os.path.join(_ROOT, "data"))
         self.db_path = os.environ.get("DARKWEB_DB", os.path.join(self.data_dir, "recon.db"))
