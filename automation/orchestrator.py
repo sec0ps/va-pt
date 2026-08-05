@@ -1,3 +1,28 @@
+#!/usr/bin/env python3
+# =============================================================================
+# Location    orchestrator.py
+# Author      Keith Pachulski
+# Company     Red Cell Security LLC
+# Email       keith@redcellsecurity.org
+# Website     www.redcellsecurity.org
+#
+# License     MIT License
+#
+# Purpose     Entry point and pipeline coordination for the orchestrator. Scope
+#             resolution, preflight, discovery, per-host scan/analyze/check, the
+#             fire and brute phases, and sequenced teardown. Passes an optional
+#             nmap output directory through to the scanner for archival.
+#
+# SECURITY NOTICE
+#             This software is intended for authorized security assessment and
+#             defensive operations only. Use it exclusively on systems you own or
+#             are explicitly permitted to test. Unauthorized use may violate law.
+#
+# DISCLAIMER
+#             This software is provided "as is" without warranty of any kind. The
+#             author and Red Cell Security LLC accept no liability for damage or
+#             misuse arising from its operation.
+# =============================================================================
 """
 orchestrator.py - entry point and pipeline coordination.
 
@@ -973,6 +998,8 @@ def _parse_args(argv):
     p.add_argument("--yes", action="store_true", help="skip scope confirmation")
     p.add_argument("--checkpoint", default="vapt_run_checkpoint.json")
     p.add_argument("--findings", default="vapt_findings.json")
+    p.add_argument("--nmap-out-dir", default="",
+                   help="write per-host nmap -sV/vulners XML into this directory")
     p.add_argument("--resume", action="store_true",
                    help="resume from --checkpoint")
     p.add_argument("--no-tui", action="store_true", help="headless")
@@ -1089,7 +1116,8 @@ def main(argv=None):
 
     scfg = ScanConfig(nmap_path=args.nmap_path, discovery_top_ports=args.top_ports,
                       discovery_ports=args.ports or "", timing=args.timing,
-                      mincvss=args.mincvss, full_ports=not args.no_full_ports)
+                      mincvss=args.mincvss, full_ports=not args.no_full_ports,
+                      nmap_out_dir=args.nmap_out_dir or "")
     scanner = Scanner(scfg, on_activity=run.record_activity)
     mcfg = MsfConfig.from_env(
         host=args.msf_host, port=args.msf_port, password=args.msf_pass,
