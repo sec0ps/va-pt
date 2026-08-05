@@ -1,3 +1,28 @@
+#!/usr/bin/env python3
+# =============================================================================
+# Location    scanner.py
+# Author      Keith Pachulski
+# Company     Red Cell Security LLC
+# Email       keith@redcellsecurity.org
+# Website     www.redcellsecurity.org
+#
+# License     MIT License
+#
+# Purpose     All nmap interaction and result parsing for the orchestrator.
+#             Bulk discovery, per-host version/vulners scanning, and NSE
+#             verification, parsed in-process from nmap XML. With nmap_out_dir
+#             set, the per-host vulners pass also archives its XML for reuse.
+#
+# SECURITY NOTICE
+#             This software is intended for authorized security assessment and
+#             defensive operations only. Use it exclusively on systems you own or
+#             are explicitly permitted to test. Unauthorized use may violate law.
+#
+# DISCLAIMER
+#             This software is provided "as is" without warranty of any kind. The
+#             author and Red Cell Security LLC accept no liability for damage or
+#             misuse arising from its operation.
+# =============================================================================
 """
 scanner.py - all nmap interaction and result parsing.
 
@@ -17,6 +42,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
@@ -78,6 +104,7 @@ class ScanConfig:
     max_retries: int | None = 2         # nmap --max-retries; None keeps nmap default
     host_timeout: str = ""              # nmap --host-timeout; "" derives from the wall
     extra_args: list = field(default_factory=list)
+    nmap_out_dir: str = ""              # if set, vulners_scan archives per-host XML here
 
 
 @dataclass
@@ -170,7 +197,11 @@ class Scanner:
         args += port_args
         args += list(self.cfg.extra_args)
         args += [ip]
-        root = self._run_nmap(args, timeout)
+        save_to = None
+        if self.cfg.nmap_out_dir:
+            safe = ip.replace(":", "_").replace("/", "_")
+            save_to = os.path.join(self.cfg.nmap_out_dir, f"{safe}.xml")
+        root = self._run_nmap(args, timeout, save_to=save_to)
         host = root.find("host")
         if host is None:
             return "", "", []
@@ -203,7 +234,7 @@ class Scanner:
 
     # -- nmap exec --
 
-    def _run_nmap(self, args, timeout):
+    def _run_nmap(self, args, timeout, save_to=None):
         fd, xml_path = tempfile.mkstemp(suffix=".xml")
         os.close(fd)
         eff = self._with_limits(args, timeout)
@@ -224,7 +255,14 @@ class Scanner:
             if proc.returncode != 0 and os.path.getsize(xml_path) == 0:
                 err = proc.stderr.decode(errors="replace").strip()
                 raise NmapError(f"nmap failed (rc={proc.returncode}): {err}")
-            return ET.parse(xml_path).getroot()
+            root = ET.parse(xml_path).getroot()
+            if save_to:
+                try:
+                    os.makedirs(os.path.dirname(save_to), exist_ok=True)
+                    shutil.copyfile(xml_path, save_to)
+                except OSError as e:
+                    logger.warning("could not save nmap xml to %s: %s", save_to, e)
+            return root
         except ET.ParseError as e:
             err = proc.stderr.decode(errors="replace").strip()
             raise NmapError(f"could not parse nmap XML: {e}; stderr: {err}")
