@@ -322,6 +322,9 @@ class Orchestrator:
 
     def _discover_phase(self):
         self.run.set_phase("discovery")
+        # Flush immediately so the status poller shows the discovery phase before
+        # the first chunk finishes, rather than staying blank during a long sweep.
+        self.run.save_checkpoint()
         queued = [ip for ip in self.run.pending_hosts()
                   if self.run.get_state(ip) == HostState.QUEUED]
         for chunk in _chunks(queued, self.cfg.chunk_size):
