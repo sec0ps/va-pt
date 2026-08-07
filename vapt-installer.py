@@ -96,9 +96,12 @@ def install_one(kind, install_cmd, name):
 def apt_install(packages):
     """Install apt packages one at a time. A failure on any single package does
     not stop the rest; each is attempted independently. apt-get is used rather
-    than apt because apt warns that its CLI is not stable for scripting."""
+    than apt because apt warns that its CLI is not stable for scripting.
+    DEBIAN_FRONTEND=noninteractive so debconf prompts (macchanger auto-run,
+    wireshark non-root capture) take defaults instead of blocking on hidden
+    whiptail dialogs that capture_output would swallow."""
     for pkg in packages:
-        install_one("apt", f"sudo apt-get install -y {pkg}", pkg)
+        install_one("apt", f"sudo DEBIAN_FRONTEND=noninteractive apt-get install -y {pkg}", pkg)
 
 def pip_install(packages):
     """Install pip packages one at a time, continuing past any failure."""
@@ -450,7 +453,7 @@ def install_ruby():
 def install_base_dependencies():
     global PIP
     print("Performing system update and upgrade before installing package dependencies...")
-    run_command("sudo apt-get update -qq && sudo apt-get upgrade -y -qq")
+    run_command("sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq -o Dpkg::Options::=--force-confold")
 
     apt_packages = [
         "vim", "subversion", "landscape-common", "ufw", "openssh-server", "net-tools",
