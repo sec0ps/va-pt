@@ -35,6 +35,60 @@
 #
 # =============================================================================
 
+import os
+import sys
+import subprocess
+from pathlib import Path
+
+
+def _ensure_venv():
+    """Ensure a dedicated venv exists with dependencies, relaunching into it when needed."""
+    if os.environ.get('QUICK_RECON_VENV_ACTIVE') == '1':
+        return
+
+    script_path = Path(__file__).resolve()
+    venv_dir = script_path.parent / '.venv-quick_recon'
+    if os.name == 'nt':
+        venv_python = venv_dir / 'Scripts' / 'python.exe'
+    else:
+        venv_python = venv_dir / 'bin' / 'python'
+
+    requirements = ['requests>=2.31.0', 'urllib3>=1.26.0', 'dnspython>=2.6.1']
+    import_check = 'import requests, urllib3, dns.resolver'
+
+    # Create the venv on first run
+    if not venv_python.exists():
+        print(f"[i] Creating virtual environment at {venv_dir}")
+        try:
+            import venv as _venv
+            _venv.EnvBuilder(with_pip=True).create(str(venv_dir))
+        except Exception as e:
+            sys.stderr.write(f"[-] Failed to create venv: {e}\n")
+            sys.stderr.write("[-] On Debian or Ubuntu install the venv module with sudo apt install python3-venv\n")
+            sys.exit(1)
+
+    # Install dependencies only when the import check fails
+    check = subprocess.run([str(venv_python), '-c', import_check],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if check.returncode != 0:
+        print("[i] Installing dependencies into venv (first run or missing packages)")
+        try:
+            subprocess.run([str(venv_python), '-m', 'pip', 'install', '--upgrade', 'pip'], check=True)
+            subprocess.run([str(venv_python), '-m', 'pip', 'install', *requirements], check=True)
+        except subprocess.CalledProcessError as e:
+            sys.stderr.write(f"[-] Dependency installation failed: {e}\n")
+            sys.exit(1)
+
+    # Relaunch under the venv interpreter unless we are already running it
+    if Path(sys.executable).resolve() != venv_python.resolve():
+        os.environ['QUICK_RECON_VENV_ACTIVE'] = '1'
+        os.execv(str(venv_python), [str(venv_python), str(script_path), *sys.argv[1:]])
+
+
+if __name__ == '__main__':
+    _ensure_venv()
+
+
 import argparse
 import json
 import re
