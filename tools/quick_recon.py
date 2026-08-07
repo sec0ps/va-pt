@@ -164,7 +164,8 @@ class ReconAutomation:
                     'github_secrets': {},
                     'linkedin_intel': {},
                     'asn_data': {},
-                    'subdomain_takeovers': []
+                    'subdomain_takeovers': [],
+                    'ct_scope_correlation': {}
                 }
 
     def _handle_existing_state(self):
@@ -3750,6 +3751,184 @@ class ReconAutomation:
                     if whois_results:
                         self.print_info(f"WHOIS lookups completed: {len(whois_results)} IPs across {len(org_summary)} organizations")
 
+    def ct_scope_correlation(self):
+        """Correlate CT-discovered names with the authorized IP scope and classify each name."""
+        self.print_section("CT LOG TO SCOPE CORRELATION")
+
+        if not self.ip_ranges:
+            self.print_warning("Skipping CT correlation (no IP ranges provided)")
+            return
+
+        dns = self.results.get('dns_enumeration', {})
+        ct_names = dns.get('ct_log_domains', [])
+        resolved = dns.get('resolved', {})
+
+        if not ct_names:
+            self.print_warning("No CT log domains available. Run DNS enumeration first.")
+            self.results['ct_scope_correlation'] = {
+                'in_scope': {}, 'cdn_fronted': {}, 'out_of_scope': {},
+                'unresolved': [], 'by_scope_ip': {}, 'ptr_matches': {}
+            }
+            return
+
+        resume_data = self.get_resume_data('ct_scope_correlation')
+        progress = resume_data.get('progress', {})
+
+        in_scope = progress.get('in_scope', {})
+        cdn_fronted = progress.get('cdn_fronted', {})
+        out_of_scope = progress.get('out_of_scope', {})
+        unresolved = progress.get('unresolved', [])
+        classified = set(progress.get('classified', []))
+        asn_cache = progress.get('asn_cache', {})
+
+        # CDN and hosting providers whose edge addresses mask the real origin
+        cdn_keywords = [
+            'cloudflare', 'akamai', 'fastly', 'cloudfront', 'amazon',
+            'incapsula', 'imperva', 'sucuri', 'stackpath', 'limelight',
+            'edgecast', 'verizon', 'google', 'azure', 'microsoft',
+            'azion', 'bunny', 'keycdn', 'cachefly', 'section'
+        ]
+
+        self.print_info(f"Correlating {len(ct_names)} CT names against {len(self.ip_ranges)} scope range(s)...")
+
+        names_to_process = [n for n in ct_names if n not in classified]
+
+        for name in names_to_process:
+            ips = resolved.get(name)
+            if ips is None:
+                ips = self._resolve_domain(name)
+
+            if not ips:
+                if name not in unresolved:
+                    unresolved.append(name)
+                classified.add(name)
+                continue
+
+            scope_ips = [ip for ip in ips if self._is_ip_in_scope(ip)]
+
+            if scope_ips:
+                matched_ranges = set()
+                for ip in scope_ips:
+                    for ip_range in self.ip_ranges:
+                        try:
+                            if ipaddress.ip_address(ip) in ipaddress.ip_network(ip_range, strict=False):
+                                matched_ranges.add(ip_range)
+                                break
+                        except (ValueError, TypeError):
+                            continue
+                in_scope[name] = {
+                    'ips': ips,
+                    'scope_ips': scope_ips,
+                    'matched_ranges': sorted(matched_ranges)
+                }
+                self.print_success(f"IN SCOPE: {name} -> {', '.join(scope_ips)}")
+            else:
+                provider = None
+                is_cdn = False
+                for ip in ips:
+                    try:
+                        if ip in asn_cache:
+                            owner = asn_cache[ip]
+                        else:
+                            info = self._lookup_asn_cymru(ip)
+                            owner = (info or {}).get('owner', '') if info else ''
+                            asn_cache[ip] = owner
+                            time.sleep(0.3)
+                        if owner:
+                            owner_lower = owner.lower()
+                            if any(kw in owner_lower for kw in cdn_keywords):
+                                is_cdn = True
+                                provider = owner
+                                break
+                            provider = provider or owner
+                    except Exception:
+                        continue
+
+                if is_cdn:
+                    cdn_fronted[name] = {'ips': ips, 'provider': provider}
+                    self.print_warning(f"CDN FRONTED: {name} -> {', '.join(ips)} ({provider})")
+                else:
+                    out_of_scope[name] = {'ips': ips, 'provider': provider or 'Unknown'}
+                    self.print_info(f"OUT OF SCOPE: {name} -> {', '.join(ips)}")
+
+            classified.add(name)
+
+            if len(classified) % 25 == 0:
+                self.checkpoint('ct_scope_correlation', 'in_scope', in_scope)
+                self.checkpoint('ct_scope_correlation', 'cdn_fronted', cdn_fronted)
+                self.checkpoint('ct_scope_correlation', 'out_of_scope', out_of_scope)
+                self.checkpoint('ct_scope_correlation', 'unresolved', unresolved)
+                self.checkpoint('ct_scope_correlation', 'classified', list(classified))
+                self.checkpoint('ct_scope_correlation', 'asn_cache', asn_cache)
+
+        # Reverse PTR pass over scope IPs, cross referenced against the CT set
+        self.print_info("\nPerforming reverse PTR lookups on in-scope IPs...")
+        ct_name_set = set(n.lower() for n in ct_names)
+        ptr_matches = progress.get('ptr_matches', {})
+
+        scope_ip_list = []
+        for ip_range in self.ip_ranges:
+            try:
+                net = ipaddress.ip_network(ip_range, strict=False)
+                # Bound expansion so a large range does not stall the PTR sweep
+                if net.num_addresses > 1024:
+                    self.print_info(f"  Skipping PTR sweep of {ip_range} (larger than /22)")
+                    continue
+                for host in net.hosts():
+                    scope_ip_list.append(str(host))
+            except (ValueError, TypeError):
+                continue
+
+        for ip in scope_ip_list:
+            try:
+                hostname = socket.gethostbyaddr(ip)[0].lower().rstrip('.')
+            except Exception:
+                continue
+            if not hostname:
+                continue
+            match_in_ct = hostname in ct_name_set
+            ptr_matches[ip] = {'ptr': hostname, 'in_ct_set': match_in_ct}
+            if match_in_ct:
+                self.print_success(f"PTR match: {ip} -> {hostname} (present in CT set)")
+
+        # IP-anchored view built from in-scope names then folded with PTR-only hits
+        by_scope_ip = {}
+        for name, data in in_scope.items():
+            for ip in data['scope_ips']:
+                by_scope_ip.setdefault(ip, [])
+                if name not in by_scope_ip[ip]:
+                    by_scope_ip[ip].append(name)
+
+        for ip, pdata in ptr_matches.items():
+            if pdata.get('in_ct_set'):
+                by_scope_ip.setdefault(ip, [])
+                if pdata['ptr'] not in by_scope_ip[ip]:
+                    by_scope_ip[ip].append(pdata['ptr'])
+
+        self.results['ct_scope_correlation'] = {
+            'in_scope': in_scope,
+            'cdn_fronted': cdn_fronted,
+            'out_of_scope': out_of_scope,
+            'unresolved': sorted(unresolved),
+            'by_scope_ip': by_scope_ip,
+            'ptr_matches': ptr_matches
+        }
+
+        self.checkpoint('ct_scope_correlation', 'in_scope', in_scope)
+        self.checkpoint('ct_scope_correlation', 'cdn_fronted', cdn_fronted)
+        self.checkpoint('ct_scope_correlation', 'out_of_scope', out_of_scope)
+        self.checkpoint('ct_scope_correlation', 'unresolved', unresolved)
+        self.checkpoint('ct_scope_correlation', 'classified', list(classified))
+        self.checkpoint('ct_scope_correlation', 'asn_cache', asn_cache)
+        self.checkpoint('ct_scope_correlation', 'ptr_matches', ptr_matches)
+
+        self.print_info(f"\nCT Scope Correlation Summary:")
+        self.print_success(f"  In scope: {len(in_scope)}")
+        self.print_warning(f"  CDN fronted (origin may be in scope): {len(cdn_fronted)}")
+        self.print_info(f"  Out of scope: {len(out_of_scope)}")
+        self.print_info(f"  Unresolved: {len(unresolved)}")
+        self.print_info(f"  Scope IPs with matching CT names: {len(by_scope_ip)}")
+
     def subdomain_takeover_detection(self):
                 """Check for subdomain takeover vulnerabilities with validation"""
                 self.print_section("SUBDOMAIN TAKEOVER DETECTION")
@@ -7084,6 +7263,72 @@ class ReconAutomation:
                                 f.write(f"- **Network Ranges:** {', '.join(data['netranges'])}\n")
                             f.write(f"\n")
 
+                    # CT Log to Scope Correlation
+                    ct_corr = self.results.get('ct_scope_correlation', {})
+                    if ct_corr and self.ip_ranges:
+                        in_scope_names = ct_corr.get('in_scope', {})
+                        cdn_fronted = ct_corr.get('cdn_fronted', {})
+                        out_of_scope = ct_corr.get('out_of_scope', {})
+                        unresolved = ct_corr.get('unresolved', [])
+                        by_scope_ip = ct_corr.get('by_scope_ip', {})
+                        ptr_matches = ct_corr.get('ptr_matches', {})
+
+                        f.write(f"## CT Log to Scope Correlation\n\n")
+                        f.write(f"**In Scope:** {len(in_scope_names)} | ")
+                        f.write(f"**CDN Fronted:** {len(cdn_fronted)} | ")
+                        f.write(f"**Out of Scope:** {len(out_of_scope)} | ")
+                        f.write(f"**Unresolved:** {len(unresolved)}\n\n")
+
+                        if by_scope_ip:
+                            f.write(f"### In-Scope IPs and Matching CT Names ({len(by_scope_ip)})\n\n")
+                            for ip in sorted(by_scope_ip.keys()):
+                                f.write(f"#### {ip}\n")
+                                for n in sorted(by_scope_ip[ip]):
+                                    f.write(f"- `{n}`\n")
+                                f.write(f"\n")
+
+                        if in_scope_names:
+                            f.write(f"### CT Names In Authorized Scope ({len(in_scope_names)})\n\n")
+                            for name, data in sorted(in_scope_names.items()):
+                                ips_str = ', '.join(data.get('scope_ips', []))
+                                ranges_str = ', '.join(data.get('matched_ranges', []))
+                                f.write(f"- `{name}` -> {ips_str} (scope: {ranges_str})\n")
+                            f.write(f"\n")
+
+                        if cdn_fronted:
+                            f.write(f"### CDN-Fronted CT Names ({len(cdn_fronted)}) - ORIGIN MAY BE IN SCOPE\n\n")
+                            f.write(f"These names resolve to CDN or hosting edge addresses outside the scope ranges. ")
+                            f.write(f"The origin server may still reside within the authorized scope and warrants manual origin discovery.\n\n")
+                            for name, data in sorted(cdn_fronted.items()):
+                                ips_str = ', '.join(data.get('ips', []))
+                                f.write(f"- `{name}` -> {ips_str} ({data.get('provider', 'Unknown')})\n")
+                            f.write(f"\n")
+
+                        if out_of_scope:
+                            f.write(f"### Out-of-Scope CT Names ({len(out_of_scope)})\n\n")
+                            for name, data in sorted(out_of_scope.items()):
+                                ips_str = ', '.join(data.get('ips', []))
+                                f.write(f"- `{name}` -> {ips_str}\n")
+                            f.write(f"\n")
+
+                        if unresolved:
+                            f.write(f"### Unresolved CT Names ({len(unresolved)})\n\n")
+                            f.write(f"Present in certificate transparency logs but not resolvable via public DNS. ")
+                            f.write(f"May be stale certificates or internal-only hostnames.\n\n")
+                            for name in sorted(unresolved)[:100]:
+                                f.write(f"- `{name}`\n")
+                            if len(unresolved) > 100:
+                                f.write(f"- ... and {len(unresolved) - 100} more\n")
+                            f.write(f"\n")
+
+                        ptr_hits = {ip: d for ip, d in ptr_matches.items() if d.get('in_ct_set')}
+                        if ptr_hits:
+                            f.write(f"### Reverse PTR Matches ({len(ptr_hits)})\n\n")
+                            f.write(f"Scope IPs whose PTR record matches a name in the CT set.\n\n")
+                            for ip in sorted(ptr_hits.keys()):
+                                f.write(f"- {ip} -> `{ptr_hits[ip]['ptr']}`\n")
+                            f.write(f"\n")
+
                     # Subdomain Takeover
                     f.write(f"## Subdomain Takeover Vulnerabilities\n\n")
                     takeovers = self.results.get('subdomain_takeovers', [])
@@ -7634,6 +7879,41 @@ class ReconAutomation:
                         f.write("federated cloud services. Current vendor advisories should be reviewed against the ")
                         f.write("identified version before active testing.\n\n")
 
+                    # CT Log to Scope Correlation
+                    ct_corr = self.results.get('ct_scope_correlation', {})
+                    if ct_corr and self.ip_ranges:
+                        in_scope_names = ct_corr.get('in_scope', {})
+                        cdn_fronted = ct_corr.get('cdn_fronted', {})
+                        out_of_scope = ct_corr.get('out_of_scope', {})
+                        unresolved = ct_corr.get('unresolved', [])
+                        by_scope_ip = ct_corr.get('by_scope_ip', {})
+
+                        f.write("### Correlating Certificate Transparency With Authorized Scope\n\n")
+                        f.write(f"Certificate transparency names were cross-referenced against the authorized IP ranges ")
+                        f.write(f"to separate confirmed in-scope targets from names that fall outside scope or hide behind a CDN. ")
+                        f.write(f"This produced {len(in_scope_names)} in-scope name(s), {len(cdn_fronted)} CDN-fronted name(s), ")
+                        f.write(f"{len(out_of_scope)} out-of-scope name(s), and {len(unresolved)} unresolved name(s).\n\n")
+
+                        if by_scope_ip:
+                            f.write("The following in-scope IP addresses have certificate transparency names pointing at them. ")
+                            f.write("These are the highest-priority targets for active testing.\n\n")
+                            for ip in sorted(by_scope_ip.keys())[:20]:
+                                names = ', '.join(sorted(by_scope_ip[ip]))
+                                f.write(f"- {ip} <- {names}\n")
+                            if len(by_scope_ip) > 20:
+                                f.write(f"- ... and {len(by_scope_ip) - 20} more\n")
+                            f.write("\n")
+
+                        if cdn_fronted:
+                            f.write("Several certificate transparency names resolve to CDN or hosting provider edge addresses ")
+                            f.write("rather than an in-scope origin. The backing origin may still reside within the authorized ")
+                            f.write("scope, so these names should undergo manual origin discovery before being ruled out.\n\n")
+                            for name, data in sorted(cdn_fronted.items())[:15]:
+                                f.write(f"- {name} ({data.get('provider', 'Unknown')})\n")
+                            if len(cdn_fronted) > 15:
+                                f.write(f"- ... and {len(cdn_fronted) - 15} more\n")
+                            f.write("\n")
+
                     # Subdomain Takeover
                     takeovers = self.results.get('subdomain_takeovers', [])
                     if takeovers:
@@ -7910,6 +8190,18 @@ class ReconAutomation:
                         self.mark_module_status('dns_enumeration', 'failed', str(e))
                         self.print_error(f"dns_enumeration failed: {e}")
 
+                if self.ip_ranges and self.should_run_module('ct_scope_correlation'):
+                    if not self.args.skip_ct_correlation:
+                        self.mark_module_status('ct_scope_correlation', 'in_progress')
+                        try:
+                            self.ct_scope_correlation()
+                            self.mark_module_status('ct_scope_correlation', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('ct_scope_correlation', 'failed', str(e))
+                            self.print_error(f"ct_scope_correlation failed: {e}")
+                    else:
+                        self.mark_module_status('ct_scope_correlation', 'skipped')
+
                 if not self.ip_ranges and self.should_run_module('post_dns_whois'):
                     self.mark_module_status('post_dns_whois', 'in_progress')
                     try:
@@ -8160,7 +8452,7 @@ class ReconAutomation:
                 """Initialize state tracking structure (multi-domain, client-level)"""
                 per_domain_modules = [
                     'scope_validation', 'm365_tenant', 'adfs', 'email_security',
-                    'dns_enumeration', 'post_dns_whois', 'technology_stack',
+                    'dns_enumeration', 'ct_scope_correlation', 'post_dns_whois', 'technology_stack',
                     'email_harvesting', 'linkedin_enumeration', 'breach_database_check',
                     'github_secret_scanning', 'asn_enumeration',
                     'subdomain_takeover_detection', 's3_bucket_enumeration',
@@ -8501,6 +8793,7 @@ Examples:
     parser.add_argument('--skip-github', action='store_true', help='Skip GitHub secret scanning')
     parser.add_argument('--skip-asn', action='store_true', help='Skip ASN enumeration')
     parser.add_argument('--skip-subdomain-takeover', action='store_true', help='Skip subdomain takeover detection')
+    parser.add_argument('--skip-ct-correlation', action='store_true', help='Skip CT-to-scope correlation (requires -i)')
     parser.add_argument('--skip-m365', action='store_true', help='Skip M365/Azure AD tenant attribution')
     parser.add_argument('--skip-adfs', action='store_true', help='Skip ADFS endpoint discovery')
     parser.add_argument('--skip-email-security', action='store_true', help='Skip email security posture check (SPF/DKIM/DMARC)')
