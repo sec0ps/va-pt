@@ -163,7 +163,7 @@ Location: darkweb-recon/console/templates/workspace.html
 {% for f in findings %}
 <tr>
 <td>{{ f.status }}</td>
-<td>{{ f.source }}</td>
+<td>{% set srcs = source_map.get(f.id, [f.source]) %}{{ srcs|join(', ') }}{% if srcs|length > 1 %} <span class="hint">({{ srcs|length }})</span>{% endif %}</td>
 <td><a href="{{ url_for('ui.finding_detail', fid=f.id) }}">{{ f.title or '(no title)' }}</a></td>
 <td class="mono">{{ f.url }}</td>
 <td>{{ f.last_seen[:19] }}</td>
