@@ -686,12 +686,14 @@ def add_finding_match(finding_id, term_id, term_type, matched_value):
         )
 
 
-def list_findings(workspace_id, status=None, limit=200, offset=0):
+def list_findings(workspace_id, status=None, limit=200, offset=0, matched=False):
     query = "SELECT * FROM findings WHERE workspace_id = ?"
     params = [workspace_id]
     if status:
         query += " AND status = ?"
         params.append(status)
+    if matched:
+        query += " AND EXISTS (SELECT 1 FROM finding_matches m WHERE m.finding_id = findings.id)"
     query += " ORDER BY last_seen DESC LIMIT ? OFFSET ?"
     params.append(limit)
     params.append(offset)
@@ -699,12 +701,14 @@ def list_findings(workspace_id, status=None, limit=200, offset=0):
         return _rows(conn.execute(query, params))
 
 
-def count_findings(workspace_id, status=None):
+def count_findings(workspace_id, status=None, matched=False):
     query = "SELECT COUNT(*) AS c FROM findings WHERE workspace_id = ?"
     params = [workspace_id]
     if status:
         query += " AND status = ?"
         params.append(status)
+    if matched:
+        query += " AND EXISTS (SELECT 1 FROM finding_matches m WHERE m.finding_id = findings.id)"
     with connection() as conn:
         return conn.execute(query, params).fetchone()["c"]
 
