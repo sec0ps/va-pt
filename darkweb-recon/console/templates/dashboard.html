@@ -87,9 +87,9 @@
 {% if current_user.role == 'admin' %}
 <div class="card panel full">
 <h2>new workspace</h2>
-<form method="post" action="{{ url_for('ui.create_workspace') }}">
-<label>name<input name="name"></label>
-<label>client<input name="client"></label>
+<form method="post" action="{{ url_for('ui.create_workspace') }}" autocomplete="off">
+<label>name<input name="name" autocomplete="off"></label>
+<label>client<input name="client" autocomplete="off"></label>
 <button type="submit">create</button>
 </form>
 </div>
