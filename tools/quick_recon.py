@@ -146,6 +146,9 @@ class ReconAutomation:
     # Max unknown-type files to pull per bucket when download_unknown_files is enabled
     UNKNOWN_DOWNLOAD_CAP = 10
 
+    # Default public DNS resolvers for authoritative record lookups (SPF/DKIM/DMARC)
+    DEFAULT_DNS_RESOLVERS = ['1.1.1.1', '8.8.8.8', '9.9.9.9']
+
     def __init__(self, domain, ip_ranges: List[str], output_dir: str, client_name: str, auto_resume: bool = False):
                 # domain may be a single string or a list of domains
                 if isinstance(domain, str):
@@ -1047,6 +1050,26 @@ class ReconAutomation:
                 resolver = dns.resolver.Resolver()
                 resolver.timeout = 5
                 resolver.lifetime = 10
+
+                # Point SPF/DKIM/DMARC lookups at explicit resolvers. These are public
+                # authoritative records so a fixed resolver vantage does not distort findings.
+                # Defaults to public resolvers, overridable with --resolvers.
+                configured = getattr(self.args, 'resolvers', None) if hasattr(self, 'args') else None
+                resolver_ips = []
+                if configured:
+                    for entry in configured.split(','):
+                        entry = entry.strip()
+                        if not entry:
+                            continue
+                        try:
+                            ipaddress.ip_address(entry)
+                            resolver_ips.append(entry)
+                        except ValueError:
+                            self.print_warning(f"  Ignoring invalid resolver address: {entry}")
+                if not resolver_ips:
+                    resolver_ips = list(self.DEFAULT_DNS_RESOLVERS)
+                resolver.nameservers = resolver_ips
+                self.print_info(f"  Using DNS resolvers: {', '.join(resolver_ips)}")
 
                 # =====================================================================
                 # SPF Analysis
@@ -8266,13 +8289,16 @@ class ReconAutomation:
                         self.print_error(f"post_dns_whois failed: {e}")
 
                 if self.should_run_module('technology_stack'):
-                    self.mark_module_status('technology_stack', 'in_progress')
-                    try:
-                        self.technology_stack_identification()
-                        self.mark_module_status('technology_stack', 'complete')
-                    except Exception as e:
-                        self.mark_module_status('technology_stack', 'failed', str(e))
-                        self.print_error(f"technology_stack failed: {e}")
+                    if not self.args.skip_techstack:
+                        self.mark_module_status('technology_stack', 'in_progress')
+                        try:
+                            self.technology_stack_identification()
+                            self.mark_module_status('technology_stack', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('technology_stack', 'failed', str(e))
+                            self.print_error(f"technology_stack failed: {e}")
+                    else:
+                        self.mark_module_status('technology_stack', 'skipped')
 
                 if self.should_run_module('email_harvesting'):
                     self.mark_module_status('email_harvesting', 'in_progress')
@@ -8850,7 +8876,9 @@ Examples:
     parser.add_argument('--skip-ct-correlation', action='store_true', help='Skip CT-to-scope correlation (requires -i)')
     parser.add_argument('--skip-m365', action='store_true', help='Skip M365/Azure AD tenant attribution')
     parser.add_argument('--skip-adfs', action='store_true', help='Skip ADFS endpoint discovery')
+    parser.add_argument('--skip-techstack', action='store_true', help='Skip technology stack identification')
     parser.add_argument('--skip-email-security', action='store_true', help='Skip email security posture check (SPF/DKIM/DMARC)')
+    parser.add_argument('--resolvers', default=None, help='Comma-separated DNS resolvers for SPF/DKIM/DMARC lookups (default: 1.1.1.1,8.8.8.8,9.9.9.9)')
     parser.add_argument('--skip-osint', action='store_true', help='Skip all OSINT modules (GitHub, LinkedIn)')
     parser.add_argument('--linkedin-max-results', type=int, default=100, help='Maximum LinkedIn employee results to fetch (default: 100)')
     parser.add_argument('--linkedin-mode', choices=['fast', 'normal', 'paranoid'], default='normal', help='LinkedIn delay mode: fast (testing only, high lockout risk), normal (default, human-like delays), paranoid (slower, for sensitive engagements)')
