@@ -68,7 +68,7 @@ import argparse
 import logging
 
 from config import Config
-from torctl import TorController, TorError
+from torctl import TorController, AttachedTorController, TorError, _port_available
 from fetch import TorFetcher, FetchError
 from sources.ahmia import AhmiaSource
 from sources.torch import TorchSource
@@ -180,12 +180,50 @@ def build_parser():
     p.add_argument("-l", "--limit", type=int, default=25, help="max results per term")
     p.add_argument("--engagement", default="probe",
                    help="engagement tag used for circuit isolation")
+    p.add_argument("--tor-mode", choices=("auto", "attach", "launch"), default="auto",
+                   help="auto: attach to a running tor (e.g. the console's), else launch "
+                        "own; attach: require a running tor; launch: force own managed tor")
     p.add_argument("--connect-timeout", type=int,
                    help="override fetch connect timeout (s); raise for slow onions")
     p.add_argument("--read-timeout", type=int, help="override fetch read timeout (s)")
     p.add_argument("--json", action="store_true", help="emit json output")
     p.add_argument("--quiet", action="store_true", help="suppress tor bootstrap logs")
     return p
+
+
+def acquire_tor(config, mode):
+    """Return a started tor controller per mode. Never reaps the console's tor.
+
+    auto:   attach to a tor already running on the configured ports (the console's);
+            if none is attachable, launch our own only when the ports are free.
+    attach: require an already-running tor; error if none.
+    launch: force our own managed tor (this reaps our orphans and will collide with
+            a running console -- use only when the console is stopped).
+    """
+    if mode in ("auto", "attach"):
+        att = AttachedTorController(config)
+        try:
+            att.start()
+            log.info("attached to running tor (control %d, socks %d)",
+                     config.tor_control_port, config.tor_socks_port)
+            return att
+        except TorError as exc:
+            if mode == "attach":
+                raise SystemExit(
+                    "attach failed: %s\nis the console (run.py) running? "
+                    "or use --tor-mode launch with the console stopped" % exc)
+            ports_busy = [p for p in (config.tor_socks_port, config.tor_control_port)
+                          if not _port_available(p)]
+            if ports_busy:
+                raise SystemExit(
+                    "a tor is on port %s but I could not attach to it (%s); refusing to "
+                    "launch a second tor or disturb it. run with the console up so I can "
+                    "attach, or stop it and use --tor-mode launch"
+                    % (" and ".join(map(str, ports_busy)), exc))
+            log.info("no running tor found; launching a managed tor")
+    tor = TorController(config)
+    tor.start()
+    return tor
 
 
 def run(args):
@@ -207,16 +245,19 @@ def run(args):
 
     results = []
     try:
-        with TorController(config) as tor:
-            fetcher = TorFetcher(tor, config)
-            for term in args.term:
-                for name in selected:
-                    log.info("probing %s for %r", name, term)
-                    results.append(
-                        probe_engine(name, engines[name], fetcher, term, args.limit,
-                                     "%s-%s" % (args.engagement, name)))
+        tor = acquire_tor(config, args.tor_mode)
     except TorError as exc:
         raise SystemExit("tor failed to start: %s" % exc)
+    try:
+        fetcher = TorFetcher(tor, config)
+        for term in args.term:
+            for name in selected:
+                log.info("probing %s for %r", name, term)
+                results.append(
+                    probe_engine(name, engines[name], fetcher, term, args.limit,
+                                 "%s-%s" % (args.engagement, name)))
+    finally:
+        tor.stop()  # attach: closes control conn only; launch: stops our own tor
 
     emit(results, args.json)
     if not args.json:
