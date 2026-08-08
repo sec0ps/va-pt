@@ -3,7 +3,7 @@
 <h1>{{ ws.name }} {% if ws.client %}<small>{{ ws.client }}</small>{% endif %}</h1>
 
 <div class="row">
-<form method="post" action="{{ url_for('ui.run_now', wid=ws.id) }}">
+<form method="post" action="{{ url_for('ui.run_now', wid=ws.id) }}" autocomplete="off">
   <button type="submit">run now</button>
   <span class="hint">runs enabled terms against selected sources, or all enabled if none picked</span>
   <div class="sources">
@@ -24,8 +24,8 @@
 <td class="mono">{{ t.term or '(any)' }}</td>
 <td>{{ 'yes' if t.enabled else 'no' }}</td>
 <td>
-<form method="post" action="{{ url_for('ui.toggle_term', tid=t.id) }}" class="inline"><button>toggle</button></form>
-<form method="post" action="{{ url_for('ui.delete_term', tid=t.id) }}" class="inline"><button class="danger">delete</button></form>
+<form method="post" action="{{ url_for('ui.toggle_term', tid=t.id) }}" class="inline" autocomplete="off"><button>toggle</button></form>
+<form method="post" action="{{ url_for('ui.delete_term', tid=t.id) }}" class="inline" autocomplete="off"><button class="danger">delete</button></form>
 </td>
 </tr>
 {% else %}
@@ -36,12 +36,12 @@
 
 <div class="card">
 <h3>add term</h3>
-<form method="post" action="{{ url_for('ui.add_term', wid=ws.id) }}">
+<form method="post" action="{{ url_for('ui.add_term', wid=ws.id) }}" autocomplete="off">
 <label>type
 <select name="term_type">
 {% for tt in term_types %}<option value="{{ tt }}">{{ tt }}</option>{% endfor %}
 </select></label>
-<label>term<input name="term" placeholder="value, or blank to extract all of the type"></label>
+<label>term<input name="term" placeholder="value, or blank to extract all of the type" autocomplete="off"></label>
 <button type="submit">add</button>
 </form>
 </div>
@@ -59,8 +59,8 @@
 <td>{{ 'yes' if s.enabled else 'no' }}</td>
 <td>{{ (s.last_run_at or '')[:19] }}</td>
 <td>
-<form method="post" action="{{ url_for('ui.toggle_schedule', sid=s.id) }}" class="inline"><button>toggle</button></form>
-<form method="post" action="{{ url_for('ui.delete_schedule', sid=s.id) }}" class="inline"><button class="danger">delete</button></form>
+<form method="post" action="{{ url_for('ui.toggle_schedule', sid=s.id) }}" class="inline" autocomplete="off"><button>toggle</button></form>
+<form method="post" action="{{ url_for('ui.delete_schedule', sid=s.id) }}" class="inline" autocomplete="off"><button class="danger">delete</button></form>
 </td>
 </tr>
 {% else %}
@@ -71,8 +71,8 @@
 
 <div class="card">
 <h3>add schedule</h3>
-<form method="post" action="{{ url_for('ui.add_schedule', wid=ws.id) }}">
-<label>name<input name="name"></label>
+<form method="post" action="{{ url_for('ui.add_schedule', wid=ws.id) }}" autocomplete="off">
+<label>name<input name="name" autocomplete="off"></label>
 <label>frequency
 <select name="frequency" id="freqSelect">
 <option value="hourly">hourly</option>
@@ -87,8 +87,8 @@
 <option value="interval">interval</option>
 <option value="cron">cron</option>
 </select></label>
-<label>interval seconds<input name="interval_seconds" placeholder="e.g. 3600"></label>
-<label>cron<input name="cron" placeholder="e.g. */30 * * * *"></label>
+<label>interval seconds<input name="interval_seconds" placeholder="e.g. 3600" autocomplete="off"></label>
+<label>cron<input name="cron" placeholder="e.g. */30 * * * *" autocomplete="off"></label>
 </span>
 <div class="sources">
 {% for s in sources %}
@@ -115,7 +115,7 @@
 <a href="{{ url_for('ui.workspace_detail', wid=ws.id, status='new', per_page=per_page) }}">new</a>
 <a href="{{ url_for('ui.workspace_detail', wid=ws.id, status='confirmed', per_page=per_page) }}">confirmed</a>
 <a href="{{ url_for('ui.workspace_detail', wid=ws.id, status='dismissed', per_page=per_page) }}">dismissed</a>
-<form method="get" action="{{ url_for('ui.workspace_detail', wid=ws.id) }}" class="inline">
+<form method="get" action="{{ url_for('ui.workspace_detail', wid=ws.id) }}" class="inline" autocomplete="off">
 {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
 <label class="inline">show
 <select name="per_page" onchange="this.form.submit()">
@@ -134,13 +134,13 @@
 <td class="mono">{{ f.url }}</td>
 <td>{{ f.last_seen[:19] }}</td>
 <td>
-<form method="post" action="{{ url_for('ui.finding_status', fid=f.id) }}" class="inline">
+<form method="post" action="{{ url_for('ui.finding_status', fid=f.id) }}" class="inline" autocomplete="off">
 <input type="hidden" name="next" value="{{ url_for('ui.workspace_detail', wid=ws.id, status=status, per_page=per_page, page=page) }}">
 <button name="status" value="confirmed">confirm</button>
 <button name="status" value="dismissed" class="danger">dismiss</button>
 <button name="status" value="new">reset</button>
 </form>
-<form method="post" action="{{ url_for('ui.analyze_finding', fid=f.id) }}" class="inline"><button>analyze</button></form>
+<form method="post" action="{{ url_for('ui.analyze_finding', fid=f.id) }}" class="inline" autocomplete="off"><button>analyze</button></form>
 </td>
 </tr>
 {% else %}
