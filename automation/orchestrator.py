@@ -62,6 +62,133 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
+# =============================================================================
+# Runtime venv bootstrap.
+#
+# This runs at import time, before any project module or third-party package is
+# imported, so its correctness never depends on the rest of the tree staying
+# import-clean. Under sudo the process is root, and root does not see a user's
+# pip --user site-packages, so putting a user-writable directory on root's
+# import path would be a local privilege-escalation surface. The runtime instead
+# lives in a root-owned venv. If we are not already running under that venv, it
+# is built on first use (root required) and the program re-execs under the venv
+# interpreter, preserving arguments, cwd, and identity. Idempotent and loop-safe
+# via an environment sentinel and a prefix check. The two flags it honors are
+# parsed by hand here because argparse is not yet wired up at import time; the
+# real parser in main() declares them again for --help and validation.
+# =============================================================================
+
+DEFAULT_VENV_DIR = "/opt/va-pt-venv"
+RUNTIME_DEPS = ("rich", "pymetasploit3")
+_REEXEC_SENTINEL = "VAPT_RUNTIME_BOOTSTRAPPED"
+
+
+def _boot_fatal(msg):
+    """Fail the bootstrap before logging exists: stderr and a hard exit."""
+    print(f"error: {msg}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def _boot_arg_value(argv, name, default):
+    """Read --name VALUE or --name=VALUE from a raw argv slice, else default."""
+    prefix = name + "="
+    for i, a in enumerate(argv):
+        if a == name and i + 1 < len(argv):
+            return argv[i + 1]
+        if a.startswith(prefix):
+            return a[len(prefix):]
+    return default
+
+
+def _venv_python(venv_dir):
+    return os.path.join(venv_dir, "bin", "python")
+
+
+def _venv_ready(venv_python, deps):
+    """True when the venv interpreter exists and can import every dep."""
+    if not os.access(venv_python, os.X_OK):
+        return False
+    try:
+        proc = subprocess.run([venv_python, "-c", "import " + ", ".join(deps)],
+                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL)
+    except OSError:
+        return False
+    return proc.returncode == 0
+
+
+def _pip_install(venv_python, deps):
+    """Install deps into the venv with pip output inherited so the one-time
+    install shows real progress. Returns the pip return code."""
+    cmd = [venv_python, "-m", "pip", "install", *deps]
+    try:
+        proc = subprocess.run(cmd, stdin=subprocess.DEVNULL)
+    except OSError as e:
+        print(f"runtime: pip not runnable: {e}", file=sys.stderr)
+        return 1
+    return proc.returncode
+
+
+def _build_venv(venv_dir, venv_python, deps):
+    """Create the venv if absent, then install deps. Root required. Surfaces a
+    missing python3-venv package with an actionable hint."""
+    if not os.path.exists(venv_python):
+        print(f"runtime: creating venv at {venv_dir} (one time)", file=sys.stderr)
+        try:
+            proc = subprocess.run([sys.executable, "-m", "venv", venv_dir],
+                                  stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE)
+        except OSError as e:
+            _boot_fatal(f"could not create venv at {venv_dir}: {e}")
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout).decode(errors="replace").strip()
+            if "ensurepip" in detail or "venv" in detail.lower():
+                _boot_fatal(
+                    "could not create venv; install the python3-venv package "
+                    f"(e.g. apt install python3-venv). detail: {detail}")
+            _boot_fatal(f"could not create venv at {venv_dir}: {detail}")
+    print(f"runtime: installing {', '.join(deps)} into {venv_dir}",
+          file=sys.stderr)
+    if _pip_install(venv_python, deps) != 0:
+        _boot_fatal(f"pip install of {', '.join(deps)} into {venv_dir} failed")
+
+
+def _bootstrap_runtime():
+    """Ensure this program runs under an interpreter that can import
+    RUNTIME_DEPS, re-execing under a root-owned venv when it does not. No-op for
+    --help, --no-venv, an already-bootstrapped child, or a run already inside the
+    venv. On the first real run this does not return: it re-execs the program."""
+    argv = sys.argv[1:]
+    if "-h" in argv or "--help" in argv:
+        return
+    if "--no-venv" in argv:
+        return
+    if os.environ.get(_REEXEC_SENTINEL):
+        return
+    venv_dir = _boot_arg_value(argv, "--venv-dir", DEFAULT_VENV_DIR)
+    if os.path.realpath(sys.prefix) == os.path.realpath(venv_dir):
+        return
+    venv_python = _venv_python(venv_dir)
+    if not _venv_ready(venv_python, RUNTIME_DEPS):
+        if not (hasattr(os, "geteuid") and os.geteuid() == 0):
+            _boot_fatal(
+                f"runtime venv at {venv_dir} is not built; re-run with sudo to "
+                f"create it (one time), or pass --no-venv if "
+                f"{', '.join(RUNTIME_DEPS)} are already importable by this "
+                "interpreter")
+        _build_venv(venv_dir, venv_python, RUNTIME_DEPS)
+    os.environ[_REEXEC_SENTINEL] = "1"
+    print(f"runtime: handing off to {venv_python}", file=sys.stderr)
+    try:
+        os.execv(venv_python,
+                 [venv_python, os.path.abspath(sys.argv[0])] + sys.argv[1:])
+    except OSError as e:
+        _boot_fatal(f"could not re-exec under venv python: {e}")
+
+
+# Gate the runtime before any project module or third-party package is imported.
+_bootstrap_runtime()
+
 from state import (RunState, HostState, Candidate, Verdict, TERMINAL_STATES,
                    is_exploitable_verdict, is_fireable_verdict)
 from scanner import Scanner, ScanConfig, NmapError, nse_scripts_for_cve
@@ -69,8 +196,7 @@ from msf import (MsfClient, MsfConfig, RANK_VALUES, BRUTE_USER_SEED,
                  BRUTE_PASS_SEED, login_module_for, locate_wordlist,
                  write_builtin_wordlists)
 from system import (preflight, PreflightError, FirewallManager, MsfdManager,
-                    find_msfrpcd, resolve_run_as, ensure_runtime,
-                    DEFAULT_VENV_DIR, RUNTIME_DEPS)
+                    find_msfrpcd, resolve_run_as)
 
 logger = logging.getLogger(__name__)
 
@@ -1069,13 +1195,6 @@ def _startup_error(args, msg):
 
 def main(argv=None):
     args = _parse_args(argv)
-    try:
-        # First gate: ensure deps are importable. May re-exec under a root-owned
-        # venv and never return from this call on the first run.
-        ensure_runtime(args.venv_dir, RUNTIME_DEPS, enabled=not args.no_venv)
-    except PreflightError as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
     _setup_logging(args)
 
     specs = list(args.targets)
