@@ -6,6 +6,7 @@ import logging
 import db
 from sources.ahmia import AhmiaSource
 from sources.torch import TorchSource
+from sources.excavator import ExcavatorSource
 
 log = logging.getLogger("recon.registry")
 
@@ -25,6 +26,9 @@ class SourceRegistry:
         if row["name"] == "torch":
             base_url = cfg.get("base_url") or self.config.torch_base_url
             return TorchSource(base_url)
+        if row["name"] == "excavator":
+            base_url = cfg.get("base_url") or self.config.excavator_base_url
+            return ExcavatorSource(base_url)
         log.warning("no plugin implementation for source %s, skipping", row["name"])
         return None
 
