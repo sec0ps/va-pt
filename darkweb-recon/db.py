@@ -34,6 +34,7 @@
 """SQLite schema and data-access layer for the darkweb recon service."""
 
 import json
+import hashlib
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -180,6 +181,18 @@ SCHEMA = [
         matched_value TEXT,
         created_at TEXT NOT NULL,
         UNIQUE (finding_id, term_id, matched_value),
+        FOREIGN KEY (finding_id) REFERENCES findings(id) ON DELETE CASCADE
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS finding_sources (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        finding_id INTEGER NOT NULL,
+        source TEXT NOT NULL,
+        query TEXT,
+        first_seen TEXT NOT NULL,
+        last_seen TEXT NOT NULL,
+        UNIQUE (finding_id, source),
         FOREIGN KEY (finding_id) REFERENCES findings(id) ON DELETE CASCADE
     )
     """,
@@ -580,13 +593,29 @@ def mark_schedule_run(schedule_id):
 
 # findings
 
+def _normalize_url(url):
+    # Collapse cosmetic differences so the same onion result dedups across engines:
+    # drop scheme, lowercase, strip a trailing slash. Distinct paths stay distinct.
+    u = (url or "").strip().lower()
+    for scheme in ("http://", "https://"):
+        if u.startswith(scheme):
+            u = u[len(scheme):]
+            break
+    return u.rstrip("/")
+
+
+def _finding_key(url):
+    return hashlib.sha256(_normalize_url(url).encode("utf-8", "replace")).hexdigest()
+
+
 def upsert_finding(workspace_id, job_id, hit, snippet_max):
     snippet = (hit["snippet"] or "")[:snippet_max]
+    key = _finding_key(hit["url"])
     now = _now()
     with connection() as conn:
         existing = conn.execute(
             "SELECT id FROM findings WHERE workspace_id = ? AND content_hash = ?",
-            (workspace_id, hit["content_hash"]),
+            (workspace_id, key),
         ).fetchone()
         if existing is None:
             cur = conn.execute(
@@ -594,7 +623,7 @@ def upsert_finding(workspace_id, job_id, hit, snippet_max):
                 "content_hash, status, first_seen, last_seen) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, 'new', ?, ?)",
                 (workspace_id, job_id, hit["source"], hit["url"], hit["title"], snippet,
-                 hit["content_hash"], now, now),
+                 key, now, now),
             )
             return cur.lastrowid, True
         finding_id = existing["id"]
@@ -603,6 +632,42 @@ def upsert_finding(workspace_id, job_id, hit, snippet_max):
             (now, job_id, finding_id),
         )
         return finding_id, False
+
+
+def record_finding_source(finding_id, source, query):
+    # Provenance: which engine surfaced this finding, and via which query. One row
+    # per engine; repeat sightings refresh last_seen. This is not a content match.
+    now = _now()
+    with connection() as conn:
+        conn.execute(
+            "INSERT INTO finding_sources (finding_id, source, query, first_seen, last_seen) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(finding_id, source) DO UPDATE SET last_seen = excluded.last_seen",
+            (finding_id, source, (query or "")[:200], now, now),
+        )
+
+
+def list_finding_sources(finding_id):
+    with connection() as conn:
+        return _rows(conn.execute(
+            "SELECT source, query, first_seen, last_seen FROM finding_sources "
+            "WHERE finding_id = ? ORDER BY first_seen", (finding_id,)))
+
+
+def finding_sources_map(finding_ids):
+    # {finding_id: [source, ...]} for a set of findings, for the list-view badge.
+    ids = list(finding_ids)
+    if not ids:
+        return {}
+    placeholders = ",".join("?" * len(ids))
+    out = {}
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT finding_id, source FROM finding_sources "
+            "WHERE finding_id IN (%s) ORDER BY source" % placeholders, ids).fetchall()
+    for r in rows:
+        out.setdefault(r["finding_id"], []).append(r["source"])
+    return out
 
 
 def add_finding_match(finding_id, term_id, term_type, matched_value):
