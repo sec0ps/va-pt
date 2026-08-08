@@ -213,6 +213,13 @@ def init_db():
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 ("torch", "search", 1, json.dumps({}), None, _now()),
             )
+        cur = conn.execute("SELECT id FROM sources WHERE name = ?", ("excavator",))
+        if cur.fetchone() is None:
+            conn.execute(
+                "INSERT INTO sources (name, kind, enabled, config_json, auth_blob, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                ("excavator", "search", 1, json.dumps({}), None, _now()),
+            )
 
 
 # users
