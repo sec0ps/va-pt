@@ -205,4 +205,15 @@ Location: darkweb-recon/console/templates/workspace.html
 {% endfor %}
 </tbody>
 </table>
+
+{% if current_user.role == 'admin' %}
+<h2>danger zone</h2>
+<div class="card">
+<p class="hint">Deleting this workspace permanently removes its watch terms, schedules, jobs, and all findings. This cannot be undone.</p>
+<form method="post" action="{{ url_for('ui.delete_workspace', wid=ws.id) }}" autocomplete="off">
+<label>type <strong>{{ ws.name }}</strong> to confirm<input name="confirm" autocomplete="off"></label>
+<button class="danger" type="submit">delete workspace</button>
+</form>
+</div>
+{% endif %}
 {% endblock %}
