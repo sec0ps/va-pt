@@ -22,7 +22,7 @@
 
 <h2>analysis</h2>
 <div class="row">
-<form method="post" action="{{ url_for('ui.analyze_finding', fid=f.id) }}" class="inline"><button>analyze this site</button></form>
+<form method="post" action="{{ url_for('ui.analyze_finding', fid=f.id) }}" class="inline" autocomplete="off"><button>analyze this site</button></form>
 <span class="hint">fetches the site over Tor and extracts text into an inert report, no browser needed</span>
 </div>
 <table>
