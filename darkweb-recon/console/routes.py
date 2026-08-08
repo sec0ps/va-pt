@@ -165,13 +165,14 @@ def workspace_detail(wid):
     if not auth.can_access_workspace(g.user, wid):
         abort(403)
     status = request.args.get("status") or None
+    matched = request.args.get("matched") in ("1", "true", "yes", "on")
     try:
         per_page = int(request.args.get("per_page", "10"))
     except ValueError:
         per_page = 10
     if per_page not in PAGE_SIZES:
         per_page = 10
-    total = db.count_findings(wid, status)
+    total = db.count_findings(wid, status, matched=matched)
     pages = max(1, (total + per_page - 1) // per_page)
     try:
         page = int(request.args.get("page", "1"))
@@ -179,7 +180,7 @@ def workspace_detail(wid):
         page = 1
     page = max(1, min(page, pages))
     offset = (page - 1) * per_page
-    findings = db.list_findings(wid, status, limit=per_page, offset=offset)
+    findings = db.list_findings(wid, status, limit=per_page, offset=offset, matched=matched)
     return render_template(
         "workspace.html",
         ws=ws,
@@ -189,6 +190,7 @@ def workspace_detail(wid):
         findings=findings,
         source_map=db.finding_sources_map([f["id"] for f in findings]),
         counts=db.count_findings_by_status(wid),
+        matched=matched,
         sources=db.list_enabled_sources(),
         term_types=matching.TERM_TYPES,
         status=status,
