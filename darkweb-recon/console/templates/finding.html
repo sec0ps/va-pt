@@ -37,19 +37,32 @@ Location: darkweb-recon/console/templates/finding.html
 <h1>finding {{ f.id }}</h1>
 <p class="mono">{{ f.url }}</p>
 <p><strong>title</strong> {{ f.title or '(none)' }}</p>
-<p><strong>source</strong> {{ f.source }} &nbsp; <strong>status</strong> {{ f.status }}</p>
+<p><strong>status</strong> {{ f.status }}</p>
 <p><strong>first seen</strong> {{ f.first_seen[:19] }} &nbsp; <strong>last seen</strong> {{ f.last_seen[:19] }}</p>
 <p><strong>snippet</strong></p>
 <pre>{{ f.snippet or '' }}</pre>
 
-<h2>matches</h2>
+<h2>surfaced by <small>which engine returned this URL, and the query that surfaced it &mdash; not content found on the page</small></h2>
+<table>
+<thead><tr><th>engine</th><th>query</th><th>first seen</th></tr></thead>
+<tbody>
+{% for s in finding_sources %}
+<tr><td>{{ s.source }}</td><td class="mono">{{ s.query }}</td><td>{{ s.first_seen[:19] }}</td></tr>
+{% else %}
+<tr><td>{{ f.source }}</td><td></td><td>{{ f.first_seen[:19] }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% if finding_sources|length > 1 %}<p class="hint">{{ finding_sources|length }} engines independently returned this URL.</p>{% endif %}
+
+<h2>matches <small>watch terms actually found in this result's title or snippet</small></h2>
 <table>
 <thead><tr><th>type</th><th>value</th><th>seen</th></tr></thead>
 <tbody>
 {% for m in matches %}
 <tr><td>{{ m.term_type }}</td><td class="mono">{{ m.matched_value }}</td><td>{{ m.created_at[:19] }}</td></tr>
 {% else %}
-<tr><td colspan="3">none</td></tr>
+<tr><td colspan="3">no watch terms found in the title or snippet</td></tr>
 {% endfor %}
 </tbody>
 </table>
