@@ -2,9 +2,9 @@
 {% block content %}
 <div class="card narrow">
 <h1>sign in</h1>
-<form method="post" action="{{ url_for('ui.login') }}">
-  <label>username<input name="username" autofocus autocomplete="username"></label>
-  <label>password<input name="password" type="password" autocomplete="current-password"></label>
+<form method="post" action="{{ url_for('ui.login') }}" autocomplete="off">
+  <label>username<input name="username" autofocus autocomplete="off"></label>
+  <label>password<input name="password" type="password" autocomplete="off"></label>
   <button type="submit">sign in</button>
 </form>
 </div>
