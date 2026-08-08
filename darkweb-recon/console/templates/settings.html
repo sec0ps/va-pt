@@ -9,9 +9,9 @@
 <option value="false" {% if not r.value %}selected{% endif %}>false</option>
 </select>
 {% elif r.type == 'int' %}
-<input type="number" name="{{ r.name }}" value="{{ r.value }}"{% if r.min is not none %} min="{{ r.min }}"{% endif %}{% if r.max is not none %} max="{{ r.max }}"{% endif %}>
+<input type="number" name="{{ r.name }}" value="{{ r.value }}"{% if r.min is not none %} min="{{ r.min }}"{% endif %}{% if r.max is not none %} max="{{ r.max }}"{% endif %} autocomplete="off">
 {% else %}
-<input type="text" name="{{ r.name }}" value="{{ r.value }}" size="44">
+<input type="text" name="{{ r.name }}" value="{{ r.value }}" size="44" autocomplete="off">
 {% endif %}
 </td>
 <td class="hint">{{ r.source }}</td>
@@ -23,7 +23,7 @@
 <h1>settings</h1>
 <p class="hint">saved values override environment variables, which override defaults. check reset on a row to clear the saved value and fall back to env or default when you save.</p>
 
-<form method="post" action="{{ url_for('ui.save_settings') }}">
+<form method="post" action="{{ url_for('ui.save_settings') }}" autocomplete="off">
 
 <h2>live <small>apply on the next search or analyze</small></h2>
 <table>
