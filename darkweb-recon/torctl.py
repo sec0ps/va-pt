@@ -36,6 +36,8 @@
 #         state, federal, and international laws.
 #
 # =============================================================================
+# Location: darkweb-recon/torctl.py
+
 """Tor process lifecycle and control-port management for isolated darkweb fetches.
 
 The controller launches a dedicated tor instance on its fixed configured SOCKS
