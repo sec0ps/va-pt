@@ -208,6 +208,7 @@ class ReconAutomation:
                     'client': self.client_name,
                     'scope_validation': {},
                     'm365_tenant': {},
+                    'm365_enrichment': {},
                     'adfs': {},
                     'email_security': {},
                     'dns_enumeration': {},
@@ -1009,6 +1010,381 @@ class ReconAutomation:
                     self.print_info(f"  OAuth2: Supported")
                 if adfs_data['federation_metadata'].get('entity_id'):
                     self.print_info(f"  Entity ID: {adfs_data['federation_metadata']['entity_id']}")
+
+    def m365_enrichment(self):
+                """Passive M365/Azure AD enrichment. Runs after tenant attribution and is
+                gated on is_m365. Four account-agnostic capabilities, no username validation:
+                  1. Verified-domain enumeration via GetFederationInformation SOAP.
+                  2. Tenant configuration disclosure via a synthetic GetCredentialType probe.
+                  3. Legacy-auth surface reachability against shared Exchange Online endpoints.
+                  4. Hybrid on-premises signal from MX, autodiscover, device-reg, and SPF records.
+                No enumerated domain is tested and no real account is asserted or submitted."""
+                self.print_section("M365/AZURE AD ENRICHMENT")
+
+                resume_data = self.get_resume_data('m365_enrichment')
+                progress = resume_data.get('progress', {})
+
+                enrich = progress.get('enrich_data', {
+                    'ran': False,
+                    'verified_domains': {
+                        'all': [],
+                        'in_scope': [],
+                        'out_of_scope': [],
+                        'tenant_default_domain': '',
+                        'count': 0
+                    },
+                    'tenant_config': {
+                        'desktop_sso_enabled': False,
+                        'throttle_status': None,
+                        'branding_present': False,
+                        'boilerplate_text': '',
+                        'domain_type': None
+                    },
+                    'legacy_auth_surface': {
+                        'basic_auth_offered': False,
+                        'endpoints': {},
+                        'legacy_token_endpoint_present': False
+                    },
+                    'hybrid_signal': {
+                        'seamless_sso': False,
+                        'mx_hosts': [],
+                        'mx_routing': '',
+                        'autodiscover_cname': '',
+                        'autodiscover_routing': '',
+                        'device_registration': False,
+                        'spf_onprem_mechanisms': [],
+                        'assessment': ''
+                    }
+                })
+
+                # Skip if already complete from checkpoint
+                if progress.get('complete'):
+                    self.print_info("Restored M365 enrichment data from checkpoint")
+                    self.results['m365_enrichment'] = enrich
+                    return
+
+                # Gate: only run for confirmed M365 tenants
+                m365 = self.results.get('m365_tenant', {})
+                if not m365.get('is_m365'):
+                    self.print_info("Skipping M365 enrichment (not an M365 tenant)")
+                    self.results['m365_enrichment'] = enrich
+                    self.checkpoint('m365_enrichment', 'complete', True)
+                    return
+
+                tenant_id = m365.get('tenant_id', '')
+                authorized = {d.lower() for d in self.domains}
+
+                # Resolver for hybrid-signal DNS lookups. Same fixed public-resolver
+                # vantage as the email-security module so records are read authoritatively.
+                resolver = dns.resolver.Resolver()
+                resolver.timeout = 5
+                resolver.lifetime = 10
+                configured = getattr(self.args, 'resolvers', None) if hasattr(self, 'args') else None
+                resolver_ips = []
+                if configured:
+                    for entry in configured.split(','):
+                        entry = entry.strip()
+                        if not entry:
+                            continue
+                        try:
+                            ipaddress.ip_address(entry)
+                            resolver_ips.append(entry)
+                        except ValueError:
+                            pass
+                if not resolver_ips:
+                    resolver_ips = list(self.DEFAULT_DNS_RESOLVERS)
+                resolver.nameservers = resolver_ips
+
+                # =====================================================================
+                # 1. Verified-domain enumeration via GetFederationInformation SOAP
+                #    Pure metadata against a Microsoft endpoint. Returns every domain
+                #    verified or federated on the tenant. Cataloged and classified against
+                #    the authorized domain list. Out-of-scope domains are flagged only,
+                #    never probed. This is the highest-value passive follow-on.
+                # =====================================================================
+                self.print_info("Enumerating verified tenant domains (GetFederationInformation)...")
+
+                soap_body = (
+                    '<?xml version="1.0" encoding="utf-8"?>'
+                    '<soap:Envelope xmlns:exm="http://schemas.microsoft.com/exchange/services/2006/messages" '
+                    'xmlns:ext="http://schemas.microsoft.com/exchange/services/2006/types" '
+                    'xmlns:a="http://www.w3.org/2005/08/addressing" '
+                    'xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">'
+                    '<soap:Header>'
+                    '<a:Action soap:mustUnderstand="1">http://schemas.microsoft.com/exchange/2010/Autodiscover/Autodiscover/GetFederationInformation</a:Action>'
+                    '<a:To soap:mustUnderstand="1">https://autodiscover-s.outlook.com/autodiscover/autodiscover.svc</a:To>'
+                    '<a:ReplyTo><a:Address>http://www.w3.org/2005/08/addressing/anonymous</a:Address></a:ReplyTo>'
+                    '</soap:Header>'
+                    '<soap:Body>'
+                    '<GetFederationInformationRequestMessage xmlns="http://schemas.microsoft.com/exchange/2010/Autodiscover">'
+                    f'<Request><Domain>{self.domain}</Domain></Request>'
+                    '</GetFederationInformationRequestMessage>'
+                    '</soap:Body>'
+                    '</soap:Envelope>'
+                )
+
+                try:
+                    response = requests.post(
+                        'https://autodiscover-s.outlook.com/autodiscover/autodiscover.svc',
+                        data=soap_body,
+                        headers={
+                            'Content-Type': 'text/xml; charset=utf-8',
+                            'SOAPAction': '"http://schemas.microsoft.com/exchange/2010/Autodiscover/Autodiscover/GetFederationInformation"',
+                            'User-Agent': 'AutodiscoverClient'
+                        },
+                        timeout=20,
+                        verify=False
+                    )
+
+                    if response.status_code == 200:
+                        raw_domains = re.findall(r'<Domain>([^<]+)</Domain>', response.text)
+                        seen = set()
+                        all_domains = []
+                        for d in raw_domains:
+                            dl = d.strip().lower()
+                            if not dl or dl in seen:
+                                continue
+                            seen.add(dl)
+                            all_domains.append(dl)
+
+                        in_scope = [d for d in all_domains if d in authorized]
+                        out_of_scope = [d for d in all_domains if d not in authorized]
+                        default_domain = next((d for d in all_domains if d.endswith('.onmicrosoft.com') and not d.endswith('.mail.onmicrosoft.com')), '')
+
+                        enrich['verified_domains']['all'] = all_domains
+                        enrich['verified_domains']['in_scope'] = in_scope
+                        enrich['verified_domains']['out_of_scope'] = out_of_scope
+                        enrich['verified_domains']['tenant_default_domain'] = default_domain
+                        enrich['verified_domains']['count'] = len(all_domains)
+
+                        self.print_success(f"Verified domains on tenant: {len(all_domains)}")
+                        if default_domain:
+                            self.print_info(f"  Tenant default domain: {default_domain}")
+                        self.print_info(f"  In authorized scope: {len(in_scope)}")
+                        if out_of_scope:
+                            self.print_warning(f"  Out of authorized scope: {len(out_of_scope)} (flagged, not tested)")
+                    else:
+                        self.print_warning(f"GetFederationInformation returned status {response.status_code}")
+
+                except Exception as e:
+                    self.print_error(f"GetFederationInformation query failed: {e}")
+
+                self.checkpoint('m365_enrichment', 'enrich_data', enrich)
+
+                # =====================================================================
+                # 2. Tenant configuration disclosure via GetCredentialType
+                #    A single POST with a synthetic non-existent username reads tenant-wide
+                #    realm properties without validating any real account: Seamless SSO
+                #    (DesktopSsoEnabled), throttling posture, branding, and DomainType.
+                #    IfExistsResult is deliberately ignored - that is user-validation surface.
+                # =====================================================================
+                self.print_info("Reading tenant configuration (GetCredentialType synthetic probe)...")
+
+                synthetic = f"zzq{random.randint(10000000, 99999999)}@{self.domain}"
+                try:
+                    response = requests.post(
+                        'https://login.microsoftonline.com/common/GetCredentialType',
+                        json={'Username': synthetic, 'isOtherIdpSupported': True},
+                        headers={
+                            'Content-Type': 'application/json; charset=UTF-8',
+                            'Accept': 'application/json'
+                        },
+                        timeout=15,
+                        verify=False
+                    )
+
+                    if response.status_code == 200:
+                        data = response.json()
+                        ests = data.get('EstsProperties') or {}
+
+                        desktop_sso = bool(ests.get('DesktopSsoEnabled', False))
+                        enrich['tenant_config']['desktop_sso_enabled'] = desktop_sso
+                        enrich['hybrid_signal']['seamless_sso'] = desktop_sso
+
+                        throttle = data.get('ThrottleStatus')
+                        enrich['tenant_config']['throttle_status'] = throttle
+
+                        domain_type = ests.get('DomainType', data.get('DomainType'))
+                        enrich['tenant_config']['domain_type'] = domain_type
+
+                        branding = ests.get('UserTenantBranding') or []
+                        enrich['tenant_config']['branding_present'] = bool(branding)
+                        if branding and isinstance(branding, list):
+                            boiler = (branding[0] or {}).get('BoilerPlateText', '') or ''
+                            boiler = boiler.strip()
+                            if boiler:
+                                enrich['tenant_config']['boilerplate_text'] = boiler[:500]
+
+                        if desktop_sso:
+                            self.print_warning("  Seamless SSO enabled (Azure AD Connect on-premises indicator)")
+                        else:
+                            self.print_info("  Seamless SSO not advertised")
+                        if throttle not in (None, 0):
+                            self.print_warning(f"  Throttling active (ThrottleStatus={throttle}) - relevant to later spray pacing")
+                        if enrich['tenant_config']['boilerplate_text']:
+                            self.print_success("  Custom sign-in boilerplate text present (pretext value)")
+                    else:
+                        self.print_warning(f"GetCredentialType returned status {response.status_code}")
+
+                except Exception as e:
+                    self.print_error(f"GetCredentialType probe failed: {e}")
+
+                self.checkpoint('m365_enrichment', 'enrich_data', enrich)
+
+                # =====================================================================
+                # 3. Legacy-auth surface reachability (account-agnostic)
+                #    Unauthenticated probes of shared Exchange Online endpoints record which
+                #    WWW-Authenticate schemes are offered at the service layer. Basic being
+                #    offered means legacy auth is not blocked service-side. Per-tenant CA
+                #    enforcement still gates actual use and requires an authenticated probe
+                #    to confirm, so this is a go / no-go gate for a later legacy-auth phase,
+                #    not proof of policy. No username is submitted.
+                # =====================================================================
+                self.print_info("Probing legacy-auth surface (account-agnostic reachability)...")
+
+                legacy_endpoints = {
+                    'ews': 'https://outlook.office365.com/EWS/Exchange.asmx',
+                    'activesync': 'https://outlook.office365.com/Microsoft-Server-ActiveSync',
+                    'oab': 'https://outlook.office365.com/OAB/'
+                }
+
+                basic_offered = False
+                for name, url in legacy_endpoints.items():
+                    try:
+                        response = requests.get(url, timeout=10, verify=False, allow_redirects=False)
+                        www_auth = response.headers.get('WWW-Authenticate', '')
+                        schemes = []
+                        if www_auth:
+                            schemes = sorted({s.strip().split(' ')[0] for s in www_auth.split(',') if s.strip()})
+                        enrich['legacy_auth_surface']['endpoints'][name] = {
+                            'status': response.status_code,
+                            'schemes': schemes
+                        }
+                        if any(s.lower() == 'basic' for s in schemes):
+                            basic_offered = True
+                    except Exception as e:
+                        enrich['legacy_auth_surface']['endpoints'][name] = {'error': str(e)[:100]}
+                    time.sleep(0.3)
+
+                enrich['legacy_auth_surface']['basic_auth_offered'] = basic_offered
+
+                # Legacy v1 token endpoint presence (tenant-scoped). A GET is rejected with a
+                # 4xx that is not 404 when the endpoint exists, confirming the legacy grant path.
+                if tenant_id:
+                    try:
+                        response = requests.get(
+                            f'https://login.microsoftonline.com/{tenant_id}/oauth2/token',
+                            timeout=10, verify=False, allow_redirects=False
+                        )
+                        present = response.status_code in (400, 401, 405)
+                        enrich['legacy_auth_surface']['legacy_token_endpoint_present'] = present
+                    except Exception:
+                        pass
+
+                if basic_offered:
+                    self.print_warning("  Basic auth offered at service layer (legacy-auth phase viable pending CA confirmation)")
+                else:
+                    self.print_info("  Basic auth not offered at probed endpoints")
+
+                self.checkpoint('m365_enrichment', 'enrich_data', enrich)
+
+                # =====================================================================
+                # 4. Hybrid on-premises signal
+                #    MX routing, autodiscover CNAME target, device-registration CNAME, and
+                #    non-Microsoft SPF mechanisms together indicate whether an on-premises
+                #    identity or mail footprint sits behind the cloud front. Combined with
+                #    Seamless SSO from step 2, this reframes where the crown jewels sit.
+                # =====================================================================
+                self.print_info("Assessing hybrid / on-premises signal...")
+
+                # MX routing
+                try:
+                    answers = resolver.resolve(self.domain, 'MX')
+                    mx_hosts = sorted({str(r.exchange).rstrip('.').lower() for r in answers})
+                    enrich['hybrid_signal']['mx_hosts'] = mx_hosts
+                    if mx_hosts and all(h.endswith('.mail.protection.outlook.com') for h in mx_hosts):
+                        enrich['hybrid_signal']['mx_routing'] = 'cloud'
+                    elif mx_hosts:
+                        enrich['hybrid_signal']['mx_routing'] = 'onprem_or_thirdparty'
+                except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+                    pass
+                except Exception:
+                    pass
+
+                # Autodiscover CNAME target
+                try:
+                    answers = resolver.resolve(f'autodiscover.{self.domain}', 'CNAME')
+                    cname = str(answers[0].target).rstrip('.').lower()
+                    enrich['hybrid_signal']['autodiscover_cname'] = cname
+                    if cname == 'autodiscover.outlook.com':
+                        enrich['hybrid_signal']['autodiscover_routing'] = 'cloud'
+                    else:
+                        enrich['hybrid_signal']['autodiscover_routing'] = 'onprem'
+                except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+                    enrich['hybrid_signal']['autodiscover_routing'] = 'none'
+                except Exception:
+                    pass
+
+                # Device-registration CNAME (Azure AD hybrid join / device registration)
+                try:
+                    resolver.resolve(f'enterpriseregistration.{self.domain}', 'CNAME')
+                    enrich['hybrid_signal']['device_registration'] = True
+                except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+                    pass
+                except Exception:
+                    pass
+
+                # Non-Microsoft SPF mechanisms (hybrid or third-party mail flow)
+                try:
+                    answers = resolver.resolve(self.domain, 'TXT')
+                    for r in answers:
+                        txt = ''.join(s.decode() if isinstance(s, bytes) else str(s) for s in r.strings)
+                        if not txt.lower().startswith('v=spf1'):
+                            continue
+                        mechs = re.findall(r'(?:ip4:|ip6:|include:)[^\s]+', txt, re.IGNORECASE)
+                        onprem = [m for m in mechs if 'spf.protection.outlook.com' not in m.lower()]
+                        if onprem:
+                            enrich['hybrid_signal']['spf_onprem_mechanisms'] = onprem
+                        break
+                except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+                    pass
+                except Exception:
+                    pass
+
+                # Verdict
+                hs = enrich['hybrid_signal']
+                indicators = []
+                if hs['seamless_sso']:
+                    indicators.append('Seamless SSO')
+                if hs['device_registration']:
+                    indicators.append('device registration')
+                if hs['autodiscover_routing'] == 'onprem':
+                    indicators.append('on-prem autodiscover')
+                if hs['mx_routing'] == 'onprem_or_thirdparty':
+                    indicators.append('non-cloud MX')
+                if hs['spf_onprem_mechanisms']:
+                    indicators.append('non-Microsoft SPF')
+
+                if indicators:
+                    hs['assessment'] = 'Hybrid indicators present: ' + ', '.join(indicators)
+                    self.print_warning(f"  {hs['assessment']}")
+                else:
+                    hs['assessment'] = 'No hybrid indicators; tenant appears cloud-only'
+                    self.print_info(f"  {hs['assessment']}")
+
+                # Store final results
+                enrich['ran'] = True
+                self.results['m365_enrichment'] = enrich
+                self.checkpoint('m365_enrichment', 'enrich_data', enrich)
+                self.checkpoint('m365_enrichment', 'complete', True)
+
+                # Summary
+                vd = enrich['verified_domains']
+                self.print_info("\nM365 Enrichment Summary:")
+                self.print_info(f"  Verified domains: {vd['count']} ({len(vd['in_scope'])} in scope, {len(vd['out_of_scope'])} out)")
+                self.print_info(f"  Seamless SSO: {'Yes' if enrich['tenant_config']['desktop_sso_enabled'] else 'No'}")
+                self.print_info(f"  Basic auth offered: {'Yes' if enrich['legacy_auth_surface']['basic_auth_offered'] else 'No'}")
+                self.print_info(f"  {hs['assessment']}")
 
     def email_security_posture(self):
                 """Assess SPF, DKIM, and DMARC posture for the target domain"""
@@ -7106,6 +7482,68 @@ class ReconAutomation:
                         f.write(f"## M365/Azure AD Tenant Attribution\n\n")
                         f.write(f"Domain does not appear to be associated with an M365/Azure AD tenant.\n\n")
 
+                    # M365/Azure AD Enrichment
+                    enrich = self.results.get('m365_enrichment', {})
+                    if enrich and enrich.get('ran'):
+                        f.write(f"## M365/Azure AD Enrichment\n\n")
+
+                        vd = enrich.get('verified_domains', {})
+                        f.write(f"### Verified Tenant Domains\n\n")
+                        f.write(f"- **Total verified/federated domains:** {vd.get('count', 0)}\n")
+                        if vd.get('tenant_default_domain'):
+                            f.write(f"- **Tenant default domain:** {vd['tenant_default_domain']}\n")
+                        f.write(f"- **In authorized scope:** {len(vd.get('in_scope', []))}\n")
+                        f.write(f"- **Out of authorized scope:** {len(vd.get('out_of_scope', []))}\n\n")
+                        if vd.get('in_scope'):
+                            f.write(f"**In-scope domains (testable under current authorization):**\n\n")
+                            for d in vd['in_scope']:
+                                f.write(f"- {d}\n")
+                            f.write("\n")
+                        if vd.get('out_of_scope'):
+                            f.write(f"**Out-of-scope domains (additional attack surface and phishing pretext, require authorization before testing):**\n\n")
+                            for d in vd['out_of_scope']:
+                                f.write(f"- {d}\n")
+                            f.write("\n")
+
+                        tc = enrich.get('tenant_config', {})
+                        f.write(f"### Tenant Configuration\n\n")
+                        f.write(f"- **Seamless SSO (DesktopSsoEnabled):** {'Enabled' if tc.get('desktop_sso_enabled') else 'Not advertised'}\n")
+                        if tc.get('throttle_status') not in (None, 0):
+                            f.write(f"- **Throttling:** active (ThrottleStatus={tc['throttle_status']}); factor into spray pacing\n")
+                        if tc.get('domain_type') is not None:
+                            f.write(f"- **DomainType:** {tc['domain_type']}\n")
+                        f.write(f"- **Custom branding present:** {'Yes' if tc.get('branding_present') else 'No'}\n")
+                        if tc.get('boilerplate_text'):
+                            f.write(f"- **Sign-in boilerplate text (pretext value):** {tc['boilerplate_text']}\n")
+                        f.write("\n")
+
+                        las = enrich.get('legacy_auth_surface', {})
+                        f.write(f"### Legacy-Auth Surface\n\n")
+                        f.write(f"- **Basic auth offered at service layer:** {'Yes' if las.get('basic_auth_offered') else 'No'}\n")
+                        f.write(f"- **Legacy v1 token endpoint reachable:** {'Yes' if las.get('legacy_token_endpoint_present') else 'No'}\n")
+                        eps = las.get('endpoints', {})
+                        for name, info in eps.items():
+                            if info.get('schemes'):
+                                f.write(f"- **{name.upper()}:** status {info.get('status')}, schemes {', '.join(info['schemes'])}\n")
+                        f.write(f"\n**Note:** Basic being offered at the shared Exchange Online endpoint means legacy auth is not blocked service-side. Per-tenant Conditional Access still governs enforcement and must be confirmed with an authenticated probe before a legacy-auth phase. Treat this as a go / no-go gate, not proof of policy.\n\n")
+
+                        hs = enrich.get('hybrid_signal', {})
+                        f.write(f"### Hybrid / On-Premises Signal\n\n")
+                        f.write(f"- **Assessment:** {hs.get('assessment', 'Unknown')}\n")
+                        f.write(f"- **Seamless SSO:** {'Yes' if hs.get('seamless_sso') else 'No'}\n")
+                        if hs.get('mx_routing'):
+                            f.write(f"- **MX routing:** {hs['mx_routing']}\n")
+                        if hs.get('mx_hosts'):
+                            f.write(f"- **MX hosts:** {', '.join(hs['mx_hosts'])}\n")
+                        if hs.get('autodiscover_routing'):
+                            f.write(f"- **Autodiscover routing:** {hs['autodiscover_routing']}\n")
+                        if hs.get('autodiscover_cname'):
+                            f.write(f"- **Autodiscover CNAME:** {hs['autodiscover_cname']}\n")
+                        f.write(f"- **Device registration configured:** {'Yes' if hs.get('device_registration') else 'No'}\n")
+                        if hs.get('spf_onprem_mechanisms'):
+                            f.write(f"- **Non-Microsoft SPF mechanisms:** {', '.join(hs['spf_onprem_mechanisms'])}\n")
+                        f.write("\n")
+
                     # Email Security Posture (SPF/DKIM/DMARC)
                     email_sec = self.results.get('email_security', {})
                     if email_sec:
@@ -7810,6 +8248,69 @@ class ReconAutomation:
                             f.write("for password spray attacks, valid-user enumeration, and conditional access ")
                             f.write("policy assessment.\n\n")
 
+                    # M365/Azure AD Enrichment Narrative
+                    enrich = self.results.get('m365_enrichment', {})
+                    if enrich and enrich.get('ran'):
+                        vd = enrich.get('verified_domains', {})
+                        tc = enrich.get('tenant_config', {})
+                        las = enrich.get('legacy_auth_surface', {})
+                        hs = enrich.get('hybrid_signal', {})
+
+                        f.write("### M365/Azure AD Enrichment\n\n")
+
+                        if vd.get('count'):
+                            f.write(f"Passive enumeration of the tenant through the Autodiscover ")
+                            f.write(f"GetFederationInformation endpoint returned {vd['count']} verified or federated ")
+                            f.write(f"domains. Of these, {len(vd.get('in_scope', []))} fall within the current authorized ")
+                            f.write(f"scope and {len(vd.get('out_of_scope', []))} do not. ")
+                            if vd.get('out_of_scope'):
+                                f.write("The out-of-scope domains represent additional external attack surface and ")
+                                f.write("credible phishing pretext, but are excluded from active testing until ")
+                                f.write("authorization is extended to cover them. ")
+                            if vd.get('tenant_default_domain'):
+                                f.write(f"The tenant default domain is {vd['tenant_default_domain']}. ")
+                            f.write("\n\n")
+
+                        if tc.get('desktop_sso_enabled'):
+                            f.write("Tenant configuration disclosure confirmed Seamless single sign-on is enabled, ")
+                            f.write("which indicates an Azure AD Connect deployment synchronizing an on-premises ")
+                            f.write("Active Directory. This establishes an on-premises identity footprint behind the ")
+                            f.write("cloud front and expands the relevant attack surface accordingly. ")
+                        else:
+                            f.write("Tenant configuration disclosure did not advertise Seamless single sign-on. ")
+                        if tc.get('throttle_status') not in (None, 0):
+                            f.write(f"The sign-in endpoint reported active throttling (ThrottleStatus {tc['throttle_status']}), ")
+                            f.write("which should inform pacing and lockout controls for any later authentication phase. ")
+                        if tc.get('boilerplate_text'):
+                            f.write("Custom sign-in boilerplate text is configured on the tenant branding and may ")
+                            f.write("carry help-desk or process detail useful as social-engineering pretext. ")
+                        f.write("\n\n")
+
+                        f.write("Account-agnostic probing of the shared Exchange Online endpoints recorded ")
+                        if las.get('basic_auth_offered'):
+                            f.write("that Basic authentication is still offered at the service layer. Legacy ")
+                            f.write("authentication is therefore not blocked service-side, making a legacy-auth ")
+                            f.write("password phase potentially viable. Actual enforcement remains governed by ")
+                            f.write("per-tenant Conditional Access and must be confirmed with an authenticated ")
+                            f.write("probe before that phase is attempted; this finding is a go or no-go gate, not ")
+                            f.write("proof of policy. ")
+                        else:
+                            f.write("that Basic authentication is not offered at the probed endpoints, indicating ")
+                            f.write("legacy authentication is unlikely to provide a viable path. ")
+                        f.write("\n\n")
+
+                        f.write(f"Hybrid assessment: {hs.get('assessment', 'Unknown')}. ")
+                        if hs.get('mx_routing') == 'onprem_or_thirdparty' and hs.get('mx_hosts'):
+                            f.write(f"Mail exchange records route through non-Microsoft hosts ({', '.join(hs['mx_hosts'])}), ")
+                            f.write("suggesting an on-premises or third-party mail path. ")
+                        if hs.get('autodiscover_routing') == 'onprem' and hs.get('autodiscover_cname'):
+                            f.write(f"Autodiscover resolves to an on-premises target ({hs['autodiscover_cname']}), ")
+                            f.write("consistent with a hybrid Exchange deployment. ")
+                        if hs.get('device_registration'):
+                            f.write("A device-registration record is published, consistent with hybrid Azure AD ")
+                            f.write("join or device registration. ")
+                        f.write("\n\n")
+
                     # Email Security Posture Narrative
                     email_sec = self.results.get('email_security', {})
                     if email_sec:
@@ -8246,6 +8747,18 @@ class ReconAutomation:
                     else:
                         self.mark_module_status('adfs', 'skipped')
 
+                if self.should_run_module('m365_enrichment'):
+                    if not self.args.skip_m365_enrich:
+                        self.mark_module_status('m365_enrichment', 'in_progress')
+                        try:
+                            self.m365_enrichment()
+                            self.mark_module_status('m365_enrichment', 'complete')
+                        except Exception as e:
+                            self.mark_module_status('m365_enrichment', 'failed', str(e))
+                            self.print_error(f"m365_enrichment failed: {e}")
+                    else:
+                        self.mark_module_status('m365_enrichment', 'skipped')
+
                 if self.should_run_module('email_security'):
                     if not self.args.skip_email_security:
                         self.mark_module_status('email_security', 'in_progress')
@@ -8531,7 +9044,7 @@ class ReconAutomation:
     def init_state(self):
                 """Initialize state tracking structure (multi-domain, client-level)"""
                 per_domain_modules = [
-                    'scope_validation', 'm365_tenant', 'adfs', 'email_security',
+                    'scope_validation', 'm365_tenant', 'm365_enrichment', 'adfs', 'email_security',
                     'dns_enumeration', 'ct_scope_correlation', 'post_dns_whois', 'technology_stack',
                     'email_harvesting', 'linkedin_enumeration', 'breach_database_check',
                     'github_secret_scanning', 'asn_enumeration',
@@ -8841,6 +9354,7 @@ Examples:
     python3 quick_recon.py -d example.com -c "Acme Corp" --email-only
     python3 quick_recon.py -d example.com -c "Acme Corp" --m365-only
     python3 quick_recon.py -d example.com -c "Acme Corp" --adfs-only
+    python3 quick_recon.py -d example.com -c "Acme Corp" --m365-enrich-only
     python3 quick_recon.py -d example.com -c "Acme Corp" --email-security-only
 
   LinkedIn delay modes (avoid rate limits):
@@ -8876,6 +9390,7 @@ Examples:
     parser.add_argument('--skip-ct-correlation', action='store_true', help='Skip CT-to-scope correlation (requires -i)')
     parser.add_argument('--skip-m365', action='store_true', help='Skip M365/Azure AD tenant attribution')
     parser.add_argument('--skip-adfs', action='store_true', help='Skip ADFS endpoint discovery')
+    parser.add_argument('--skip-m365-enrich', action='store_true', help='Skip M365/Azure AD enrichment (domain enum, tenant config, legacy-auth surface, hybrid signal)')
     parser.add_argument('--skip-techstack', action='store_true', help='Skip technology stack identification')
     parser.add_argument('--skip-email-security', action='store_true', help='Skip email security posture check (SPF/DKIM/DMARC)')
     parser.add_argument('--resolvers', default=None, help='Comma-separated DNS resolvers for SPF/DKIM/DMARC lookups (default: 1.1.1.1,8.8.8.8,9.9.9.9)')
@@ -8898,6 +9413,7 @@ Examples:
     parser.add_argument('--techstack-only', action='store_true', help='Run only technology stack identification')
     parser.add_argument('--m365-only', action='store_true', help='Run only M365 tenant attribution')
     parser.add_argument('--adfs-only', action='store_true', help='Run only ADFS endpoint discovery (runs M365 first)')
+    parser.add_argument('--m365-enrich-only', action='store_true', help='Run only M365/Azure AD enrichment (runs M365 first)')
     parser.add_argument('--email-security-only', action='store_true', help='Run only email security posture check')
 
     args = parser.parse_args()
@@ -8945,6 +9461,7 @@ Examples:
         'techstack_only': ('Technology stack identification', 'technology_stack_identification', 'technology_stack'),
         'm365_only': ('M365 tenant attribution', 'm365_tenant_attribution', 'm365_tenant'),
         'adfs_only': ('ADFS endpoint discovery', 'adfs_endpoint_discovery', 'adfs'),
+        'm365_enrich_only': ('M365 enrichment', 'm365_enrichment', 'm365_enrichment'),
         'email_security_only': ('Email security posture check', 'email_security_posture', 'email_security'),
     }
 
@@ -9002,6 +9519,11 @@ Examples:
         # ADFS discovery needs M365 attribution first
         if mode_name == 'adfs_only':
             print(f"{Colors.OKCYAN}[i] Running M365 tenant attribution first (required for ADFS discovery){Colors.ENDC}")
+            recon.m365_tenant_attribution()
+
+        # Enrichment needs M365 attribution first
+        if mode_name == 'm365_enrich_only':
+            print(f"{Colors.OKCYAN}[i] Running M365 tenant attribution first (required for enrichment){Colors.ENDC}")
             recon.m365_tenant_attribution()
 
         try:
