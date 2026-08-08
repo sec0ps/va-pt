@@ -149,6 +149,44 @@ class ReconAutomation:
     # Default public DNS resolvers for authoritative record lookups (SPF/DKIM/DMARC)
     DEFAULT_DNS_RESOLVERS = ['1.1.1.1', '8.8.8.8', '9.9.9.9']
 
+    # Hosting, CDN, and shared-infrastructure ASN owners (lowercase substrings). An ASN
+    # whose owner matches any of these is attributed to the provider, not the client, and
+    # its prefixes are never recorded as org ranges. Prevents shared provider space from
+    # being reported as client infrastructure.
+    HOSTING_ASN_OWNERS = {
+        'amazon', 'aws', 'microsoft', 'azure', 'msn', 'google', 'cloudflare', 'akamai',
+        'fastly', 'digitalocean', 'digital ocean', 'linode', 'ovh', 'hetzner', 'godaddy',
+        'vultr', 'choopa', 'oracle', 'softlayer', 'ibm', 'rackspace', 'leaseweb', 'contabo',
+        'scaleway', 'online s.a.s', 'alibaba', 'aliyun', 'tencent', 'cloudfront', 'incapsula',
+        'imperva', 'sucuri', 'stackpath', 'edgecast', 'verizon digital', 'limelight',
+        'cdn77', 'bunny', 'gcore', 'g-core', 'netlify', 'vercel', 'heroku', 'squarespace',
+        'wix', 'shopify', 'wpengine', 'automattic', 'namecheap', 'hostinger', 'unified layer',
+        'bluehost', 'dreamhost', 'hostgator', 'ionos', '1&1', 'gandi', 'digitalocean, llc',
+        'ovh sas', 'ovh us', 'ovh hosting'
+    }
+
+    # Well-known hosting/CDN ASN numbers as a strings set, used alongside owner matching.
+    HOSTING_ASN_NUMBERS = {
+        '16509', '14618',
+        '8075', '8068', '8069',
+        '15169', '396982', '19527',
+        '13335',
+        '20940', '16625', '12222', '35994', '35993',
+        '54113',
+        '14061',
+        '16276',
+        '24940',
+        '20473',
+        '63949',
+        '26496', '398101',
+        '132203',
+        '45102', '37963',
+        '19551',
+        '54994',
+        '2635',
+        '13238'
+    }
+
     def __init__(self, domain, ip_ranges: List[str], output_dir: str, client_name: str, auto_resume: bool = False):
                 # domain may be a single string or a list of domains
                 if isinstance(domain, str):
@@ -3688,11 +3726,19 @@ class ReconAutomation:
         return False
 
     def asn_enumeration(self):
-            """Enumerate ASN and associated IP ranges for the organization"""
+            """Enumerate ASN and associated IP ranges for the organization.
+
+            Cloud, CDN, and shared-hosting ASNs are classified and attributed to the
+            provider rather than the client. Their prefixes are never recorded as org
+            ranges. Only ASNs that pass ownership classification are expanded, and only
+            when ownership confidence is high. Announced prefixes are split into authorized
+            scope and candidate scope. Candidate ranges are documented for the scope
+            conversation and are never tested."""
             self.print_section("ASN ENUMERATION")
 
             asn_data = {
                 'asn_numbers': [],
+                'hosting_providers': [],
                 'ip_ranges': [],
                 'organization_names': set(),
                 'related_domains': []
@@ -3751,15 +3797,50 @@ class ReconAutomation:
                 except Exception as e:
                     self.print_error(f"Error looking up ASN for {ip}: {e}")
 
-            # Display results grouped by ASN
-            self.print_info(f"\nDiscovered {len(asn_to_ips)} unique ASN(s):\n")
+            # Build client/domain tokens for ownership-confidence scoring. An org ASN is
+            # credibly org-owned when its owner string carries the client or domain name,
+            # or when multiple discovered IPs across subdomains share it.
+            owner_tokens = set()
+            for tok in re.split(r'[^a-z0-9]+', (self.client_name or '').lower()):
+                if len(tok) >= 3:
+                    owner_tokens.add(tok)
+            for d in self.domains:
+                label = d.lower().split('.')[0]
+                if len(label) >= 3:
+                    owner_tokens.add(label)
+
+            org_asns = []
+            self.print_info(f"\nClassified {len(asn_to_ips)} unique ASN(s):\n")
 
             for asn_num, data in sorted(asn_to_ips.items()):
                 info = data['info']
                 ips = data['ips']
                 prefixes = data['prefixes']
+                owner = info.get('owner', 'Unknown')
 
-                self.print_success(f"AS{asn_num} - {info.get('owner', 'Unknown')}")
+                classification = self._classify_asn(asn_num, owner)
+
+                # Hosting/CDN/shared: attribute to provider, never treat as org infrastructure
+                if classification['hosting']:
+                    self.print_info(f"AS{asn_num} - {owner} [provider: {classification['provider']}]")
+                    self.print_info(f"  Attributed to hosting/CDN provider - not treated as org infrastructure")
+                    shown = ', '.join(ips[:5]) + (' ...' if len(ips) > 5 else '')
+                    self.print_info(f"  Discovered IPs ({len(ips)}): {shown}")
+                    asn_data['hosting_providers'].append({
+                        'asn': asn_num,
+                        'owner': owner,
+                        'provider': classification['provider'],
+                        'discovered_ips': ips
+                    })
+                    print()
+                    continue
+
+                # Org-owned candidate. Score ownership confidence.
+                owner_l = owner.lower()
+                name_match = any(tok in owner_l for tok in owner_tokens)
+                confidence = 'high' if (name_match or len(ips) >= 2) else 'low'
+
+                self.print_success(f"AS{asn_num} - {owner} [org-owned, confidence: {confidence}]")
                 if info.get('country'):
                     self.print_info(f"  Country: {info['country']}")
                 self.print_info(f"  Registry: {info.get('registry', 'Unknown')}")
@@ -3769,40 +3850,54 @@ class ReconAutomation:
                 if len(ips) > 10:
                     self.print_info(f"    ... and {len(ips) - 10} more")
 
-                self.print_info(f"  Announced Prefixes containing discovered IPs:")
+                self.print_info(f"  Announced prefixes containing discovered IPs:")
                 for prefix in sorted(prefixes):
                     self.print_info(f"    - {prefix}")
 
-                # Add to results
                 asn_entry = {
                     'asn': asn_num,
-                    'owner': info.get('owner', 'Unknown'),
+                    'owner': owner,
                     'country': info.get('country', 'Unknown'),
                     'registry': info.get('registry', 'Unknown'),
                     'discovered_ips': ips,
+                    'ownership_confidence': confidence,
                     'source': 'dns_resolution'
                 }
 
                 if asn_entry not in asn_data['asn_numbers']:
                     asn_data['asn_numbers'].append(asn_entry)
 
-                asn_data['organization_names'].add(info.get('owner', 'Unknown'))
+                asn_data['organization_names'].add(owner)
+                org_asns.append((asn_num, confidence))
 
                 for prefix in prefixes:
                     asn_data['ip_ranges'].append({
                         'prefix': prefix,
                         'asn': asn_num,
+                        'scope': 'discovered',
+                        'org_owned': True,
                         'contains_discovered_ips': True,
                         'discovered_ips_in_prefix': [ip for ip in ips if self._ip_in_prefix(ip, prefix)]
                     })
 
                 print()
 
-            # Only fetch additional prefixes if IP ranges were explicitly provided
-            if self.ip_ranges:
-                self.print_info("Checking for additional prefixes within authorized scope...")
+            # Expansion: pull announced prefixes for high-confidence org ASNs by default.
+            # This is the pivot value - netblocks not already known. Split into authorized
+            # (overlaps -i scope) and candidate (documented, never tested). Hosting/CDN ASNs
+            # are never expanded. Low-confidence org ASNs are skipped to avoid dumping a
+            # provider's space on a single ambiguous hit.
+            expand_targets = [a for a, c in org_asns if c == 'high']
+            CANDIDATE_CAP = 500
+            candidate_count = 0
+            truncated = False
 
-                for asn_num, data in asn_to_ips.items():
+            if expand_targets:
+                self.print_info(f"\nExpanding announced prefixes for {len(expand_targets)} high-confidence org ASN(s)...")
+
+                for asn_num in expand_targets:
+                    if truncated:
+                        break
                     max_retries = 3
                     retry_count = 0
                     success = False
@@ -3816,21 +3911,35 @@ class ReconAutomation:
                                 ripe_data = response.json()
                                 prefixes = ripe_data.get('data', {}).get('prefixes', [])
 
-                                in_scope_count = 0
                                 for prefix in prefixes:
                                     prefix_str = prefix.get('prefix')
-                                    if prefix_str and self._check_if_in_scope(prefix_str):
-                                        in_scope_count += 1
-                                        # Only add if not already tracked
-                                        existing = [r for r in asn_data['ip_ranges'] if r['prefix'] == prefix_str]
-                                        if not existing:
-                                            asn_data['ip_ranges'].append({
-                                                'prefix': prefix_str,
-                                                'asn': asn_num,
-                                                'in_scope': True,
-                                                'contains_discovered_ips': False
-                                            })
-                                            self.print_info(f"  Additional in-scope prefix: {prefix_str} (AS{asn_num})")
+                                    if not prefix_str:
+                                        continue
+                                    if any(r['prefix'] == prefix_str for r in asn_data['ip_ranges']):
+                                        continue
+
+                                    in_scope = bool(self.ip_ranges) and self._check_if_in_scope(prefix_str)
+                                    if in_scope:
+                                        asn_data['ip_ranges'].append({
+                                            'prefix': prefix_str,
+                                            'asn': asn_num,
+                                            'scope': 'authorized',
+                                            'org_owned': True,
+                                            'contains_discovered_ips': False
+                                        })
+                                        self.print_info(f"  Authorized-scope prefix: {prefix_str} (AS{asn_num})")
+                                    else:
+                                        if candidate_count >= CANDIDATE_CAP:
+                                            truncated = True
+                                            break
+                                        asn_data['ip_ranges'].append({
+                                            'prefix': prefix_str,
+                                            'asn': asn_num,
+                                            'scope': 'candidate',
+                                            'org_owned': True,
+                                            'contains_discovered_ips': False
+                                        })
+                                        candidate_count += 1
 
                                 success = True
 
@@ -3844,6 +3953,9 @@ class ReconAutomation:
                             retry_count += 1
                             if retry_count < max_retries:
                                 time.sleep(2)
+
+                if truncated:
+                    self.print_warning(f"  Candidate prefix cap ({CANDIDATE_CAP}) reached - list truncated")
 
             # Reverse DNS for related domains
             self.print_info("\nSearching for related domains via reverse DNS...")
@@ -3864,16 +3976,23 @@ class ReconAutomation:
             # Store results
             self.results['asn_data'] = {
                 'asn_numbers': asn_data['asn_numbers'],
+                'hosting_providers': asn_data['hosting_providers'],
                 'ip_ranges': asn_data['ip_ranges'],
                 'organization_names': list(asn_data['organization_names']),
                 'related_domains': asn_data['related_domains']
             }
 
             # Summary
+            authorized_ct = len([r for r in asn_data['ip_ranges'] if r.get('scope') == 'authorized'])
+            candidate_ct = len([r for r in asn_data['ip_ranges'] if r.get('scope') == 'candidate'])
+            discovered_ct = len([r for r in asn_data['ip_ranges'] if r.get('scope') == 'discovered'])
             self.print_info(f"\nASN Enumeration Summary:")
             self.print_info(f"  Public IPs analyzed: {len(public_ips)}")
-            self.print_info(f"  Unique ASNs discovered: {len(asn_to_ips)}")
-            self.print_info(f"  IP prefixes identified: {len(asn_data['ip_ranges'])}")
+            self.print_info(f"  Org-owned ASNs: {len(asn_data['asn_numbers'])}")
+            self.print_info(f"  Hosting/CDN ASNs (attributed, not expanded): {len(asn_data['hosting_providers'])}")
+            self.print_info(f"  Prefixes containing discovered IPs: {discovered_ct}")
+            self.print_info(f"  Authorized-scope prefixes: {authorized_ct}")
+            self.print_info(f"  Candidate prefixes (documented, not tested): {candidate_ct}")
             self.print_info(f"  Related domains found: {len(asn_data['related_domains'])}")
 
     def _ip_in_prefix(self, ip: str, prefix: str) -> bool:
@@ -3929,6 +4048,20 @@ class ReconAutomation:
             return False
         except:
             return False
+
+    def _classify_asn(self, asn_num: str, owner: str) -> Dict[str, Any]:
+        """Classify an ASN as hosting/CDN/shared or organization-owned.
+
+        Returns {'hosting': bool, 'provider': str}. Hosting ASNs are attributed to the
+        provider and never expanded into org ranges. Matching is by known ASN number or
+        owner substring against the provider sets."""
+        owner_l = (owner or '').lower()
+        if str(asn_num) in self.HOSTING_ASN_NUMBERS:
+            return {'hosting': True, 'provider': owner or f"AS{asn_num}"}
+        for token in self.HOSTING_ASN_OWNERS:
+            if token in owner_l:
+                return {'hosting': True, 'provider': owner or token}
+        return {'hosting': False, 'provider': ''}
 
     def dns_enumeration(self):
                     """Perform DNS enumeration to discover subdomains with checkpoint support"""
@@ -8030,30 +8163,44 @@ class ReconAutomation:
                     asn_data = self.results.get('asn_data', {})
 
                     asns = asn_data.get('asn_numbers', [])
+                    hosting = asn_data.get('hosting_providers', [])
                     if asns:
-                        f.write(f"**ASNs Discovered:** {len(asns)}\n\n")
+                        f.write(f"**Org-owned ASNs:** {len(asns)}\n\n")
                         for asn in asns:
                             f.write(f"### AS{asn['asn']}\n")
                             f.write(f"- **Owner:** {asn['owner']}\n")
                             if asn.get('country'):
                                 f.write(f"- **Country:** {asn['country']}\n")
+                            if asn.get('ownership_confidence'):
+                                f.write(f"- **Ownership confidence:** {asn['ownership_confidence']}\n")
                             f.write(f"\n")
+
+                    if hosting:
+                        f.write(f"### Provider-Attributed ASNs ({len(hosting)})\n\n")
+                        f.write(f"Discovered hosts resolving into cloud, CDN, or shared-hosting space. Attributed to the provider and excluded from organization infrastructure.\n\n")
+                        for h in hosting:
+                            f.write(f"- AS{h['asn']} {h['owner']} ({len(h['discovered_ips'])} IP(s))\n")
+                        f.write(f"\n")
 
                     ip_ranges = asn_data.get('ip_ranges', [])
                     if ip_ranges:
+                        authorized = [r for r in ip_ranges if r.get('scope') == 'authorized']
+                        discovered = [r for r in ip_ranges if r.get('scope') == 'discovered']
+                        candidate = [r for r in ip_ranges if r.get('scope') == 'candidate']
                         f.write(f"### IP Ranges ({len(ip_ranges)})\n\n")
-                        in_scope = [r for r in ip_ranges if r.get('in_scope') or r.get('contains_discovered_ips')]
-                        out_scope = [r for r in ip_ranges if not r.get('in_scope') and not r.get('contains_discovered_ips')]
 
-                        if in_scope:
-                            f.write(f"#### In Authorized Scope ({len(in_scope)})\n\n")
-                            for r in in_scope:
+                        if authorized or discovered:
+                            f.write(f"#### In Authorized Scope ({len(authorized) + len(discovered)})\n\n")
+                            for r in discovered:
+                                f.write(f"- {r['prefix']} (AS{r['asn']}) - contains discovered host(s)\n")
+                            for r in authorized:
                                 f.write(f"- {r['prefix']} (AS{r['asn']})\n")
                             f.write(f"\n")
 
-                        if out_scope:
-                            f.write(f"#### Out of Scope - DO NOT TEST ({len(out_scope)})\n\n")
-                            for r in out_scope:
+                        if candidate:
+                            f.write(f"#### Candidate Scope - DOCUMENT, DO NOT TEST ({len(candidate)})\n\n")
+                            f.write(f"Announced by org-owned ASNs but outside the authorized ranges. Surface for the scope conversation before any testing.\n\n")
+                            for r in candidate:
                                 f.write(f"- {r['prefix']} (AS{r['asn']})\n")
                             f.write(f"\n")
 
@@ -8636,25 +8783,36 @@ class ReconAutomation:
                     asn_data = self.results.get('asn_data', {})
 
                     asns = asn_data.get('asn_numbers', [])
+                    hosting = asn_data.get('hosting_providers', [])
                     ip_ranges = asn_data.get('ip_ranges', [])
 
                     if asns:
-                        f.write(f"ASN enumeration identified {len(asns)} autonomous system(s) associated with the organization:\n\n")
+                        f.write(f"ASN enumeration attributed {len(asns)} organization-owned autonomous system(s):\n\n")
                         for asn in asns:
-                            f.write(f"- AS{asn['asn']} - {asn['owner']}\n")
+                            conf = asn.get('ownership_confidence', 'unknown')
+                            f.write(f"- AS{asn['asn']} - {asn['owner']} (ownership confidence {conf})\n")
                         f.write("\n")
+                    else:
+                        f.write("No organization-owned autonomous systems were attributed. ")
+                        if hosting:
+                            f.write("Discovered hosts resolve into cloud, CDN, or shared-hosting space, indicating the external footprint is provider-hosted rather than self-originated.\n\n")
+                        else:
+                            f.write("\n")
+
+                    if hosting:
+                        f.write(f"{len(hosting)} discovered ASN(s) were attributed to hosting or CDN providers and excluded from the organization's infrastructure to avoid attributing shared provider space to the client.\n\n")
 
                     if ip_ranges:
-                        in_scope = [r for r in ip_ranges if r.get('in_scope') or r.get('contains_discovered_ips')]
-                        out_scope = [r for r in ip_ranges if not r.get('in_scope') and not r.get('contains_discovered_ips')]
+                        authorized = [r for r in ip_ranges if r.get('scope') in ('authorized', 'discovered')]
+                        candidate = [r for r in ip_ranges if r.get('scope') == 'candidate']
 
-                        f.write(f"Total IP ranges discovered: {len(ip_ranges)}\n")
-                        f.write(f"- Ranges within authorized scope: {len(in_scope)}\n")
-                        f.write(f"- Ranges outside authorized scope: {len(out_scope)}\n\n")
+                        f.write(f"Total prefixes recorded: {len(ip_ranges)}\n")
+                        f.write(f"- Within authorized scope: {len(authorized)}\n")
+                        f.write(f"- Candidate scope, documented only: {len(candidate)}\n\n")
 
-                        if out_scope:
-                            f.write("Additional IP ranges were identified that belong to the organization but fall outside the authorized testing scope. ")
-                            f.write("These ranges were documented but not tested.\n\n")
+                        if candidate:
+                            f.write("Candidate prefixes are announced by organization-owned ASNs but fall outside the authorized testing scope. ")
+                            f.write("They are documented for the scope conversation and were not tested.\n\n")
 
                     # Cloud Storage Enumeration Section
                     f.write("### Cloud Storage Enumeration\n\n")
