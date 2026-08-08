@@ -151,7 +151,7 @@ class ExcavatorSource(SearchSource):
                 continue
             seen.add(onion)
             hits.append(Hit(source=self.name, url=onion,
-                            title=self._clean(link.get_text()) or onion,
+                            title=self._text(link) or onion,
                             snippet=self._nearby_text(link)).finalize())
             if len(hits) >= limit:
                 break
@@ -159,9 +159,23 @@ class ExcavatorSource(SearchSource):
 
     @staticmethod
     def _clean(text):
-        # Collapse whitespace and heal words split by inline highlight tags
-        # (Excavator wraps the matched term, e.g. <mark>Hacker</mark>s -> "Hackers").
         return " ".join((text or "").split())
+
+    # Inline formatting tags Excavator may wrap the matched term in; unwrapping
+    # them before text extraction heals words split at the tag boundary (e.g.
+    # <mark>Hacker</mark>s -> "Hackers") without collapsing real spacing.
+    INLINE_TAGS = ("b", "strong", "em", "i", "mark", "u", "span", "font", "small")
+
+    def _text(self, node):
+        if node is None:
+            return ""
+        frag = BeautifulSoup(str(node), "lxml")
+        for tag in frag.find_all(self.INLINE_TAGS):
+            tag.unwrap()
+        # Reparse so unwrapped-adjacent text nodes merge into one before we
+        # extract with a space separator (which spaces genuine block boundaries).
+        frag = BeautifulSoup(str(frag), "lxml")
+        return self._clean(frag.get_text(" "))
 
     def _parse_node(self, node):
         link = node if node.name == "a" else node.find("a", href=True)
@@ -170,9 +184,9 @@ class ExcavatorSource(SearchSource):
         onion = self._extract_onion(link["href"], node)
         if onion is None:
             return None
-        title = self._clean(link.get_text()) or onion
+        title = self._text(link) or onion
         desc = node.find("p") if node.name != "a" else None
-        snippet = self._clean(desc.get_text()) if desc is not None else ""
+        snippet = self._text(desc) if desc is not None else ""
         if not snippet:
             snippet = self._nearby_text(link)
         return Hit(source=self.name, url=onion, title=title, snippet=snippet)
@@ -181,8 +195,8 @@ class ExcavatorSource(SearchSource):
         parent = link.find_parent(["li", "div", "article", "p"]) or link.parent
         if parent is None:
             return ""
-        text = self._clean(parent.get_text())
-        title = self._clean(link.get_text())
+        text = self._text(parent)
+        title = self._text(link)
         if title and text.startswith(title):
             text = text[len(title):].strip()
         return text[:500]
