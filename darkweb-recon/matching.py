@@ -1,3 +1,36 @@
+# =============================================================================
+# VAPT Toolkit - Vulnerability Assessment and Penetration Testing Toolkit
+# =============================================================================
+#
+# Author: Keith Pachulski
+# Company: Red Cell Security, LLC
+# Email: keith@redcellsecurity.org
+# Website: www.redcellsecurity.org
+#
+# Copyright (c) 2026 Keith Pachulski. All rights reserved.
+#
+# License: This software is licensed under the MIT License.
+#          You are free to use, modify, and distribute this software
+#          in accordance with the terms of the license.
+#
+# Purpose: Watch-term entity extractors, phrase/literal matchers, and the content match engine for the darkweb recon subsystem. Provides case-insensitive full-phrase literal matching, typed extractors (email, domain, ip, crypto, hash, credential, card) that can be scoped to a term, credential/card masking, and query-string construction that phrase-quotes multi-word literal terms.
+#
+# DISCLAIMER: This software is provided "as-is," without warranty of any kind,
+#             express or implied, including but not limited to the warranties
+#             of merchantability, fitness for a particular purpose, and non-infringement.
+#             In no event shall the authors or copyright holders be liable for any claim,
+#             damages, or other liability, whether in an action of contract, tort, or otherwise,
+#             arising from, out of, or in connection with the software or the use or other dealings
+#             in the software.
+#
+# NOTICE: This toolkit is intended for authorized security testing only.
+#         Users are responsible for ensuring compliance with all applicable laws
+#         and regulations. Unauthorized use of these tools may violate local,
+#         state, federal, and international laws.
+#
+# =============================================================================
+# Location: darkweb-recon/matching.py
+
 """Watch-term entity extractors and match engine."""
 
 import re
@@ -207,3 +240,14 @@ def queryable_terms(terms):
             continue
         result.append(term)
     return result
+
+
+def query_for_term(term):
+    # Phrase-quote multi-word literal terms so phrase-aware engines return pages
+    # containing the whole phrase rather than any single token. A client name like
+    # "Kevin Mitnick" is sent quoted; single-token and non-literal terms are sent
+    # as-is. Provenance still records the unquoted term for display.
+    value = (term["term"] or "").strip()
+    if term.get("term_type") == "literal" and " " in value and '"' not in value:
+        return '"%s"' % value
+    return value
