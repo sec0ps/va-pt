@@ -1,3 +1,36 @@
+# =============================================================================
+# VAPT Toolkit - Vulnerability Assessment and Penetration Testing Toolkit
+# =============================================================================
+#
+# Author: Keith Pachulski
+# Company: Red Cell Security, LLC
+# Email: keith@redcellsecurity.org
+# Website: www.redcellsecurity.org
+#
+# Copyright (c) 2026 Keith Pachulski. All rights reserved.
+#
+# License: This software is licensed under the MIT License.
+#          You are free to use, modify, and distribute this software
+#          in accordance with the terms of the license.
+#
+# Purpose: Bounded same-onion crawler and page text extractor for the darkweb recon subsystem. Fetches pages over Tor, strips scripts/styles, extracts visible text and onion links into an inert report, and exposes single-page text extraction used for matching watch terms against result page bodies.
+#
+# DISCLAIMER: This software is provided "as-is," without warranty of any kind,
+#             express or implied, including but not limited to the warranties
+#             of merchantability, fitness for a particular purpose, and non-infringement.
+#             In no event shall the authors or copyright holders be liable for any claim,
+#             damages, or other liability, whether in an action of contract, tort, or otherwise,
+#             arising from, out of, or in connection with the software or the use or other dealings
+#             in the software.
+#
+# NOTICE: This toolkit is intended for authorized security testing only.
+#         Users are responsible for ensuring compliance with all applicable laws
+#         and regulations. Unauthorized use of these tools may violate local,
+#         state, federal, and international laws.
+#
+# =============================================================================
+# Location: darkweb-recon/analyzer.py
+
 """Bounded same-onion crawler that extracts visible text and links for inert review."""
 
 import logging
@@ -55,6 +88,18 @@ class Analyzer:
                     queue.append((link["url"], 1))
 
         return pages
+
+    def page_text(self, url, fetcher, isolation="default"):
+        """Fetch a single page over Tor and return its extracted visible text.
+
+        Reuses the crawl's fetch/strip/collapse path but does not follow links,
+        so the worker can match watch terms against a result page's body without
+        running a full analysis. Returns "" on any fetch failure (fail-soft).
+        """
+        target = self._normalize(url)
+        root_host = self._onion_host(target) or ""
+        page = self._fetch_page(target, fetcher, isolation, root_host)
+        return page["text"] if page else ""
 
     def _fetch_page(self, url, fetcher, isolation, root_host):
         try:
