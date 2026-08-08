@@ -35,6 +35,8 @@
 #         state, federal, and international laws.
 #
 # =============================================================================
+# Location: darkweb-recon/sources/excavator.py
+
 """Excavator onion search-engine source queried over Tor.
 
 The engine's exact query interface is discovered at runtime rather than
