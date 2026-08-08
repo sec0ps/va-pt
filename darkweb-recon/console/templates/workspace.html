@@ -145,12 +145,15 @@ Location: darkweb-recon/console/templates/workspace.html
 
 <h2>findings <small>new {{ counts.get('new', 0) }} confirmed {{ counts.get('confirmed', 0) }} dismissed {{ counts.get('dismissed', 0) }}</small></h2>
 <div class="row">
-<a href="{{ url_for('ui.workspace_detail', wid=ws.id, per_page=per_page) }}">all</a>
-<a href="{{ url_for('ui.workspace_detail', wid=ws.id, status='new', per_page=per_page) }}">new</a>
-<a href="{{ url_for('ui.workspace_detail', wid=ws.id, status='confirmed', per_page=per_page) }}">confirmed</a>
-<a href="{{ url_for('ui.workspace_detail', wid=ws.id, status='dismissed', per_page=per_page) }}">dismissed</a>
+<a href="{{ url_for('ui.workspace_detail', wid=ws.id, per_page=per_page, matched=(1 if matched else none)) }}">all</a>
+<a href="{{ url_for('ui.workspace_detail', wid=ws.id, status='new', per_page=per_page, matched=(1 if matched else none)) }}">new</a>
+<a href="{{ url_for('ui.workspace_detail', wid=ws.id, status='confirmed', per_page=per_page, matched=(1 if matched else none)) }}">confirmed</a>
+<a href="{{ url_for('ui.workspace_detail', wid=ws.id, status='dismissed', per_page=per_page, matched=(1 if matched else none)) }}">dismissed</a>
+<span class="hint">|</span>
+{% if matched %}<a href="{{ url_for('ui.workspace_detail', wid=ws.id, status=status, per_page=per_page) }}">show all results</a>{% else %}<a href="{{ url_for('ui.workspace_detail', wid=ws.id, status=status, per_page=per_page, matched=1) }}">matched only</a>{% endif %}
 <form method="get" action="{{ url_for('ui.workspace_detail', wid=ws.id) }}" class="inline" autocomplete="off">
 {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+{% if matched %}<input type="hidden" name="matched" value="1">{% endif %}
 <label class="inline">show
 <select name="per_page" onchange="this.form.submit()">
 {% for size in page_sizes %}<option value="{{ size }}" {% if size == per_page %}selected{% endif %}>{{ size }}</option>{% endfor %}
@@ -169,7 +172,7 @@ Location: darkweb-recon/console/templates/workspace.html
 <td>{{ f.last_seen[:19] }}</td>
 <td>
 <form method="post" action="{{ url_for('ui.finding_status', fid=f.id) }}" class="inline" autocomplete="off">
-<input type="hidden" name="next" value="{{ url_for('ui.workspace_detail', wid=ws.id, status=status, per_page=per_page, page=page) }}">
+<input type="hidden" name="next" value="{{ url_for('ui.workspace_detail', wid=ws.id, status=status, per_page=per_page, page=page, matched=(1 if matched else none)) }}">
 <button name="status" value="confirmed">confirm</button>
 <button name="status" value="dismissed" class="danger">dismiss</button>
 <button name="status" value="new">reset</button>
@@ -185,8 +188,8 @@ Location: darkweb-recon/console/templates/workspace.html
 
 <div class="row">
 <span class="hint">page {{ page }} of {{ pages }}, {{ total }} findings</span>
-{% if page > 1 %}<a href="{{ url_for('ui.workspace_detail', wid=ws.id, status=status, per_page=per_page, page=page-1) }}">prev</a>{% endif %}
-{% if page < pages %}<a href="{{ url_for('ui.workspace_detail', wid=ws.id, status=status, per_page=per_page, page=page+1) }}">next</a>{% endif %}
+{% if page > 1 %}<a href="{{ url_for('ui.workspace_detail', wid=ws.id, status=status, per_page=per_page, page=page-1, matched=(1 if matched else none)) }}">prev</a>{% endif %}
+{% if page < pages %}<a href="{{ url_for('ui.workspace_detail', wid=ws.id, status=status, per_page=per_page, page=page+1, matched=(1 if matched else none)) }}">next</a>{% endif %}
 </div>
 
 <h2>recent jobs</h2>
