@@ -1,3 +1,36 @@
+# =============================================================================
+# VAPT Toolkit - Vulnerability Assessment and Penetration Testing Toolkit
+# =============================================================================
+#
+# Author: Keith Pachulski
+# Company: Red Cell Security, LLC
+# Email: keith@redcellsecurity.org
+# Website: www.redcellsecurity.org
+#
+# Copyright (c) 2026 Keith Pachulski. All rights reserved.
+#
+# License: This software is licensed under the MIT License.
+#          You are free to use, modify, and distribute this software
+#          in accordance with the terms of the license.
+#
+# Purpose: Flask console HTTP routes for the darkweb recon subsystem: authentication and session handling, workspace/finding/source/user/settings views, watch-term and schedule management, manual job and site-analysis triggers, and finding triage actions.
+#
+# DISCLAIMER: This software is provided "as-is," without warranty of any kind,
+#             express or implied, including but not limited to the warranties
+#             of merchantability, fitness for a particular purpose, and non-infringement.
+#             In no event shall the authors or copyright holders be liable for any claim,
+#             damages, or other liability, whether in an action of contract, tort, or otherwise,
+#             arising from, out of, or in connection with the software or the use or other dealings
+#             in the software.
+#
+# NOTICE: This toolkit is intended for authorized security testing only.
+#         Users are responsible for ensuring compliance with all applicable laws
+#         and regulations. Unauthorized use of these tools may violate local,
+#         state, federal, and international laws.
+#
+# =============================================================================
+# Location: darkweb-recon/console/routes.py
+
 """All console HTTP routes."""
 
 import json
@@ -146,13 +179,15 @@ def workspace_detail(wid):
         page = 1
     page = max(1, min(page, pages))
     offset = (page - 1) * per_page
+    findings = db.list_findings(wid, status, limit=per_page, offset=offset)
     return render_template(
         "workspace.html",
         ws=ws,
         terms=db.list_watch_terms(wid),
         schedules=db.list_schedules(wid),
         jobs=db.list_jobs(wid, 15),
-        findings=db.list_findings(wid, status, limit=per_page, offset=offset),
+        findings=findings,
+        source_map=db.finding_sources_map([f["id"] for f in findings]),
         counts=db.count_findings_by_status(wid),
         sources=db.list_enabled_sources(),
         term_types=matching.TERM_TYPES,
@@ -319,7 +354,8 @@ def finding_detail(fid):
         abort(403)
     matches = db.list_matches_for_finding(fid)
     analyses = db.list_analyses_for_finding(fid)
-    return render_template("finding.html", f=finding, matches=matches, analyses=analyses)
+    return render_template("finding.html", f=finding, matches=matches,
+                           analyses=analyses, finding_sources=db.list_finding_sources(fid))
 
 
 @ui.route("/findings/<int:fid>/status", methods=["POST"])
