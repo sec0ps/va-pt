@@ -1,3 +1,36 @@
+# =============================================================================
+# VAPT Toolkit - Vulnerability Assessment and Penetration Testing Toolkit
+# =============================================================================
+#
+# Author: Keith Pachulski
+# Company: Red Cell Security, LLC
+# Email: keith@redcellsecurity.org
+# Website: www.redcellsecurity.org
+#
+# Copyright (c) 2026 Keith Pachulski. All rights reserved.
+#
+# License: This software is licensed under the MIT License.
+#          You are free to use, modify, and distribute this software
+#          in accordance with the terms of the license.
+#
+# Purpose: Bounded worker pool for the darkweb recon subsystem. Executes search jobs by querying enabled engines over Tor, deduplicates results into findings, records per-engine provenance separately from content matches, and scans result title/snippet for watch terms. Also runs on-demand site analyses that fetch an onion over Tor into an inert report.
+#
+# DISCLAIMER: This software is provided "as-is," without warranty of any kind,
+#             express or implied, including but not limited to the warranties
+#             of merchantability, fitness for a particular purpose, and non-infringement.
+#             In no event shall the authors or copyright holders be liable for any claim,
+#             damages, or other liability, whether in an action of contract, tort, or otherwise,
+#             arising from, out of, or in connection with the software or the use or other dealings
+#             in the software.
+#
+# NOTICE: This toolkit is intended for authorized security testing only.
+#         Users are responsible for ensuring compliance with all applicable laws
+#         and regulations. Unauthorized use of these tools may violate local,
+#         state, federal, and international laws.
+#
+# =============================================================================
+# Location: darkweb-recon/worker.py
+
 """Bounded worker pool that executes search jobs, runs matching, and persists findings."""
 
 import json
@@ -74,11 +107,11 @@ class Worker:
                     stats["source_errors"] += 1
                     log.warning("source %s term %s failed: %s", source.name, term["id"], exc)
                     continue
-                self._ingest(workspace_id, job_id, hits, term, matchers, stats)
+                self._ingest(workspace_id, job_id, hits, term, matchers, source.name, stats)
 
         db.mark_job_finished(job_id, "completed", stats, None)
 
-    def _ingest(self, workspace_id, job_id, hits, query_term, matchers, stats):
+    def _ingest(self, workspace_id, job_id, hits, query_term, matchers, source_name, stats):
         for hit in hits:
             stats["hits"] += 1
             record = hit.as_dict()
@@ -89,14 +122,14 @@ class Worker:
             else:
                 stats["findings_seen"] += 1
 
-            provenance = (query_term["term"] or "")[: self.config.match_value_max_chars]
-            db.add_finding_match(finding_id, query_term["id"], query_term["term_type"], provenance)
-            stats["matches_added"] += 1
+            # Provenance only: which engine + query surfaced this URL. Recorded
+            # separately from matches so it is never mistaken for content found on
+            # the page (a URL returned by a query is not evidence the term is on it).
+            db.record_finding_source(finding_id, source_name, query_term["term"])
 
+            # Matches are content-only: terms actually present in the title/snippet.
             blob = "%s %s" % (record["title"] or "", record["snippet"] or "")
             for match in matching.scan_text(blob, matchers):
-                if match["term_id"] == query_term["id"] and match["value"] == provenance:
-                    continue
                 db.add_finding_match(
                     finding_id, match["term_id"], match["term_type"], match["value"])
                 stats["matches_added"] += 1
