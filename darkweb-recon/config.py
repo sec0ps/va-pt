@@ -1,3 +1,36 @@
+# =============================================================================
+# VAPT Toolkit - Vulnerability Assessment and Penetration Testing Toolkit
+# =============================================================================
+#
+# Author: Keith Pachulski
+# Company: Red Cell Security, LLC
+# Email: keith@redcellsecurity.org
+# Website: www.redcellsecurity.org
+#
+# Copyright (c) 2026 Keith Pachulski. All rights reserved.
+#
+# License: This software is licensed under the MIT License.
+#          You are free to use, modify, and distribute this software
+#          in accordance with the terms of the license.
+#
+# Purpose: Central configuration for the darkweb recon subsystem. Resolves each setting with database-override, then environment-variable, then default precedence, coerces and bounds values, and exposes derived paths, search-engine endpoints, and the console secret. Settings are grouped live (apply to the next job) or restart (require a process restart).
+#
+# DISCLAIMER: This software is provided "as-is," without warranty of any kind,
+#             express or implied, including but not limited to the warranties
+#             of merchantability, fitness for a particular purpose, and non-infringement.
+#             In no event shall the authors or copyright holders be liable for any claim,
+#             damages, or other liability, whether in an action of contract, tort, or otherwise,
+#             arising from, out of, or in connection with the software or the use or other dealings
+#             in the software.
+#
+# NOTICE: This toolkit is intended for authorized security testing only.
+#         Users are responsible for ensuring compliance with all applicable laws
+#         and regulations. Unauthorized use of these tools may violate local,
+#         state, federal, and international laws.
+#
+# =============================================================================
+# Location: darkweb-recon/config.py
+
 """Environment plus database-backed configuration for the darkweb recon service."""
 
 import os
