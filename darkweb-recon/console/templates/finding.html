@@ -88,6 +88,19 @@ Location: darkweb-recon/console/templates/finding.html
 </tbody>
 </table>
 
+<h2>triage</h2>
+<div class="row">
+<form method="post" action="{{ url_for('ui.analyze_finding', fid=f.id) }}" class="inline" autocomplete="off"><button>retry analysis</button></form>
+<span class="hint">re-run the site fetch if the last analysis failed or timed out</span>
+</div>
+<div class="row">
+<form method="post" action="{{ url_for('ui.finding_status', fid=f.id) }}" class="inline" autocomplete="off">
+<input type="hidden" name="next" value="{{ url_for('ui.workspace_detail', wid=f.workspace_id) }}">
+<button name="status" value="dismissed" class="danger">dismiss</button>
+</form>
+<span class="hint">mark this finding junk and return to the workspace</span>
+</div>
+
 <p class="row">
 <a href="{{ url_for('ui.workspace_detail', wid=f.workspace_id) }}">back to workspace</a>
 </p>
