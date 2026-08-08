@@ -321,6 +321,13 @@ def get_workspace(workspace_id):
         return _row(conn.execute("SELECT * FROM workspaces WHERE id = ?", (workspace_id,)))
 
 
+def delete_workspace(workspace_id):
+    # ON DELETE CASCADE removes the workspace's watch terms, schedules, jobs, and
+    # findings (and, in turn, finding_matches, finding_sources, and analyses).
+    with connection() as conn:
+        conn.execute("DELETE FROM workspaces WHERE id = ?", (workspace_id,))
+
+
 def get_workspace_by_name(name):
     with connection() as conn:
         return _row(conn.execute("SELECT * FROM workspaces WHERE name = ?", (name,)))
