@@ -342,6 +342,24 @@ def delete_schedule(sid):
     return redirect(url_for("ui.workspace_detail", wid=sch["workspace_id"]))
 
 
+@ui.route("/workspaces/<int:wid>/delete", methods=["POST"])
+@admin_required
+def delete_workspace(wid):
+    ws = db.get_workspace(wid)
+    if ws is None:
+        abort(404)
+    if request.form.get("confirm", "").strip() != (ws["name"] or ""):
+        flash("type the workspace name exactly to confirm deletion", "error")
+        return redirect(url_for("ui.workspace_detail", wid=wid))
+    # Cancel any live scheduler jobs for this workspace before removing rows, so a
+    # scheduled run cannot fire against a workspace that no longer exists.
+    for sch in db.list_schedules(wid):
+        _sched().remove_schedule(sch["id"])
+    db.delete_workspace(wid)
+    flash("workspace '%s' deleted" % ws["name"], "ok")
+    return redirect(url_for("ui.dashboard"))
+
+
 # findings and jobs
 
 @ui.route("/findings/<int:fid>")
