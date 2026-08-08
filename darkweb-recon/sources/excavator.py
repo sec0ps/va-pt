@@ -65,15 +65,6 @@ log = logging.getLogger("recon.excavator")
 ONION_HOST = r"(?:[a-z2-7]{56}|[a-z2-7]{16})\.onion"
 ONION_RE = re.compile(r"(?:https?://)?" + ONION_HOST + r"[^\s\"'<>]*", re.IGNORECASE)
 
-# Result-container selectors tried in order before the generic anchor fallback.
-RESULT_SELECTORS = (
-    "li.result",
-    "div.result",
-    "div.result-item",
-    "article",
-    "div.results a",
-)
-
 
 class ExcavatorSource(SearchSource):
     name = "excavator"
@@ -94,7 +85,7 @@ class ExcavatorSource(SearchSource):
             fields[query_field] = term
             return "%s?%s" % (self._resolve(action), urlencode(fields))
         # No discoverable form: fall back to conventional query paths.
-        return "%s/search/?%s" % (self.base_url, urlencode({"q": term}))
+        return "%s/search?%s" % (self.base_url, urlencode({"query": term}))
 
     def _read_search_form(self, html):
         soup = BeautifulSoup(html, "lxml")
@@ -134,34 +125,43 @@ class ExcavatorSource(SearchSource):
         hits = []
         seen = set()
 
-        for selector in RESULT_SELECTORS:
-            nodes = soup.select(selector)
-            if not nodes:
+        # Excavator result rows are <div class="mx-auto"> holding an onion <a> and a
+        # <p> description. The page header is also a div.mx-auto but carries the
+        # 'pricing-header' class and has no <p>; pagination is li.page-item. Both are
+        # excluded by requiring a <p> and skipping the header class.
+        for node in soup.select("div.mx-auto"):
+            classes = node.get("class") or []
+            if "pricing-header" in classes or node.find("p") is None:
                 continue
-            for node in nodes:
-                hit = self._parse_node(node)
-                if hit is None or hit.url in seen:
-                    continue
-                seen.add(hit.url)
-                hits.append(hit.finalize())
-                if len(hits) >= limit:
-                    return hits
-            if hits:
+            hit = self._parse_node(node)
+            if hit is None or hit.url in seen:
+                continue
+            seen.add(hit.url)
+            hits.append(hit.finalize())
+            if len(hits) >= limit:
                 return hits
+        if hits:
+            return hits
 
-        # Fallback: no known container matched, scan every onion-bearing anchor.
-        log.warning("no known result container matched, scanning onion links (markup may differ)")
+        # Fallback: result markup changed, scan every onion-bearing anchor.
+        log.warning("excavator result container not matched, scanning onion links (markup may differ)")
         for link in soup.find_all("a", href=True):
             onion = self._extract_onion(link["href"], link)
             if onion is None or onion in seen:
                 continue
             seen.add(onion)
-            title = link.get_text(strip=True) or onion
-            snippet = self._nearby_text(link)
-            hits.append(Hit(source=self.name, url=onion, title=title, snippet=snippet).finalize())
+            hits.append(Hit(source=self.name, url=onion,
+                            title=self._clean(link.get_text()) or onion,
+                            snippet=self._nearby_text(link)).finalize())
             if len(hits) >= limit:
                 break
         return hits
+
+    @staticmethod
+    def _clean(text):
+        # Collapse whitespace and heal words split by inline highlight tags
+        # (Excavator wraps the matched term, e.g. <mark>Hacker</mark>s -> "Hackers").
+        return " ".join((text or "").split())
 
     def _parse_node(self, node):
         link = node if node.name == "a" else node.find("a", href=True)
@@ -170,11 +170,9 @@ class ExcavatorSource(SearchSource):
         onion = self._extract_onion(link["href"], node)
         if onion is None:
             return None
-        title = link.get_text(strip=True) or onion
-        snippet = ""
+        title = self._clean(link.get_text()) or onion
         desc = node.find("p") if node.name != "a" else None
-        if desc is not None:
-            snippet = desc.get_text(" ", strip=True)
+        snippet = self._clean(desc.get_text()) if desc is not None else ""
         if not snippet:
             snippet = self._nearby_text(link)
         return Hit(source=self.name, url=onion, title=title, snippet=snippet)
@@ -183,8 +181,8 @@ class ExcavatorSource(SearchSource):
         parent = link.find_parent(["li", "div", "article", "p"]) or link.parent
         if parent is None:
             return ""
-        text = parent.get_text(" ", strip=True)
-        title = link.get_text(strip=True)
+        text = self._clean(parent.get_text())
+        title = self._clean(link.get_text())
         if title and text.startswith(title):
             text = text[len(title):].strip()
         return text[:500]
