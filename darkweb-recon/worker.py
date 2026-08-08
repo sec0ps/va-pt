@@ -34,6 +34,7 @@
 """Bounded worker pool that executes search jobs, runs matching, and persists findings."""
 
 import json
+import time
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
@@ -85,7 +86,8 @@ class Worker:
 
         terms = db.list_enabled_watch_terms(workspace_id)
         stats = {"terms_queried": 0, "hits": 0, "findings_new": 0,
-                 "findings_seen": 0, "matches_added": 0, "source_errors": 0}
+                 "findings_seen": 0, "matches_added": 0, "source_errors": 0,
+                 "bodies_fetched": 0}
 
         if not terms:
             db.mark_job_finished(job_id, "completed", stats, None)
@@ -95,23 +97,31 @@ class Worker:
         queries = matching.queryable_terms(terms)
         sources = self.registry.search_sources(subset)
         isolation = "ws%d" % workspace_id
+        # Per-job body-match budget: fetch at most body_match_cap distinct result
+        # pages this run (0 disables), tracked across all sources/terms.
+        body_ctx = {
+            "budget": self.config.body_match_cap if self.config.body_match else 0,
+            "fetched": set(),
+        }
 
         for source in sources:
             for term in queries:
                 stats["terms_queried"] += 1
                 try:
                     hits = source.search(
-                        term["term"], self.fetcher, isolation=isolation,
+                        matching.query_for_term(term), self.fetcher, isolation=isolation,
                         limit=self.config.match_per_term_cap * 4)
                 except (FetchError, TorError) as exc:
                     stats["source_errors"] += 1
                     log.warning("source %s term %s failed: %s", source.name, term["id"], exc)
                     continue
-                self._ingest(workspace_id, job_id, hits, term, matchers, source.name, stats)
+                self._ingest(workspace_id, job_id, hits, term, matchers,
+                             source.name, isolation, body_ctx, stats)
 
         db.mark_job_finished(job_id, "completed", stats, None)
 
-    def _ingest(self, workspace_id, job_id, hits, query_term, matchers, source_name, stats):
+    def _ingest(self, workspace_id, job_id, hits, query_term, matchers,
+                source_name, isolation, body_ctx, stats):
         for hit in hits:
             stats["hits"] += 1
             record = hit.as_dict()
@@ -127,8 +137,20 @@ class Worker:
             # the page (a URL returned by a query is not evidence the term is on it).
             db.record_finding_source(finding_id, source_name, query_term["term"])
 
-            # Matches are content-only: terms actually present in the title/snippet.
+            # Match watch terms against the title/snippet, and (gated) the fetched
+            # page body, so a name that only appears in the page content still hits.
             blob = "%s %s" % (record["title"] or "", record["snippet"] or "")
+            if body_ctx["budget"] > 0 and finding_id not in body_ctx["fetched"]:
+                body = self.analyzer.page_text(
+                    record["url"], self.fetcher, isolation=isolation)
+                body_ctx["fetched"].add(finding_id)
+                body_ctx["budget"] -= 1
+                stats["bodies_fetched"] += 1
+                if body:
+                    blob = "%s %s" % (blob, body)
+                if self.config.body_match_delay:
+                    time.sleep(self.config.body_match_delay)
+
             for match in matching.scan_text(blob, matchers):
                 db.add_finding_match(
                     finding_id, match["term_id"], match["term_type"], match["value"])
