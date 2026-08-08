@@ -13,7 +13,7 @@
 {% if u.role == 'admin' %}
 <span class="hint">all (admin)</span>
 {% else %}
-<form method="post" action="{{ url_for('ui.assign_workspaces', uid=u.id) }}" class="inline">
+<form method="post" action="{{ url_for('ui.assign_workspaces', uid=u.id) }}" class="inline" autocomplete="off">
 <select name="workspaces" multiple size="3">
 {% for w in workspaces %}
 <option value="{{ w.id }}" {% if w.id in membership[u.id] %}selected{% endif %}>{{ w.name }}</option>
@@ -24,7 +24,7 @@
 {% endif %}
 </td>
 <td>
-<form method="post" action="{{ url_for('ui.toggle_user', uid=u.id) }}" class="inline"><button>toggle active</button></form>
+<form method="post" action="{{ url_for('ui.toggle_user', uid=u.id) }}" class="inline" autocomplete="off"><button>toggle active</button></form>
 </td>
 </tr>
 {% endfor %}
@@ -33,9 +33,9 @@
 
 <div class="card">
 <h2>new user</h2>
-<form method="post" action="{{ url_for('ui.create_user') }}">
+<form method="post" action="{{ url_for('ui.create_user') }}" autocomplete="off">
 <label>username<input name="username" autocomplete="off"></label>
-<label>password<input name="password" type="password" autocomplete="new-password"></label>
+<label>password<input name="password" type="password" autocomplete="off"></label>
 <label>role
 <select name="role">
 <option value="operator">operator</option>
