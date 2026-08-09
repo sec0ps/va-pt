@@ -50,6 +50,50 @@ ASSET_EXT = (
     ".zip", ".gz", ".tar", ".7z", ".rar", ".pdf", ".woff", ".woff2", ".ttf",
 )
 
+# Tags removed entirely when producing an inert snapshot: anything that can
+# execute, submit, embed, or load an external resource. Inline <style> is kept
+# (see inert_snapshot) so layout survives; CSP blocks any external css/@import.
+SNAPSHOT_DROP_TAGS = (
+    "script", "noscript", "iframe", "object", "embed", "applet", "form", "input",
+    "button", "textarea", "select", "option", "link", "base", "meta", "svg",
+    "canvas", "audio", "video", "source", "track", "frame", "frameset", "map",
+    "area", "img", "picture", "portal",
+)
+# Attributes stripped from every surviving tag: event handlers and anything that
+# navigates or loads a resource. CSP is the backstop; this removes the temptation.
+SNAPSHOT_DROP_ATTRS = (
+    "src", "srcset", "href", "action", "formaction", "background", "data",
+    "poster", "ping", "xlink:href", "codebase", "cite", "usemap", "longdesc",
+)
+
+
+def inert_snapshot(raw_html):
+    """Return a sanitized, non-executing HTML snapshot of raw_html.
+
+    Removes scripts, frames, forms, media, and every external-resource or
+    navigation reference, and strips event-handler and url()-bearing style
+    attributes. Keeps text and inline layout styling. This is defense in depth:
+    the snapshot is always served under a CSP sandbox with default-src 'none',
+    so nothing executes or loads even if a reference survived here.
+    """
+    soup = BeautifulSoup(raw_html or "", "lxml")
+    for tag in soup(list(SNAPSHOT_DROP_TAGS)):
+        tag.decompose()
+    for tag in soup.find_all(True):
+        for attr in list(tag.attrs):
+            low = attr.lower()
+            if low.startswith("on") or low in SNAPSHOT_DROP_ATTRS:
+                del tag[attr]
+            elif low == "style" and "url(" in (tag[attr] or "").lower():
+                del tag[attr]  # inline style pulling an external resource
+    banner = soup.new_tag("div")
+    banner["style"] = ("background:#15191f;color:#8a94a0;border-bottom:2px solid #e02435;"
+                       "padding:8px 12px;font:12px sans-serif")
+    banner.string = "inert snapshot \u2014 fetched over Tor, sanitized, nothing executes or loads"
+    body = soup.body or soup
+    body.insert(0, banner)
+    return str(soup)
+
 
 class Analyzer:
     def __init__(self, config):
