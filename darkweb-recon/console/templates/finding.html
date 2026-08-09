@@ -70,6 +70,7 @@ Location: darkweb-recon/console/templates/finding.html
 <h2>analysis</h2>
 <div class="row">
 <form method="post" action="{{ url_for('ui.analyze_finding', fid=f.id) }}" class="inline" autocomplete="off"><button>analyze this site</button></form>
+<a href="{{ url_for('ui.finding_page', fid=f.id) }}" target="_blank" rel="noopener noreferrer">view page</a>
 <span class="hint">fetches the site over Tor and extracts text into an inert report, no browser needed</span>
 </div>
 <table>
@@ -80,7 +81,8 @@ Location: darkweb-recon/console/templates/finding.html
 <td>{{ a.id }}</td>
 <td>{{ a.status }}</td>
 <td>{{ a.created_at[:19] }}</td>
-<td><a href="{{ url_for('ui.analysis_report', aid=a.id) }}">view report</a></td>
+<td><a href="{{ url_for('ui.analysis_report', aid=a.id) }}">view report</a>
+&nbsp;<a href="{{ url_for('ui.finding_page', fid=f.id) }}" target="_blank" rel="noopener noreferrer">view page</a></td>
 </tr>
 {% else %}
 <tr><td colspan="4">no analyses yet</td></tr>
