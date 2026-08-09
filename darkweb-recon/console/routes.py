@@ -37,12 +37,15 @@ import json
 import os
 
 from flask import (Blueprint, render_template, request, redirect, url_for,
-                   flash, abort, g, session, current_app)
+                   flash, abort, g, session, current_app, make_response)
+from markupsafe import escape
 from apscheduler.triggers.cron import CronTrigger
 
 import config
 import db
 import matching
+from fetch import FetchError
+from torctl import TorError
 from console import auth
 from console.auth import login_required, admin_required
 
@@ -376,6 +379,31 @@ def finding_detail(fid):
     analyses = db.list_analyses_for_finding(fid)
     return render_template("finding.html", f=finding, matches=matches,
                            analyses=analyses, finding_sources=db.list_finding_sources(fid))
+
+
+@ui.route("/findings/<int:fid>/page")
+@login_required
+def finding_page(fid):
+    finding = db.get_finding(fid)
+    if finding is None:
+        abort(404)
+    if not auth.can_access_workspace(g.user, finding["workspace_id"]):
+        abort(403)
+    try:
+        html = _worker().snapshot_page(finding["url"], isolation="snap%d" % fid)
+    except (FetchError, TorError) as exc:
+        html = ("<!doctype html><meta charset=utf-8>"
+                "<body style=\"font:14px sans-serif;color:#d7dde4;background:#0e1114;padding:2rem\">"
+                "could not fetch this page over Tor: %s</body>" % escape(str(exc)))
+    resp = make_response(html)
+    resp.headers["Content-Type"] = "text/html; charset=utf-8"
+    # Sandbox the snapshot: opaque origin (no access to the console session),
+    # nothing executes, and no external resource can load even if one survived
+    # sanitization. Inline styles are allowed so layout renders.
+    resp.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["Referrer-Policy"] = "no-referrer"
+    return resp
 
 
 @ui.route("/findings/<int:fid>/status", methods=["POST"])
