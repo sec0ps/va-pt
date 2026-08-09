@@ -40,7 +40,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import db
 import matching
-from analyzer import Analyzer
+from analyzer import Analyzer, inert_snapshot
 from fetch import FetchError
 from torctl import TorError
 
@@ -158,6 +158,17 @@ class Worker:
 
     def shutdown(self):
         self._executor.shutdown(wait=False, cancel_futures=True)
+
+    def snapshot_page(self, url, isolation="snapshot"):
+        """Fetch a single page over Tor and return a sanitized, inert HTML snapshot.
+
+        Runs synchronously in the caller (the View Page request). Raises TorError
+        if Tor is not ready or FetchError if the page cannot be fetched; the route
+        turns those into an inert error page.
+        """
+        self.tor.wait_ready(self.config.job_tor_wait)
+        result = self.fetcher.get_with_retry(url, isolation=isolation)
+        return inert_snapshot(result["text"])
 
     def submit_analysis(self, finding_id, workspace_id, root_url, created_by):
         analysis_id = db.create_analysis(finding_id, workspace_id, root_url, created_by)
