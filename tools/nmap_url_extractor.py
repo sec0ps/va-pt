@@ -10,8 +10,8 @@
 # Purpose
 #   Parse an nmap XML scan and emit a deduplicated list of http/https URLs
 #   with correct scheme and port, suitable for feeding into OWASP ZAP for
-#   manual testing. Scheme is resolved from service name and tunnel state,
-#   with a common-web-port fallback for unrecognized services.
+#   manual testing. Scheme is resolved solely from parsed service name and
+#   tunnel state. Ports nmap did not identify as web services are not emitted.
 #
 # SECURITY NOTICE
 #   This tool is intended for authorized security assessment and penetration
@@ -29,36 +29,20 @@ import argparse
 import sys
 import xml.etree.ElementTree as ET
 
-# Ports treated as web when the service is unnamed or unrecognized.
-HTTP_FALLBACK_PORTS = {80, 8080, 8000, 8008, 8081, 8888, 5000}
-HTTPS_FALLBACK_PORTS = {443, 8443, 9443, 4443, 8834}
 
-# Service names nmap commonly assigns to web listeners.
-HTTPS_SERVICE_NAMES = {"https", "https-alt", "ssl/http", "ssl/https"}
-HTTP_SERVICE_NAMES = {"http", "http-alt", "http-proxy", "www", "http-mgmt"}
-
-
-def classify_scheme(service_name, tunnel, portid):
-    """Return 'https', 'http', or None for a given port based on service data."""
+def classify_scheme(service_name, tunnel):
+    """Return 'https', 'http', or None based solely on parsed service data."""
     name = (service_name or "").lower()
     tun = (tunnel or "").lower()
 
-    # An SSL/TLS tunnel wrapping any http service is https regardless of name.
-    if tun == "ssl" and ("http" in name or name in ("", "unknown")):
+    # Only ports nmap identified as an http-bearing service are web targets.
+    if "http" not in name:
+        return None
+
+    # https when the service name says so or the port is wrapped in an ssl tunnel.
+    if "https" in name or tun == "ssl":
         return "https"
-    if name in HTTPS_SERVICE_NAMES:
-        return "https"
-    if name in HTTP_SERVICE_NAMES:
-        return "http"
-    # Generic http-bearing names not caught above (e.g. soap-http) with no tunnel.
-    if "http" in name:
-        return "https" if tun == "ssl" else "http"
-    # No usable service data, fall back to well-known web ports.
-    if portid in HTTPS_FALLBACK_PORTS:
-        return "https"
-    if portid in HTTP_FALLBACK_PORTS:
-        return "http"
-    return None
+    return "http"
 
 
 def build_url(scheme, host, portid):
@@ -78,7 +62,6 @@ def pick_host(host_elem, prefer_hostname):
     for addr in host_elem.findall("address"):
         if addr.get("addrtype") in ("ipv4", "ipv6"):
             return addr.get("addr")
-    # Last resort, any address present.
     addr = host_elem.find("address")
     return addr.get("addr") if addr is not None else None
 
@@ -123,7 +106,7 @@ def parse(xml_path, prefer_hostname, include_filtered):
             svc_name = service.get("name") if service is not None else ""
             tunnel = service.get("tunnel") if service is not None else ""
 
-            scheme = classify_scheme(svc_name, tunnel, portid)
+            scheme = classify_scheme(svc_name, tunnel)
             if scheme is None:
                 continue
 
