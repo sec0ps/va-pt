@@ -310,18 +310,20 @@ def cleanup_old_directories():
         print("Old Responder directory removed. Replaced by Responder-NG.")
 
 def check_and_install(repo_url, install_dir, setup_commands=None):
-    """Clone the repo if missing, otherwise update it, then always run the
-    setup commands. Running setup on an existing repo lets a partial or
-    interrupted prior install self-heal on the next run instead of being
-    skipped because the directory already exists."""
-    if not os.path.exists(install_dir):
-        print(f"Installing {os.path.basename(install_dir)}")
-        if not run_command(f"git clone {repo_url} {install_dir}"):
-            print(f"  WARNING: clone failed for {install_dir} (see {LOG_PATH})")
-            return
-    else:
-        print(f"Updating {os.path.basename(install_dir)}")
-        run_command(f"cd {install_dir} && git pull")
+    """Install a tool only if it is not already present. If install_dir exists,
+    the tool is considered installed and is skipped — no git pull, no rerun of
+    setup commands. Upgrading existing tools is handled separately by the Update
+    Toolsets menu option, so this stays a pure install pass: a fresh clone runs
+    its setup commands once, and everything already on disk is left untouched so
+    the install does not slow down as the toolkit grows."""
+    if os.path.exists(install_dir):
+        print(f"{os.path.basename(install_dir)} already installed, skipping.")
+        return
+
+    print(f"Installing {os.path.basename(install_dir)}")
+    if not run_command(f"git clone {repo_url} {install_dir}"):
+        print(f"  WARNING: clone failed for {install_dir} (see {LOG_PATH})")
+        return
 
     if setup_commands:
         for command in setup_commands:
