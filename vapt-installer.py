@@ -617,6 +617,13 @@ def install_base_dependencies():
     print("Base toolkit dependency install pass complete.")
     print_failure_summary()
 
+# =============================================================================
+# Replacement functions for vapt-installer.py to add katana.
+# Replace the existing install_toolkit_packages() and update_toolsets()
+# with the versions below. Only the katana entries are added; everything
+# else is unchanged.
+# =============================================================================
+
 def install_toolkit_packages():
     # Put rbenv shims (Ruby 3.3.9), rbenv bin, and Go on PATH for this process.
     # rbenv shims first so Metasploit's bundle resolves the 3.3.9 Ruby pinned by
@@ -676,6 +683,7 @@ def install_toolkit_packages():
         ("https://github.com/urbanadventurer/WhatWeb.git", "/vapt/web/WhatWeb", None),
         ("https://github.com/siberas/watobo.git", "/vapt/web/watobo", None),
         ("https://github.com/projectdiscovery/nuclei.git", "/vapt/web/nuclei", ["/usr/local/go/bin/go build -o nuclei ./cmd/nuclei", "sudo install -m 755 nuclei /usr/local/bin/nuclei"]),
+        ("https://github.com/projectdiscovery/katana.git", "/vapt/web/katana", ["/usr/local/go/bin/go build -o katana ./cmd/katana", "sudo install -m 755 katana /usr/local/bin/katana"]),
         ("https://github.com/rezasp/joomscan.git", "/vapt/web/joomscan", None),
         ("https://github.com/s0md3v/XSStrike.git", "/vapt/web/XSStrike", [f"{PIP} -r requirements.txt"]),
         ("https://github.com/wapiti-scanner/wapiti.git", "/vapt/web/wapiti", [f"sudo {PIP} ."]),
@@ -934,6 +942,8 @@ def update_toolsets():
          "sed -i '/^toolchain/d' go.mod && PATH=/usr/local/go/bin:$PATH /usr/local/go/bin/go mod tidy && PATH=/usr/local/go/bin:$PATH make"),
         ("nuclei", "/vapt/web/nuclei",
          "/usr/local/go/bin/go build -o nuclei ./cmd/nuclei && sudo install -m 755 nuclei /usr/local/bin/nuclei"),
+        ("katana", "/vapt/web/katana",
+         "/usr/local/go/bin/go build -o katana ./cmd/katana && sudo install -m 755 katana /usr/local/bin/katana"),
     ]
     for name, path, build in go_tools:
         if not os.path.exists(path):
