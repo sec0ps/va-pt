@@ -3,22 +3,25 @@
 # VAPT Toolkit - Vulnerability Assessment and Penetration Testing Toolkit
 # =============================================================================
 #
+# Location: reporting/zap_cleanup.py
+#
 # Author: Keith Pachulski
 # Company: Red Cell Security, LLC
 # Email: keith@redcellsecurity.org
 # Website: www.redcellsecurity.org
 #
-# Copyright (c) 2025 Keith Pachulski. All rights reserved.
+# Copyright (c) 2026 Keith Pachulski. All rights reserved.
 #
 # License: This software is licensed under the MIT License.
 #          You are free to use, modify, and distribute this software
 #          in accordance with the terms of the license.
 #
-# Purpose: This script provides an automated installation and management system
-#          for a vulnerability assessment and penetration testing
-#          toolkit. It installs and configures security tools across multiple
-#          categories including exploitation, web testing, network scanning,
-#          mobile security, cloud security, and Active Directory testing.
+# Purpose: Selective deletion of alerts from an OWASP ZAP HSQLDB session
+#          database. Connects to a ZAP session via the HSQLDB JDBC driver,
+#          lists unique alerts grouped by plugin/risk, and allows removal by
+#          index range, risk level, or plugin ID. Self-bootstraps a local
+#          virtual environment and installs its Python dependencies on first
+#          run, then re-executes inside that environment.
 #
 # DISCLAIMER: This software is provided "as-is," without warranty of any kind,
 #             express or implied, including but not limited to the warranties
@@ -35,13 +38,62 @@
 #
 # =============================================================================
 
-import jaydebeapi
-import shutil
+import os
+import sys
+import subprocess
 from pathlib import Path
-from datetime import datetime
 
 SCRIPT_DIR = Path(__file__).parent.absolute()
+VENV_DIR = SCRIPT_DIR / ".venv"
 HSQLDB_JAR = SCRIPT_DIR / "hsqldb.jar"
+REQUIRED_PACKAGES = ["jaydebeapi"]
+
+# =============================================================================
+# Virtual environment bootstrap
+# Creates a local venv, installs missing dependencies, then re-execs this
+# script using the venv interpreter. Runs before any third-party imports.
+# =============================================================================
+
+def _venv_python():
+    """Return the path to the venv Python interpreter for the current OS"""
+    if os.name == "nt":
+        return VENV_DIR / "Scripts" / "python.exe"
+    return VENV_DIR / "bin" / "python"
+
+def _ensure_venv():
+    """Ensure a venv exists with required deps, then re-exec inside it"""
+    # Already running inside our venv, nothing to do
+    if Path(sys.prefix).resolve() == VENV_DIR.resolve():
+        return
+
+    venv_python = _venv_python()
+
+    # Create the venv if it does not exist yet
+    if not venv_python.exists():
+        print(f"[*] Creating virtual environment: {VENV_DIR}")
+        subprocess.check_call([sys.executable, "-m", "venv", str(VENV_DIR)])
+
+    # Verify dependencies inside the venv, install if any are missing
+    check = subprocess.run(
+        [str(venv_python), "-c", "import jaydebeapi"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+    if check.returncode != 0:
+        print(f"[*] Installing dependencies: {', '.join(REQUIRED_PACKAGES)}")
+        subprocess.check_call([str(venv_python), "-m", "pip", "install", *REQUIRED_PACKAGES])
+
+    # Re-exec this script using the venv interpreter, passing through args
+    print("[*] Relaunching inside virtual environment")
+    result = subprocess.run([str(venv_python), str(Path(__file__).absolute()), *sys.argv[1:]])
+    sys.exit(result.returncode)
+
+_ensure_venv()
+
+# Third-party and venv-dependent imports live below the bootstrap
+import shutil
+import jaydebeapi
+from datetime import datetime
 
 def check_and_download_hsqldb():
     """Check for HSQLDB JAR, download if missing"""
@@ -53,6 +105,7 @@ def check_and_download_hsqldb():
 
     if response != 'yes':
         print("[!] Cannot proceed without hsqldb.jar")
+        print("[!] Download manually from: https://hsqldb.org/download/hsqldb_274/hsqldb.jar")
         return False
 
     try:
@@ -66,6 +119,15 @@ def check_and_download_hsqldb():
         print(f"[!] Download failed: {e}")
         print(f"[!] Manually download from: https://hsqldb.org/download/hsqldb_274/hsqldb.jar")
         return False
+
+def check_java():
+    """Warn if no JVM is on PATH, jaydebeapi needs one to connect"""
+    if shutil.which("java") is None:
+        print("[!] Warning: 'java' not found on PATH")
+        print("[!] jaydebeapi requires a JRE/JDK to connect to HSQLDB")
+        response = input("Continue anyway? (yes/no): ").strip().lower()
+        return response == 'yes'
+    return True
 
 def get_session_file():
     """Find or prompt for session file - returns full path"""
@@ -356,31 +418,6 @@ def delete_selected_alerts(conn, alert_ids):
     conn.commit()
     print(f"[+] Deleted {len(alert_ids)} alerts")
 
-def check_and_download_hsqldb():
-    """Check for HSQLDB JAR, download if missing"""
-    if HSQLDB_JAR.exists():
-        return True
-
-    print(f"[!] hsqldb.jar not found in {SCRIPT_DIR}")
-    response = input("Download hsqldb.jar automatically? (yes/no): ").strip().lower()
-
-    if response != 'yes':
-        print("[!] Cannot proceed without hsqldb.jar")
-        print("[!] Download manually from: https://hsqldb.org/download/hsqldb_274/hsqldb.jar")
-        return False
-
-    try:
-        import urllib.request
-        url = "https://hsqldb.org/download/hsqldb_274/hsqldb.jar"
-        print(f"[*] Downloading from {url}...")
-        urllib.request.urlretrieve(url, HSQLDB_JAR)
-        print(f"[+] Downloaded to {HSQLDB_JAR}")
-        return True
-    except Exception as e:
-        print(f"[!] Download failed: {e}")
-        print(f"[!] Manually download from: https://hsqldb.org/download/hsqldb_274/hsqldb.jar")
-        return False
-
 def checkpoint_database(conn):
     """Checkpoint database to ensure changes are written to disk"""
     try:
@@ -399,6 +436,10 @@ def main():
 
     # Check for HSQLDB JAR
     if not check_and_download_hsqldb():
+        return
+
+    # Check for a JVM, jaydebeapi cannot connect without one
+    if not check_java():
         return
 
     # Get session file (returns full Path object)
