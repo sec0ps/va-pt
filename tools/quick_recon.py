@@ -14,11 +14,12 @@
 #          You are free to use, modify, and distribute this software
 #          in accordance with the terms of the license.
 #
-# Purpose: This script provides an automated installation and management system
-#          for a vulnerability assessment and penetration testing
-#          toolkit. It installs and configures security tools across multiple
-#          categories including exploitation, web testing, network scanning,
-#          mobile security, cloud security, and Active Directory testing.
+# Purpose: Standalone offensive reconnaissance and OSINT console for authorized
+#          engagements. Performs external attack-surface enumeration including
+#          DNS, email harvesting, breach lookups, GitHub secret scanning, cloud
+#          storage discovery, ASN attribution, M365/Azure AD tenant attribution
+#          and enrichment, ADFS discovery, and authenticated LinkedIn company
+#          and employee enumeration, with checkpoint/resume and rate-aware pacing.
 #
 # DISCLAIMER: This software is provided "as-is," without warranty of any kind,
 #             express or implied, including but not limited to the warranties
@@ -2006,15 +2007,19 @@ class ReconAutomation:
                     print("    4. In Request Headers, find 'Cookie:' and copy the ENTIRE value")
                     cookies = input("    Enter full LinkedIn cookie string (or press Enter to skip): ").strip()
                     if cookies:
-                        self.config['linkedin_cookies'] = cookies
-                        # Validate the cookies
-                        self.print_info("Validating LinkedIn cookies...")
-                        if self._validate_api_token('linkedin'):
-                            self.print_success("LinkedIn cookies validated and saved")
-                            updated = True
-                        else:
-                            self.print_error("LinkedIn cookies are invalid")
+                        if not self._sanity_check_linkedin_cookies(cookies):
+                            self.print_error("LinkedIn cookies failed sanity check")
                             self.config['linkedin_cookies'] = ''
+                        else:
+                            self.config['linkedin_cookies'] = cookies
+                            # Validate the cookies
+                            self.print_info("Validating LinkedIn cookies...")
+                            if self._validate_api_token('linkedin'):
+                                self.print_success("LinkedIn cookies validated and saved")
+                                updated = True
+                            else:
+                                self.print_error("LinkedIn cookies are invalid")
+                                self.config['linkedin_cookies'] = ''
                     else:
                         self.print_info("Skipping LinkedIn - employee enumeration will be skipped")
                 else:
@@ -2208,6 +2213,10 @@ class ReconAutomation:
             if choice == 'n':
                 new_token = input(f"    Enter new {config['name']}: ").strip()
                 if new_token:
+                    if service == 'linkedin' and not self._sanity_check_linkedin_cookies(new_token):
+                        self.print_error("New LinkedIn cookies failed sanity check")
+                        self.config[config['key']] = ''
+                        return False
                     self.config[config['key']] = new_token
                     if self._validate_api_token(service):
                         self.print_success(f"{config['name']} validated successfully")
@@ -2827,6 +2836,62 @@ class ReconAutomation:
 
                 return findings
 
+    def _sanity_check_linkedin_cookies(self, cookie_string):
+        if not cookie_string or not cookie_string.strip():
+            self.print_error("LinkedIn cookie string is empty")
+            return False
+
+        parsed = {}
+        for cookie in cookie_string.split(';'):
+            cookie = cookie.strip()
+            if '=' in cookie:
+                name, value = cookie.split('=', 1)
+                parsed[name.strip()] = value.strip()
+
+        if not parsed.get('li_at'):
+            self.print_error("Cookie string missing li_at (session token) - cannot authenticate")
+            return False
+
+        if not parsed.get('JSESSIONID'):
+            self.print_error("Cookie string missing JSESSIONID (needed for CSRF token)")
+            return False
+
+        salesnav = 'li_ep_auth_context' in parsed or 'salesnavigator' in cookie_string.lower()
+        if salesnav:
+            self.print_info("Cookie appears pulled from a Sales Navigator session; a plain linkedin.com/feed tab is cleaner but not required")
+
+        return True
+
+    def _prompt_with_timeout(self, prompt, timeout, default):
+        try:
+            is_tty = sys.stdin.isatty()
+        except Exception:
+            is_tty = False
+
+        if not is_tty or not hasattr(signal, 'SIGALRM'):
+            return default
+
+        def _timeout_handler(signum, frame):
+            raise TimeoutError()
+
+        prior = signal.getsignal(signal.SIGALRM)
+        signal.signal(signal.SIGALRM, _timeout_handler)
+        try:
+            signal.alarm(int(timeout))
+            return input(prompt)
+        except TimeoutError:
+            print()
+            self.print_info(f"No response in {int(timeout)}s - using default")
+            return default
+        except (EOFError, KeyboardInterrupt):
+            return default
+        finally:
+            signal.alarm(0)
+            try:
+                signal.signal(signal.SIGALRM, prior)
+            except Exception:
+                pass
+
     def linkedin_enumeration(self):
                         """LinkedIn intelligence gathering using authenticated session with checkpoint support and human-like delays"""
                         self.print_section("LinkedIn Information Gathering")
@@ -2868,7 +2933,7 @@ class ReconAutomation:
                             }
                         }
                         profile = delay_profiles.get(mode, delay_profiles['normal'])
-                        self.print_info(f"LinkedIn delay mode: {mode} (session cap: {profile['session_cap']} API calls)")
+                        self.print_info(f"LinkedIn delay mode (company phase): {mode} (session cap: {profile['session_cap']} API calls)")
 
                         # Session-level tracking
                         api_call_count = 0
@@ -2891,6 +2956,10 @@ class ReconAutomation:
                                 print("    4. In Request Headers, find 'Cookie:' and copy the ENTIRE value")
                                 cookies = input("\n    Enter full LinkedIn cookie string: ").strip()
                                 if cookies:
+                                    if not self._sanity_check_linkedin_cookies(cookies):
+                                        self.print_error("LinkedIn cookies failed sanity check")
+                                        self.config['linkedin_cookies'] = ''
+                                        return
                                     self.config['linkedin_cookies'] = cookies
                                     if self._validate_api_token('linkedin'):
                                         self.print_success("LinkedIn cookies validated and saved")
@@ -2982,7 +3051,7 @@ class ReconAutomation:
                                 company_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(keywords:{encoded_term},flagshipSearchIntent:SEARCH_SRP,queryParameters:(resultType:List(COMPANIES)),includeFiltersInResponse:false)&start={start}"
 
                                 try:
-                                    response = linkedin_session.get(company_search_url, headers=api_headers, timeout=15)
+                                    response = linkedin_session.get(company_search_url, headers=api_headers, timeout=15, allow_redirects=False)
                                     api_call_count += 1
 
                                     # Rate-limit detection
@@ -2997,6 +3066,11 @@ class ReconAutomation:
                                     if response.status_code in [401, 403]:
                                         rate_limit_triggered = True
                                         rate_limit_reason = f"HTTP {response.status_code} (auth invalidated)"
+                                        break
+                                    if 300 <= response.status_code < 400:
+                                        loc = response.headers.get('Location', '')
+                                        rate_limit_triggered = True
+                                        rate_limit_reason = f"HTTP {response.status_code} redirect (security check / challenge)" + (f" -> {loc}" if loc else "")
                                         break
 
                                     # Detect challenge/login redirect pages
@@ -3138,6 +3212,10 @@ class ReconAutomation:
                                     else:
                                         time.sleep(delay)
 
+                                except requests.exceptions.TooManyRedirects:
+                                    rate_limit_triggered = True
+                                    rate_limit_reason = "Redirect loop (security check / challenge)"
+                                    break
                                 except Exception as e:
                                     self.print_error(f"Error fetching companies: {e}")
                                     break
@@ -3218,6 +3296,44 @@ class ReconAutomation:
                         else:
                             self.print_warning("No companies found")
 
+                        # Employee-phase pacing (fresh entry only; reused on resume)
+                        employee_pacing = progress.get('employee_pacing')
+                        if employee_pacing is None:
+                            print("\n" + "="*80)
+                            print("EMPLOYEE SEARCH PACING")
+                            print("="*80)
+                            print("Employee search generates the most activity and is the most likely")
+                            print("phase to trip a LinkedIn security check. Paranoid pacing is recommended.")
+                            print()
+
+                            resp = self._prompt_with_timeout("    Use paranoid pacing for employee search? [Y/n]: ", 30, 'y').strip().lower()
+                            if resp in ('n', 'no'):
+                                custom = self._prompt_with_timeout("    Enter employee-search mode [fast/normal/paranoid]: ", 30, 'paranoid').strip().lower()
+                                employee_mode = custom if custom in delay_profiles else 'paranoid'
+                            else:
+                                employee_mode = 'paranoid'
+
+                            resp = self._prompt_with_timeout("    Employee-search session cap = 30. Keep? [Y/n]: ", 30, 'y').strip().lower()
+                            if resp in ('n', 'no'):
+                                custom = self._prompt_with_timeout("    Enter employee-search session cap: ", 30, '30').strip()
+                                try:
+                                    employee_cap = int(custom)
+                                    if employee_cap < 1:
+                                        employee_cap = 30
+                                except ValueError:
+                                    employee_cap = 30
+                            else:
+                                employee_cap = 30
+
+                            employee_pacing = {'mode': employee_mode, 'cap': employee_cap}
+                            self.checkpoint('linkedin_enumeration', 'employee_pacing', employee_pacing)
+                            print("="*80)
+
+                        employee_mode = employee_pacing.get('mode', 'paranoid')
+                        employee_cap = employee_pacing.get('cap', 30)
+                        employee_profile = delay_profiles.get(employee_mode, delay_profiles['paranoid'])
+                        self.print_info(f"Employee phase pacing: {employee_mode} (session cap: {employee_cap} employee API calls)")
+
                         # Brief pause before employee search starts (simulates "now searching for people")
                         time.sleep(random.uniform(3, 6))
 
@@ -3234,11 +3350,13 @@ class ReconAutomation:
                             self._linkedin_finalize(linkedin_intel, all_companies, api_call_count, '')
                             return
 
+                        employee_api_calls = 0
+
                         for company_idx, company in enumerate(companies_to_search, 1):
                             # Check session cap before each company
-                            if api_call_count >= profile['session_cap']:
+                            if employee_api_calls >= employee_cap:
                                 rate_limit_triggered = True
-                                rate_limit_reason = f"Session cap reached ({profile['session_cap']} API calls)"
+                                rate_limit_reason = f"Employee session cap reached ({employee_cap} API calls)"
                                 break
 
                             company_name = company['name']
@@ -3256,12 +3374,18 @@ class ReconAutomation:
                                 self.print_info(f"  Looking up company ID for {company_slug}...")
                                 try:
                                     company_lookup_url = f"https://www.linkedin.com/voyager/api/organization/companies?decorationId=com.linkedin.voyager.deco.organization.web.WebFullCompanyMain-21&q=universalName&universalName={company_slug}"
-                                    lookup_response = linkedin_session.get(company_lookup_url, headers=api_headers, timeout=15)
+                                    lookup_response = linkedin_session.get(company_lookup_url, headers=api_headers, timeout=15, allow_redirects=False)
                                     api_call_count += 1
+                                    employee_api_calls += 1
 
                                     if lookup_response.status_code in [429, 999, 401, 403]:
                                         rate_limit_triggered = True
                                         rate_limit_reason = f"HTTP {lookup_response.status_code} during company lookup"
+                                        break
+                                    if 300 <= lookup_response.status_code < 400:
+                                        loc = lookup_response.headers.get('Location', '')
+                                        rate_limit_triggered = True
+                                        rate_limit_reason = f"HTTP {lookup_response.status_code} redirect during company lookup (security check / challenge)" + (f" -> {loc}" if loc else "")
                                         break
 
                                     if lookup_response.status_code == 200:
@@ -3290,6 +3414,10 @@ class ReconAutomation:
                                                     self.print_success(f"  Found company ID: {company_id}")
 
                                     time.sleep(random.uniform(2, 4))
+                                except requests.exceptions.TooManyRedirects:
+                                    rate_limit_triggered = True
+                                    rate_limit_reason = "Redirect loop during company lookup (security check / challenge)"
+                                    break
                                 except Exception as e:
                                     self.print_warning(f"  Company lookup failed: {e}")
 
@@ -3306,16 +3434,17 @@ class ReconAutomation:
 
                             while start < max_per_company:
                                 # Check session cap
-                                if api_call_count >= profile['session_cap']:
+                                if employee_api_calls >= employee_cap:
                                     rate_limit_triggered = True
-                                    rate_limit_reason = f"Session cap reached ({profile['session_cap']} API calls)"
+                                    rate_limit_reason = f"Employee session cap reached ({employee_cap} API calls)"
                                     break
 
                                 people_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(flagshipSearchIntent:SEARCH_SRP,queryParameters:(currentCompany:List({company_id}),resultType:List(PEOPLE)),includeFiltersInResponse:false)&start={start}"
 
                                 try:
-                                    response = linkedin_session.get(people_search_url, headers=api_headers, timeout=15)
+                                    response = linkedin_session.get(people_search_url, headers=api_headers, timeout=15, allow_redirects=False)
                                     api_call_count += 1
+                                    employee_api_calls += 1
 
                                     # Rate-limit detection
                                     if response.status_code == 429:
@@ -3329,6 +3458,11 @@ class ReconAutomation:
                                     if response.status_code in [401, 403]:
                                         rate_limit_triggered = True
                                         rate_limit_reason = f"HTTP {response.status_code} (auth invalidated)"
+                                        break
+                                    if 300 <= response.status_code < 400:
+                                        loc = response.headers.get('Location', '')
+                                        rate_limit_triggered = True
+                                        rate_limit_reason = f"HTTP {response.status_code} redirect (security check / challenge)" + (f" -> {loc}" if loc else "")
                                         break
 
                                     # Detect challenge/login redirect pages
@@ -3438,7 +3572,7 @@ class ReconAutomation:
                                             company_employees.append(emp)
                                             new_count += 1
 
-                                    self.print_info(f"  Page {start // page_size + 1}: Found {new_count} new employees (total: {len(company_employees)}, API calls: {api_call_count})")
+                                    self.print_info(f"  Page {start // page_size + 1}: Found {new_count} new employees (total: {len(company_employees)}, employee API calls: {employee_api_calls})")
 
                                     if new_count == 0:
                                         break
@@ -3446,16 +3580,20 @@ class ReconAutomation:
                                     start += page_size
 
                                     # Per-page delay with jitter
-                                    delay = random.uniform(profile['page_min'], profile['page_max'])
+                                    delay = random.uniform(employee_profile['page_min'], employee_profile['page_max'])
 
                                     # Occasional long pause
-                                    if profile['long_pause_prob'] > 0 and random.random() < profile['long_pause_prob']:
-                                        long_pause = random.uniform(profile['long_pause_min'], profile['long_pause_max'])
+                                    if employee_profile['long_pause_prob'] > 0 and random.random() < employee_profile['long_pause_prob']:
+                                        long_pause = random.uniform(employee_profile['long_pause_min'], employee_profile['long_pause_max'])
                                         self.print_info(f"  (Long read pause: {long_pause:.0f}s)")
                                         time.sleep(long_pause)
                                     else:
                                         time.sleep(delay)
 
+                                except requests.exceptions.TooManyRedirects:
+                                    rate_limit_triggered = True
+                                    rate_limit_reason = "Redirect loop (security check / challenge)"
+                                    break
                                 except Exception as e:
                                     self.print_error(f"Error fetching people: {e}")
                                     break
@@ -3476,7 +3614,7 @@ class ReconAutomation:
 
                             # Between-company break (only if more companies remain)
                             if company_idx < len(companies_to_search):
-                                company_break = random.uniform(profile['company_break_min'], profile['company_break_max'])
+                                company_break = random.uniform(employee_profile['company_break_min'], employee_profile['company_break_max'])
                                 self.print_info(f"  (Pausing {company_break:.0f}s before next company)")
                                 time.sleep(company_break)
 
@@ -3517,6 +3655,7 @@ class ReconAutomation:
             self.print_info(f"  Total API calls: {api_call_count}")
 
             if rate_limit_reason:
+                first_call_failure = api_call_count == 0
                 print("")
                 self.print_warning("="*80)
                 self.print_warning("LINKEDIN RATE LIMIT / DETECTION TRIGGERED")
@@ -3525,11 +3664,19 @@ class ReconAutomation:
                 self.print_warning(f"API calls made before stopping: {api_call_count}")
                 self.print_warning(f"Partial results saved to results['linkedin_intel']")
                 self.print_warning("")
-                self.print_warning("Recommendations before retrying:")
-                self.print_warning("  1. Wait at least 1-2 hours before next run")
-                self.print_warning("  2. Use a fresh cookie set from a different browser session")
-                self.print_warning("  3. Consider switching to --linkedin-mode paranoid")
-                self.print_warning("  4. Verify the LinkedIn account is not locked (log in via browser)")
+                if first_call_failure:
+                    self.print_warning("Detection hit on the FIRST call - this usually means a bad or expired")
+                    self.print_warning("session, not a soft block. Recommended:")
+                    self.print_warning("  1. Log into linkedin.com in a browser and clear any security check")
+                    self.print_warning("  2. Pull a fresh cookie set from a plain linkedin.com/feed tab")
+                    self.print_warning("  3. Confirm the account is not locked before retrying")
+                else:
+                    self.print_warning("Detection hit AFTER successful calls - this looks like a soft block on")
+                    self.print_warning("activity pattern. Recommended:")
+                    self.print_warning("  1. Wait several hours before the next run")
+                    self.print_warning("  2. Re-run employee search with paranoid pacing and a lower cap")
+                    self.print_warning("  3. Pull a fresh cookie set if the wait does not clear it")
+                    self.print_warning("  4. Verify the account is not locked (log in via browser)")
                 self.print_warning("="*80)
 
     def run_linkedin_only(self):
@@ -3547,6 +3694,9 @@ class ReconAutomation:
                 print("    4. In Request Headers, find 'Cookie:' and copy the ENTIRE value")
                 cookies = input("    Enter full LinkedIn cookie string (or press Enter to skip): ").strip()
                 if cookies:
+                    if not self._sanity_check_linkedin_cookies(cookies):
+                        self.print_error("LinkedIn cookies failed sanity check. Exiting.")
+                        return
                     self.config['linkedin_cookies'] = cookies
                     self.print_success("LinkedIn cookies configured")
                 else:
