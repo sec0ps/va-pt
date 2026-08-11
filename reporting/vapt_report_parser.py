@@ -3,6 +3,8 @@
 # VAPT Toolkit - Vulnerability Assessment and Penetration Testing Toolkit
 # =============================================================================
 #
+# Location: reporting/vapt_report_parser.py
+#
 # Author: Keith Pachulski
 # Company: Red Cell Security, LLC
 # Email: keith@redcellsecurity.org
@@ -14,12 +16,12 @@
 #          You are free to use, modify, and distribute this software
 #          in accordance with the terms of the license.
 #
-# Purpose: Unified report parser that ingests Nessus, Burp Suite, and OWASP ZAP
-#          XML output and completed penetration test reports (DOCX) from the
-#          working directory and generates a consolidated DOCX vulnerability
-#          assessment report and a DefectDojo Generic Findings Import JSON
-#          export. Supports Nessus file merging and produces output suitable
-#          for inclusion in formal client reports.
+# Purpose: Unified parser and report generator for OWASP ZAP and Burp Suite
+#          output. Auto-detects ZAP XML/HTML and Burp XML/HTML reports, parses
+#          findings and their instances, merges like reports into a single XML,
+#          and generates consolidated DOCX assessment reports. Preserves every
+#          instance across hosts when merging so shared findings retain their
+#          per-location detail.
 #
 # DISCLAIMER: This software is provided "as-is," without warranty of any kind,
 #             express or implied, including but not limited to the warranties
@@ -36,1287 +38,1026 @@
 #
 # =============================================================================
 
-import os
-import re
-import sys
-import json
-import hashlib
-import argparse
 import xml.etree.ElementTree as ET
+import argparse
+import sys
 from pathlib import Path
 from datetime import datetime
-from dataclasses import dataclass, field
-from urllib.parse import urlparse
-
+from html.parser import HTMLParser
+from collections import defaultdict
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
-from docx.table import Table as DocxTable
-from docx.text.paragraph import Paragraph as DocxParagraph
 
+class ZAPHTMLParser(HTMLParser):
+    """Parse ZAP HTML report format"""
 
-# Severity ordering used in output. High/Medium/Low only - Informational is
-# dropped at parse time, Critical collapses into High.
-SEVERITY_ORDER = ['High', 'Medium', 'Low']
+    def __init__(self):
+        super().__init__()
+        self.alerts = []
+        self.current_alert = {}
+        self.current_tag = None
+        self.current_data = []
+        self.in_alert = False
+        self.in_instance = False
+        self.current_instances = []
 
-SEVERITY_COLORS = {
-    'High': RGBColor(255, 0, 0),
-    'Medium': RGBColor(255, 140, 0),
-    'Low': RGBColor(65, 105, 225),
-}
+    def handle_starttag(self, tag, attrs):
+        attrs_dict = dict(attrs)
 
-# Per-scanner severity normalization. Anything not in these maps (Informational,
-# Information, None, empty) is dropped at parse time.
-NESSUS_SEVERITY_MAP = {
-    'Critical': 'High',
-    'High': 'High',
-    'Medium': 'Medium',
-    'Low': 'Low',
-}
+        if tag == 'div' and attrs_dict.get('class') in ['alert-item', 'site']:
+            self.in_alert = True
+            self.current_alert = {'instances': []}
+        elif tag == 'span' and 'risk-' in attrs_dict.get('class', ''):
+            self.current_tag = 'risk'
+        elif tag == 'h3' and self.in_alert:
+            self.current_tag = 'name'
+        elif tag == 'h4' and self.in_alert:
+            self.current_tag = 'section'
+        elif tag == 'p' and self.in_alert:
+            self.current_tag = 'content'
+        elif tag == 'li' and self.in_alert:
+            if self.current_tag == 'urls':
+                self.in_instance = True
+            self.current_tag = 'list_item'
+        elif tag == 'td' and self.in_alert:
+            self.current_tag = 'table_cell'
 
-BURP_SEVERITY_MAP = {
-    'High': 'High',
-    'Medium': 'Medium',
-    'Low': 'Low',
-}
+    def handle_data(self, data):
+        data = data.strip()
+        if not data or not self.in_alert:
+            return
 
-ZAP_SEVERITY_MAP = {
-    'High': 'High',
-    'Medium': 'Medium',
-    'Low': 'Low',
-}
+        if self.current_tag == 'risk':
+            self.current_alert['risk'] = data
+        elif self.current_tag == 'name' and 'name' not in self.current_alert:
+            self.current_alert['name'] = data
+        elif self.current_tag == 'content':
+            self.current_data.append(data)
+        elif self.current_tag == 'list_item' and self.in_instance:
+            self.current_instances.append(data)
+        elif self.current_tag == 'table_cell':
+            self.current_data.append(data)
 
-# DefectDojo Generic Findings Import default test type name
-DEFAULT_TEST_TYPE_NAME = 'VAPT Assessment'
+    def handle_endtag(self, tag):
+        if tag == 'div' and self.in_alert:
+            if 'name' in self.current_alert and 'risk' in self.current_alert:
+                content = ' '.join(self.current_data)
 
-# Labels that mark field boundaries inside a finding in a formal report. Order
-# matters for the state machine: once a label is hit, all subsequent content
-# belongs to it until the next label, the next H3 (new finding), or the next
-# H1/H2 (section end).
-REPORT_FIELD_LABELS = ('description', 'recommendation', 'references', 'evidence')
+                if 'Description' in content:
+                    parts = content.split('Description', 1)
+                    if len(parts) > 1:
+                        desc_part = parts[1].split('Solution', 1)[0] if 'Solution' in parts[1] else parts[1]
+                        self.current_alert['description'] = desc_part.strip()
 
+                if 'Solution' in content:
+                    parts = content.split('Solution', 1)
+                    if len(parts) > 1:
+                        sol_part = parts[1].split('Reference', 1)[0] if 'Reference' in parts[1] else parts[1]
+                        self.current_alert['solution'] = sol_part.strip()
 
-@dataclass
-class Finding:
-    """Normalized finding representation used across all scanner types."""
-    scanner_type: str            # 'nessus' | 'burp' | 'zap' | 'manual'
-    scanner_id: str              # plugin_id for nessus, finding name for others
-    title: str
-    severity: str                # 'High' | 'Medium' | 'Low'
-    affected_systems: list = field(default_factory=list)
-    description: str = ''
-    recommendation: str = ''
-    references: list = field(default_factory=list)
-    evidence_blocks: list = field(default_factory=list)  # [{'label': str, 'content': str}]
+                if 'Reference' in content:
+                    parts = content.split('Reference', 1)
+                    if len(parts) > 1:
+                        self.current_alert['reference'] = parts[1].strip()
 
-    # Parsed but not rendered in DOCX. Retained for DefectDojo JSON export.
-    cvss_score: str = ''
-    cwe: str = ''
-    cve: str = ''
-    plugin_id: str = ''
+                if self.current_instances:
+                    self.current_alert['instances'] = self.current_instances.copy()
 
+                self.alerts.append(self.current_alert)
 
-# ---------------------------------------------------------------------------
-# Format detection and file discovery
-# ---------------------------------------------------------------------------
+            self.in_alert = False
+            self.current_alert = {}
+            self.current_data = []
+            self.current_instances = []
+        elif tag in ['p', 'h3', 'h4', 'span', 'li', 'td']:
+            self.current_tag = None
+
+        if tag == 'ul':
+            self.in_instance = False
 
 def detect_format(file_path):
-    """
-    Identify scanner output type. .docx files are checked by extension since
-    they're ZIP archives, not text-sniffable. XML files are sniffed.
-    Returns 'nessus' | 'burp' | 'zap' | 'report' | None.
-    """
-    if file_path.suffix.lower() == '.docx':
-        return 'report'
+    """Auto-detect report type: zap_xml, zap_html, burp_xml, burp_html"""
+    with open(file_path, 'r', encoding='utf-8') as f:
+        content = f.read(2000)
 
-    try:
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-            content = f.read(2048)
-    except (IOError, OSError):
-        return None
+        if '<?xml' in content:
+            if '<OWASPZAPReport' in content or 'programName="ZAP"' in content:
+                return 'zap_xml'
+            # Check for Burp DOCTYPE or ATTLIST (appears early in file)
+            elif '<!DOCTYPE issues' in content or 'burpVersion CDATA' in content:
+                return 'burp_xml'
+            else:
+                return 'unknown'
+        elif '<html' in content.lower() or '<!doctype' in content.lower():
+            if 'Burp Scanner Report' in content or 'burp' in content.lower():
+                return 'burp_html'
+            return 'zap_html'
 
-    if '<NessusClientData_v2' in content:
-        return 'nessus'
-    if '<OWASPZAPReport' in content or 'programName="ZAP"' in content:
-        return 'zap'
-    if '<!DOCTYPE issues' in content or 'burpVersion' in content:
-        return 'burp'
-    return None
+    return 'unknown'
 
+def find_reports_in_directory():
+    """Find all supported report files in current directory"""
+    current_dir = Path('.')
+    supported_files = []
 
-def find_scanner_files(directory, include_reports=False):
-    """
-    Scan the working directory (top level only, no recursion) for scanner output
-    and optionally completed penetration test reports.
+    for file in current_dir.iterdir():
+        if file.is_file() and file.suffix.lower() in ['.xml', '.html', '.htm']:
+            try:
+                report_type = detect_format(file)
+                if report_type in ['zap_xml', 'zap_html', 'burp_xml', 'burp_html']:
+                    supported_files.append((file, report_type))
+            except:
+                continue
 
-    Returns a list of (Path, scanner_type) tuples. DOCX report files are only
-    included when include_reports=True, since DOCX files in a working directory
-    may be unrelated to the engagement (SOWs, notes, prior reports).
-    """
-    results = []
-    for entry in sorted(Path(directory).iterdir()):
-        if not entry.is_file():
+    return supported_files
+
+def parse_xml_report(file_path):
+    """Parse ZAP XML report"""
+    tree = ET.parse(file_path)
+    root = tree.getroot()
+
+    metadata = {
+        'program': root.get('programName', 'OWASP ZAP'),
+        'version': root.get('version', 'Unknown'),
+        'generated': root.get('generated', 'Unknown')
+    }
+
+    alerts_by_severity = defaultdict(list)
+    all_alerts = []
+
+    for site in root.findall('.//site'):
+        site_name = site.get('name', 'Unknown')
+        site_host = site.get('host', '')
+        site_port = site.get('port', '')
+
+        for alert in site.findall('.//alertitem'):
+            alert_data = {
+                'name': alert.findtext('name', 'Unknown'),
+                'risk': alert.findtext('riskdesc', 'Unknown'),
+                'confidence': alert.findtext('confidence', 'Unknown'),
+                'description': alert.findtext('desc', ''),
+                'solution': alert.findtext('solution', ''),
+                'reference': alert.findtext('reference', ''),
+                'cweid': alert.findtext('cweid', ''),
+                'wascid': alert.findtext('wascid', ''),
+                'site': site_name,
+                'host': site_host,
+                'port': site_port,
+                'instances': []
+            }
+
+            for instance in alert.findall('.//instance'):
+                instance_data = {
+                    'uri': instance.findtext('uri', ''),
+                    'method': instance.findtext('method', ''),
+                    'param': instance.findtext('param', ''),
+                    'attack': instance.findtext('attack', ''),
+                    'evidence': instance.findtext('evidence', ''),
+                    'otherinfo': instance.findtext('otherinfo', ''),
+                    'nodeName': instance.findtext('nodeName', ''),
+                    'request_header': instance.findtext('requestheader', ''),
+                    'request_body': instance.findtext('requestbody', ''),
+                    'response_header': instance.findtext('responseheader', ''),
+                    'response_body': instance.findtext('responsebody', '')
+                }
+                alert_data['instances'].append(instance_data)
+
+            risk_level = alert_data['risk'].split()[0] if alert_data['risk'] else 'Informational'
+            alert_data['risk'] = risk_level  # Normalize to match expected keys
+            alerts_by_severity[risk_level].append(alert_data)
+            all_alerts.append(alert_data)
+
+    return metadata, alerts_by_severity, all_alerts
+
+def parse_html_report(file_path):
+    """Parse ZAP HTML report"""
+    with open(file_path, 'r', encoding='utf-8') as f:
+        html_content = f.read()
+
+    parser = ZAPHTMLParser()
+    parser.feed(html_content)
+
+    metadata = {
+        'program': 'OWASP ZAP',
+        'version': 'Unknown',
+        'generated': 'Unknown'
+    }
+
+    if 'ZAP Version' in html_content:
+        import re
+        version_match = re.search(r'ZAP Version[:\s]+([0-9.]+)', html_content)
+        if version_match:
+            metadata['version'] = version_match.group(1)
+
+    if 'Report Generated' in html_content:
+        import re
+        date_match = re.search(r'Report Generated[:\s]+([^<]+)', html_content)
+        if date_match:
+            metadata['generated'] = date_match.group(1).strip()
+
+    alerts_by_severity = defaultdict(list)
+    all_alerts = []
+
+    for alert in parser.alerts:
+        risk = alert.get('risk', 'Informational')
+        if 'High' in risk:
+            risk_level = 'High'
+        elif 'Medium' in risk:
+            risk_level = 'Medium'
+        elif 'Low' in risk:
+            risk_level = 'Low'
+        else:
+            risk_level = 'Informational'
+
+        alert['risk'] = risk_level
+        alerts_by_severity[risk_level].append(alert)
+        all_alerts.append(alert)
+
+    return metadata, alerts_by_severity, all_alerts
+
+def parse_burp_report(file_path):
+    """Parse Burp Suite XML report"""
+    tree = ET.parse(file_path)
+    root = tree.getroot()
+
+    metadata = {
+        'program': 'Burp Suite',
+        'version': root.get('burpVersion', 'Unknown'),
+        'generated': root.get('exportTime', 'Unknown')
+    }
+
+    alerts_by_severity = defaultdict(list)
+    all_alerts = []
+
+    severity_map = {
+        'High': 'High',
+        'Medium': 'Medium',
+        'Low': 'Low',
+        'Information': 'Informational',
+        'Informational': 'Informational'
+    }
+
+    for issue in root.findall('.//issue'):
+        alert_data = {
+            'name': issue.findtext('name', 'Unknown'),
+            'risk': severity_map.get(issue.findtext('severity', 'Informational'), 'Informational'),
+            'confidence': issue.findtext('confidence', 'Certain'),
+            'description': issue.findtext('issueBackground', '') or issue.findtext('issueDetail', ''),
+            'solution': issue.findtext('remediationBackground', '') or issue.findtext('remediationDetail', ''),
+            'reference': '\n'.join([ref.text for ref in issue.findall('.//reference') if ref.text]),
+            'cweid': '',
+            'wascid': '',
+            'instances': []
+        }
+
+        host = issue.findtext('host', '')
+        path = issue.findtext('path', '')
+
+        # Extract request/response data
+        request_data = issue.find('.//requestresponse/request')
+        response_data = issue.find('.//requestresponse/response')
+
+        if host and path:
+            instance = {
+                'uri': f"{host}{path}",
+                'method': issue.findtext('method', ''),
+                'param': '',
+                'request_header': request_data.text if request_data is not None else '',
+                'request_body': '',
+                'response_header': response_data.text if response_data is not None else '',
+                'response_body': '',
+                'evidence': ''
+            }
+            alert_data['instances'].append(instance)
+
+        risk_level = alert_data['risk']
+        alerts_by_severity[risk_level].append(alert_data)
+        all_alerts.append(alert_data)
+
+    return metadata, alerts_by_severity, all_alerts
+
+def parse_burp_html_report(file_path):
+    """Parse Burp Suite HTML report"""
+    with open(file_path, 'r', encoding='utf-8') as f:
+        html_content = f.read()
+
+    import re
+    from html import unescape
+
+    metadata = {
+        'program': 'Burp Suite',
+        'version': 'Unknown',
+        'generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
+
+    alerts_by_severity = defaultdict(list)
+    all_alerts = []
+
+    severity_map = {
+        'high': 'High',
+        'medium': 'Medium',
+        'low': 'Low',
+        'information': 'Informational',
+        'informational': 'Informational'
+    }
+
+    # Try to extract issues from HTML tables
+    # Burp HTML reports often have tables with issue details
+    issue_pattern = re.compile(
+        r'<tr[^>]*>.*?<td[^>]*>(.*?)</td>.*?<td[^>]*>(.*?)</td>.*?<td[^>]*>(.*?)</td>',
+        re.DOTALL | re.IGNORECASE
+    )
+
+    # Extract severity/name/description patterns
+    for match in issue_pattern.finditer(html_content):
+        severity_raw = re.sub('<.*?>', '', match.group(1)).strip()
+        name = re.sub('<.*?>', '', match.group(2)).strip()
+        description = re.sub('<.*?>', '', match.group(3)).strip()
+
+        if not name:
             continue
-        if entry.suffix.lower() not in ['.nessus', '.xml', '.docx']:
-            continue
-        scanner_type = detect_format(entry)
-        if not scanner_type:
-            continue
-        if scanner_type == 'report' and not include_reports:
-            continue
-        results.append((entry, scanner_type))
-    return results
 
+        severity_clean = severity_raw.lower()
+        risk_level = severity_map.get(severity_clean, 'Informational')
 
-# ---------------------------------------------------------------------------
-# Shared parsing helpers
-# ---------------------------------------------------------------------------
+        alert_data = {
+            'name': unescape(name),
+            'risk': risk_level,
+            'confidence': 'Certain',
+            'description': unescape(description),
+            'solution': '',
+            'reference': '',
+            'instances': []
+        }
 
-def _extract_text(element, tag):
-    """Safely extract text content from a named child element."""
-    child = element.find(tag)
-    return child.text if child is not None and child.text else ''
+        alerts_by_severity[risk_level].append(alert_data)
+        all_alerts.append(alert_data)
 
+    # If no issues found with table pattern, try alternative parsing
+    if not all_alerts:
+        # Look for issue blocks with headers
+        issue_blocks = re.finditer(
+            r'<h[23][^>]*>(.*?)</h[23]>.*?<p[^>]*>(.*?)</p>',
+            html_content,
+            re.DOTALL | re.IGNORECASE
+        )
 
-def _strip_html(text):
-    """Remove HTML tags from a string."""
-    if not text:
-        return ''
-    return re.sub(r'<[^>]+>', '', text).strip()
+        for match in issue_blocks:
+            name = re.sub('<.*?>', '', match.group(1)).strip()
+            description = re.sub('<.*?>', '', match.group(2)).strip()
 
+            if len(name) < 5 or len(description) < 10:
+                continue
 
-def _extract_base_url(uri):
-    """Reduce a URI to scheme://host[:port], preserving non-standard ports only."""
-    if not uri:
-        return ''
+            alert_data = {
+                'name': unescape(name),
+                'risk': 'Medium',  # Default if severity not found
+                'confidence': 'Tentative',
+                'description': unescape(description),
+                'solution': '',
+                'reference': '',
+                'instances': []
+            }
+
+            alerts_by_severity['Medium'].append(alert_data)
+            all_alerts.append(alert_data)
+
+    return metadata, alerts_by_severity, all_alerts
+
+def extract_base_url(uri):
+    """Extract base URL with non-standard ports"""
+    from urllib.parse import urlparse
+
     parsed = urlparse(uri)
-    if not parsed.hostname:
-        return uri
-    base = f"{parsed.scheme}://{parsed.hostname}"
+
+    # Build base URL
+    base = f"{parsed.scheme}://{parsed.hostname}" if parsed.hostname else uri
+
+    # Add port if non-standard
     if parsed.port:
         if (parsed.scheme == 'https' and parsed.port != 443) or \
            (parsed.scheme == 'http' and parsed.port != 80):
             base += f":{parsed.port}"
+
     return base
 
-
-# ---------------------------------------------------------------------------
-# Nessus adapter
-# ---------------------------------------------------------------------------
-
-def parse_nessus(file_path):
-    """Parse a .nessus XML file and return a list of Finding objects."""
-    try:
-        tree = ET.parse(file_path)
-    except ET.ParseError as e:
-        print(f"[!] Parse error in {file_path}: {e}")
-        return []
-
-    root = tree.getroot()
-    report = root.find('Report')
-    if report is None:
-        return []
-
-    findings = []
-
-    for report_host in report.findall('ReportHost'):
-        host_name = report_host.get('name', 'Unknown')
-
-        for report_item in report_host.findall('ReportItem'):
-            plugin_id = report_item.get('pluginID', '')
-            raw_severity = _extract_text(report_item, 'risk_factor')
-            severity = NESSUS_SEVERITY_MAP.get(raw_severity)
-            if not severity:
-                continue
-
-            # Build affected system string: host:port (protocol/svc)
-            port = report_item.get('port', '')
-            protocol = report_item.get('protocol', '')
-            svc_name = report_item.get('svc_name', '')
-            system_info = host_name
-            if port and port != '0':
-                system_info += f":{port}"
-            if protocol:
-                system_info += f" ({protocol}"
-                if svc_name:
-                    system_info += f"/{svc_name}"
-                system_info += ")"
-
-            # References: CVE, xref, see_also
-            refs = []
-            cve_value = ''
-            for cve in report_item.findall('cve'):
-                if cve.text:
-                    refs.append(f"CVE: {cve.text}")
-                    if not cve_value:
-                        cve_value = cve.text
-            for xref in report_item.findall('xref'):
-                if xref.text:
-                    refs.append(xref.text)
-            for see_also in report_item.findall('see_also'):
-                if see_also.text:
-                    refs.append(see_also.text)
-
-            plugin_output = _extract_text(report_item, 'plugin_output')
-            evidence_blocks = []
-            if plugin_output:
-                evidence_blocks.append({'label': '', 'content': plugin_output})
-
-            finding = Finding(
-                scanner_type='nessus',
-                scanner_id=plugin_id,
-                title=report_item.get('pluginName', 'Unknown'),
-                severity=severity,
-                affected_systems=[system_info],
-                description=_extract_text(report_item, 'description'),
-                recommendation=_extract_text(report_item, 'solution'),
-                references=refs,
-                evidence_blocks=evidence_blocks,
-                cvss_score=_extract_text(report_item, 'cvss_base_score'),
-                cve=cve_value,
-                plugin_id=plugin_id,
-            )
-            findings.append(finding)
-
-    return findings
-
-
-# ---------------------------------------------------------------------------
-# Burp Suite adapter
-# ---------------------------------------------------------------------------
-
-def parse_burp(file_path):
-    """Parse a Burp Suite XML report and return a list of Finding objects."""
-    try:
-        tree = ET.parse(file_path)
-    except ET.ParseError as e:
-        print(f"[!] Parse error in {file_path}: {e}")
-        return []
-
-    root = tree.getroot()
-    findings = []
-
-    for issue in root.findall('.//issue'):
-        raw_severity = (issue.findtext('severity') or '').strip()
-        severity = BURP_SEVERITY_MAP.get(raw_severity)
-        if not severity:
-            continue
-
-        name = issue.findtext('name', 'Unknown')
-        host = issue.findtext('host', '')
-        path = issue.findtext('path', '')
-
-        affected = []
-        if host:
-            full_url = f"{host}{path}" if path else host
-            affected.append(_extract_base_url(full_url) or full_url)
-
-        description = (issue.findtext('issueBackground', '') or
-                       issue.findtext('issueDetail', ''))
-        recommendation = (issue.findtext('remediationBackground', '') or
-                          issue.findtext('remediationDetail', ''))
-
-        # References can appear as a single <references> blob or individual <reference> elements.
-        refs = []
-        ref_text = issue.findtext('references', '')
-        if ref_text:
-            for line in _strip_html(ref_text).split('\n'):
-                line = line.strip()
-                if line:
-                    refs.append(line)
-        for ref_elem in issue.findall('.//reference'):
-            if ref_elem.text and ref_elem.text.strip():
-                refs.append(ref_elem.text.strip())
-
-        # Capture CWE number if present in vulnerability classifications.
-        cwe = ''
-        vc_text = issue.findtext('vulnerabilityClassifications', '') or ''
-        cwe_match = re.search(r'CWE-(\d+)', vc_text)
-        if cwe_match:
-            cwe = cwe_match.group(1)
-
-        # Request/response from the first requestresponse element.
-        evidence_blocks = []
-        rr = issue.find('.//requestresponse')
-        if rr is not None:
-            request_elem = rr.find('request')
-            response_elem = rr.find('response')
-            if request_elem is not None and request_elem.text:
-                evidence_blocks.append({
-                    'label': 'Request',
-                    'content': request_elem.text,
-                })
-            if response_elem is not None and response_elem.text:
-                body = response_elem.text
-                if len(body) > 1000:
-                    body = body[:1000] + '\n... (truncated)'
-                evidence_blocks.append({
-                    'label': 'Response',
-                    'content': body,
-                })
-
-        finding = Finding(
-            scanner_type='burp',
-            scanner_id=name,
-            title=name,
-            severity=severity,
-            affected_systems=affected,
-            description=_strip_html(description),
-            recommendation=_strip_html(recommendation),
-            references=refs,
-            evidence_blocks=evidence_blocks,
-            cwe=cwe,
-        )
-        findings.append(finding)
-
-    return findings
-
-
-# ---------------------------------------------------------------------------
-# OWASP ZAP adapter
-# ---------------------------------------------------------------------------
-
-def parse_zap(file_path):
-    """Parse an OWASP ZAP XML report and return a list of Finding objects."""
-    try:
-        tree = ET.parse(file_path)
-    except ET.ParseError as e:
-        print(f"[!] Parse error in {file_path}: {e}")
-        return []
-
-    root = tree.getroot()
-    findings = []
-
-    for site in root.findall('.//site'):
-        for alert in site.findall('.//alertitem'):
-            riskdesc = alert.findtext('riskdesc', '') or ''
-            risk_raw = riskdesc.split()[0] if riskdesc else ''
-            severity = ZAP_SEVERITY_MAP.get(risk_raw)
-            if not severity:
-                continue
-
-            name = alert.findtext('name', 'Unknown')
-            description = _strip_html(alert.findtext('desc', ''))
-            recommendation = _strip_html(alert.findtext('solution', ''))
-
-            refs = []
-            ref_text = alert.findtext('reference', '')
-            if ref_text:
-                for line in _strip_html(ref_text).split('\n'):
-                    line = line.strip()
-                    if line:
-                        refs.append(line)
-
-            cwe = (alert.findtext('cweid', '') or '').strip()
-
-            affected = []
-            request_combined = ''
-            response_combined = ''
-            for instance in alert.findall('.//instance'):
-                uri = instance.findtext('uri', '')
-                if uri:
-                    base = _extract_base_url(uri)
-                    if base and base not in affected:
-                        affected.append(base)
-                # Capture first instance evidence only.
-                if not request_combined and not response_combined:
-                    req_h = instance.findtext('requestheader', '') or ''
-                    req_b = instance.findtext('requestbody', '') or ''
-                    res_h = instance.findtext('responseheader', '') or ''
-                    res_b = instance.findtext('responsebody', '') or ''
-                    if req_h or req_b:
-                        request_combined = req_h
-                        if req_b:
-                            request_combined += ('\n\n' + req_b) if request_combined else req_b
-                    if res_h or res_b:
-                        response_combined = res_h
-                        if res_b:
-                            if len(res_b) > 1000:
-                                res_b = res_b[:1000] + '\n... (truncated)'
-                            response_combined += ('\n\n' + res_b) if response_combined else res_b
-
-            evidence_blocks = []
-            if request_combined:
-                evidence_blocks.append({'label': 'Request', 'content': request_combined})
-            if response_combined:
-                evidence_blocks.append({'label': 'Response', 'content': response_combined})
-
-            finding = Finding(
-                scanner_type='zap',
-                scanner_id=name,
-                title=name,
-                severity=severity,
-                affected_systems=affected,
-                description=description,
-                recommendation=recommendation,
-                references=refs,
-                evidence_blocks=evidence_blocks,
-                cwe=cwe,
-            )
-            findings.append(finding)
-
-    return findings
-
-
-# ---------------------------------------------------------------------------
-# Manual penetration test report (DOCX) adapter
-# ---------------------------------------------------------------------------
-
-def _iter_block_items(parent):
-    """
-    Yield paragraphs and tables in document order from a python-docx parent
-    (Document or _Cell). python-docx exposes paragraphs and tables as separate
-    lists, which loses ordering; this walks the underlying XML to preserve it.
-    """
-    from docx.document import Document as _Document
-    from docx.oxml.table import CT_Tbl
-    from docx.oxml.text.paragraph import CT_P
-    from docx.table import _Cell, Table
-    from docx.text.paragraph import Paragraph
-
-    if isinstance(parent, _Document):
-        parent_elm = parent.element.body
-    elif isinstance(parent, _Cell):
-        parent_elm = parent._tc
-    else:
-        parent_elm = parent
-
-    for child in parent_elm.iterchildren():
-        if isinstance(child, CT_P):
-            yield Paragraph(child, parent)
-        elif isinstance(child, CT_Tbl):
-            yield Table(child, parent)
-
-
-def _heading_level(paragraph):
-    """Return heading level as int (1, 2, 3, ...) or None if not a heading."""
-    style_name = paragraph.style.name if paragraph.style else ''
-    if not style_name.startswith('Heading '):
-        return None
-    try:
-        return int(style_name.replace('Heading ', '').strip())
-    except (ValueError, AttributeError):
-        return None
-
-
-def _paragraph_text(paragraph):
-    """
-    Extract paragraph text while stripping images and inline drawings. Images
-    are dropped silently. Other run content is preserved.
-    """
-    parts = []
-    for run in paragraph.runs:
-        if run.element.findall('.//' + qn('w:drawing')):
-            if not run.text:
-                continue
-        parts.append(run.text or '')
-    return ''.join(parts)
-
-
-def _is_bold_label(paragraph, label):
-    """
-    Check if a paragraph is a bold label matching the given text (case-insensitive,
-    colon-tolerant).
-    """
-    text = _paragraph_text(paragraph).strip().rstrip(':').strip().lower()
-    if text != label.lower():
-        return False
-    return any(run.bold for run in paragraph.runs)
-
-
-def _cell_text_lines(cell):
-    """Return a list of non-empty text lines from a table cell, one per paragraph."""
-    lines = []
-    for para in cell.paragraphs:
-        text = _paragraph_text(para).strip()
-        if text:
-            lines.append(text)
-    return lines
-
-
-def _split_affected_systems(cell):
-    """
-    Split a metadata-table affected-systems cell into individual entries.
-    Each paragraph in the cell is treated as one system entry, preserving any
-    inline annotation (e.g., 'https://example.com/path  (parameter: filter)').
-    """
-    systems = []
-    for line in _cell_text_lines(cell):
-        line = line.strip()
-        if line and line not in systems:
-            systems.append(line)
-    return systems
-
-
-def _parse_metadata_table(table):
-    """
-    Parse the per-finding metadata table.
-    Returns (severity_raw, affected_systems_list) or (None, []).
-    """
-    severity = None
-    affected = []
-
-    for row in table.rows:
-        if len(row.cells) < 2:
-            continue
-        label = _paragraph_text(row.cells[0].paragraphs[0]).strip().rstrip(':').strip().lower()
-
-        if label == 'severity':
-            sev_text = _paragraph_text(row.cells[1].paragraphs[0]).strip()
-            severity = sev_text
-        elif label in ('affected system(s)', 'affected systems', 'affected system'):
-            affected = _split_affected_systems(row.cells[1])
-
-    return severity, affected
-
-
-def _normalize_report_severity(raw):
-    """Normalize a free-text severity string to High/Medium/Low or None."""
-    if not raw:
-        return None
-    raw = raw.strip().lower()
-    if raw in ('critical', 'high'):
-        return 'High'
-    if raw == 'medium':
-        return 'Medium'
-    if raw == 'low':
-        return 'Low'
-    return None
-
-
-def parse_report(file_path):
-    """
-    Parse a finished penetration test report (DOCX) and return Finding objects.
-
-    Expects the formal report structure:
-        H1 'Detailed Findings'
-            H2 '<Severity> Severity Findings'
-                H3 '<Finding Title>'
-                    Metadata table (Severity, Affected System(s))
-                    Bold 'Description' -> prose
-                    Bold 'Recommendation' -> prose
-                    Bold 'References' -> bullets
-                    Bold 'Evidence' -> mixed content
-        H1 '<next section>' (terminates findings)
-    """
-    try:
-        doc = Document(str(file_path))
-    except Exception as e:
-        print(f"[!] Failed to open {file_path}: {e}")
-        return []
-
-    findings = []
-    blocks = list(_iter_block_items(doc))
-
-    # Locate the start of the findings section
-    start_idx = None
-    for idx, block in enumerate(blocks):
-        if not isinstance(block, DocxParagraph):
-            continue
-        if _heading_level(block) == 1:
-            heading_text = _paragraph_text(block).strip().lower()
-            if 'detailed findings' in heading_text:
-                start_idx = idx + 1
-                break
-
-    if start_idx is None:
-        print(f"[!] No 'Detailed Findings' section found in {file_path.name}")
-        return []
-
-    current_finding = None
-    current_field = None
-    field_buffers = {label: [] for label in REPORT_FIELD_LABELS}
-    field_references = []
-
-    def finalize_current():
-        if not current_finding:
-            return
-        description = '\n\n'.join(field_buffers['description']).strip()
-        recommendation = '\n\n'.join(field_buffers['recommendation']).strip()
-        evidence_text = '\n'.join(field_buffers['evidence']).rstrip()
-
-        current_finding.description = description
-        current_finding.recommendation = recommendation
-        current_finding.references = list(field_references)
-        if evidence_text:
-            current_finding.evidence_blocks = [{'label': '', 'content': evidence_text}]
-        findings.append(current_finding)
-
-    for block in blocks[start_idx:]:
-        # Table handling: a table immediately after an H3 is the metadata table
-        if isinstance(block, DocxTable):
-            if current_finding and current_field is None:
-                severity_raw, affected = _parse_metadata_table(block)
-                severity = _normalize_report_severity(severity_raw)
-                if severity:
-                    current_finding.severity = severity
-                if affected:
-                    current_finding.affected_systems = affected
-            continue
-
-        if not isinstance(block, DocxParagraph):
-            continue
-
-        level = _heading_level(block)
-        text = _paragraph_text(block).strip()
-
-        # H1 terminates the findings section
-        if level == 1:
-            finalize_current()
-            current_finding = None
-            current_field = None
-            field_buffers = {label: [] for label in REPORT_FIELD_LABELS}
-            field_references = []
-            break
-
-        # H2 is informational only; severity comes from the metadata table
+def add_heading(doc, text, level=1):
+    """Add a heading with consistent formatting"""
+    heading = doc.add_heading(text, level=level)
+    for run in heading.runs:
+        run.font.name = 'Calibri (Headings)'
         if level == 2:
+            run.font.size = Pt(13)
+        elif level == 3:
+            run.font.size = Pt(11)
+    return heading
+
+def add_paragraph(doc, text, bold=False, italic=False):
+    """Add a paragraph with optional formatting"""
+    para = doc.add_paragraph()
+    run = para.add_run(text)
+    run.font.name = 'Arial'
+    run.font.size = Pt(11)
+    if bold:
+        run.bold = True
+    if italic:
+        run.italic = True
+    return para
+
+def add_bullet(doc, text, level=0):
+    """Add a bulleted item"""
+    para = doc.add_paragraph(text, style='List Bullet')
+    if level > 0:
+        para.paragraph_format.left_indent = Inches(0.5 * level)
+    for run in para.runs:
+        run.font.name = 'Arial'
+        run.font.size = Pt(11)
+    return para
+
+def generate_docx_report(metadata, alerts_by_severity, all_alerts, target_name="Target"):
+
+    doc = Document()
+
+    severity_order = ['High', 'Medium', 'Low', 'Informational']
+
+    for severity in severity_order:
+        alerts = alerts_by_severity.get(severity, [])
+        if not alerts:
             continue
 
-        # H3 starts a new finding
-        if level == 3:
-            finalize_current()
-            current_finding = Finding(
-                scanner_type='manual',
-                scanner_id=text,
-                title=text,
-                severity='',
-            )
-            current_field = None
-            field_buffers = {label: [] for label in REPORT_FIELD_LABELS}
-            field_references = []
+        # Level 2: Severity heading - Calibri (Headings) 13
+        add_heading(doc, f'{severity} Severity Findings', level=2)
+
+        # Group by alert name to avoid duplicates
+        alerts_by_name = defaultdict(list)
+        for alert in alerts:
+            alerts_by_name[alert['name']].append(alert)
+
+        for alert_name, alert_group in alerts_by_name.items():
+            # Level 3: Finding name - Calibri (Headings) 11
+            add_heading(doc, alert_name, level=3)
+
+            alert = alert_group[0]
+
+            # Affected Systems (first, matching nessus_parser order)
+            all_instances = []
+            for a in alert_group:
+                all_instances.extend(a.get('instances', []))
+
+            label = doc.add_paragraph()
+            run = label.add_run('Affected System(s):')
+            run.bold = True
+            run.font.name = 'Arial'
+            run.font.size = Pt(11)
+
+            if all_instances:
+                # Extract unique base URLs
+                systems = set()
+                for instance in all_instances:
+                    if isinstance(instance, dict) and instance.get('uri'):
+                        base_url = extract_base_url(instance['uri'])
+                        systems.add(base_url)
+
+                if systems:
+                    for system in sorted(systems):
+                        add_bullet(doc, system)
+                else:
+                    add_bullet(doc, 'Unknown')
+            else:
+                add_bullet(doc, 'Unknown')
+
+            # Description (strip HTML)
+            label = doc.add_paragraph()
+            run = label.add_run('Description:')
+            run.bold = True
+            run.font.name = 'Arial'
+            run.font.size = Pt(11)
+
+            if alert.get('description'):
+                add_paragraph(doc, strip_html_tags(alert['description']))
+            else:
+                p = add_paragraph(doc, 'N/A')
+                p.runs[0].italic = True
+                p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
+
+            # Solution/Remediation (strip HTML)
+            label = doc.add_paragraph()
+            run = label.add_run('Remediation:')
+            run.bold = True
+            run.font.name = 'Arial'
+            run.font.size = Pt(11)
+
+            if alert.get('solution'):
+                add_paragraph(doc, strip_html_tags(alert['solution']))
+            else:
+                p = add_paragraph(doc, 'N/A')
+                p.runs[0].italic = True
+                p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
+
+            # References
+            label = doc.add_paragraph()
+            run = label.add_run('References:')
+            run.bold = True
+            run.font.name = 'Arial'
+            run.font.size = Pt(11)
+
+            if alert.get('reference'):
+                has_refs = False
+                for ref in strip_html_tags(alert['reference']).split('\n'):
+                    ref = ref.strip()
+                    if ref:
+                        para = doc.add_paragraph(ref)
+                        for run in para.runs:
+                            run.font.name = 'Arial'
+                            run.font.size = Pt(11)
+                        has_refs = True
+
+                if not has_refs:
+                    p = add_paragraph(doc, 'None')
+                    p.runs[0].italic = True
+                    p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
+            else:
+                p = add_paragraph(doc, 'None')
+                p.runs[0].italic = True
+                p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
+
+            # Evidence (first instance only)
+            label = doc.add_paragraph()
+            run = label.add_run('Evidence:')
+            run.bold = True
+            run.font.name = 'Arial'
+            run.font.size = Pt(11)
+
+            if all_instances:
+                first_instance = all_instances[0]
+                has_evidence = False
+
+                # Request (header + body combined)
+                request_text = ''
+                if first_instance.get('request_header'):
+                    request_text = first_instance['request_header']
+                if first_instance.get('request_body'):
+                    request_text += '\n\n' + first_instance['request_body'] if request_text else first_instance['request_body']
+
+                if request_text:
+                    sub_label = doc.add_paragraph()
+                    run = sub_label.add_run('Request:')
+                    run.bold = True
+                    run.font.name = 'Arial'
+                    run.font.size = Pt(11)
+
+                    para = doc.add_paragraph(request_text)
+                    for run in para.runs:
+                        run.font.name = 'Consolas'
+                        run.font.size = Pt(10)
+                    # Add grey background shading
+                    shading = OxmlElement('w:shd')
+                    shading.set(qn('w:fill'), 'D9D9D9')
+                    para._p.get_or_add_pPr().append(shading)
+                    has_evidence = True
+
+                # Response (header + body combined)
+                response_text = ''
+                if first_instance.get('response_header'):
+                    response_text = first_instance['response_header']
+                if first_instance.get('response_body'):
+                    body = first_instance['response_body']
+                    if len(body) > 500:
+                        body = body[:500] + '\n... (truncated)'
+                    response_text += '\n\n' + body if response_text else body
+
+                if response_text:
+                    sub_label = doc.add_paragraph()
+                    run = sub_label.add_run('Response:')
+                    run.bold = True
+                    run.font.name = 'Arial'
+                    run.font.size = Pt(11)
+
+                    para = doc.add_paragraph(response_text)
+                    for run in para.runs:
+                        run.font.name = 'Consolas'
+                        run.font.size = Pt(10)
+                    # Add grey background shading
+                    shading = OxmlElement('w:shd')
+                    shading.set(qn('w:fill'), 'D9D9D9')
+                    para._p.get_or_add_pPr().append(shading)
+                    has_evidence = True
+
+                # If no evidence found, show N/A
+                if not has_evidence:
+                    p = add_paragraph(doc, 'N/A')
+                    p.runs[0].italic = True
+                    p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
+            else:
+                p = add_paragraph(doc, 'N/A')
+                p.runs[0].italic = True
+                p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
+
+            # Spacing between findings
+            doc.add_paragraph()
+
+    return doc
+
+def strip_html_tags(text):
+    """Remove HTML tags from text"""
+    import re
+    if not text:
+        return text
+    clean = re.sub(r'<[^>]+>', '', text)
+    return clean.strip()
+
+def print_test_output(metadata, alerts_by_severity, all_alerts, target_name):
+    """Print test output showing document structure"""
+    print("\n" + "="*60)
+    print("TEST MODE - Document Structure Preview")
+    print("="*60 + "\n")
+
+    print(f"TITLE: {metadata['program']} Security Assessment Report")
+    print(f"SUBTITLE: {target_name}\n")
+
+    print("SECTION: Executive Summary")
+    total_findings = len(all_alerts)
+    unique_findings = len(set(alert['name'] for alert in all_alerts))
+    print(f"  {total_findings} total findings, {unique_findings} unique\n")
+
+    print("SECTION: Scan Information")
+    print(f"  - Scanner: {metadata['program']} {metadata['version']}")
+    print(f"  - Scan Date: {metadata['generated']}")
+    print(f"  - Total: {total_findings}, Unique: {unique_findings}\n")
+
+    print("SECTION: Findings Summary")
+    severity_order = ['High', 'Medium', 'Low', 'Informational']
+    for severity in severity_order:
+        count = len(alerts_by_severity.get(severity, []))
+        if count > 0:
+            print(f"  {severity}: {count} finding(s)")
+    print()
+
+    line_count = 0
+    max_lines = 30
+
+    for severity in severity_order:
+        alerts = alerts_by_severity.get(severity, [])
+        if not alerts or line_count >= max_lines:
             continue
 
-        if current_finding is None:
-            continue
+        print(f"SECTION: {severity} Severity Findings")
+        line_count += 1
 
-        label_match = None
-        for label in REPORT_FIELD_LABELS:
-            if _is_bold_label(block, label):
-                label_match = label
+        alerts_by_name = defaultdict(list)
+        for alert in alerts:
+            alerts_by_name[alert['name']].append(alert)
+
+        shown = 0
+        for alert_name, alert_group in alerts_by_name.items():
+            if shown >= 2 or line_count >= max_lines:
+                remaining = len(alerts_by_name) - shown
+                if remaining > 0:
+                    print(f"  ... and {remaining} more {severity} findings")
                 break
 
-        if label_match:
-            current_field = label_match
+            print(f"  FINDING: {alert_name}")
+            alert = alert_group[0]
+
+            print(f"    - Severity: {severity}")
+            if 'confidence' in alert and alert['confidence']:
+                print(f"    - Confidence: {alert['confidence']}")
+
+            instance_count = sum(len(a.get('instances', [])) for a in alert_group)
+            if instance_count > 0:
+                print(f"    - Affected Locations: {instance_count}")
+
+            print()
+            shown += 1
+            line_count += 4
+
+    print("="*60)
+    print(f"Full report would contain all {unique_findings} unique findings")
+    print("="*60)
+
+def write_burp_xml(alerts, output_path):
+    """Write merged alerts to Burp XML format"""
+    root = ET.Element('issues', burpVersion="Merged", exportTime=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+    for alert in alerts:
+        issue = ET.SubElement(root, 'issue')
+        ET.SubElement(issue, 'name').text = alert.get('name', '')
+        ET.SubElement(issue, 'severity').text = alert.get('risk', 'Information')
+        ET.SubElement(issue, 'confidence').text = alert.get('confidence', '')
+        ET.SubElement(issue, 'issueBackground').text = alert.get('description', '')
+        ET.SubElement(issue, 'remediationBackground').text = alert.get('solution', '')
+
+        for instance in alert.get('instances', []):
+            ET.SubElement(issue, 'host').text = instance.get('uri', '').split('/')[2] if '://' in instance.get('uri', '') else ''
+            ET.SubElement(issue, 'path').text = '/' + '/'.join(instance.get('uri', '').split('/')[3:]) if '://' in instance.get('uri', '') else instance.get('uri', '')
+            break  # Burp has one host/path per issue element
+
+    tree = ET.ElementTree(root)
+    ET.indent(tree, space="  ")
+    tree.write(output_path, encoding='utf-8', xml_declaration=True)
+    print(f"[+] Written: {output_path}")
+
+
+def write_zap_xml(alerts, output_path):
+    """Write merged alerts to ZAP XML format"""
+    root = ET.Element('OWASPZAPReport', version="Merged", generated=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+    # site -> alert name -> {meta, instances, seen}
+    # Each instance is filed under the site of its own URI, not the finding's first URI,
+    # so a finding shared across hosts keeps every affected location instead of collapsing to one.
+    sites = {}
+    for alert in alerts:
+        name = alert.get('name', '')
+        instances = alert.get('instances', []) or []
+
+        if not instances:
+            sites.setdefault('Unknown', {}).setdefault(name, {'meta': alert, 'instances': [], 'seen': set()})
             continue
 
-        if current_field is None:
-            continue
-
-        if current_field == 'references':
-            if text:
-                field_references.append(text)
-        else:
-            # Evidence preserves blank lines for HTTP request/response readability
-            if text or current_field == 'evidence':
-                field_buffers[current_field].append(text)
-
-    # Flush trailing finding if document ended without another H1
-    finalize_current()
-
-    # Drop findings whose severity didn't normalize
-    valid_findings = [f for f in findings if f.severity in SEVERITY_ORDER]
-    dropped = len(findings) - len(valid_findings)
-    if dropped:
-        print(f"    Skipped {dropped} finding(s) with non-mapped severity")
-
-    return valid_findings
-
-
-# ---------------------------------------------------------------------------
-# Nessus XML merge
-# ---------------------------------------------------------------------------
-
-def merge_nessus_files(nessus_files, output_file):
-    """
-    Merge multiple .nessus files into a single output file.
-    Uses the Policy from the first file and combines all ReportHost elements.
-    """
-    if not nessus_files:
-        print("[!] No .nessus files to merge")
-        return False
-
-    try:
-        base_tree = ET.parse(nessus_files[0])
-    except ET.ParseError as e:
-        print(f"[!] Failed to parse base file {nessus_files[0]}: {e}")
-        return False
-
-    base_root = base_tree.getroot()
-    base_report = base_root.find('Report')
-    if base_report is None:
-        print(f"[!] No Report element in base file {nessus_files[0]}")
-        return False
-
-    print(f"[+] Using {nessus_files[0]} as base structure")
-
-    total_hosts = len(base_report.findall('ReportHost'))
-    total_items = sum(len(h.findall('ReportItem')) for h in base_report.findall('ReportHost'))
-
-    for nessus_file in nessus_files[1:]:
-        print(f"[*] Merging: {nessus_file}")
-        try:
-            tree = ET.parse(nessus_file)
-        except ET.ParseError as e:
-            print(f"[!] Skipping {nessus_file} due to parse error: {e}")
-            continue
-
-        report = tree.getroot().find('Report')
-        if report is None:
-            print(f"[!] No Report element in {nessus_file}, skipping")
-            continue
-
-        report_hosts = report.findall('ReportHost')
-        for report_host in report_hosts:
-            base_report.append(report_host)
-            total_hosts += 1
-            total_items += len(report_host.findall('ReportItem'))
-
-        print(f"    Added {len(report_hosts)} host(s)")
-
-    report_name = base_report.get('name', 'merged_scan')
-    base_report.set('name', f"{report_name}_merged_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-
-    try:
-        ET.indent(base_tree, space="  ")
-        base_tree.write(output_file, encoding='utf-8', xml_declaration=True)
-        print(f"[+] Merged {len(nessus_files)} file(s) -> {output_file}")
-        print(f"[+] Total hosts: {total_hosts}, total findings: {total_items}")
-        return True
-    except (IOError, OSError) as e:
-        print(f"[!] Error writing merged file: {e}")
-        return False
-
-
-# ---------------------------------------------------------------------------
-# Aggregation and dispatch
-# ---------------------------------------------------------------------------
-
-def aggregate_findings(findings):
-    """
-    Deduplicate findings within each scanner type and merge affected systems
-    across duplicates. Cross-scanner duplicates are preserved as separate findings.
-    """
-    deduped = {}
-
-    for finding in findings:
-        key = (finding.scanner_type, finding.scanner_id)
-        if key not in deduped:
-            deduped[key] = finding
-            continue
-
-        existing = deduped[key]
-        for system in finding.affected_systems:
-            if system not in existing.affected_systems:
-                existing.affected_systems.append(system)
-
-    return list(deduped.values())
-
-
-def bucket_by_severity(findings):
-    """
-    Organize findings into severity buckets, sorted alphabetically by title
-    within each bucket. Returns {'High': [...], 'Medium': [...], 'Low': [...]}.
-    """
-    buckets = {sev: [] for sev in SEVERITY_ORDER}
-    for finding in findings:
-        if finding.severity in buckets:
-            buckets[finding.severity].append(finding)
-    for sev in SEVERITY_ORDER:
-        buckets[sev].sort(key=lambda f: f.title.lower())
-    return buckets
-
-
-def parse_all_files(scanner_files):
-    """
-    Run the appropriate adapter against each file and return a flat list of
-    Finding objects from all sources combined.
-    """
-    all_findings = []
-    adapter_map = {
-        'nessus': parse_nessus,
-        'burp': parse_burp,
-        'zap': parse_zap,
-        'report': parse_report,
-    }
-
-    for file_path, scanner_type in scanner_files:
-        adapter = adapter_map.get(scanner_type)
-        if not adapter:
-            continue
-        print(f"[*] Parsing {scanner_type.upper()}: {file_path.name}")
-        file_findings = adapter(file_path)
-        print(f"    Extracted {len(file_findings)} finding(s)")
-        all_findings.extend(file_findings)
-
-    return all_findings
-
-
-# ---------------------------------------------------------------------------
-# DOCX report generator
-# ---------------------------------------------------------------------------
-
-def _set_cell_shading(paragraph, fill_color):
-    """Apply background shading to a paragraph (used for evidence blocks)."""
-    shading = OxmlElement('w:shd')
-    shading.set(qn('w:fill'), fill_color)
-    paragraph._p.get_or_add_pPr().append(shading)
-
-
-def _add_na(doc, text='N/A'):
-    """Add an italic grey 'N/A' or 'None' paragraph for empty fields."""
-    para = doc.add_paragraph(text)
-    para.runs[0].italic = True
-    para.runs[0].font.color.rgb = RGBColor(128, 128, 128)
-    return para
-
-
-def _add_label(doc, label_text):
-    """Add a bold label paragraph (e.g., 'Description:')."""
-    para = doc.add_paragraph()
-    run = para.add_run(label_text)
-    run.bold = True
-    return para
-
-
-def _add_evidence_block(doc, content):
-    """Add a monospace, grey-shaded evidence paragraph."""
-    para = doc.add_paragraph(content)
-    for run in para.runs:
-        run.font.name = 'Consolas'
-        run.font.size = Pt(10)
-    _set_cell_shading(para, 'D9D9D9')
-    return para
-
-
-def generate_report(buckets, output_file):
-    """Generate the DOCX report from severity-bucketed findings."""
-    print("[*] Generating DOCX report...")
-
-    try:
-        doc = Document()
-
-        style = doc.styles['Normal']
-        style.font.name = 'Arial'
-        style.font.size = Pt(11)
-
-        # Title
-        title = doc.add_heading('Vulnerability Assessment Report', level=0)
-        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-        # Timestamp
-        timestamp = doc.add_paragraph()
-        timestamp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = timestamp.add_run(f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
-        run.font.size = Pt(11)
-        run.font.color.rgb = RGBColor(102, 102, 102)
-
-        # Executive Summary
-        doc.add_heading('Executive Summary', level=1)
-
-        total = sum(len(buckets[sev]) for sev in SEVERITY_ORDER)
-        doc.add_paragraph(
-            f'This report contains {total} unique security findings organized by severity:'
-        )
-
-        for severity in SEVERITY_ORDER:
-            count = len(buckets[severity])
-            para = doc.add_paragraph(style='List Bullet')
-            run = para.add_run(f'{severity}: {count}')
-            run.bold = True
-            run.font.color.rgb = SEVERITY_COLORS[severity]
-
-        # Findings
-        doc.add_heading('Findings', level=1)
-
-        for severity in SEVERITY_ORDER:
-            findings = buckets[severity]
-            if not findings:
+        for inst in instances:
+            uri = inst.get('uri', '')
+            site_name = extract_base_url(uri) if '://' in uri else 'Unknown'
+            entry = sites.setdefault(site_name, {}).setdefault(name, {'meta': alert, 'instances': [], 'seen': set()})
+            key = (inst.get('uri', ''), inst.get('method', ''), inst.get('param', ''), inst.get('evidence', ''))
+            if key in entry['seen']:
                 continue
+            entry['seen'].add(key)
+            entry['instances'].append(inst)
 
-            sev_heading = doc.add_heading(severity, level=2)
-            sev_heading.runs[0].font.color.rgb = SEVERITY_COLORS[severity]
+    for site_name in sorted(sites):
+        site = ET.SubElement(root, 'site', name=site_name)
+        alerts_elem = ET.SubElement(site, 'alerts')
 
-            for finding in findings:
-                doc.add_heading(finding.title, level=3)
+        for name, entry in sites[site_name].items():
+            meta = entry['meta']
+            alertitem = ET.SubElement(alerts_elem, 'alertitem')
+            ET.SubElement(alertitem, 'name').text = meta.get('name', '')
+            ET.SubElement(alertitem, 'riskdesc').text = meta.get('risk', '')
+            ET.SubElement(alertitem, 'confidence').text = str(meta.get('confidence', ''))
+            ET.SubElement(alertitem, 'desc').text = meta.get('description', '')
+            ET.SubElement(alertitem, 'solution').text = meta.get('solution', '')
+            ET.SubElement(alertitem, 'reference').text = meta.get('reference', '')
+            ET.SubElement(alertitem, 'cweid').text = str(meta.get('cweid', ''))
+            ET.SubElement(alertitem, 'wascid').text = str(meta.get('wascid', ''))
 
-                # Affected System(s)
-                _add_label(doc, 'Affected System(s):')
-                if finding.affected_systems:
-                    for system in finding.affected_systems:
-                        doc.add_paragraph(system, style='List Bullet')
-                else:
-                    _add_na(doc, 'None')
+            instances_elem = ET.SubElement(alertitem, 'instances')
+            for inst in entry['instances']:
+                inst_elem = ET.SubElement(instances_elem, 'instance')
+                ET.SubElement(inst_elem, 'uri').text = inst.get('uri', '')
+                ET.SubElement(inst_elem, 'method').text = inst.get('method', '')
+                ET.SubElement(inst_elem, 'param').text = inst.get('param', '')
+                ET.SubElement(inst_elem, 'attack').text = inst.get('attack', '')
+                ET.SubElement(inst_elem, 'evidence').text = inst.get('evidence', '')
+                ET.SubElement(inst_elem, 'otherinfo').text = inst.get('otherinfo', '')
 
-                # Description
-                _add_label(doc, 'Description:')
-                if finding.description:
-                    doc.add_paragraph(finding.description)
-                else:
-                    _add_na(doc)
+            ET.SubElement(alertitem, 'count').text = str(len(entry['instances']))
 
-                # Recommendation
-                _add_label(doc, 'Recommendation:')
-                if finding.recommendation:
-                    doc.add_paragraph(finding.recommendation)
-                else:
-                    _add_na(doc)
+    tree = ET.ElementTree(root)
+    ET.indent(tree, space="  ")
+    tree.write(output_path, encoding='utf-8', xml_declaration=True)
+    print(f"[+] Written: {output_path}")
 
-                # References
-                _add_label(doc, 'References:')
-                if finding.references:
-                    for ref in finding.references:
-                        doc.add_paragraph(ref)
-                else:
-                    _add_na(doc, 'None')
+def process_report(input_path, report_type, args):
+    """Process a single report file"""
+    try:
+        if report_type == 'zap_xml':
+            metadata, alerts_by_severity, all_alerts = parse_xml_report(input_path)
+        elif report_type == 'zap_html':
+            metadata, alerts_by_severity, all_alerts = parse_html_report(input_path)
+        elif report_type == 'burp_xml':
+            metadata, alerts_by_severity, all_alerts = parse_burp_report(input_path)
+        elif report_type == 'burp_html':
+            metadata, alerts_by_severity, all_alerts = parse_burp_html_report(input_path)
 
-                # Evidence
-                _add_label(doc, 'Evidence:')
-                if finding.evidence_blocks:
-                    for block in finding.evidence_blocks:
-                        if block['label']:
-                            sub = doc.add_paragraph()
-                            sub.add_run(f"{block['label']}:").bold = True
-                        _add_evidence_block(doc, block['content'])
-                else:
-                    _add_na(doc)
-
-                # Spacer between findings
-                doc.add_paragraph()
-
-        doc.save(output_file)
-        print(f"[+] Report written: {output_file}")
-        return True
+        print(f"[+] Parsed {len(all_alerts)} total findings from {input_path.name}")
 
     except Exception as e:
-        print(f"[!] Error generating report: {e}")
-        return False
-
-
-# ---------------------------------------------------------------------------
-# DefectDojo JSON exporter
-# ---------------------------------------------------------------------------
-
-def _generate_unique_id(finding):
-    """
-    Generate a stable unique_id_from_tool for DefectDojo remediation tracking.
-
-    Nessus uses plugin_id directly. Burp/ZAP/manual hash the finding title since
-    none expose a stable vulnerability ID in their source.
-    """
-    if finding.scanner_type == 'nessus':
-        return f"nessus-{finding.plugin_id}"
-
-    title_hash = hashlib.sha256(finding.title.encode('utf-8')).hexdigest()[:16]
-    return f"{finding.scanner_type}-{title_hash}"
-
-
-def _normalize_endpoint(system):
-    """
-    Normalize an affected system string for the DefectDojo endpoints array.
-
-    Nessus format 'host:port (protocol/svc)' is stripped to 'host:port'.
-    URLs are passed through unchanged.
-    """
-    if not system:
-        return ''
-    paren_idx = system.find(' (')
-    if paren_idx > 0:
-        return system[:paren_idx].strip()
-    return system.strip()
-
-
-def _build_finding_json(finding):
-    """Convert a Finding object into a DefectDojo Generic Findings Import dict."""
-    entry = {
-        'title': finding.title,
-        'description': finding.description or 'No description provided.',
-        'severity': finding.severity,
-        'date': datetime.now().strftime('%Y-%m-%d'),
-        'unique_id_from_tool': _generate_unique_id(finding),
-        'active': True,
-        'verified': True,
-        'static_finding': False,
-        'dynamic_finding': True,
-    }
-
-    if finding.recommendation:
-        entry['mitigation'] = finding.recommendation
-
-    if finding.references:
-        entry['references'] = '\n'.join(finding.references)
-
-    if finding.plugin_id:
-        entry['vuln_id_from_tool'] = finding.plugin_id
-
-    if finding.cwe:
-        try:
-            entry['cwe'] = int(finding.cwe)
-        except (ValueError, TypeError):
-            pass
-
-    if finding.cve:
-        entry['cve'] = finding.cve
-
-    if finding.cvss_score:
-        try:
-            entry['cvssv3_score'] = float(finding.cvss_score)
-        except (ValueError, TypeError):
-            if finding.cvss_score.startswith('CVSS:'):
-                entry['cvssv3'] = finding.cvss_score
-
-    # Endpoints from affected_systems
-    endpoints = []
-    for system in finding.affected_systems:
-        normalized = _normalize_endpoint(system)
-        if normalized and normalized not in endpoints:
-            endpoints.append(normalized)
-    if endpoints:
-        entry['endpoints'] = endpoints
-
-    # Evidence blocks into steps_to_reproduce
-    if finding.evidence_blocks:
-        parts = []
-        for block in finding.evidence_blocks:
-            if block['label']:
-                parts.append(f"{block['label']}:\n{block['content']}")
-            else:
-                parts.append(block['content'])
-        entry['steps_to_reproduce'] = '\n\n'.join(parts)
-
-    # Scanner type as a tag for filtering inside DefectDojo
-    entry['tags'] = [finding.scanner_type]
-
-    return entry
-
-
-def export_defectdojo_json(buckets, output_file, test_type_name):
-    """Export deduplicated findings as DefectDojo Generic Findings Import JSON."""
-    print(f"[*] Exporting DefectDojo JSON (test type: {test_type_name})...")
-
-    findings_list = []
-    for severity in SEVERITY_ORDER:
-        for finding in buckets[severity]:
-            findings_list.append(_build_finding_json(finding))
-
-    payload = {
-        'name': test_type_name,
-        'findings': findings_list,
-    }
-
-    try:
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(payload, f, indent=2, ensure_ascii=False)
-        print(f"[+] DefectDojo JSON written: {output_file}")
-        print(f"[+] Exported {len(findings_list)} finding(s)")
-        return True
-    except (IOError, OSError) as e:
-        print(f"[!] Error writing JSON: {e}")
-        return False
-
-
-# ---------------------------------------------------------------------------
-# Test-mode display
-# ---------------------------------------------------------------------------
-
-def display_test_finding(buckets):
-    """Display the first finding from the highest-severity non-empty bucket."""
-    print("\n" + "=" * 80)
-    print("TEST MODE - First Parsed Finding")
-    print("=" * 80 + "\n")
-
-    for severity in SEVERITY_ORDER:
-        if not buckets[severity]:
-            continue
-
-        finding = buckets[severity][0]
-        print(f"Scanner: {finding.scanner_type}")
-        print(f"Severity: {finding.severity}")
-        print(f"Title: {finding.title}")
-        print(f"Scanner ID: {finding.scanner_id}")
-
-        print(f"\nAffected System(s) ({len(finding.affected_systems)}):")
-        for system in finding.affected_systems[:10]:
-            print(f"  - {system}")
-        if len(finding.affected_systems) > 10:
-            print(f"  ... and {len(finding.affected_systems) - 10} more")
-
-        print(f"\nDescription:")
-        desc = finding.description
-        print(desc[:500] + ('...' if len(desc) > 500 else ''))
-
-        print(f"\nRecommendation:")
-        rec = finding.recommendation
-        print(rec[:500] + ('...' if len(rec) > 500 else ''))
-
-        if finding.references:
-            print(f"\nReferences ({len(finding.references)}):")
-            for ref in finding.references[:10]:
-                print(f"  {ref}")
-            if len(finding.references) > 10:
-                print(f"  ... and {len(finding.references) - 10} more")
-
-        if finding.evidence_blocks:
-            print(f"\nEvidence Blocks: {len(finding.evidence_blocks)}")
-            for block in finding.evidence_blocks:
-                label = block['label'] or '(unlabeled)'
-                content = block['content']
-                preview = content[:200] + ('...' if len(content) > 200 else '')
-                print(f"  [{label}] {preview}")
-
-        print("\n" + "=" * 80)
+        print(f"[!] Error parsing report: {e}")
+        import traceback
+        traceback.print_exc()
         return
 
-    print("[!] No findings to display")
+    if args.test:
+        print_test_output(metadata, alerts_by_severity, all_alerts, args.target)
+        return
 
+    try:
+        doc = generate_docx_report(metadata, alerts_by_severity, all_alerts, args.target)
+    except Exception as e:
+        print(f"[!] Error generating DOCX: {e}")
+        import traceback
+        traceback.print_exc()
+        return
 
-# ---------------------------------------------------------------------------
-# CLI / main
-# ---------------------------------------------------------------------------
+    if args.output:
+        output_path = Path(args.output)
+    else:
+        output_path = input_path.with_name(f"{input_path.stem}_report.docx")
+
+    try:
+        doc.save(str(output_path))
+        print(f"[+] Report written to: {output_path}")
+    except Exception as e:
+        print(f"[!] Error writing report: {e}")
 
 def main():
     parser = argparse.ArgumentParser(
-        description='VAPT Report Parser - Nessus / Burp / ZAP XML and manual report DOCX to DOCX and DefectDojo JSON',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Scan current working directory and generate DOCX report from scanner output
-  python3 vapt_report_parser.py
-
-  # Generate DOCX and DefectDojo JSON from scanner output
-  python3 vapt_report_parser.py --json
-
-  # Parse a completed penetration test report and export to DefectDojo
-  python3 vapt_report_parser.py --include-reports --json --client "Acme Corp"
-
-  # Test mode - display first finding without writing files
-  python3 vapt_report_parser.py --test
-        """
+        description='Parse OWASP ZAP and Burp Suite reports into DOCX format'
     )
-
-    parser.add_argument('-o', '--output', default=None,
-                        help='DOCX output path (default: vapt_report_<timestamp>.docx in working dir)')
-    parser.add_argument('--merge-output', default='merged_scan.nessus',
-                        help='Nessus merge output filename (default: merged_scan.nessus)')
-    parser.add_argument('--no-merge', action='store_true',
-                        help='Skip Nessus XML merge step')
-    parser.add_argument('--no-report', action='store_true',
-                        help='Skip DOCX report generation')
-    parser.add_argument('--json', nargs='?', const='__auto__', default=None,
-                        help='Export DefectDojo Generic Findings Import JSON. '
-                             'Optional path argument (default: vapt_findings_<timestamp>.json)')
-    parser.add_argument('--client', default=None,
-                        help='Client name used as DefectDojo test type. '
-                             'Default test type: "VAPT Assessment"')
-    parser.add_argument('--include-reports', action='store_true',
-                        help='Include completed penetration test reports (.docx) as input. '
-                             'Off by default to avoid parsing unrelated DOCX files in the working directory.')
-    parser.add_argument('--test', action='store_true',
-                        help='Display first parsed finding and exit (no files written)')
+    parser.add_argument(
+        'input_file',
+        nargs='?',
+        help='Report file (ZAP XML/HTML or Burp XML). If omitted, scans current directory.'
+    )
+    parser.add_argument(
+        '-o', '--output',
+        help='Output DOCX file (default: <input>_report.docx)'
+    )
+    parser.add_argument(
+        '-t', '--target',
+        default='Target',
+        help='Target name for report header (default: Target)'
+    )
+    parser.add_argument(
+        '--test',
+        action='store_true',
+        help='Test mode: print document structure to console instead of writing file'
+    )
 
     args = parser.parse_args()
 
-    working_dir = Path.cwd()
-    print(f"[*] Working directory: {working_dir}")
+    # Auto-detect files if no input specified
+    if not args.input_file:
+        print("[*] No input file specified, scanning current directory...")
+        reports = find_reports_in_directory()
 
-    scanner_files = find_scanner_files(working_dir, include_reports=args.include_reports)
-
-    if not scanner_files:
-        print("[!] No supported scanner files found in working directory")
-        print("    Expected: .nessus (Nessus), .xml (Burp/ZAP)")
-        if not args.include_reports:
-            print("    Pass --include-reports to also parse completed report DOCX files")
-        sys.exit(1)
-
-    by_type = {'nessus': [], 'burp': [], 'zap': [], 'report': []}
-    for file_path, scanner_type in scanner_files:
-        by_type[scanner_type].append(file_path)
-
-    print(f"[+] Found {len(scanner_files)} scanner file(s):")
-    for scanner_type in ['nessus', 'burp', 'zap', 'report']:
-        files = by_type[scanner_type]
-        if files:
-            print(f"    {scanner_type.upper()}: {len(files)}")
-            for fp in files:
-                size_kb = os.path.getsize(fp) / 1024
-                print(f"      - {fp.name} ({size_kb:.1f} KB)")
-
-    # Merge Nessus files if multiple present and not disabled
-    if not args.no_merge and not args.test and len(by_type['nessus']) > 1:
-        print(f"\n[*] Merging {len(by_type['nessus'])} Nessus file(s)...")
-        merge_output_path = working_dir / args.merge_output
-        if not merge_nessus_files([str(p) for p in by_type['nessus']], str(merge_output_path)):
-            print("[!] Nessus merge failed (continuing with individual files for parsing)")
-
-    # Parse all files
-    print("\n[*] Parsing findings...")
-    raw_findings = parse_all_files(scanner_files)
-
-    if not raw_findings:
-        print("[!] No findings extracted from any file")
-        sys.exit(1)
-
-    # Dedup and bucket
-    deduped = aggregate_findings(raw_findings)
-    buckets = bucket_by_severity(deduped)
-
-    # Stats
-    total = sum(len(buckets[sev]) for sev in SEVERITY_ORDER)
-    print(f"\n[+] {len(raw_findings)} raw findings -> {total} unique after dedup")
-    for severity in SEVERITY_ORDER:
-        count = len(buckets[severity])
-        if count > 0:
-            print(f"    {severity}: {count}")
-
-    # Test mode short-circuit
-    if args.test:
-        display_test_finding(buckets)
-        sys.exit(0)
-
-    # DOCX report generation
-    # Auto-skip if the only inputs were completed reports - regenerating a DOCX
-    # from a report's own findings produces a less complete copy of the input.
-    only_reports = all(stype == 'report' for _, stype in scanner_files)
-
-    if args.no_report:
-        print("\n[*] DOCX report generation skipped (--no-report)")
-    elif only_reports:
-        print("\n[*] DOCX report generation skipped (input is report-only; use --json for DefectDojo export)")
-    else:
-        if args.output:
-            output_path = Path(args.output)
-            if not output_path.is_absolute():
-                output_path = working_dir / output_path
-        else:
-            output_path = working_dir / f"vapt_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
-
-        print(f"\n[*] Generating report: {output_path}")
-        if generate_report(buckets, str(output_path)):
-            size_kb = os.path.getsize(output_path) / 1024
-            print(f"[+] Report size: {size_kb:.1f} KB")
-        else:
-            print("[!] Report generation failed")
+        if not reports:
+            print("[!] No supported report files found in current directory")
             sys.exit(1)
 
-    # DefectDojo JSON export
-    if args.json is not None:
-        if args.json == '__auto__':
-            json_path = working_dir / f"vapt_findings_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        else:
-            json_path = Path(args.json)
-            if not json_path.is_absolute():
-                json_path = working_dir / json_path
+        print(f"[*] Found {len(reports)} supported report(s):")
+        for i, (file, report_type) in enumerate(reports, 1):
+            print(f"  {i}. {file.name} ({report_type.replace('_', ' ').upper()})")
 
-        test_type_name = args.client if args.client else DEFAULT_TEST_TYPE_NAME
-        print(f"\n[*] Exporting DefectDojo JSON: {json_path}")
-        if not export_defectdojo_json(buckets, str(json_path), test_type_name):
-            print("[!] JSON export failed")
+        print("\nOptions:")
+        print("  1) Merge Reports - merge like XML files into single XML")
+        print("  2) Generate DOCX - merge all and generate single report")
+        action = input("\nSelect option (1/2): ").strip()
+
+        # Group reports by type
+        by_type = defaultdict(list)
+        for file, report_type in reports:
+            by_type[report_type].append(file)
+
+        if action == '1':
+            # Merge to XML - only XML files eligible
+            xml_types = {k: v for k, v in by_type.items() if k.endswith('_xml')}
+
+            if not xml_types:
+                print("[!] No XML reports found for merging")
+                sys.exit(1)
+
+            merged_any = False
+            for report_type, files in xml_types.items():
+                if len(files) < 2:
+                    print(f"[*] Skipping {report_type}: only {len(files)} file(s)")
+                    continue
+
+                print(f"\n[*] Merging {len(files)} {report_type.replace('_', ' ').upper()} reports...")
+
+                # Select parser
+                parse_func = parse_burp_report if report_type == 'burp_xml' else parse_xml_report
+
+                # Parse and merge by name
+                merged_findings = {}
+                for fp in files:
+                    try:
+                        _, _, alerts = parse_func(fp)
+                        print(f"[+] Parsed {len(alerts)} findings from {fp.name}")
+                        for alert in alerts:
+                            name = alert['name']
+                            if name in merged_findings:
+                                merged_findings[name]['instances'].extend(alert.get('instances', []))
+                            else:
+                                merged_findings[name] = dict(alert)
+                                merged_findings[name]['instances'] = list(alert.get('instances', []))
+                    except Exception as e:
+                        print(f"[!] Error parsing {fp.name}: {e}")
+                        continue
+
+                all_alerts = list(merged_findings.values())
+                print(f"[+] Merged into {len(all_alerts)} unique findings")
+
+                # Write output XML
+                output_name = f"{report_type.split('_')[0]}_merged.xml"
+                if report_type == 'burp_xml':
+                    write_burp_xml(all_alerts, output_name)
+                else:
+                    write_zap_xml(all_alerts, output_name)
+
+                merged_any = True
+
+            if not merged_any:
+                print("[!] No report types had 2+ files to merge")
+
+            return
+
+        elif action == '2':
+            # Generate DOCX - merge like files, combine into single report
+            all_merged_alerts = []
+
+            for report_type, files in by_type.items():
+                # Select parser
+                if report_type == 'burp_xml':
+                    parse_func = parse_burp_report
+                elif report_type == 'burp_html':
+                    parse_func = parse_burp_html_report
+                elif report_type == 'zap_xml':
+                    parse_func = parse_xml_report
+                else:
+                    parse_func = parse_html_report
+
+                # Parse and merge by name within this type
+                merged_findings = {}
+                for fp in files:
+                    try:
+                        _, _, alerts = parse_func(fp)
+                        print(f"[+] Parsed {len(alerts)} findings from {fp.name}")
+                        for alert in alerts:
+                            name = alert['name']
+                            if name in merged_findings:
+                                merged_findings[name]['instances'].extend(alert.get('instances', []))
+                            else:
+                                merged_findings[name] = dict(alert)
+                                merged_findings[name]['instances'] = list(alert.get('instances', []))
+                    except Exception as e:
+                        print(f"[!] Error parsing {fp.name}: {e}")
+                        continue
+
+                all_merged_alerts.extend(merged_findings.values())
+
+            print(f"\n[+] Total unique findings: {len(all_merged_alerts)}")
+
+            # Build severity structure
+            alerts_by_severity = defaultdict(list)
+            for alert in all_merged_alerts:
+                risk = alert.get('risk', 'Informational')
+                alerts_by_severity[risk].append(alert)
+
+            metadata = {
+                'program': 'Combined Scan',
+                'version': 'Merged Report',
+                'generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+
+            if args.test:
+                print_test_output(metadata, alerts_by_severity, all_merged_alerts, args.target)
+                return
+
+            try:
+                doc = generate_docx_report(metadata, alerts_by_severity, all_merged_alerts, args.target)
+            except Exception as e:
+                print(f"[!] Error generating DOCX: {e}")
+                import traceback
+                traceback.print_exc()
+                sys.exit(1)
+
+            if args.output:
+                output_path = Path(args.output)
+            else:
+                output_path = Path(f"combined_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx")
+
+            try:
+                doc.save(str(output_path))
+                print(f"[+] Report written to: {output_path}")
+            except Exception as e:
+                print(f"[!] Error writing report: {e}")
+
+            return
+
+        else:
+            print("[!] Invalid selection")
             sys.exit(1)
 
-    print("\n[+] Complete")
+    # Single file processing
+    input_path = Path(args.input_file)
+
+    if not input_path.exists():
+        print(f"Error: Input file not found: {input_path}")
+        sys.exit(1)
+
+    report_type = detect_format(input_path)
+    print(f"[*] Detected: {report_type.replace('_', ' ').upper()}")
+
+    if report_type not in ['zap_xml', 'zap_html', 'burp_xml', 'burp_html']:
+        print(f"[!] Unsupported report type: {report_type}")
+        sys.exit(1)
+
+    process_report(input_path, report_type, args)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
