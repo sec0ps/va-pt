@@ -1930,10 +1930,21 @@ class ReconAutomation:
                         loaded_config = json.load(f)
                         # Merge with defaults in case new keys were added
                         default_config.update(loaded_config)
-                        return default_config
                 except Exception as e:
                     self.print_warning(f"Error loading config: {e}")
-                    return default_config
+
+            # Environment fallback fills any key left empty by the file, so a
+            # caller can pass secrets by environment without writing them to disk.
+            # The file wins when it already has a value.
+            env_map = {
+                'github_token': 'QUICK_RECON_GITHUB_TOKEN',
+                'shodan_api_key': 'QUICK_RECON_SHODAN_API_KEY',
+            }
+            for key, env_name in env_map.items():
+                if not default_config.get(key):
+                    val = os.environ.get(env_name)
+                    if val:
+                        default_config[key] = val.strip()
 
             return default_config
 
@@ -7580,14 +7591,29 @@ class ReconAutomation:
                 ts = datetime.now().strftime('%Y%m%d_%H%M%S')
 
                 # Structured JSON (full per-domain fidelity + client network)
+                results_payload = {
+                    'client': self.client_name,
+                    'domains': self.all_results,
+                    'network': self.client_results
+                }
                 json_file = self.output_dir / f"recon_results_{ts}.json"
                 with open(json_file, 'w') as f:
-                    json.dump({
-                        'client': self.client_name,
-                        'domains': self.all_results,
-                        'network': self.client_results
-                    }, f, indent=2, default=str)
+                    json.dump(results_payload, f, indent=2, default=str)
                 self.print_success(f"JSON results saved to: {json_file}")
+
+                # Pin a copy to an exact path when a caller asked for one, so an
+                # orchestrator can read a known location instead of globbing.
+                json_out = getattr(self.args, 'json_out', None) if hasattr(self, 'args') else None
+                if json_out:
+                    try:
+                        out_path = Path(json_out)
+                        if out_path.parent and not out_path.parent.exists():
+                            out_path.parent.mkdir(parents=True, exist_ok=True)
+                        with open(out_path, 'w') as f:
+                            json.dump(results_payload, f, indent=2, default=str)
+                        self.print_success(f"JSON results pinned to: {out_path}")
+                    except Exception as e:
+                        self.print_error(f"Could not write --json-out path: {e}")
 
                 # Merged flat JSON for downstream tooling
                 if getattr(self, 'consolidated', None):
@@ -9262,7 +9288,10 @@ class ReconAutomation:
                 """Run all reconnaissance modules across domains with state tracking"""
                 self.print_banner()
 
-                if not self.state['session'].get('api_keys_prompted'):
+                non_interactive = getattr(self, 'args', None) is not None and \
+                    getattr(self.args, 'non_interactive', False)
+                if not non_interactive and \
+                        not self.state['session'].get('api_keys_prompted'):
                     self.prompt_for_api_keys()
                     self.state['session']['api_keys_prompted'] = True
                     self.save_state()
@@ -9537,6 +9566,10 @@ class ReconAutomation:
                 if self.auto_resume:
                     self.print_info("Auto-resume enabled - continuing from last checkpoint")
                     return True
+                if getattr(self, 'args', None) is not None and \
+                        getattr(self.args, 'non_interactive', False):
+                    self.print_info("Non-interactive mode - continuing from last checkpoint")
+                    return True
 
                 all_modules = []
                 for d in self.domains:
@@ -9686,6 +9719,10 @@ Examples:
     # Resume flag
     parser.add_argument('--resume', action='store_true', help='Automatically resume from last checkpoint without prompting')
 
+    # Headless integration flags (used when driven by an external orchestrator)
+    parser.add_argument('--non-interactive', action='store_true', help='Never prompt on stdin. API keys come from the config file and environment; resume defaults to continuing. Intended for orchestrated or headless runs')
+    parser.add_argument('--json-out', default=None, help='Write the structured results JSON to this exact path in addition to the timestamped file, so a caller can pin the output location')
+
     # Module control flags
     parser.add_argument('--skip-breach-check', action='store_true', help='Skip breach database checking')
     parser.add_argument('--skip-scan', action='store_true', help='Skip network scanning')
@@ -9803,7 +9840,7 @@ Examples:
         recon.print_banner()
 
         # Prompt for module-specific API key only
-        if mode_name == 'github_only':
+        if mode_name == 'github_only' and not getattr(args, 'non_interactive', False):
             if not recon.config.get('github_token'):
                 print("\n" + "="*80)
                 print("GITHUB TOKEN CONFIGURATION")
