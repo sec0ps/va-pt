@@ -296,9 +296,9 @@ def delete_by_risk(conn, risk_level):
         return
 
     print(f"[*] Found {count} alerts with risk level {risk_level}")
-    confirm = input(f"Delete ALL {count} alerts? (yes/no): ").strip().lower()
+    confirm = input(f"Delete ALL {count} alerts? (Y/n): ").strip().lower()
 
-    if confirm == 'yes':
+    if confirm in ('', 'y', 'yes'):
         cursor.execute("DELETE FROM ALERT WHERE RISK = ?", [risk_value])
         conn.commit()
         print(f"[+] Deleted {count} alerts")
@@ -401,9 +401,9 @@ def delete_by_plugin(conn, plugin_id):
     plugin_name = cursor.fetchone()[0]
 
     print(f"[*] Found {count} alerts from plugin {plugin_id}: {plugin_name}")
-    confirm = input(f"Delete ALL {count} alerts? (yes/no): ").strip().lower()
+    confirm = input(f"Delete ALL {count} alerts? (Y/n): ").strip().lower()
 
-    if confirm == 'yes':
+    if confirm in ('', 'y', 'yes'):
         cursor.execute("DELETE FROM ALERT WHERE PLUGINID = ?", [plugin_id])
         conn.commit()
         print(f"[+] Deleted {count} alerts")
@@ -523,8 +523,8 @@ def main():
         if len(indices) > 10:
             print(f"  ... and {len(indices) - 10} more")
 
-        confirm = input("\nDelete these? (yes/no): ").strip().lower()
-        if confirm == 'yes':
+        confirm = input("\nDelete these? (Y/n): ").strip().lower()
+        if confirm in ('', 'y', 'yes'):
             alert_ids = [alerts[idx - 1][id_idx] for idx in indices]
             delete_selected_alerts(conn, alert_ids)
         else:
