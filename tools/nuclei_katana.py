@@ -10,13 +10,16 @@
 # License: MIT License
 #
 # Purpose:
-#   Spider a CLI-supplied target list with katana headless, then run nuclei
-#   templated and -dast passes over the crawl, rendering one consolidated
-#   markdown report per host filtered to critical, high, and medium severity.
-#   The crawl drives both passes. The templated pass runs over the union of the
-#   original targets and every crawled URL so discovered endpoints get
-#   templated, and the -dast pass runs over the parameterized subset. Both sets
-#   of findings merge into the per-host report under separate headings. This
+#   Spider a CLI-supplied target list with katana, then run nuclei templated
+#   and -dast passes over the crawl, rendering one consolidated markdown report
+#   per host filtered to critical, high, and medium severity. The crawl drives
+#   both passes. The templated pass runs over the union of the original targets
+#   and every crawled URL so discovered endpoints get templated, and the -dast
+#   pass runs over the parameterized subset. Both sets of findings merge into
+#   the per-host report under separate headings. Standard crawling is the
+#   default since -jc already parses JS for endpoints and headless hybrid mode
+#   wedges on polling SPAs. --headless opts into hybrid rendering for JS-heavy
+#   sites, bounded by a hard per-target timeout so it cannot hang the run. This
 #   crawl plus dast flow is the default. --no-dast runs a fast roots-only
 #   templated scan instead. Targets with no findings still receive a clean
 #   report so every system scanned has an artifact. An existing nuclei JSONL
@@ -34,12 +37,13 @@
 #   resulting from use of this tool.
 # =============================================================================
 
-"""Spider targets with katana headless then run nuclei templated and -dast passes over the crawl, rendering one markdown report per host for critical, high, and medium findings. Crawl plus dast is the default."""
+"""Spider targets with katana then run nuclei templated and -dast passes over the crawl, rendering one markdown report per host for critical, high, and medium findings. Standard crawl plus dast is the default; --headless is an opt-in."""
 
 import argparse
 import json
 import os
 import re
+import signal
 import subprocess
 
 SEVERITY = "critical,high,medium"
@@ -51,6 +55,7 @@ DAST_URLS_FILE = "dast_urls.txt"
 DAST_JSONL_FILE = "nuclei_dast_results.jsonl"
 KATANA_DEPTH = "5"
 KATANA_CRAWL_DURATION = "10m"
+KATANA_TIMEOUT = 900
 SEV_ORDER = {"critical": 0, "high": 1, "medium": 2}
 
 
@@ -84,16 +89,15 @@ def read_targets(path):
     return targets
 
 
-def run_katana(target, out_path):
-    # -ct is the kill switch. It caps the whole per-target crawl so headless
-    # cannot wedge on an SPA that never reaches network-idle. -nos keeps the
-    # bundled chromium from failing under the VM. -c/-p are lowered to avoid
-    # the hybrid-mode stuck-page behavior.
-    cmd = [
-        "katana",
-        "-u", target,
-        "-headless",
-        "-nos",
+def run_katana(target, out_path, headless):
+    cmd = ["katana", "-u", target]
+    # Headless hybrid rendering blocks on polling SPAs. -ct bounds katana's own
+    # crawl, but the real backstop is the process-group SIGKILL below, so a
+    # stuck chromium cannot hang the run. -nos for the VM, -c/-p lowered to
+    # dodge the hybrid-mode stuck-page behavior.
+    if headless:
+        cmd += ["-headless", "-nos", "-c", "5", "-p", "2"]
+    cmd += [
         "-jc",
         "-kf", "all",
         "-d", KATANA_DEPTH,
@@ -101,22 +105,28 @@ def run_katana(target, out_path):
         "-f", "url",
         "-ct", KATANA_CRAWL_DURATION,
         "-timeout", "10",
-        "-c", "5",
-        "-p", "2",
         "-silent",
         "-o", out_path,
     ]
-    subprocess.run(cmd, check=False)
+    # Own session/process group so the whole tree, including chromium, can be
+    # killed if katana exceeds the hard timeout.
+    proc = subprocess.Popen(cmd, start_new_session=True)
+    try:
+        proc.wait(timeout=KATANA_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        print(f"[!] katana exceeded {KATANA_TIMEOUT}s on {target}, terminating")
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        proc.wait()
 
 
-def crawl_targets(targets):
+def crawl_targets(targets, headless):
     os.makedirs(CRAWL_DIR, exist_ok=True)
     all_urls = set()
     for target in targets:
         host = normalize_host(target)
         out_path = os.path.join(CRAWL_DIR, f"{safe_name(host)}.txt")
         print(f"[*] crawling {target}")
-        run_katana(target, out_path)
+        run_katana(target, out_path, headless)
         if os.path.exists(out_path):
             with open(out_path) as fh:
                 for line in fh:
@@ -254,9 +264,10 @@ def write_reports(hosts, baseline, dast):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Spider targets with katana headless then run nuclei templated and -dast passes, rendering one markdown report per host for critical, high, and medium findings.")
+    parser = argparse.ArgumentParser(description="Spider targets with katana then run nuclei templated and -dast passes, rendering one markdown report per host for critical, high, and medium findings.")
     parser.add_argument("targets", nargs="?", help="target list to scan")
     parser.add_argument("-j", "--jsonl", help="ingest an existing nuclei JSONL results file and skip the scan")
+    parser.add_argument("--headless", action="store_true", help="use katana headless hybrid crawling (slower, wedges on polling SPAs, bounded by a hard timeout)")
     parser.add_argument("--no-dast", action="store_true", help="skip the katana crawl and dast pass, run a fast roots-only templated scan")
     args = parser.parse_args()
 
@@ -291,7 +302,7 @@ def main():
         run_nuclei(args.targets, JSONL_FILE)
         baseline = load_findings(JSONL_FILE)
     else:
-        all_urls = crawl_targets(targets)
+        all_urls = crawl_targets(targets, args.headless)
         scan_targets = sorted(set(targets) | all_urls)
         with open(SCAN_URLS_FILE, "w") as fh:
             fh.write("\n".join(scan_targets) + "\n")
