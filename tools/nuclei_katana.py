@@ -49,7 +49,8 @@ JSONL_FILE = "nuclei_results.jsonl"
 SCAN_URLS_FILE = "scan_urls.txt"
 DAST_URLS_FILE = "dast_urls.txt"
 DAST_JSONL_FILE = "nuclei_dast_results.jsonl"
-KATANA_DEPTH = "3"
+KATANA_DEPTH = "5"
+KATANA_CRAWL_DURATION = "10m"
 SEV_ORDER = {"critical": 0, "high": 1, "medium": 2}
 
 
@@ -84,14 +85,24 @@ def read_targets(path):
 
 
 def run_katana(target, out_path):
+    # -ct is the kill switch. It caps the whole per-target crawl so headless
+    # cannot wedge on an SPA that never reaches network-idle. -nos keeps the
+    # bundled chromium from failing under the VM. -c/-p are lowered to avoid
+    # the hybrid-mode stuck-page behavior.
     cmd = [
         "katana",
         "-u", target,
         "-headless",
+        "-nos",
         "-jc",
+        "-kf", "all",
         "-d", KATANA_DEPTH,
         "-fs", "fqdn",
         "-f", "url",
+        "-ct", KATANA_CRAWL_DURATION,
+        "-timeout", "10",
+        "-c", "5",
+        "-p", "2",
         "-silent",
         "-o", out_path,
     ]
