@@ -3051,7 +3051,7 @@ class ReconAutomation:
                                 company_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(keywords:{encoded_term},flagshipSearchIntent:SEARCH_SRP,queryParameters:(resultType:List(COMPANIES)),includeFiltersInResponse:false)&start={start}"
 
                                 try:
-                                    response = linkedin_session.get(company_search_url, headers=api_headers, timeout=15, allow_redirects=False)
+                                    response = linkedin_session.get(company_search_url, headers=api_headers, timeout=15)
                                     api_call_count += 1
 
                                     # Rate-limit detection
@@ -3296,6 +3296,19 @@ class ReconAutomation:
                         else:
                             self.print_warning("No companies found")
 
+                        # =====================================================================
+                        # SEARCH 2: Find people at each selected company (using company ID filter)
+                        # =====================================================================
+                        all_employees = linkedin_intel.get('employees', [])
+                        searched_companies = set(progress.get('searched_companies', []))
+
+                        companies_to_search = all_companies if all_companies else []
+
+                        if not companies_to_search:
+                            self.print_warning("No companies to search for employees")
+                            self._linkedin_finalize(linkedin_intel, all_companies, api_call_count, '')
+                            return
+
                         # Employee-phase pacing (fresh entry only; reused on resume)
                         employee_pacing = progress.get('employee_pacing')
                         if employee_pacing is None:
@@ -3337,19 +3350,6 @@ class ReconAutomation:
                         # Brief pause before employee search starts (simulates "now searching for people")
                         time.sleep(random.uniform(3, 6))
 
-                        # =====================================================================
-                        # SEARCH 2: Find people at each selected company (using company ID filter)
-                        # =====================================================================
-                        all_employees = linkedin_intel.get('employees', [])
-                        searched_companies = set(progress.get('searched_companies', []))
-
-                        companies_to_search = all_companies if all_companies else []
-
-                        if not companies_to_search:
-                            self.print_warning("No companies to search for employees")
-                            self._linkedin_finalize(linkedin_intel, all_companies, api_call_count, '')
-                            return
-
                         employee_api_calls = 0
 
                         for company_idx, company in enumerate(companies_to_search, 1):
@@ -3374,7 +3374,7 @@ class ReconAutomation:
                                 self.print_info(f"  Looking up company ID for {company_slug}...")
                                 try:
                                     company_lookup_url = f"https://www.linkedin.com/voyager/api/organization/companies?decorationId=com.linkedin.voyager.deco.organization.web.WebFullCompanyMain-21&q=universalName&universalName={company_slug}"
-                                    lookup_response = linkedin_session.get(company_lookup_url, headers=api_headers, timeout=15, allow_redirects=False)
+                                    lookup_response = linkedin_session.get(company_lookup_url, headers=api_headers, timeout=15)
                                     api_call_count += 1
                                     employee_api_calls += 1
 
@@ -3442,7 +3442,7 @@ class ReconAutomation:
                                 people_search_url = f"https://www.linkedin.com/voyager/api/voyagerSearchDashClusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-174&origin=SWITCH_SEARCH_VERTICAL&q=all&query=(flagshipSearchIntent:SEARCH_SRP,queryParameters:(currentCompany:List({company_id}),resultType:List(PEOPLE)),includeFiltersInResponse:false)&start={start}"
 
                                 try:
-                                    response = linkedin_session.get(people_search_url, headers=api_headers, timeout=15, allow_redirects=False)
+                                    response = linkedin_session.get(people_search_url, headers=api_headers, timeout=15)
                                     api_call_count += 1
                                     employee_api_calls += 1
 
