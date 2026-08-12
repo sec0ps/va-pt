@@ -8,17 +8,20 @@
 # Email: keith@redcellsecurity.org
 # Website: www.redcellsecurity.org
 #
-# Copyright (c) 2025 Keith Pachulski. All rights reserved.
+# Copyright (c) 2026 Keith Pachulski. All rights reserved.
 #
 # License: This software is licensed under the MIT License.
 #          You are free to use, modify, and distribute this software
 #          in accordance with the terms of the license.
 #
-# Purpose: This script provides an automated installation and management system
-#          for a vulnerability assessment and penetration testing
-#          toolkit. It installs and configures security tools across multiple
-#          categories including exploitation, web testing, network scanning,
-#          mobile security, cloud security, and Active Directory testing.
+# Purpose: Parses Nessus (.nessus / NessusClientData_v2 XML) scan output and
+#          generates a consolidated DOCX assessment report. Scores severity
+#          from the authoritative severity attribute, deduplicates findings by
+#          plugin across hosts while preserving per-target evidence, condenses
+#          version-ladder plugin cascades (e.g. dozens of "Apache Tomcat X <
+#          Y" gates) into a single validated finding, and optionally merges
+#          multiple .nessus files into one. Report layout matches the unified
+#          VAPT report format emitted by vapt_report_parser.py.
 #
 # DISCLAIMER: This software is provided "as-is," without warranty of any kind,
 #             express or implied, including but not limited to the warranties
@@ -35,12 +38,34 @@
 #
 # =============================================================================
 
+"""
+Nessus parser and DOCX report generator for the VAPT toolkit.
+
+Severity is taken from the ReportItem ``severity`` attribute (0=Info, 1=Low,
+2=Medium, 3=High, 4=Critical) rather than the legacy ``risk_factor`` field,
+which is frequently stale relative to the CVSS-derived attribute. Findings are
+deduplicated per plugin across all hosts and ports, retaining each affected
+target's ``plugin_output`` as per-target evidence.
+
+Nessus fires a distinct plugin for every fixed-version gate above an installed
+version, so an outdated component surfaces as dozens of near-identical
+findings across several severity buckets. Findings whose name carries a
+``< <version>`` ladder marker are grouped by normalized product name and
+condensed into one finding: maximum severity, the union of CVEs and external
+references, remediation pointing at the highest fixed version observed, and
+per-host installed-vs-fixed evidence so the consolidation stays verifiable.
+Non-ladder findings (SSL certificate issues, TLS version detections, default
+files, and so on) are never merged.
+"""
+
 import os
+import re
 import sys
 import argparse
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from datetime import datetime
+from collections import defaultdict
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -48,22 +73,37 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 
+SEVERITY_LABELS = {'4': 'Critical', '3': 'High', '2': 'Medium', '1': 'Low', '0': 'Informational'}
+SEVERITY_ORDER = ['Critical', 'High', 'Medium', 'Low']
+
+LADDER_RE = re.compile(r'<\s*\d')
+PRODUCT_SPLIT_RE = re.compile(r'\s+<?\s*\d')
+FIXED_IN_NAME_RE = re.compile(r'<\s*([0-9][\w.]+)')
+FIXED_IN_OUTPUT_RE = re.compile(r'Fixed\s+version\s*:\s*([0-9][\w.]+)', re.IGNORECASE)
+
+
 class NessusFinding:
-    """Represents a deduplicated Nessus finding."""
 
     def __init__(self, plugin_id):
         self.plugin_id = plugin_id
         self.name = ""
-        self.severity = ""
+        self.severity_int = 0
         self.cvss_score = ""
         self.description = ""
         self.solution = ""
         self.references = []
-        self.affected_systems = []
-        self.evidence = ""
+        self.evidence_by_system = {}
+        self.is_ladder = False
+        self.product = ""
+
+    @property
+    def severity(self):
+        return SEVERITY_LABELS.get(str(self.severity_int), 'Informational')
+
+    def systems(self):
+        return sorted(self.evidence_by_system.keys())
 
     def to_dict(self):
-        """Convert finding to dictionary for JSON serialization."""
         return {
             'plugin_id': self.plugin_id,
             'name': self.name,
@@ -72,13 +112,12 @@ class NessusFinding:
             'description': self.description,
             'solution': self.solution,
             'references': self.references,
-            'affected_systems': self.affected_systems,
-            'evidence': self.evidence
+            'affected_systems': self.systems(),
+            'evidence_by_system': self.evidence_by_system,
         }
 
 
 def find_nessus_files(directory):
-    """Scan directory recursively for .nessus files."""
     nessus_files = []
     for root, dirs, files in os.walk(directory):
         for file in files:
@@ -88,10 +127,8 @@ def find_nessus_files(directory):
 
 
 def parse_nessus_file(filepath):
-    """Parse a .nessus file and return the ElementTree."""
     try:
-        tree = ET.parse(filepath)
-        return tree
+        return ET.parse(filepath)
     except ET.ParseError as e:
         print(f"[!] Parse error in {filepath}: {e}")
         return None
@@ -101,119 +138,233 @@ def parse_nessus_file(filepath):
 
 
 def extract_text(element, tag):
-    """Safely extract text from XML element."""
     child = element.find(tag)
     return child.text if child is not None and child.text else ""
 
 
 def extract_references(report_item):
-    """Extract and combine all references (CVE, xref, etc)."""
     refs = []
-
-    # Extract CVE references
     for cve in report_item.findall('cve'):
         if cve.text:
             refs.append(f"CVE: {cve.text}")
-
-    # Extract xref references
     for xref in report_item.findall('xref'):
         if xref.text:
             refs.append(xref.text)
-
-    # Extract see_also references
     for see_also in report_item.findall('see_also'):
         if see_also.text:
-            refs.append(see_also.text)
-
+            for line in see_also.text.splitlines():
+                line = line.strip()
+                if line:
+                    refs.append(line)
     return refs
 
 
+def system_string(host_name, report_item):
+    port = report_item.get('port', '')
+    protocol = report_item.get('protocol', '')
+    svc_name = report_item.get('svc_name', '')
+    info = host_name
+    if port and port != '0':
+        info += f":{port}"
+    if protocol:
+        info += f" ({protocol}"
+        if svc_name:
+            info += f"/{svc_name}"
+        info += ")"
+    return info
+
+
+def clean_output(text):
+    if not text:
+        return ""
+    lines = [ln.rstrip() for ln in text.splitlines()]
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines)
+
+
+def version_key(version):
+    parts = re.findall(r'\d+', version or '')
+    return tuple(int(p) for p in parts) if parts else (0,)
+
+
+def product_name(name):
+    base = PRODUCT_SPLIT_RE.split(name, 1)[0]
+    return base.strip().rstrip('<').strip()
+
+
+def highest_fixed_version(names, outputs):
+    candidates = []
+    for name in names:
+        candidates.extend(FIXED_IN_NAME_RE.findall(name))
+    for output in outputs:
+        candidates.extend(FIXED_IN_OUTPUT_RE.findall(output))
+    best = ""
+    best_key = None
+    for version in candidates:
+        key = version_key(version)
+        if best_key is None or key > best_key:
+            best_key = key
+            best = version
+    return best
+
+
+def dedup_references(references):
+    cves = []
+    others = []
+    seen = set()
+    for ref in references:
+        if ref in seen:
+            continue
+        seen.add(ref)
+        (cves if ref.startswith('CVE:') else others).append(ref)
+    return sorted(cves) + sorted(others)
+
+
+def condense_ladders(plugin_findings):
+    ladder_groups = defaultdict(list)
+    final = []
+
+    for finding in plugin_findings:
+        if finding.is_ladder:
+            ladder_groups[finding.product.lower()].append(finding)
+        else:
+            final.append(finding)
+
+    for group in ladder_groups.values():
+        if len(group) == 1:
+            final.append(group[0])
+            continue
+        final.append(merge_ladder_group(group))
+
+    return final
+
+
+def merge_ladder_group(group):
+    ordered = sorted(
+        group,
+        key=lambda f: highest_fixed_version([f.name], list(f.evidence_by_system.values())) or "",
+        reverse=True,
+    )
+    product = ordered[0].product
+    fixed = highest_fixed_version(
+        [f.name for f in group],
+        [out for f in group for out in f.evidence_by_system.values()],
+    )
+
+    merged = NessusFinding(plugin_id="+".join(f.plugin_id for f in group))
+    merged.severity_int = max(f.severity_int for f in group)
+    merged.cvss_score = max((f.cvss_score for f in group if f.cvss_score), default="", key=_cvss_key)
+    merged.is_ladder = True
+    merged.product = product
+
+    if fixed:
+        merged.name = f"{product} — Outdated Version (Multiple Vulnerabilities)"
+        merged.solution = f"Upgrade {product} to version {fixed} or later."
+        merged.description = (
+            f"The detected {product} installation is running an outdated version and is "
+            f"affected by multiple vulnerabilities addressed across successive releases. "
+            f"Nessus reported {len(group)} separate version-threshold findings for this "
+            f"component; they are consolidated here into a single finding. The most recent "
+            f"fixed version identified is {fixed}. Per-host installed versions are shown "
+            f"under Evidence."
+        )
+    else:
+        merged.name = f"{product} — Outdated Version (Multiple Vulnerabilities)"
+        merged.solution = f"Upgrade {product} to the latest supported release."
+        merged.description = (
+            f"The detected {product} installation is running an outdated version and is "
+            f"affected by multiple vulnerabilities addressed across successive releases. "
+            f"Nessus reported {len(group)} separate version-threshold findings for this "
+            f"component; they are consolidated here into a single finding. Per-host "
+            f"installed versions are shown under Evidence."
+        )
+
+    references = []
+    for finding in group:
+        references.extend(finding.references)
+    merged.references = dedup_references(references)
+
+    for finding in ordered:
+        for system, output in finding.evidence_by_system.items():
+            if system not in merged.evidence_by_system or not merged.evidence_by_system[system]:
+                merged.evidence_by_system[system] = output
+
+    return merged
+
+
+def _cvss_key(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def parse_findings(nessus_files):
-    """
-    Parse all .nessus files and deduplicate findings by plugin_id.
-    Returns dictionary of findings organized by severity.
-    """
-    findings_map = {}  # plugin_id -> NessusFinding
+    findings_map = {}
+    raw_item_count = 0
 
     for nessus_file in nessus_files:
         tree = parse_nessus_file(nessus_file)
         if tree is None:
             continue
-
-        root = tree.getroot()
-        report = root.find('Report')
+        report = tree.getroot().find('Report')
         if report is None:
             continue
 
-        # Process each host
         for report_host in report.findall('ReportHost'):
             host_name = report_host.get('name', 'Unknown')
-
-            # Process each finding on this host
             for report_item in report_host.findall('ReportItem'):
-                plugin_id = report_item.get('pluginID', '')
-                severity = extract_text(report_item, 'risk_factor')
-
-                # Skip informational findings
-                if severity.lower() in ['none', '']:
+                severity_int = int(report_item.get('severity', '0') or '0')
+                if severity_int == 0:
                     continue
+                raw_item_count += 1
 
-                # Get or create finding
+                plugin_id = report_item.get('pluginID', '')
                 if plugin_id not in findings_map:
                     finding = NessusFinding(plugin_id)
                     finding.name = report_item.get('pluginName', 'Unknown')
-                    finding.severity = severity
-                    finding.cvss_score = extract_text(report_item, 'cvss_base_score')
+                    finding.severity_int = severity_int
+                    finding.cvss_score = (
+                        extract_text(report_item, 'cvss3_base_score')
+                        or extract_text(report_item, 'cvss_base_score')
+                    )
                     finding.description = extract_text(report_item, 'description')
                     finding.solution = extract_text(report_item, 'solution')
-                    finding.references = extract_references(report_item)
-                    finding.evidence = extract_text(report_item, 'plugin_output')
+                    finding.references = dedup_references(extract_references(report_item))
+                    finding.is_ladder = bool(LADDER_RE.search(finding.name))
+                    finding.product = product_name(finding.name) if finding.is_ladder else ""
                     findings_map[plugin_id] = finding
 
-                # Add this host to affected systems
-                port = report_item.get('port', '')
-                protocol = report_item.get('protocol', '')
-                svc_name = report_item.get('svc_name', '')
+                finding = findings_map[plugin_id]
+                system = system_string(host_name, report_item)
+                output = clean_output(extract_text(report_item, 'plugin_output'))
+                if system not in finding.evidence_by_system or not finding.evidence_by_system[system]:
+                    finding.evidence_by_system[system] = output
 
-                system_info = host_name
-                if port and port != '0':
-                    system_info += f":{port}"
-                if protocol:
-                    system_info += f" ({protocol}"
-                    if svc_name:
-                        system_info += f"/{svc_name}"
-                    system_info += ")"
+    unique_plugins = len(findings_map)
+    condensed = condense_ladders(list(findings_map.values()))
 
-                if system_info not in findings_map[plugin_id].affected_systems:
-                    findings_map[plugin_id].affected_systems.append(system_info)
-
-    # Organize findings by severity
-    severity_order = ['Critical', 'High', 'Medium', 'Low']
-    organized = {sev: [] for sev in severity_order}
-
-    for finding in findings_map.values():
+    organized = {sev: [] for sev in SEVERITY_ORDER}
+    for finding in condensed:
         if finding.severity in organized:
             organized[finding.severity].append(finding)
 
-    # Sort findings within each severity by name
-    for sev in severity_order:
-        organized[sev].sort(key=lambda x: x.name)
+    for sev in SEVERITY_ORDER:
+        organized[sev].sort(key=lambda f: f.name.lower())
 
-    return organized
+    return organized, raw_item_count, unique_plugins
 
 
 def merge_nessus_files(nessus_files, output_file):
-    """
-    Merge multiple .nessus files into a single output file.
-    Uses the Policy from the first file and combines all ReportHost elements.
-    """
     if not nessus_files:
         print("[!] No .nessus files found to merge")
         return False
 
     print(f"[*] Found {len(nessus_files)} .nessus file(s)")
 
-    # Parse first file as the base
     base_tree = parse_nessus_file(nessus_files[0])
     if base_tree is None:
         print(f"[!] Failed to parse base file: {nessus_files[0]}")
@@ -221,54 +372,37 @@ def merge_nessus_files(nessus_files, output_file):
 
     base_root = base_tree.getroot()
     base_report = base_root.find('Report')
-
     if base_report is None:
         print("[!] No Report element found in base file")
         return False
 
     print(f"[+] Using {nessus_files[0]} as base structure")
 
-    # Track statistics
-    total_hosts = 0
     total_items = 0
-    host_count_base = len(base_report.findall('ReportHost'))
-
-    # Count items in base file
+    total_hosts = len(base_report.findall('ReportHost'))
     for report_host in base_report.findall('ReportHost'):
         total_items += len(report_host.findall('ReportItem'))
 
-    total_hosts = host_count_base
-
-    # Merge remaining files
     for nessus_file in nessus_files[1:]:
         print(f"[*] Merging: {nessus_file}")
         tree = parse_nessus_file(nessus_file)
-
         if tree is None:
             print(f"[!] Skipping {nessus_file} due to parse error")
             continue
-
-        root = tree.getroot()
-        report = root.find('Report')
-
+        report = tree.getroot().find('Report')
         if report is None:
             print(f"[!] No Report element in {nessus_file}, skipping")
             continue
-
-        # Add all ReportHost elements from this file
         report_hosts = report.findall('ReportHost')
         for report_host in report_hosts:
             base_report.append(report_host)
             total_hosts += 1
             total_items += len(report_host.findall('ReportItem'))
-
         print(f"    Added {len(report_hosts)} host(s)")
 
-    # Update Report name to indicate merged status
     report_name = base_report.get('name', 'merged_scan')
     base_report.set('name', f"{report_name}_merged_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
 
-    # Write merged output
     try:
         ET.indent(base_tree, space="  ")
         base_tree.write(output_file, encoding='utf-8', xml_declaration=True)
@@ -283,197 +417,177 @@ def merge_nessus_files(nessus_files, output_file):
 
 
 def display_test_finding(organized_findings):
-    """Display the first parsed finding for testing."""
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("TEST MODE - Displaying First Parsed Finding")
-    print("="*80 + "\n")
+    print("=" * 80 + "\n")
 
-    # Find first finding across all severities
-    for severity in ['Critical', 'High', 'Medium', 'Low']:
+    for severity in SEVERITY_ORDER:
         if organized_findings[severity]:
             finding = organized_findings[severity][0]
-
             print(f"Severity: {finding.severity}")
             print(f"Finding: {finding.name}")
             print(f"Plugin ID: {finding.plugin_id}")
             if finding.cvss_score:
                 print(f"CVSS Score: {finding.cvss_score}")
             print(f"\nAffected System(s):")
-            for system in finding.affected_systems:
+            for system in finding.systems():
                 print(f"  - {system}")
             print(f"\nDescription:")
-            print(f"{finding.description[:500]}..." if len(finding.description) > 500 else finding.description)
+            print(finding.description[:500] + "..." if len(finding.description) > 500 else finding.description)
             print(f"\nRemediation:")
-            print(f"{finding.solution[:500]}..." if len(finding.solution) > 500 else finding.solution)
+            print(finding.solution[:500] + "..." if len(finding.solution) > 500 else finding.solution)
             if finding.references:
                 print(f"\nReferences:")
-                for ref in finding.references[:10]:  # Limit to first 10
+                for ref in finding.references[:10]:
                     print(f"  {ref}")
                 if len(finding.references) > 10:
                     print(f"  ... and {len(finding.references) - 10} more")
-            if finding.evidence:
+            evidence = [out for out in finding.evidence_by_system.values() if out]
+            if evidence:
                 print(f"\nEvidence (first occurrence):")
-                print(f"{finding.evidence[:500]}..." if len(finding.evidence) > 500 else finding.evidence)
-
-            print("\n" + "="*80)
+                sample = evidence[0]
+                print(sample[:500] + "..." if len(sample) > 500 else sample)
+            print("\n" + "=" * 80)
             return
 
     print("[!] No findings found to display")
 
 
-def generate_report(organized_findings, output_file):
-    """Generate DOCX report using python-docx."""
-    print(f"[*] Generating DOCX report...")
+def add_heading(doc, text, level=1):
+    heading = doc.add_heading(text, level=level)
+    for run in heading.runs:
+        run.font.name = 'Calibri (Headings)'
+        if level == 2:
+            run.font.size = Pt(13)
+        elif level == 3:
+            run.font.size = Pt(11)
+    return heading
 
+
+def add_paragraph(doc, text, bold=False, italic=False):
+    para = doc.add_paragraph()
+    run = para.add_run(text)
+    run.font.name = 'Arial'
+    run.font.size = Pt(11)
+    if bold:
+        run.bold = True
+    if italic:
+        run.italic = True
+    return para
+
+
+def add_bullet(doc, text, level=0):
+    para = doc.add_paragraph(text, style='List Bullet')
+    if level > 0:
+        para.paragraph_format.left_indent = Inches(0.5 * level)
+    for run in para.runs:
+        run.font.name = 'Arial'
+        run.font.size = Pt(11)
+    return para
+
+
+def add_label(doc, text):
+    para = doc.add_paragraph()
+    run = para.add_run(text)
+    run.bold = True
+    run.font.name = 'Arial'
+    run.font.size = Pt(11)
+    return para
+
+
+def add_na(doc, text='N/A'):
+    para = add_paragraph(doc, text)
+    para.runs[0].italic = True
+    para.runs[0].font.color.rgb = RGBColor(128, 128, 128)
+    return para
+
+
+def add_evidence_block(doc, text):
+    para = doc.add_paragraph(text)
+    for run in para.runs:
+        run.font.name = 'Consolas'
+        run.font.size = Pt(10)
+    shading = OxmlElement('w:shd')
+    shading.set(qn('w:fill'), 'D9D9D9')
+    para._p.get_or_add_pPr().append(shading)
+    return para
+
+
+def render_evidence(doc, finding):
+    grouped = defaultdict(list)
+    for system in finding.systems():
+        output = finding.evidence_by_system.get(system, "")
+        if output:
+            grouped[output].append(system)
+
+    if not grouped:
+        add_na(doc)
+        return
+
+    for output, systems in grouped.items():
+        add_label(doc, ", ".join(systems))
+        add_evidence_block(doc, output)
+
+
+def generate_report(organized_findings, output_file):
+    print(f"[*] Generating DOCX report...")
     try:
         doc = Document()
 
-        # Set default font
-        style = doc.styles['Normal']
-        font = style.font
-        font.name = 'Arial'
-        font.size = Pt(11)
-
-        # Severity colors
-        severity_colors = {
-            'Critical': RGBColor(139, 0, 0),      # Dark Red
-            'High': RGBColor(255, 0, 0),          # Red
-            'Medium': RGBColor(255, 140, 0),      # Dark Orange
-            'Low': RGBColor(65, 105, 225)         # Royal Blue
-        }
-
-        # Title
-        title = doc.add_heading('Vulnerability Assessment Report', level=0)
-        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-        # Timestamp
-        timestamp = doc.add_paragraph()
-        timestamp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = timestamp.add_run(f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
-        run.font.size = Pt(11)
-        run.font.color.rgb = RGBColor(102, 102, 102)
-
-        # Executive Summary
-        doc.add_heading('Executive Summary', level=1)
-
-        # Summary statistics
-        total = sum(len(findings) for findings in organized_findings.values())
-        summary = doc.add_paragraph(
-            f'This report contains {total} unique security findings organized by severity:'
-        )
-
-        # Severity breakdown
-        for severity in ['Critical', 'High', 'Medium', 'Low']:
-            count = len(organized_findings[severity])
-            p = doc.add_paragraph(style='List Bullet')
-            run = p.add_run(f'{severity}: {count}')
-            run.bold = True
-            run.font.color.rgb = severity_colors[severity]
-
-        # Findings section
-        doc.add_heading('Findings', level=1)
-
-        # Process each severity level
-        for severity in ['Critical', 'High', 'Medium', 'Low']:
-            findings = organized_findings[severity]
-
+        for severity in SEVERITY_ORDER:
+            findings = organized_findings.get(severity, [])
             if not findings:
                 continue
 
-            # Severity heading (H2)
-            severity_heading = doc.add_heading(severity, level=2)
-            severity_heading.runs[0].font.color.rgb = severity_colors[severity]
+            add_heading(doc, f'{severity} Severity Findings', level=2)
 
-            # Individual findings
             for finding in findings:
-                # Finding heading (H3) - Name | Severity | CVSS
-                heading = doc.add_heading(level=3)
-                heading.add_run(finding.name).bold = True
+                add_heading(doc, finding.name, level=3)
 
-                if finding.severity:
-                    heading.add_run(' | ').bold = True
-                    run = heading.add_run(finding.severity)
-                    run.bold = True
-                    run.font.color.rgb = severity_colors[finding.severity]
-
-                if finding.cvss_score:
-                    heading.add_run(' | CVSS: ').bold = True
-                    heading.add_run(finding.cvss_score).bold = True
-
-                # Affected Systems
-                label = doc.add_paragraph()
-                label.add_run('Affected System(s):').bold = True
-
-                if finding.affected_systems:
-                    for system in finding.affected_systems:
-                        doc.add_paragraph(system, style='List Bullet')
+                add_label(doc, 'Affected System(s):')
+                systems = finding.systems()
+                if systems:
+                    for system in systems:
+                        add_bullet(doc, system)
                 else:
-                    p = doc.add_paragraph('None')
-                    p.runs[0].italic = True
-                    p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
+                    add_bullet(doc, 'Unknown')
 
-                # Description
-                label = doc.add_paragraph()
-                label.add_run('Description:').bold = True
+                add_label(doc, 'Description:')
                 if finding.description:
-                    doc.add_paragraph(finding.description)
+                    add_paragraph(doc, finding.description)
                 else:
-                    p = doc.add_paragraph('N/A')
-                    p.runs[0].italic = True
-                    p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
+                    add_na(doc)
 
-                # Remediation
-                label = doc.add_paragraph()
-                label.add_run('Remediation:').bold = True
+                add_label(doc, 'Remediation:')
                 if finding.solution:
-                    doc.add_paragraph(finding.solution)
+                    add_paragraph(doc, finding.solution)
                 else:
-                    p = doc.add_paragraph('N/A')
-                    p.runs[0].italic = True
-                    p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
+                    add_na(doc)
 
-                # References
-                label = doc.add_paragraph()
-                label.add_run('References:').bold = True
+                add_label(doc, 'References:')
                 if finding.references:
                     for ref in finding.references:
-                        doc.add_paragraph(ref)
+                        para = doc.add_paragraph(ref)
+                        for run in para.runs:
+                            run.font.name = 'Arial'
+                            run.font.size = Pt(11)
                 else:
-                    p = doc.add_paragraph('None')
-                    p.runs[0].italic = True
-                    p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
+                    add_na(doc, 'None')
 
-                # Evidence
-                label = doc.add_paragraph()
-                label.add_run('Evidence:').bold = True
-                if finding.evidence:
-                    para = doc.add_paragraph(finding.evidence)
-                    for run in para.runs:
-                        run.font.name = 'Consolas'
-                        run.font.size = Pt(10)
-                    # Add grey background shading
-                    shading = OxmlElement('w:shd')
-                    shading.set(qn('w:fill'), 'D9D9D9')
-                    para._p.get_or_add_pPr().append(shading)
-                else:
-                    p = doc.add_paragraph('N/A')
-                    p.runs[0].italic = True
-                    p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
+                add_label(doc, 'Evidence:')
+                render_evidence(doc, finding)
 
-                # Spacing between findings
                 doc.add_paragraph()
 
-        # Save document
         doc.save(output_file)
         print(f"[+] Report generated: {output_file}")
         return True
-
     except Exception as e:
         print(f"[!] Error generating report: {e}")
         return False
 
+
 def main():
-    """Main execution function."""
     parser = argparse.ArgumentParser(
         description='Nessus File Merger & Report Generator',
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -494,24 +608,22 @@ Examples:
     )
 
     parser.add_argument('path', nargs='?', default=None,
-                       help='Directory containing .nessus files or single .nessus file (default: current directory)')
+                        help='Directory containing .nessus files or single .nessus file (default: current directory)')
     parser.add_argument('--output', '-o', default='merged_scan.nessus',
-                       help='Output filename for merged .nessus file (default: merged_scan.nessus)')
+                        help='Output filename for merged .nessus file (default: merged_scan.nessus)')
     parser.add_argument('--report', '-r', action='store_true',
-                       help='Generate report only (skip merge even with multiple files)')
+                        help='Generate report only (skip merge even with multiple files)')
     parser.add_argument('--test', '-t', action='store_true',
-                       help='Test mode: display first parsed finding without generating report')
+                        help='Test mode: display first parsed finding without generating report')
     parser.add_argument('--no-report', action='store_true',
-                       help='Skip report generation (merge only)')
+                        help='Skip report generation (merge only)')
     parser.add_argument('--report-output', default=None,
-                       help='Output filename for DOCX report (default: auto-generated from scan name)')
+                        help='Output filename for DOCX report (default: auto-generated from scan name)')
 
     args = parser.parse_args()
 
-    # Auto-detect: use current directory if no path specified
     scan_path = args.path if args.path else os.getcwd()
 
-    # Locate .nessus files
     if os.path.isfile(scan_path):
         if not scan_path.endswith('.nessus'):
             print(f"[!] Error: {scan_path} is not a .nessus file")
@@ -521,11 +633,9 @@ Examples:
     elif os.path.isdir(scan_path):
         print(f"[*] Scanning directory: {scan_path}")
         nessus_files = find_nessus_files(scan_path)
-
         if not nessus_files:
             print("[!] No .nessus files found")
             sys.exit(1)
-
         print(f"[+] Found {len(nessus_files)} .nessus file(s):")
         for idx, file in enumerate(nessus_files, 1):
             file_size = os.path.getsize(file) / 1024
@@ -534,18 +644,15 @@ Examples:
         print(f"[!] Error: {scan_path} is not a valid file or directory")
         sys.exit(1)
 
-    # Auto-generate report filename if not specified
     if args.report_output:
         report_output = args.report_output
     else:
-        # Use first .nessus filename as base, or timestamp if multiple
         if len(nessus_files) == 1:
             base_name = Path(nessus_files[0]).stem
         else:
             base_name = f"nessus_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         report_output = f"{base_name}.docx"
 
-    # Merge files if multiple and not in report-only mode
     if not args.report and len(nessus_files) > 1:
         print("\n[*] Merging .nessus files...")
         if not merge_nessus_files(nessus_files, args.output):
@@ -554,24 +661,20 @@ Examples:
         output_size = os.path.getsize(args.output) / 1024
         print(f"[+] Merged file size: {output_size:.1f} KB")
 
-    # Parse findings
     print("\n[*] Parsing findings...")
-    organized_findings = parse_findings(nessus_files)
+    organized_findings, raw_item_count, unique_plugins = parse_findings(nessus_files)
 
-    # Statistics
     total_findings = sum(len(findings) for findings in organized_findings.values())
-    print(f"[+] Unique findings: {total_findings}")
-    for severity in ['Critical', 'High', 'Medium', 'Low']:
+    print(f"[+] {raw_item_count} non-informational items -> {unique_plugins} unique plugins -> {total_findings} findings after condensation")
+    for severity in SEVERITY_ORDER:
         count = len(organized_findings[severity])
         if count > 0:
             print(f"    {severity}: {count}")
 
-    # Test mode - display and exit
     if args.test:
         display_test_finding(organized_findings)
         sys.exit(0)
 
-    # Generate report
     if not args.no_report:
         print(f"\n[*] Generating report: {report_output}")
         if generate_report(organized_findings, report_output):
