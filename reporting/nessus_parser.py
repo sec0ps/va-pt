@@ -61,6 +61,7 @@ files, and so on) are never merged.
 import os
 import re
 import sys
+import signal
 import argparse
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -73,13 +74,24 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 
-SEVERITY_LABELS = {'4': 'Critical', '3': 'High', '2': 'Medium', '1': 'Low', '0': 'Informational'}
-SEVERITY_ORDER = ['Critical', 'High', 'Medium', 'Low']
+SEVERITY_LABELS = {'3': 'High', '2': 'Medium', '1': 'Low'}
+SEVERITY_ORDER = ['High', 'Medium', 'Low']
 
 LADDER_RE = re.compile(r'<\s*\d')
 PRODUCT_SPLIT_RE = re.compile(r'\s+<?\s*\d')
 FIXED_IN_NAME_RE = re.compile(r'<\s*([0-9][\w.]+)')
 FIXED_IN_OUTPUT_RE = re.compile(r'Fixed\s+version\s*:\s*([0-9][\w.]+)', re.IGNORECASE)
+INSTALLED_IN_OUTPUT_RE = re.compile(r'Installed\s+version\s*:\s*([0-9][\w.]+)', re.IGNORECASE)
+URL_IN_OUTPUT_RE = re.compile(r'URL\s*:\s*(\S+)', re.IGNORECASE)
+HTTP_404_RE = re.compile(r'HTTP/\d(?:\.\d)?\s+404\b')
+TOOL_NAME_RE = re.compile(r'\b(?:nessus|tenable)\b', re.IGNORECASE)
+TOOL_URL_RE = re.compile(r'nessus\.org|tenable\.com', re.IGNORECASE)
+
+
+def scrub_tool_names(text):
+    if not text:
+        return text
+    return TOOL_NAME_RE.sub('automated testing', text)
 
 
 class NessusFinding:
@@ -94,7 +106,15 @@ class NessusFinding:
         self.references = []
         self.evidence_by_system = {}
         self.is_ladder = False
+        self.is_merged = False
         self.product = ""
+        self.fixed_version = ""
+        self.evidence_override = None
+        self.original_severity_int = 0
+        self.exploit_available = False
+        self.exploit_metasploit = False
+        self.exploit_kev = False
+        self.exploit_ease = False
 
     @property
     def severity(self):
@@ -102,6 +122,13 @@ class NessusFinding:
 
     def systems(self):
         return sorted(self.evidence_by_system.keys())
+
+    def has_cve(self):
+        return any(r.startswith('CVE:') for r in self.references)
+
+    def exploitable(self):
+        return (self.exploit_kev or self.exploit_metasploit
+                or self.exploit_available or self.exploit_ease)
 
     def to_dict(self):
         return {
@@ -148,13 +175,13 @@ def extract_references(report_item):
         if cve.text:
             refs.append(f"CVE: {cve.text}")
     for xref in report_item.findall('xref'):
-        if xref.text:
+        if xref.text and not TOOL_URL_RE.search(xref.text):
             refs.append(xref.text)
     for see_also in report_item.findall('see_also'):
         if see_also.text:
             for line in see_also.text.splitlines():
                 line = line.strip()
-                if line:
+                if line and not TOOL_URL_RE.search(line):
                     refs.append(line)
     return refs
 
@@ -211,6 +238,20 @@ def highest_fixed_version(names, outputs):
     return best
 
 
+def normalized_ladder_output(raw, fixed):
+    installed_match = INSTALLED_IN_OUTPUT_RE.search(raw or "")
+    if not installed_match:
+        return raw
+    lines = []
+    url_match = URL_IN_OUTPUT_RE.search(raw or "")
+    if url_match:
+        lines.append(f"URL               : {url_match.group(1)}")
+    lines.append(f"Installed version : {installed_match.group(1)}")
+    if fixed:
+        lines.append(f"Fixed version     : {fixed}")
+    return "\n".join(lines)
+
+
 def dedup_references(references):
     cves = []
     others = []
@@ -258,7 +299,13 @@ def merge_ladder_group(group):
     merged.severity_int = max(f.severity_int for f in group)
     merged.cvss_score = max((f.cvss_score for f in group if f.cvss_score), default="", key=_cvss_key)
     merged.is_ladder = True
+    merged.is_merged = True
     merged.product = product
+    merged.fixed_version = fixed
+    merged.exploit_available = any(f.exploit_available for f in group)
+    merged.exploit_metasploit = any(f.exploit_metasploit for f in group)
+    merged.exploit_kev = any(f.exploit_kev for f in group)
+    merged.exploit_ease = any(f.exploit_ease for f in group)
 
     if fixed:
         merged.name = f"{product} — Outdated Version (Multiple Vulnerabilities)"
@@ -266,9 +313,9 @@ def merge_ladder_group(group):
         merged.description = (
             f"The detected {product} installation is running an outdated version and is "
             f"affected by multiple vulnerabilities addressed across successive releases. "
-            f"Nessus reported {len(group)} separate version-threshold findings for this "
-            f"component; they are consolidated here into a single finding. The most recent "
-            f"fixed version identified is {fixed}. Per-host installed versions are shown "
+            f"Automated testing identified {len(group)} separate version-threshold findings "
+            f"for this component; they are consolidated here into a single finding. The most "
+            f"recent fixed version identified is {fixed}. Per-host installed versions are shown "
             f"under Evidence."
         )
     else:
@@ -277,20 +324,25 @@ def merge_ladder_group(group):
         merged.description = (
             f"The detected {product} installation is running an outdated version and is "
             f"affected by multiple vulnerabilities addressed across successive releases. "
-            f"Nessus reported {len(group)} separate version-threshold findings for this "
-            f"component; they are consolidated here into a single finding. Per-host "
+            f"Automated testing identified {len(group)} separate version-threshold findings "
+            f"for this component; they are consolidated here into a single finding. Per-host "
             f"installed versions are shown under Evidence."
         )
 
     references = []
     for finding in group:
-        references.extend(finding.references)
+        references.extend(r for r in finding.references if r.startswith('CVE:'))
     merged.references = dedup_references(references)
 
     for finding in ordered:
         for system, output in finding.evidence_by_system.items():
             if system not in merged.evidence_by_system or not merged.evidence_by_system[system]:
                 merged.evidence_by_system[system] = output
+
+    for system in list(merged.evidence_by_system.keys()):
+        merged.evidence_by_system[system] = normalized_ladder_output(
+            merged.evidence_by_system[system], fixed
+        )
 
     return merged
 
@@ -302,9 +354,38 @@ def _cvss_key(value):
         return 0.0
 
 
+def exploit_label(finding):
+    if not finding.has_cve():
+        return None
+    if finding.exploitable():
+        quals = []
+        if finding.exploit_kev:
+            quals.append('CISA KEV — actively exploited')
+        if finding.exploit_metasploit:
+            quals.append('Metasploit')
+        if not quals and (finding.exploit_available or finding.exploit_ease):
+            quals.append('public exploit')
+        suffix = f" ({'; '.join(quals)})" if quals else ""
+        return f"Yes{suffix}"
+    if finding.original_severity_int != finding.severity_int:
+        original = SEVERITY_LABELS.get(str(finding.original_severity_int), '')
+        adjusted = SEVERITY_LABELS.get(str(finding.severity_int), '')
+        return f"No — severity adjusted from {original} to {adjusted}"
+    return "No"
+
+
+def apply_severity_adjustment(finding):
+    finding.original_severity_int = finding.severity_int
+    if finding.has_cve() and not finding.exploitable() and finding.severity_int > 1:
+        finding.severity_int -= 1
+        return True
+    return False
+
+
 def parse_findings(nessus_files):
     findings_map = {}
     raw_item_count = 0
+    dropped_404 = 0
 
     for nessus_file in nessus_files:
         tree = parse_nessus_file(nessus_file)
@@ -320,6 +401,14 @@ def parse_findings(nessus_files):
                 severity_int = int(report_item.get('severity', '0') or '0')
                 if severity_int == 0:
                     continue
+                severity_int = min(severity_int, 3)
+
+                raw_output = clean_output(extract_text(report_item, 'plugin_output'))
+                if HTTP_404_RE.search(raw_output):
+                    dropped_404 += 1
+                    continue
+                output = scrub_tool_names(raw_output)
+
                 raw_item_count += 1
 
                 plugin_id = report_item.get('pluginID', '')
@@ -331,8 +420,8 @@ def parse_findings(nessus_files):
                         extract_text(report_item, 'cvss3_base_score')
                         or extract_text(report_item, 'cvss_base_score')
                     )
-                    finding.description = extract_text(report_item, 'description')
-                    finding.solution = extract_text(report_item, 'solution')
+                    finding.description = scrub_tool_names(extract_text(report_item, 'description'))
+                    finding.solution = scrub_tool_names(extract_text(report_item, 'solution'))
                     finding.references = dedup_references(extract_references(report_item))
                     finding.is_ladder = bool(LADDER_RE.search(finding.name))
                     finding.product = product_name(finding.name) if finding.is_ladder else ""
@@ -340,12 +429,26 @@ def parse_findings(nessus_files):
 
                 finding = findings_map[plugin_id]
                 system = system_string(host_name, report_item)
-                output = clean_output(extract_text(report_item, 'plugin_output'))
                 if system not in finding.evidence_by_system or not finding.evidence_by_system[system]:
                     finding.evidence_by_system[system] = output
 
+                if extract_text(report_item, 'exploit_available').strip().lower() == 'true':
+                    finding.exploit_available = True
+                if report_item.find('exploit_framework_metasploit') is not None:
+                    finding.exploit_metasploit = True
+                if any(x.text and 'CISA' in x.text.upper() for x in report_item.findall('xref')):
+                    finding.exploit_kev = True
+                ease = extract_text(report_item, 'exploitability_ease').strip().lower()
+                if ease and 'no known exploits' not in ease:
+                    finding.exploit_ease = True
+
     unique_plugins = len(findings_map)
     condensed = condense_ladders(list(findings_map.values()))
+
+    adjusted_count = 0
+    for finding in condensed:
+        if apply_severity_adjustment(finding):
+            adjusted_count += 1
 
     organized = {sev: [] for sev in SEVERITY_ORDER}
     for finding in condensed:
@@ -355,7 +458,7 @@ def parse_findings(nessus_files):
     for sev in SEVERITY_ORDER:
         organized[sev].sort(key=lambda f: f.name.lower())
 
-    return organized, raw_item_count, unique_plugins
+    return organized, raw_item_count, unique_plugins, dropped_404, adjusted_count
 
 
 def merge_nessus_files(nessus_files, output_file):
@@ -495,6 +598,18 @@ def add_label(doc, text):
     return para
 
 
+def add_kv(doc, key, value):
+    para = doc.add_paragraph()
+    k = para.add_run(key)
+    k.bold = True
+    k.font.name = 'Arial'
+    k.font.size = Pt(11)
+    v = para.add_run(value)
+    v.font.name = 'Arial'
+    v.font.size = Pt(11)
+    return para
+
+
 def add_na(doc, text='N/A'):
     para = add_paragraph(doc, text)
     para.runs[0].italic = True
@@ -514,19 +629,17 @@ def add_evidence_block(doc, text):
 
 
 def render_evidence(doc, finding):
-    grouped = defaultdict(list)
+    if finding.evidence_override:
+        add_evidence_block(doc, finding.evidence_override)
+        return
+
     for system in finding.systems():
         output = finding.evidence_by_system.get(system, "")
         if output:
-            grouped[output].append(system)
+            add_evidence_block(doc, output)
+            return
 
-    if not grouped:
-        add_na(doc)
-        return
-
-    for output, systems in grouped.items():
-        add_label(doc, ", ".join(systems))
-        add_evidence_block(doc, output)
+    add_na(doc)
 
 
 def generate_report(organized_findings, output_file):
@@ -543,6 +656,12 @@ def generate_report(organized_findings, output_file):
 
             for finding in findings:
                 add_heading(doc, finding.name, level=3)
+
+                add_kv(doc, 'Severity: ', finding.severity)
+
+                label = exploit_label(finding)
+                if label:
+                    add_kv(doc, 'Exploit available: ', label)
 
                 add_label(doc, 'Affected System(s):')
                 systems = finding.systems()
@@ -566,11 +685,15 @@ def generate_report(organized_findings, output_file):
 
                 add_label(doc, 'References:')
                 if finding.references:
-                    for ref in finding.references:
-                        para = doc.add_paragraph(ref)
-                        for run in para.runs:
-                            run.font.name = 'Arial'
-                            run.font.size = Pt(11)
+                    if finding.is_merged:
+                        cve_ids = [ref.replace('CVE: ', '') for ref in finding.references]
+                        add_paragraph(doc, ", ".join(cve_ids))
+                    else:
+                        for ref in finding.references:
+                            para = doc.add_paragraph(ref)
+                            for run in para.runs:
+                                run.font.name = 'Arial'
+                                run.font.size = Pt(11)
                 else:
                     add_na(doc, 'None')
 
@@ -585,6 +708,66 @@ def generate_report(organized_findings, output_file):
     except Exception as e:
         print(f"[!] Error generating report: {e}")
         return False
+
+
+class _PromptTimeout(Exception):
+    pass
+
+
+def _prompt_timeout_handler(signum, frame):
+    raise _PromptTimeout()
+
+
+def scan_files_at(path):
+    if os.path.isfile(path):
+        return [path] if path.endswith('.nessus') else []
+    if os.path.isdir(path):
+        return find_nessus_files(path)
+    return []
+
+
+def prompt_for_scan_path(timeout=30):
+    signal.signal(signal.SIGALRM, _prompt_timeout_handler)
+    signal.alarm(timeout)
+    try:
+        return input("[?] Enter path to a .nessus file or directory: ").strip()
+    except _PromptTimeout:
+        print(f"\n[!] No response within {timeout} seconds. Exiting.")
+        sys.exit(1)
+    except (EOFError, KeyboardInterrupt):
+        print("\n[!] No input received. Exiting.")
+        sys.exit(1)
+    finally:
+        signal.alarm(0)
+
+
+def resolve_nessus_files(initial_path):
+    scan_path = initial_path if initial_path else os.getcwd()
+    nessus_files = scan_files_at(scan_path)
+
+    if not nessus_files:
+        if initial_path:
+            print(f"[!] No .nessus file found at: {scan_path}")
+        else:
+            print(f"[*] No .nessus file found in {scan_path}")
+        while not nessus_files:
+            scan_path = prompt_for_scan_path()
+            if not scan_path:
+                print("[!] No path provided. Exiting.")
+                sys.exit(1)
+            nessus_files = scan_files_at(scan_path)
+            if not nessus_files:
+                print(f"[!] No .nessus file found at: {scan_path}")
+
+    if len(nessus_files) == 1:
+        print(f"[*] Using file: {nessus_files[0]}")
+    else:
+        print(f"[+] Found {len(nessus_files)} .nessus file(s):")
+        for idx, file in enumerate(nessus_files, 1):
+            file_size = os.path.getsize(file) / 1024
+            print(f"    {idx}. {os.path.basename(file)} ({file_size:.1f} KB)")
+
+    return nessus_files
 
 
 def main():
@@ -622,27 +805,7 @@ Examples:
 
     args = parser.parse_args()
 
-    scan_path = args.path if args.path else os.getcwd()
-
-    if os.path.isfile(scan_path):
-        if not scan_path.endswith('.nessus'):
-            print(f"[!] Error: {scan_path} is not a .nessus file")
-            sys.exit(1)
-        nessus_files = [scan_path]
-        print(f"[*] Using file: {scan_path}")
-    elif os.path.isdir(scan_path):
-        print(f"[*] Scanning directory: {scan_path}")
-        nessus_files = find_nessus_files(scan_path)
-        if not nessus_files:
-            print("[!] No .nessus files found")
-            sys.exit(1)
-        print(f"[+] Found {len(nessus_files)} .nessus file(s):")
-        for idx, file in enumerate(nessus_files, 1):
-            file_size = os.path.getsize(file) / 1024
-            print(f"    {idx}. {os.path.basename(file)} ({file_size:.1f} KB)")
-    else:
-        print(f"[!] Error: {scan_path} is not a valid file or directory")
-        sys.exit(1)
+    nessus_files = resolve_nessus_files(args.path)
 
     if args.report_output:
         report_output = args.report_output
@@ -662,9 +825,13 @@ Examples:
         print(f"[+] Merged file size: {output_size:.1f} KB")
 
     print("\n[*] Parsing findings...")
-    organized_findings, raw_item_count, unique_plugins = parse_findings(nessus_files)
+    organized_findings, raw_item_count, unique_plugins, dropped_404, adjusted_count = parse_findings(nessus_files)
 
     total_findings = sum(len(findings) for findings in organized_findings.values())
+    if dropped_404:
+        print(f"[+] Dropped {dropped_404} false-positive instance(s) returning HTTP 404")
+    if adjusted_count:
+        print(f"[+] Adjusted {adjusted_count} CVE-backed finding(s) down one level (no public exploit)")
     print(f"[+] {raw_item_count} non-informational items -> {unique_plugins} unique plugins -> {total_findings} findings after condensation")
     for severity in SEVERITY_ORDER:
         count = len(organized_findings[severity])
