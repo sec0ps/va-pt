@@ -1,3 +1,29 @@
+#!/usr/bin/env python3
+# =============================================================================
+# Location    automation/msf.py
+# Author      Keith Pachulski
+# Company     Red Cell Security LLC
+# Email       keith@redcellsecurity.org
+# Website     www.redcellsecurity.org
+#
+# License     MIT License
+#
+# Purpose     All Metasploit interaction over msfrpcd: candidate assembly across
+#             CVE, product, auxiliary, and curated unauthenticated tiers; the fire
+#             path; the credential brute; and the auxiliary run path that records
+#             proven unauthenticated access.
+#
+# SECURITY NOTICE
+#             This software is intended for authorized security assessment and
+#             defensive operations only. Use it exclusively on systems you own or
+#             are explicitly permitted to test. Unauthorized use may violate law.
+#
+# DISCLAIMER
+#             This software is provided "as is" without warranty of any kind. The
+#             author and Red Cell Security LLC accept no liability for damage or
+#             misuse arising from its operation.
+# =============================================================================
+
 """
 msf.py - all Metasploit interaction over msfrpcd.
 
@@ -27,7 +53,7 @@ import threading
 import time
 from dataclasses import dataclass
 
-from state import Candidate, Credential, Session, Verdict, verdict_from_msf
+from state import Access, Candidate, Credential, Session
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +175,7 @@ class MsfConfig:
     password: str = ""
     ssl: bool = True
     username: str = "msf"
-    check_timeout: int = 60
+    aux_timeout: int = 120           # per-module cap for auxiliary/unauth runs
     exploit_timeout: int = 90
     brute_timeout: int = 600        # per-service login scanner cap
     brute_threads: int = 8          # parallel attempts within one login scanner
@@ -158,6 +184,7 @@ class MsfConfig:
     candidates_per_service: int = 5
     rank_floor: int = 400           # Good and up
     product_search: bool = True     # also search msf by product/service name
+    auxiliary_search: bool = True   # include type=auxiliary in candidate search
     lport_base: int = 4444
     lport_count: int = 32
     lhost: str = ""                 # optional pin; empty means derive per target
@@ -185,10 +212,6 @@ class MsfClient:
         self._lport_pool: queue.Queue = queue.Queue()
         for p in range(cfg.lport_base, cfg.lport_base + cfg.lport_count):
             self._lport_pool.put(p)
-        # Modules found to have no check method, remembered for the run so the
-        # same module is never re-probed across hosts and ports.
-        self._no_check: set[str] = set()
-        self._no_check_lock = threading.Lock()
 
     def _activity(self, source, text):
         if not self._on_activity:
@@ -301,7 +324,16 @@ class MsfClient:
         return res or []
 
     def _acceptable(self, entry):
-        if entry.get("type") != "exploit":
+        """Fireable or runnable module. Exploits and auxiliary both qualify; dos and
+        local are excluded (dos is destructive-only, local needs an existing
+        session). The exploit rank floor is applied to exploit modules only, since
+        auxiliary modules do not carry the exploit rank system and would be filtered
+        out wholesale by it."""
+        mtype = entry.get("type")
+        if mtype == "auxiliary":
+            if not self.cfg.auxiliary_search:
+                return False
+        elif mtype != "exploit":
             return False
         full = entry.get("fullname", "")
         segs = full.split("/")
@@ -311,7 +343,7 @@ class MsfClient:
             # local priv-esc modules need an existing SESSION; they are not remote
             # entry points and only block with "unset required: SESSION" if fired.
             return False
-        if _rank_value(entry.get("rank")) < self.cfg.rank_floor:
+        if mtype == "exploit" and _rank_value(entry.get("rank")) < self.cfg.rank_floor:
             return False
         return True
 
@@ -378,10 +410,12 @@ class MsfClient:
         ranked = ranked[: self.cfg.candidates_per_service]
         out = []
         for entry, cve_id, _cvss in ranked:
+            full = entry.get("fullname", "")
+            src = "auxiliary" if full.startswith("auxiliary/") else "msf"
             out.append(Candidate(
-                module=entry.get("fullname", ""), cve_id=cve_id,
+                module=full, cve_id=cve_id,
                 rank=_rank_name(entry.get("rank")), port=service.port,
-                source="msf"))
+                source=src))
         if out:
             logger.info("search %s:%s cves=%d -> %d candidate(s): %s",
                         label, service.port, len(service.cves), len(out),
@@ -394,48 +428,6 @@ class MsfClient:
         return out
 
     # -- check (console path) --
-
-    def check(self, candidate, rhost, port):
-        """Run the module check on a fresh isolated console. Returns
-        (Verdict, detail_text). A module with no check method is remembered for
-        the run and short-circuited on every later host and port: check support
-        is a property of the module code, not the target, and the only way MSF
-        reveals it is to run check once, so we run it once and cache the answer."""
-        if self._is_no_check(candidate.module):
-            logger.debug("check %s @ %s:%s -> unsupported (cached, no check)",
-                         candidate.module, rhost, port)
-            return Verdict.UNSUPPORTED, "no check method (cached)"
-        self._activity("msf", f"check {candidate.module} @ {rhost}:{port}")
-        cid = None
-        try:
-            console = self._client.consoles.console()
-            cid = console.cid
-            lines = [
-                f"use {candidate.module}",
-                f"set RHOSTS {rhost}",
-            ]
-            if port:
-                lines.append(f"set RPORT {int(port)}")
-            lines.append("check")
-            data = self._console_run(console, "\n".join(lines) + "\n",
-                                     self.cfg.check_timeout)
-            code = _parse_check_output(data)
-            if code == "unsupported":
-                self._mark_no_check(candidate.module)
-            verdict = verdict_from_msf(code)
-            detail = _summarize_check(data)
-            logger.info("check %s @ %s:%s -> %s (%s)", candidate.module,
-                        rhost, port, verdict.value, detail)
-            return verdict, detail
-        except Exception as e:
-            logger.warning("check error %s on %s: %s", candidate.module, rhost, e)
-            return Verdict.UNKNOWN, f"check error: {e}"
-        finally:
-            if cid is not None:
-                try:
-                    self._client.consoles.destroy(cid)
-                except Exception:
-                    pass
 
     def _console_run(self, console, cmd, timeout):
         try:
@@ -461,18 +453,6 @@ class MsfClient:
             if time.time() - start > timeout:
                 break
         return data
-
-    def _is_no_check(self, module):
-        """True if this module reported no check method earlier in the run."""
-        with self._no_check_lock:
-            return module in self._no_check
-
-    def _mark_no_check(self, module):
-        """Remember a module has no check method so it is not re-probed."""
-        with self._no_check_lock:
-            self._no_check.add(module)
-
-    # -- fire --
 
     def fire(self, candidate, host, rhost, port):
         """Detonate the module against rhost with a selected reverse payload.
@@ -715,6 +695,64 @@ class MsfClient:
         return sessions
 
 
+    def unauth_candidates_for_service(self, service):
+        """Curated unauthenticated and misconfiguration auxiliary modules for this
+        service, as Candidates (source 'unauth'). Independent of CVE and product
+        search; these prove access with no credentials and no exploit."""
+        mods = unauth_modules_for(service.name, service.port)
+        return [Candidate(module=m, cve_id="", rank="", port=service.port,
+                          source="unauth") for m in mods]
+
+    def run_auxiliary(self, candidate, rhost, port, service_name=""):
+        """Run an auxiliary or unauth module against rhost and read MSF's own
+        success convention: lines prefixed [+] are positive findings. Each becomes
+        an Access record carrying that proof line, so a null SMB session, an
+        anonymous FTP listing, or an unauthenticated Redis is captured as proven
+        impact rather than a maybe. RHOSTS/RPORT are set and any remaining required
+        credential-style options are filled the same way fire does; module-specific
+        options are left to the module's defaults. Never raises; a tooling problem
+        yields no access. Returns (list[Access], detail)."""
+        self._activity("aux", f"run {candidate.module} @ {rhost}:{port}")
+        cid = None
+        try:
+            console = self._client.consoles.console()
+            cid = console.cid
+            lines = [f"use {candidate.module}", f"set RHOSTS {rhost}"]
+            if port:
+                lines.append(f"set RPORT {int(port)}")
+            lines.append("run")
+            data = self._console_run(console, "\n".join(lines) + "\n",
+                                     self.cfg.aux_timeout)
+            access = []
+            seen = set()
+            for raw in data.splitlines():
+                ln = _ANSI.sub("", raw).strip()
+                if not ln.startswith("[+]"):
+                    continue
+                proof = ln[3:].strip()[:200]
+                if not proof or proof in seen:
+                    continue
+                seen.add(proof)
+                access.append(Access(
+                    service=service_name or "", port=int(port) if port else 0,
+                    module=candidate.module, proof=proof))
+            detail = (f"{len(access)} positive finding(s)" if access
+                      else "no access")
+            logger.info("aux %s @ %s:%s -> %s", candidate.module, rhost, port,
+                        detail)
+            return access, detail
+        except Exception as e:
+            logger.warning("aux error %s on %s: %s", candidate.module, rhost, e)
+            return [], f"aux error: {e}"
+        finally:
+            if cid is not None:
+                try:
+                    self._client.consoles.destroy(cid)
+                except Exception:
+                    pass
+
+
+
 # --- module helpers (no live server required) ------------------------------
 
 def _rank_value(rank):
@@ -890,39 +928,6 @@ def _apply_options(mod, pairs):
     return failures
 
 
-def _parse_check_output(text):
-    """Map MSF check console output to a CheckCode name for verdict_from_msf.
-    Order matters: unsupported and safe phrases are tested before the positive
-    vulnerable phrase so 'not vulnerable' is not misread as vulnerable."""
-    t = _ANSI.sub("", text or "").lower()
-    if ("does not support check" in t or "check is not supported" in t
-            or "no check" in t):
-        return "unsupported"
-    if "appears to be vulnerable" in t or "appears vulnerable" in t:
-        return "appears"
-    if ("is not exploitable" in t or "not vulnerable" in t
-            or "does not appear to be vulnerable" in t
-            or "target is not" in t):
-        return "safe"
-    if "is vulnerable" in t or "target is vulnerable" in t:
-        return "vulnerable"
-    if ("cannot reliably check" in t or "unable to" in t
-            or "could not connect" in t or "connection refused" in t
-            or "failed to connect" in t):
-        return "unknown"
-    return "unknown"
-
-
-def _summarize_check(text):
-    clean = _ANSI.sub("", text or "")
-    keep = [ln.strip() for ln in clean.splitlines()
-            if any(k in ln.lower() for k in ("vulnerable", "exploitable", "check"))]
-    if keep:
-        return " | ".join(keep[-3:])[:240]
-    tail = clean.strip().splitlines()
-    return (tail[-1] if tail else "")[:240]
-
-
 def _lhost_for(target):
     """Source IP the kernel would use to reach target. UDP connect consults the
     routing table without sending packets, so this works offline."""
@@ -1002,6 +1007,58 @@ def login_module_for(service_name, port):
         if mod:
             return mod
     return _LOGIN_PORTS.get(int(port) if port else 0, "")
+
+
+# nmap service name (lowercased) -> unauthenticated/misconfiguration auxiliary
+# modules that prove access with no credentials. They run and report; MSF's [+]
+# lines are the proof. Curated to well-known stock modules; extend per site.
+_UNAUTH_MODULES = {
+    "ftp": ["auxiliary/scanner/ftp/anonymous"],
+    "microsoft-ds": ["auxiliary/scanner/smb/smb_ms17_010",
+                     "auxiliary/scanner/smb/smb_enumshares",
+                     "auxiliary/scanner/smb/smb_enumusers"],
+    "netbios-ssn": ["auxiliary/scanner/smb/smb_ms17_010",
+                    "auxiliary/scanner/smb/smb_enumshares"],
+    "smb": ["auxiliary/scanner/smb/smb_ms17_010",
+            "auxiliary/scanner/smb/smb_enumshares"],
+    "redis": ["auxiliary/scanner/redis/redis_server"],
+    "mongodb": ["auxiliary/scanner/mongodb/mongodb_login"],
+    "elasticsearch": ["auxiliary/scanner/elasticsearch/indices_enum"],
+    "couchdb": ["auxiliary/scanner/couchdb/couchdb_enum"],
+    "rsync": ["auxiliary/scanner/rsync/modules_list"],
+    "nfs": ["auxiliary/scanner/nfs/nfsmount"],
+    "vnc": ["auxiliary/scanner/vnc/vnc_none_auth"],
+    "memcached": ["auxiliary/gather/memcached_extractor"],
+    "java-rmi": ["auxiliary/scanner/misc/java_rmi_server"],
+}
+# Port fallback when the nmap service name is unrecognized.
+_UNAUTH_PORTS = {
+    21: ["auxiliary/scanner/ftp/anonymous"],
+    445: ["auxiliary/scanner/smb/smb_ms17_010",
+          "auxiliary/scanner/smb/smb_enumshares"],
+    139: ["auxiliary/scanner/smb/smb_ms17_010",
+          "auxiliary/scanner/smb/smb_enumshares"],
+    6379: ["auxiliary/scanner/redis/redis_server"],
+    27017: ["auxiliary/scanner/mongodb/mongodb_login"],
+    9200: ["auxiliary/scanner/elasticsearch/indices_enum"],
+    5984: ["auxiliary/scanner/couchdb/couchdb_enum"],
+    873: ["auxiliary/scanner/rsync/modules_list"],
+    2049: ["auxiliary/scanner/nfs/nfsmount"],
+    5900: ["auxiliary/scanner/vnc/vnc_none_auth"],
+    11211: ["auxiliary/gather/memcached_extractor"],
+    1099: ["auxiliary/scanner/misc/java_rmi_server"],
+}
+
+
+def unauth_modules_for(service_name, port):
+    """Unauth/misconfig auxiliary modules for a detected service, by nmap service
+    name first, then port. Returns a list, possibly empty."""
+    mods = []
+    if service_name:
+        mods = _UNAUTH_MODULES.get(service_name.strip().lower(), [])
+    if not mods and port:
+        mods = _UNAUTH_PORTS.get(int(port), [])
+    return list(mods)
 
 
 def locate_wordlist(filename):
