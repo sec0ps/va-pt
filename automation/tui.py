@@ -1,3 +1,28 @@
+#!/usr/bin/env python3
+# =============================================================================
+# Location    automation/tui.py
+# Author      Keith Pachulski
+# Company     Red Cell Security LLC
+# Email       keith@redcellsecurity.org
+# Website     www.redcellsecurity.org
+#
+# License     MIT License
+#
+# Purpose     Rich terminal dashboard for the orchestrator: live host lifecycle,
+#             attack progress, and a proven-impact results view of sessions,
+#             unauthenticated access, and credentials.
+#
+# SECURITY NOTICE
+#             This software is intended for authorized security assessment and
+#             defensive operations only. Use it exclusively on systems you own or
+#             are explicitly permitted to test. Unauthorized use may violate law.
+#
+# DISCLAIMER
+#             This software is provided "as is" without warranty of any kind. The
+#             author and Red Cell Security LLC accept no liability for damage or
+#             misuse arising from its operation.
+# =============================================================================
+
 """
 tui.py - rich Live dashboard. Read-only view over RunState.
 
@@ -61,14 +86,9 @@ _STATE_STYLE = {
     HostState.DOWN: "grey42",
     HostState.SCANNING: "blue",
     HostState.ANALYZED: "blue",
-    HostState.CANDIDATES: "yellow",
-    HostState.NO_CANDIDATES: "grey42",
-    HostState.CHECKING: "yellow",
-    HostState.EXPLOITABLE: "bold magenta",
-    HostState.NOT_EXPLOITABLE: "grey42",
-    HostState.EXPLOITING: "bold yellow",
-    HostState.EXPLOITED: "bold green",
-    HostState.FAILED: "red",
+    HostState.ATTACKING: "bold yellow",
+    HostState.COMPROMISED: "bold green",
+    HostState.CLEAN: "grey42",
     HostState.ERROR: "bold red",
 }
 
@@ -226,15 +246,13 @@ class Dashboard:
         _seg(counts, "live ", str(stats.live), "green")
         _seg(counts, "  down ", str(stats.down), "grey42")
         _seg(counts, "  scan ", str(stats.scanning), "blue")
-        _seg(counts, "  cand ", str(stats.candidates), "yellow")
-        _seg(counts, "  chk ", str(stats.checking), "yellow")
-        _seg(counts, "  vuln ", str(stats.exploitable), "magenta")
-        _seg(counts, "  fire ", str(stats.exploiting), "bold yellow")
-        _seg(counts, "  pwn ", str(stats.exploited), "bold green")
-        _seg(counts, "  fail ", str(stats.failed), "red")
+        _seg(counts, "  atk ", str(stats.attacking), "bold yellow")
+        _seg(counts, "  pwn ", str(stats.compromised), "bold green")
+        _seg(counts, "  clean ", str(stats.clean), "grey42")
         _seg(counts, "  err ", str(stats.errored), "bold red")
         _seg(counts, "  sess ", str(stats.sessions), "cyan")
         _seg(counts, "  cred ", str(stats.credentials), "bold cyan")
+        _seg(counts, "  acc ", str(stats.access), "bold magenta")
         _seg(counts, "  cve ", str(stats.cves), "white")
         counts.append("/", style="dim")
         counts.append(str(stats.exploit_cves), style="bold white")
@@ -262,8 +280,7 @@ class Dashboard:
                 _cve_cell(h),
                 str(len(h.candidates)),
                 _detail_cell(h))
-        title = (f"active   scan {stats.scanning}   check {stats.checking}"
-                 f"   fire {stats.exploiting}")
+        title = (f"active   scan {stats.scanning}   attack {stats.attacking}")
         return Panel(t, title=title, title_align="left", box=box.ROUNDED,
                      border_style="cyan", padding=(0, 1))
 
@@ -273,7 +290,7 @@ class Dashboard:
         t.add_column("ip", no_wrap=True, overflow="ellipsis", width=15)
         t.add_column("host", no_wrap=True, overflow="ellipsis", ratio=3)
         t.add_column("state", no_wrap=True, width=13)
-        t.add_column("verdict", no_wrap=True, width=11)
+        t.add_column("kind", no_wrap=True, width=9)
         t.add_column("module", no_wrap=True, overflow="ellipsis", ratio=6)
         t.add_column("session", no_wrap=True, overflow="ellipsis", ratio=4)
         rows = 0
@@ -285,9 +302,14 @@ class Dashboard:
             entries = []
             for s in h.sessions:
                 entries.append((
-                    _verdict_text(_verdict_for_module(h, s.module)),
+                    Text("session", style="bold green"),
                     s.module or "-",
                     Text(f"{s.session_id} {s.payload}".strip(), style="bold green")))
+            for a in h.access:
+                entries.append((
+                    Text("access", style="bold magenta"),
+                    a.module or "-",
+                    Text(a.proof or "-", style="magenta")))
             for c in h.credentials:
                 if c.session_id:
                     continue
@@ -298,26 +320,23 @@ class Dashboard:
             if entries:
                 # ip/host/state repeat on every row so each session or credential
                 # is self-contained, even when several land on the same host.
-                for verdict, module, last in entries:
+                for kind, module, last in entries:
                     if rows >= max_rows:
                         break
                     t.add_row(
                         h.ip,
                         Text(h.hostname or "-", style="dim"),
                         _state_text(h.state),
-                        verdict, module, last)
+                        kind, module, last)
                     rows += 1
             else:
-                best = _best_candidate(h)
-                verdict = best.check_result if best else Verdict.UNKNOWN
-                module = best.module if best else "-"
                 t.add_row(
                     h.ip, Text(h.hostname or "-", style="dim"),
-                    _state_text(h.state), _verdict_text(verdict),
-                    module, _session_cell(h))
+                    _state_text(h.state), Text("-", style="dim"), "-",
+                    _session_cell(h))
                 rows += 1
-        title = (f"results   vuln {stats.exploitable}   pwn {stats.exploited}"
-                 f"   sessions {stats.sessions}   creds {stats.credentials}")
+        title = (f"results   pwn {stats.compromised}   sessions {stats.sessions}"
+                 f"   creds {stats.credentials}   access {stats.access}")
         return Panel(t, title=title, title_align="left", box=box.ROUNDED,
                      border_style="magenta", padding=(0, 1))
 
@@ -332,9 +351,9 @@ class Dashboard:
             ("run complete   ", "bold"),
             (f"{_fmt_elapsed(stats.elapsed)}   ", ""),
             (f"{stats.live} live", "green"), ("   ", ""),
-            (f"{stats.exploitable} exploitable", "magenta"), ("   ", ""),
-            (f"{stats.exploited} exploited", "bold green"), ("   ", ""),
+            (f"{stats.compromised} compromised", "bold green"), ("   ", ""),
             (f"{stats.sessions} session(s)", "cyan"), ("   ", ""),
+            (f"{stats.access} access", "bold magenta"), ("   ", ""),
             (f"{stats.credentials} credential(s)", "bold cyan"))
         self.console.print(head)
 
@@ -399,25 +418,13 @@ def _detail_cell(host):
     if host.state == HostState.ERROR and host.error:
         return Text(host.error, style="red")
     best = _best_candidate(host)
-    live = (HostState.CANDIDATES, HostState.CHECKING, HostState.EXPLOITING)
-    if best is not None and host.state in live:
+    if best is not None and host.state == HostState.ATTACKING:
         txt = Text(f"{_module_leaf(best.module)} ")
-        txt.append(best.check_result.value,
-                   style=_VERDICT_STYLE.get(best.check_result, ""))
+        txt.append(best.fire_status or "attacking", style="yellow")
         return txt
     if host.notes:
         return Text(host.notes, style="dim")
     return Text("")
-
-
-def _verdict_for_module(host, module):
-    """The check verdict of the candidate behind a session's module, or UNKNOWN.
-    In autopwn (no check phase) this is UNKNOWN; in check mode it reflects the
-    module's verdict."""
-    for c in host.candidates:
-        if c.module == module:
-            return c.check_result
-    return Verdict.UNKNOWN
 
 
 def _session_cell(host):
@@ -430,9 +437,9 @@ def _session_cell(host):
 def _best_candidate(host):
     if not host.candidates:
         return None
-    return max(host.candidates,
-               key=lambda c: (_VERDICT_RANK.get(c.check_result, 0),
-                              1 if c.source == "msf" else 0))
+    fired = [c for c in host.candidates if c.fire_status]
+    pool = fired or host.candidates
+    return max(pool, key=lambda c: 1 if c.source == "msf" else 0)
 
 
 def _module_leaf(module):
