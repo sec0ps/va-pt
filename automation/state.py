@@ -1,3 +1,28 @@
+#!/usr/bin/env python3
+# =============================================================================
+# Location    automation/state.py
+# Author      Keith Pachulski
+# Company     Red Cell Security LLC
+# Email       keith@redcellsecurity.org
+# Website     www.redcellsecurity.org
+#
+# License     MIT License
+#
+# Purpose     Shared run state, host lifecycle, stats, and checkpoint/findings
+#             persistence for the orchestrator. Single source of truth read by
+#             the TUI and written by the pipeline workers under one lock.
+#
+# SECURITY NOTICE
+#             This software is intended for authorized security assessment and
+#             defensive operations only. Use it exclusively on systems you own or
+#             are explicitly permitted to test. Unauthorized use may violate law.
+#
+# DISCLAIMER
+#             This software is provided "as is" without warranty of any kind. The
+#             author and Red Cell Security LLC accept no liability for damage or
+#             misuse arising from its operation.
+# =============================================================================
+
 """
 state.py - shared run state, host lifecycle, stats, and persistence.
 
@@ -5,6 +30,11 @@ Single source of truth read by the TUI and written by the pipeline workers.
 All access is guarded by an RLock. Persistence (checkpoint and findings) takes a
 brief locked snapshot then performs file IO unlocked, so disk writes never block
 a TUI repaint. Resume support rewinds in-flight states to a safe re-entry point.
+
+Proven-impact model: a host is COMPROMISED only when it has a session, a valid
+credential, or a confirmed unauthenticated/misconfiguration access. There is no
+check verdict; nothing merely "potentially vulnerable" is a finding. CVEs stay on
+services as context, not as findings.
 """
 
 from __future__ import annotations
@@ -15,7 +45,7 @@ import logging
 import os
 import threading
 import time
-from collections import defaultdict, deque
+from collections import deque
 from contextlib import contextmanager
 from dataclasses import dataclass, field, asdict
 from enum import Enum
@@ -24,7 +54,7 @@ from typing import Iterable
 logger = logging.getLogger(__name__)
 
 TOOL = "vapt-orchestrator"
-VERSION = "0.2.3"
+VERSION = "0.3.0"
 
 
 def _now() -> float:
@@ -39,69 +69,59 @@ class HostState(str, Enum):
     DOWN = "down"
     SCANNING = "scanning"
     ANALYZED = "analyzed"
-    CANDIDATES = "candidates"
-    NO_CANDIDATES = "no_candidates"
-    CHECKING = "checking"
-    EXPLOITABLE = "exploitable"
-    NOT_EXPLOITABLE = "not_exploitable"
-    EXPLOITING = "exploiting"
-    EXPLOITED = "exploited"
-    FAILED = "failed"
+    ATTACKING = "attacking"       # exploit fire, login brute, and unauth run
+    COMPROMISED = "compromised"   # proven: session, credential, or access
+    CLEAN = "clean"               # alive, fully attacked, nothing proven
     ERROR = "error"
 
 
 class Verdict(str, Enum):
+    """Retained for NSE vuln-script normalization in the scanner. Not a host
+    state and not a finding under the proven-impact model."""
     VULNERABLE = "vulnerable"
     LIKELY = "likely"
     SAFE = "safe"
-    UNSUPPORTED = "unsupported"
     UNKNOWN = "unknown"
 
 
-# Pane and aggregation groupings referenced by the TUI and stats.
 ACTIVE_STATES = frozenset({
     HostState.DISCOVERED, HostState.SCANNING, HostState.ANALYZED,
-    HostState.CANDIDATES, HostState.CHECKING, HostState.EXPLOITING,
+    HostState.ATTACKING,
 })
-RESULT_STATES = frozenset({HostState.EXPLOITABLE, HostState.EXPLOITED})
+RESULT_STATES = frozenset({HostState.COMPROMISED})
 TERMINAL_STATES = frozenset({
-    HostState.DOWN, HostState.NO_CANDIDATES, HostState.NOT_EXPLOITABLE,
-    HostState.EXPLOITED, HostState.FAILED, HostState.ERROR,
+    HostState.DOWN, HostState.COMPROMISED, HostState.CLEAN, HostState.ERROR,
 })
-
-# Completion depends on mode: in check-only, EXPLOITABLE is the end of the line;
-# in autopwn it still has a fire step pending.
-_COMPLETED_CHECK = frozenset({
-    HostState.DOWN, HostState.NO_CANDIDATES, HostState.NOT_EXPLOITABLE,
-    HostState.EXPLOITABLE, HostState.EXPLOITED, HostState.FAILED, HostState.ERROR,
-})
-_COMPLETED_AUTOPWN = frozenset({
-    HostState.DOWN, HostState.NO_CANDIDATES, HostState.NOT_EXPLOITABLE,
-    HostState.EXPLOITED, HostState.FAILED, HostState.ERROR,
-})
+_COMPLETED = TERMINAL_STATES
 
 _TRANSITIONS = {
     HostState.QUEUED: frozenset({HostState.DISCOVERED, HostState.DOWN}),
     HostState.DISCOVERED: frozenset({HostState.SCANNING}),
     HostState.SCANNING: frozenset({HostState.ANALYZED}),
-    HostState.ANALYZED: frozenset({HostState.CANDIDATES, HostState.NO_CANDIDATES}),
-    HostState.CANDIDATES: frozenset({HostState.CHECKING, HostState.EXPLOITABLE}),
-    HostState.CHECKING: frozenset({HostState.EXPLOITABLE, HostState.NOT_EXPLOITABLE}),
-    HostState.EXPLOITABLE: frozenset({HostState.EXPLOITING}),
-    HostState.EXPLOITING: frozenset({HostState.EXPLOITED, HostState.FAILED}),
+    HostState.ANALYZED: frozenset({HostState.ATTACKING, HostState.CLEAN}),
+    HostState.ATTACKING: frozenset({HostState.COMPROMISED, HostState.CLEAN}),
     HostState.DOWN: frozenset(),
-    HostState.NO_CANDIDATES: frozenset(),
-    HostState.NOT_EXPLOITABLE: frozenset(),
-    HostState.EXPLOITED: frozenset(),
-    HostState.FAILED: frozenset(),
+    HostState.COMPROMISED: frozenset(),
+    HostState.CLEAN: frozenset(),
     HostState.ERROR: frozenset(),
 }
 
 # States unsafe to trust after a crash; rewind to the last stable point on resume.
 _RESUME_REWIND = {
     HostState.SCANNING: HostState.DISCOVERED,
-    HostState.CHECKING: HostState.CANDIDATES,
-    HostState.EXPLOITING: HostState.EXPLOITABLE,
+    HostState.ATTACKING: HostState.ANALYZED,
+}
+
+# Old check-era states mapped forward when loading a pre-0.3 checkpoint.
+_LEGACY_STATE = {
+    "candidates": "analyzed",
+    "no_candidates": "clean",
+    "checking": "analyzed",
+    "exploitable": "attacking",
+    "not_exploitable": "clean",
+    "exploiting": "attacking",
+    "exploited": "compromised",
+    "failed": "clean",
 }
 
 
@@ -109,50 +129,19 @@ class InvalidTransition(Exception):
     pass
 
 
-# --- verdict normalization -------------------------------------------------
-
-_MSF_VERDICT = {
-    "vulnerable": Verdict.VULNERABLE,
-    "appears": Verdict.LIKELY,
-    "detected": Verdict.LIKELY,
-    "safe": Verdict.SAFE,
-    "unsupported": Verdict.UNSUPPORTED,
-    "unknown": Verdict.UNKNOWN,
-}
-
-
-def verdict_from_msf(code: str) -> Verdict:
-    """Normalize an MSF CheckCode name to a Verdict."""
-    return _MSF_VERDICT.get((code or "").strip().lower(), Verdict.UNKNOWN)
-
-
 def verdict_from_nse(text: str) -> Verdict:
     """Normalize NSE vuln-script output text to a Verdict. Order matters."""
-    t = (text or "").upper()
-    if "LIKELY VULNERABLE" in t:
-        return Verdict.LIKELY
-    if "NOT VULNERABLE" in t:
-        return Verdict.SAFE
-    if "VULNERABLE" in t:
+    t = (text or "").lower()
+    if "vulnerable" in t and "not vulnerable" not in t:
         return Verdict.VULNERABLE
+    if "likely" in t or "appears" in t:
+        return Verdict.LIKELY
+    if "not vulnerable" in t:
+        return Verdict.SAFE
     return Verdict.UNKNOWN
 
 
-def is_exploitable_verdict(v: Verdict) -> bool:
-    """A host is exploitable if any candidate is confirmed or likely."""
-    return v in (Verdict.VULNERABLE, Verdict.LIKELY)
-
-
-def is_fireable_verdict(v: Verdict) -> bool:
-    """Worth detonating in autopwn. Only SAFE is skipped, since SAFE means the
-    check positively determined the target is not vulnerable. Everything else,
-    including UNSUPPORTED and UNKNOWN, is attempted -- many high-value modules
-    (vsftpd 2.3.4 backdoor, UnrealIRCd backdoor, Samba usermap_script) have no
-    working check and report UNSUPPORTED."""
-    return v != Verdict.SAFE
-
-
-# --- models ----------------------------------------------------------------
+# --- records ---------------------------------------------------------------
 
 @dataclass
 class CVE:
@@ -190,25 +179,18 @@ class Service:
 @dataclass
 class Candidate:
     module: str                    # full msf path, or nse script id
-    cve_id: str                    # CVE this candidate maps to
+    cve_id: str = ""               # CVE this candidate maps to, if any
     rank: str = ""                 # msf rank name (display + findings)
     port: int = 0
-    source: str = "msf"            # msf | nse
-    check_result: Verdict = Verdict.UNKNOWN
-    check_detail: str = ""
+    source: str = "msf"            # msf | product | auxiliary | unauth | nse
     fire_status: str = ""          # "" until fired: session|no_session|blocked|error
     fire_detail: str = ""          # reason a fire blocked/failed, for review
 
     @classmethod
     def from_dict(cls, d):
-        try:
-            v = Verdict(d.get("check_result", "unknown"))
-        except ValueError:
-            v = Verdict.UNKNOWN
         return cls(module=d["module"], cve_id=d.get("cve_id", ""),
                    rank=d.get("rank", ""), port=int(d.get("port", 0)),
-                   source=d.get("source", "msf"), check_result=v,
-                   check_detail=d.get("check_detail", ""),
+                   source=d.get("source", "msf"),
                    fire_status=d.get("fire_status", ""),
                    fire_detail=d.get("fire_detail", ""))
 
@@ -248,6 +230,24 @@ class Credential:
 
 
 @dataclass
+class Access:
+    """Confirmed unauthenticated or misconfiguration access, the proof produced by
+    the unauth/auxiliary tier. Not a maybe: the module established or read
+    something (null session, unauth Redis keys, anonymous FTP listing)."""
+    service: str
+    port: int
+    module: str
+    proof: str                     # one-line proof text
+    found_at: float = field(default_factory=_now)
+
+    @classmethod
+    def from_dict(cls, d):
+        return cls(service=d.get("service", ""), port=int(d.get("port", 0)),
+                   module=d.get("module", ""), proof=d.get("proof", ""),
+                   found_at=float(d.get("found_at", _now())))
+
+
+@dataclass
 class Host:
     ip: str
     hostname: str = ""
@@ -258,6 +258,7 @@ class Host:
     candidates: list[Candidate] = field(default_factory=list)
     sessions: list[Session] = field(default_factory=list)
     credentials: list[Credential] = field(default_factory=list)
+    access: list[Access] = field(default_factory=list)
     error: str = ""
     notes: str = ""
     created_at: float = field(default_factory=_now)
@@ -283,12 +284,23 @@ class Host:
     def credential_count(self) -> int:
         return len(self.credentials)
 
+    @property
+    def access_count(self) -> int:
+        return len(self.access)
+
+    @property
+    def is_compromised(self) -> bool:
+        """Proven impact: a session, a credential, or a confirmed access."""
+        return bool(self.sessions or self.credentials or self.access)
+
     @classmethod
     def from_dict(cls, d):
         h = cls(ip=d["ip"])
         h.hostname = d.get("hostname", "")
+        raw = d.get("state", "queued")
+        raw = _LEGACY_STATE.get(raw, raw)
         try:
-            h.state = HostState(d.get("state", "queued"))
+            h.state = HostState(raw)
         except ValueError:
             h.state = HostState.QUEUED
         h.os_match = d.get("os_match", "")
@@ -302,6 +314,7 @@ class Host:
         h.sessions = [Session.from_dict(x) for x in d.get("sessions", [])]
         h.credentials = [Credential.from_dict(x)
                          for x in d.get("credentials", [])]
+        h.access = [Access.from_dict(x) for x in d.get("access", [])]
         return h
 
 
@@ -313,18 +326,14 @@ class Stats:
     down: int
     scanning: int
     analyzed: int
-    candidates: int
-    no_candidates: int
-    checking: int
-    exploitable: int
-    not_exploitable: int
-    exploiting: int
-    exploited: int
-    failed: int
+    attacking: int
+    compromised: int
+    clean: int
     errored: int
     completed: int
     sessions: int
     credentials: int
+    access: int
     cves: int
     exploit_cves: int
     active_workers: int
@@ -333,22 +342,20 @@ class Stats:
     elapsed: float
 
 
-# --- run state -------------------------------------------------------------
-
 @dataclass(frozen=True)
 class Activity:
     ts: float
-    source: str          # "nmap", "msf", "fire", "phase"
+    source: str
     text: str
 
 
+# --- run state -------------------------------------------------------------
+
 class RunState:
-    def __init__(self, mode="check", checkpoint_path=None, findings_path=None):
-        if mode not in ("check", "autopwn"):
-            raise ValueError("mode must be 'check' or 'autopwn'")
+    def __init__(self, mode="autopwn", checkpoint_path=None, findings_path=None):
         self._lock = threading.RLock()
         self._hosts: dict[str, Host] = {}
-        self.mode = mode
+        self.mode = mode or "autopwn"
         self.phase = "init"
         self._active_workers = 0
         self.started_at = _now()
@@ -438,16 +445,6 @@ class RunState:
             h.candidates = list(candidates)
             h.updated_at = _now()
 
-    def update_candidate_result(self, ip, module, verdict: Verdict, detail=""):
-        with self._lock:
-            h = self._hosts[ip]
-            for c in h.candidates:
-                if c.module == module:
-                    c.check_result = verdict
-                    if detail:
-                        c.check_detail = detail
-            h.updated_at = _now()
-
     def update_candidate_fire(self, ip, module, status, detail=""):
         with self._lock:
             h = self._hosts[ip]
@@ -468,6 +465,12 @@ class RunState:
         with self._lock:
             h = self._hosts[ip]
             h.credentials.append(cred)
+            h.updated_at = _now()
+
+    def add_access(self, ip, acc: Access):
+        with self._lock:
+            h = self._hosts[ip]
+            h.access.append(acc)
             h.updated_at = _now()
 
     def set_note(self, ip, note):
@@ -509,17 +512,16 @@ class RunState:
     def stats(self) -> Stats:
         with self._lock:
             counts = {s: 0 for s in HostState}
-            sessions = cves = exploit_cves = credentials = 0
+            sessions = cves = exploit_cves = credentials = access = 0
             for h in self._hosts.values():
                 counts[h.state] += 1
                 sessions += len(h.sessions)
                 credentials += len(h.credentials)
+                access += len(h.access)
                 cves += h.cve_count
                 exploit_cves += h.exploit_cve_count
             total = len(self._hosts)
-            completed_set = (_COMPLETED_AUTOPWN if self.mode == "autopwn"
-                             else _COMPLETED_CHECK)
-            completed = sum(counts[s] for s in completed_set)
+            completed = sum(counts[s] for s in _COMPLETED)
             queued = counts[HostState.QUEUED]
             down = counts[HostState.DOWN]
             return Stats(
@@ -529,18 +531,14 @@ class RunState:
                 down=down,
                 scanning=counts[HostState.SCANNING],
                 analyzed=counts[HostState.ANALYZED],
-                candidates=counts[HostState.CANDIDATES],
-                no_candidates=counts[HostState.NO_CANDIDATES],
-                checking=counts[HostState.CHECKING],
-                exploitable=counts[HostState.EXPLOITABLE],
-                not_exploitable=counts[HostState.NOT_EXPLOITABLE],
-                exploiting=counts[HostState.EXPLOITING],
-                exploited=counts[HostState.EXPLOITED],
-                failed=counts[HostState.FAILED],
+                attacking=counts[HostState.ATTACKING],
+                compromised=counts[HostState.COMPROMISED],
+                clean=counts[HostState.CLEAN],
                 errored=counts[HostState.ERROR],
                 completed=completed,
                 sessions=sessions,
                 credentials=credentials,
+                access=access,
                 cves=cves,
                 exploit_cves=exploit_cves,
                 active_workers=self._active_workers,
@@ -563,13 +561,13 @@ class RunState:
 
     def result_hosts(self, limit=None):
         """Hosts to show as results: those in a result state, plus any host that has
-        already landed a session or credential. A session shows the moment it opens
-        even while the host keeps firing other candidates, so the header count and
-        the panel never disagree, and brute-forced credentials surface on hosts that
-        were never exploited."""
+        already proven impact (a session, credential, or access) even while it keeps
+        attacking other candidates, so the header count and the panel never
+        disagree."""
         with self._lock:
             hosts = [h for h in self._hosts.values()
-                     if h.state in RESULT_STATES or h.sessions or h.credentials]
+                     if h.state in RESULT_STATES or h.sessions
+                     or h.credentials or h.access]
             hosts.sort(key=lambda h: h.updated_at, reverse=True)
             if limit is not None:
                 hosts = hosts[:limit]
@@ -581,7 +579,7 @@ class RunState:
 
     def host_copy(self, ip):
         """Deep copy of one host under lock, or None if unknown. Pipeline workers
-        read a stable snapshot this way without holding the lock during scan/check."""
+        read a stable snapshot this way without holding the lock during scan."""
         with self._lock:
             h = self._hosts.get(ip)
             return copy.deepcopy(h) if h is not None else None
@@ -632,7 +630,7 @@ class RunState:
     def load_checkpoint(cls, path, mode=None, findings_path=None):
         with open(path) as f:
             data = json.load(f)
-        rs = cls(mode=mode or data.get("mode", "check"),
+        rs = cls(mode=mode or data.get("mode", "autopwn"),
                  checkpoint_path=path, findings_path=findings_path)
         rs.started_at = float(data.get("started_at", _now()))
         rs.phase = data.get("phase", "init")
@@ -652,36 +650,18 @@ class RunState:
         return path
 
     def _build_findings(self) -> dict:
+        """Proven findings only: one row per session, credential, and access. CVEs
+        stay on services in the checkpoint as context and are not emitted here."""
         with self._lock:
             stats = self.stats()
             findings = []
             for h in self._hosts.values():
-                cand_by_cve = defaultdict(list)
-                for c in h.candidates:
-                    cand_by_cve[c.cve_id].append(c)
-                sess_by_module = {}
                 for s in h.sessions:
-                    sess_by_module.setdefault(s.module, s)
-                emitted = set()
-                for svc in h.services:
-                    for cve in svc.cves:
-                        cands = cand_by_cve.get(cve.cve_id, [])
-                        if cands:
-                            for c in cands:
-                                findings.append(
-                                    _finding_row(h, svc, cve, c, sess_by_module))
-                                emitted.add(c.module)
-                        else:
-                            findings.append(
-                                _finding_row(h, svc, cve, None, sess_by_module))
-                # candidates not tied to an emitted service/CVE row
-                for c in h.candidates:
-                    if c.module not in emitted:
-                        findings.append(
-                            _finding_row(h, None, None, c, sess_by_module))
-                # brute-forced credentials, one finding each
+                    findings.append(_session_row(h, s))
                 for cred in h.credentials:
                     findings.append(_credential_row(h, cred))
+                for acc in h.access:
+                    findings.append(_access_row(h, acc))
             return {
                 "run": {
                     "tool": TOOL,
@@ -696,6 +676,20 @@ class RunState:
 
 
 # --- module helpers --------------------------------------------------------
+
+def _session_row(host, s):
+    return {
+        "ip": host.ip,
+        "hostname": host.hostname or None,
+        "host_state": host.state.value,
+        "finding_type": "session",
+        "module": s.module or None,
+        "payload": s.payload or None,
+        "session_id": s.session_id,
+        "info": s.info or None,
+        "exploited": True,
+    }
+
 
 def _credential_row(host, cred):
     return {
@@ -714,38 +708,18 @@ def _credential_row(host, cred):
     }
 
 
-def _finding_row(host, svc, cve, cand, sess_by_module):
-    exploited = False
-    session_id = None
-    payload = None
-    if cand is not None:
-        s = sess_by_module.get(cand.module)
-        if s is not None:
-            exploited = True
-            session_id = s.session_id
-            payload = s.payload
+def _access_row(host, acc):
     return {
         "ip": host.ip,
         "hostname": host.hostname or None,
         "host_state": host.state.value,
-        "port": svc.port if svc else (cand.port if cand else None),
-        "protocol": svc.protocol if svc else None,
-        "service": svc.name if svc else None,
-        "product": svc.product if svc else None,
-        "version": svc.version if svc else None,
-        "cpe": svc.cpe if svc else None,
-        "cve": cve.cve_id if cve else (cand.cve_id if cand else None),
-        "cvss": cve.cvss if cve else None,
-        "exploit_available": cve.exploit if cve else None,
-        "module": cand.module if cand else None,
-        "module_rank": cand.rank if cand else None,
-        "verification": cand.check_result.value if cand else None,
-        "verification_source": cand.source if cand else None,
-        "fire_status": cand.fire_status or None if cand else None,
-        "fire_detail": cand.fire_detail or None if cand else None,
-        "exploited": exploited,
-        "session_id": session_id,
-        "payload": payload,
+        "finding_type": "access",
+        "port": acc.port or None,
+        "protocol": "tcp",
+        "service": acc.service or None,
+        "module": acc.module or None,
+        "proof": acc.proof or None,
+        "exploited": True,
     }
 
 
@@ -762,8 +736,7 @@ def _atomic_write_json(path, data):
 
 __all__ = [
     "HostState", "Verdict", "CVE", "Service", "Candidate", "Session",
-    "Credential", "Host", "Stats", "RunState", "InvalidTransition",
-    "ACTIVE_STATES", "RESULT_STATES", "TERMINAL_STATES",
-    "verdict_from_msf", "verdict_from_nse", "is_exploitable_verdict",
-    "TOOL", "VERSION",
+    "Credential", "Access", "Host", "Stats", "Activity", "RunState",
+    "InvalidTransition", "ACTIVE_STATES", "RESULT_STATES", "TERMINAL_STATES",
+    "verdict_from_nse", "TOOL", "VERSION",
 ]
