@@ -81,6 +81,7 @@ class Verdict(str, Enum):
     VULNERABLE = "vulnerable"
     LIKELY = "likely"
     SAFE = "safe"
+    UNSUPPORTED = "unsupported"
     UNKNOWN = "unknown"
 
 
@@ -102,7 +103,9 @@ _TRANSITIONS = {
     HostState.ATTACKING: frozenset({HostState.COMPROMISED, HostState.CLEAN}),
     HostState.DOWN: frozenset(),
     HostState.COMPROMISED: frozenset(),
-    HostState.CLEAN: frozenset(),
+    # clean can still be upgraded to compromised when the late global brute phase
+    # finds a credential on a host the per-host attack left clean.
+    HostState.CLEAN: frozenset({HostState.COMPROMISED}),
     HostState.ERROR: frozenset(),
 }
 
