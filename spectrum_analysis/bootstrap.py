@@ -52,43 +52,32 @@
 #   Only C libraries are taken from the system, and those are linked against at
 #   build time rather than imported, so they are unaffected by this.
 #
-#   Three layers of dependency are handled differently and deliberately:
+#   Two layers of dependency are handled, and neither needs elevation.
 #
-#   Core Python packages are mandatory. Without numpy or Qt there is no
-#   application, so a failure here aborts.
+#   Core Python packages are mandatory and install from pip. Without numpy or Qt
+#   there is no application, so a failure here aborts.
 #
-#   The HackRF driver is optional. It is a source distribution that links against
-#   the installed HackRF host software, so on a machine without build tooling it
-#   cannot be built. That degrades the application to the synthetic and replay
-#   sources rather than stopping it, which is correct, since neither needs a radio.
+#   Radio support needs no installation at all. libhackrf is reached through a
+#   ctypes binding that loads whatever shared library the host already carries, so
+#   the only requirement is the HackRF host software an operator would have
+#   installed to use the radio in the first place. Its absence degrades the
+#   application to the synthetic and replay sources rather than stopping it.
 #
-#   System libraries are optional and privileged. Resolving them means installing
-#   distribution packages, which requires root, and that happens automatically
-#   when they are found to be missing. The package list is fixed in this file and
-#   is never derived from input, so what can be installed is fully determined by
-#   the source. Each transaction is announced before it runs, so an operator
-#   reading the console or a log can see exactly what was changed and when.
-#
-#   Elevation is obtained through sudo, whose own password prompt is left in
-#   place. That prompt is the operating system's authorisation gate rather than
-#   this application's, and suppressing it is neither possible nor desirable. Where
-#   no terminal exists to answer it, sudo is invoked in its non interactive form
-#   so it fails immediately instead of blocking forever on a prompt nobody can
-#   see, and the application continues without hardware support.
+#   Nothing here requires root. An earlier revision installed distribution
+#   development packages so that a compiled binding could be built against the
+#   system headers, which meant every launch on an unprovisioned host performed a
+#   privileged package transaction. Binding at runtime removed the build entirely
+#   and the privileged path with it.
 #
 # SECURITY NOTICE:
-#   This module installs packages from the configured Python package index and,
-#   with consent, from the distribution package repository using elevated
-#   privileges. Both pull and execute third party code. On an engagement host with
-#   restricted or monitored egress, provision the environment ahead of deployment
-#   and launch with bootstrapping disabled rather than allowing an unplanned
-#   outbound connection or a privileged package transaction during an operation.
-#   Dependencies are version floored rather than pinned to an exact hash, so an
-#   upstream supply chain compromise is not detected here. Elevation is used only
-#   to install the fixed set of build libraries named in this file, each
-#   transaction is announced before it runs, and the whole privileged path can be
-#   disabled with --no-system-deps without preventing the application from
-#   starting.
+#   This module installs packages from the configured Python package index at
+#   first launch, which pulls and executes third party code. On an engagement host
+#   with restricted or monitored egress, provision the environment ahead of
+#   deployment and launch with bootstrapping disabled rather than allowing an
+#   unplanned outbound connection during an operation. Dependencies are version
+#   floored rather than pinned to an exact hash, so an upstream supply chain
+#   compromise is not detected here. No part of this module requires or requests
+#   elevated privileges, and no system package is installed or modified.
 #
 # DISCLAIMER:
 #   This software is provided for lawful, authorized use only. The author and Red
@@ -100,7 +89,6 @@
 
 import importlib.util
 import os
-import shutil
 import subprocess
 import sys
 import venv
@@ -124,99 +112,11 @@ REQUIREMENTS = {
     "pyqtgraph": "pyqtgraph>=0.13",
 }
 
-# Hardware support. Installed from pip like the others, but a failure is not fatal
-# because the synthetic and replay sources remain usable without a radio.
-# Deliberately unversioned. The source distribution declares its version as
-# 0.0.0 in the metadata its build backend generates, which does not match the
-# version in the filename. Any version specifier is therefore unsatisfiable, and
-# pip discards every candidate and reports that no matching distribution exists.
-# The API surface used by sdr_capture has been stable across the 1.x series, so a
-# bare requirement is both workable and honest about what can be enforced.
-OPTIONAL_REQUIREMENTS = {
-    "python_hackrf": "python-hackrf",
-}
-
 # Refreshed inside the environment before anything else is installed. The pip
 # shipped by ensurepip on a distribution Python is often old enough to mishandle
 # modern build backends, which surfaces as a confusing metadata error rather than
 # as an obvious version problem.
 BUILD_TOOLING = ["pip", "setuptools", "wheel"]
-
-# Libraries the HackRF driver compiles against, as a pkg-config name paired with
-# the headers that prove the library present when pkg-config is unavailable.
-#
-# Several header candidates are listed per library because distributions do not
-# agree on the layout. Debian and Ubuntu place the HackRF header inside a
-# libhackrf subdirectory while several source builds drop it directly into the
-# include root, and checking only one location reports an installed library as
-# missing, which would trigger a pointless privileged package install on every
-# single launch.
-NATIVE_LIBRARIES = (
-    ("libhackrf", ("libhackrf/hackrf.h", "hackrf.h")),
-    ("libusb-1.0", ("libusb-1.0/libusb.h", "libusb.h")),
-)
-
-# Directories searched for headers when pkg-config cannot answer.
-HEADER_SEARCH_PATHS = (
-    "/usr/include",
-    "/usr/local/include",
-    "/opt/homebrew/include",
-    "/opt/local/include",
-)
-
-# Distribution package managers in preference order, with the packages that
-# supply the HackRF and USB development files plus the toolchain needed to build
-# a Cython extension. The driver is a source distribution, so a compiler and the
-# Python development headers are as necessary as the radio libraries themselves.
-PACKAGE_MANAGERS = (
-    {
-        "binary": "apt-get",
-        "packages": ["libhackrf-dev", "libusb-1.0-0-dev", "pkg-config",
-                     "python3-dev", "build-essential"],
-        "refresh": ["apt-get", "update"],
-        "install": ["apt-get", "install", "-y"],
-        "needs_root": True,
-    },
-    {
-        "binary": "dnf",
-        "packages": ["hackrf-devel", "libusb1-devel", "pkgconf-pkg-config",
-                     "python3-devel", "gcc"],
-        "refresh": None,
-        "install": ["dnf", "install", "-y"],
-        "needs_root": True,
-    },
-    {
-        "binary": "pacman",
-        "packages": ["hackrf", "libusb", "pkgconf", "base-devel"],
-        "refresh": None,
-        "install": ["pacman", "-S", "--needed", "--noconfirm"],
-        "needs_root": True,
-    },
-    {
-        "binary": "zypper",
-        "packages": ["hackrf-devel", "libusb-1_0-devel", "pkg-config",
-                     "python3-devel", "gcc"],
-        "refresh": None,
-        "install": ["zypper", "--non-interactive", "install"],
-        "needs_root": True,
-    },
-    {
-        # Homebrew refuses to run as root and manages its own prefix, so it is
-        # invoked as the current user with no elevation at all.
-        "binary": "brew",
-        "packages": ["hackrf", "libusb", "pkg-config"],
-        "refresh": None,
-        "install": ["brew", "install"],
-        "needs_root": False,
-    },
-)
-
-WINDOWS_HINT = (
-    "install the HackRF host tools, for example through PothosSDR, then set "
-    "PYTHON_HACKRF_INCLUDE_PATH to the directory holding hackrf.h and "
-    "PYTHON_HACKRF_LIB_PATH to the directory holding libhackrf.dll"
-)
-
 
 def project_root() -> Path:
     """Directory holding the application, and therefore the environment."""
@@ -305,220 +205,32 @@ def install_requirements(python: Path, requirements: list, fatal: bool = True) -
     return False
 
 
-# -----------------------------------------------------------------------------
-# Native library resolution
-# -----------------------------------------------------------------------------
+def check_hardware_support(verbose: bool = True) -> bool:
+    """Report whether libhackrf can be loaded, installing nothing.
 
-def _pkgconfig_has(name: str) -> bool:
-    """Ask pkg-config whether a library is installed and discoverable."""
-    if shutil.which("pkg-config") is None:
-        return False
+    Radio access is a ctypes binding over the shared library the host already
+    provides, so there is nothing to build and nothing to install. Either the
+    HackRF host software is present or it is not, and its absence is a warning
+    rather than a failure because the synthetic and replay sources need no radio.
+    """
     try:
-        result = subprocess.run(["pkg-config", "--exists", name],
-                                check=False, capture_output=True)
-        return result.returncode == 0
-    except OSError:
+        import hackrf_backend
+    except Exception as exc:
+        if verbose:
+            print("[bootstrap] radio backend unavailable: {0}".format(exc))
         return False
 
-
-def _header_present(relative_headers) -> bool:
-    """Search the usual include directories for any of a header's known layouts.
-
-    Fallback for hosts without pkg-config, and for prefixes it does not know
-    about. Environment supplied include paths are searched first, since a non
-    standard HackRF install is exactly the case this has to cover.
-    """
-    directories = list(HEADER_SEARCH_PATHS)
-    for variable in ("PYTHON_HACKRF_INCLUDE_PATH", "CPATH", "C_INCLUDE_PATH"):
-        value = os.environ.get(variable)
-        if value:
-            directories = value.split(os.pathsep) + directories
-
-    return any(
-        Path(directory, header).exists()
-        for directory in directories if directory
-        for header in relative_headers
-    )
-
-
-def missing_native_libraries() -> list:
-    """Native libraries the driver needs that cannot be found on this host."""
-    missing = []
-    for pkgconfig_name, headers in NATIVE_LIBRARIES:
-        if _pkgconfig_has(pkgconfig_name) or _header_present(headers):
-            continue
-        missing.append(pkgconfig_name)
-    return missing
-
-
-def _compiler_present() -> bool:
-    """Whether anything capable of building a C extension is on the path."""
-    return any(shutil.which(name) for name in ("cc", "gcc", "clang"))
-
-
-def detect_package_manager() -> dict:
-    """First supported package manager available on this host."""
-    for manager in PACKAGE_MANAGERS:
-        if shutil.which(manager["binary"]):
-            return manager
-    return None
-
-
-def _elevation_prefix(manager: dict) -> list:
-    """Decide how, or whether, to elevate for a package transaction.
-
-    Returns the command prefix to use, an empty list when no elevation is needed,
-    or None when elevation is impossible. Nothing here runs a package command, so
-    the caller retains the choice of announcing it first.
-    """
-    if not manager["needs_root"]:
-        return []
-
-    if hasattr(os, "geteuid") and os.geteuid() == 0:
-        return []
-
-    if shutil.which("sudo") is None:
-        print("[bootstrap] root privileges are required and sudo is not available")
-        return None
-
-    # A passwordless rule means no prompt will appear at all, so the non
-    # interactive form is preferred wherever it works.
-    try:
-        probe = subprocess.run(["sudo", "-n", "true"], check=False, capture_output=True)
-        if probe.returncode == 0:
-            return ["sudo", "-n"]
-    except OSError:
-        return None
-
-    if not sys.stdin.isatty():
-        # Without a terminal there is nowhere to answer a password prompt, and
-        # plain sudo would block indefinitely waiting for one. The non
-        # interactive form fails immediately instead, which degrades the
-        # application to its no radio sources rather than hanging it.
-        print("[bootstrap] elevation needed but no terminal is available for the "
-              "sudo password prompt")
-        return ["sudo", "-n"]
-
-    return ["sudo"]
-
-
-def install_native_libraries(verbose: bool = True) -> bool:
-    """Resolve the native build dependencies without prompting.
-
-    Runs as soon as the libraries are found to be missing. The package list is a
-    module constant rather than anything derived at runtime, so the set of things
-    this can install is fixed by the source. The transaction is announced before
-    it runs so it is visible in the console and in any captured log.
-
-    Returns True when the libraries are present afterwards. A failure returns
-    False and is not treated as fatal by the caller.
-    """
-    manager = detect_package_manager()
-    if manager is None:
-        if sys.platform == "win32":
-            print("[bootstrap] {0}".format(WINDOWS_HINT))
-        else:
-            print("[bootstrap] no supported package manager found, install "
-                  "libhackrf and libusb development packages manually")
-        return False
-
-    prefix = _elevation_prefix(manager)
-    if prefix is None:
-        print("[bootstrap] install manually with: {0} {1}".format(
-            " ".join(manager["install"]), " ".join(manager["packages"])))
-        return False
-
-    install_command = prefix + manager["install"] + manager["packages"]
-
-    # Announced rather than asked. The operator gets a record of the privileged
-    # change without a question standing between them and a working analyzer.
-    print("[bootstrap] the HackRF driver builds against system libraries that are "
-          "not installed, resolving them now")
-    print("[bootstrap]   {0}".format(" ".join(install_command)))
-    if prefix and prefix[-1] != "-n":
-        print("[bootstrap]   sudo may ask for your password")
-
-    if manager["refresh"]:
-        try:
-            subprocess.run(prefix + manager["refresh"], check=False,
-                           capture_output=not verbose)
-        except OSError as exc:
-            print("[bootstrap] package index refresh failed: {0}".format(exc))
-
-    try:
-        result = subprocess.run(install_command, check=False)
-    except OSError as exc:
-        print("[bootstrap] package installation could not be launched: {0}".format(exc))
-        return False
-
-    if result.returncode != 0:
-        print("[bootstrap] package installation failed with code {0}".format(result.returncode))
-        return False
-
-    remaining = missing_native_libraries()
-    if remaining:
-        print("[bootstrap] still missing after installation: {0}".format(", ".join(remaining)))
-        return False
-
-    print("[bootstrap] native libraries resolved")
-    return True
-
-
-def ensure_hardware_support(python: Path = None, allow_system: bool = True,
-                            verbose: bool = True) -> bool:
-    """Make the HackRF driver importable, resolving what it needs to build.
-
-    Ordered cheapest first. An already importable driver costs one spec lookup and
-    touches nothing else, which is the case on every launch after the first.
-    """
-    python = python or Path(sys.executable)
-
-    if module_present("python_hackrf"):
+    if hackrf_backend.LIBRARY_AVAILABLE:
+        if verbose:
+            print("[bootstrap] libhackrf {0}".format(hackrf_backend.library_version()))
         return True
 
-    requirement = OPTIONAL_REQUIREMENTS["python_hackrf"]
-
-    # Resolve the build prerequisites first, then build once. An earlier revision
-    # attempted the build before checking, on the theory that the libraries might
-    # sit somewhere the checks do not know about, but that costs a full failed
-    # compile on every launch of a host that genuinely lacks them and then repeats
-    # the same install afterwards. One check and one build is both faster and
-    # easier to reason about.
-    missing = missing_native_libraries()
-    if missing or not _compiler_present():
-        if not allow_system:
-            if verbose:
-                print("[bootstrap] system dependency installation is disabled, "
-                      "hardware capture unavailable")
-            _print_degraded_notice()
-            return False
-        if verbose:
-            if missing:
-                print("[bootstrap] missing native libraries: {0}".format(", ".join(missing)))
-            if not _compiler_present():
-                print("[bootstrap] no C compiler found, the driver cannot be built")
-        if not install_native_libraries(verbose=verbose):
-            _print_degraded_notice()
-            return False
-
-    if not install_requirements(python, [requirement], fatal=False):
-        _print_degraded_notice()
-        return False
-
-    importlib.invalidate_caches()
-    if not module_present("python_hackrf"):
-        print("[bootstrap] the HackRF driver installed but cannot be imported")
-        _print_degraded_notice()
-        return False
-
-    print("[bootstrap] hardware support ready")
-    return True
-
-
-def _print_degraded_notice() -> None:
-    """State plainly what still works, so a failure here is not read as fatal."""
-    print("[bootstrap] hardware capture is unavailable. The analyzer will still "
-          "run with --synthetic or --replay.")
+    if verbose:
+        hint = LIBHACKRF_HINTS.get(sys.platform) or LIBHACKRF_HINTS["linux"]
+        print("[bootstrap] libhackrf not found, hardware capture is unavailable")
+        print("[bootstrap]   install it with: {0}".format(hint))
+        print("[bootstrap]   the analyzer still runs with --synthetic or --replay")
+    return False
 
 
 # -----------------------------------------------------------------------------
@@ -591,8 +303,7 @@ def reenter(python: Path) -> None:
     os.execv(str(python), argv)
 
 
-def ensure_environment(skip: bool = False, allow_system: bool = True,
-                       verbose: bool = True) -> None:
+def ensure_environment(skip: bool = False, verbose: bool = True) -> None:
     """Entry point. Provisions and re-enters the environment as required.
 
     Called before any third party import. Either returns with every mandatory
@@ -604,7 +315,7 @@ def ensure_environment(skip: bool = False, allow_system: bool = True,
     if skip or os.environ.get("RCS_SPECTRUM_NO_BOOTSTRAP"):
         if verbose:
             print("[bootstrap] disabled, using the current interpreter")
-        ensure_hardware_support(allow_system=allow_system, verbose=verbose)
+        check_hardware_support(verbose=verbose)
         return
 
     already_reentered = os.environ.get(GUARD_ENV) == "1"
@@ -623,7 +334,7 @@ def ensure_environment(skip: bool = False, allow_system: bool = True,
                     ", ".join(still_missing)))
                 print("[bootstrap] delete {0} and retry".format(venv_path()))
                 sys.exit(1)
-        ensure_hardware_support(allow_system=allow_system, verbose=verbose)
+        check_hardware_support(verbose=verbose)
         return
 
     target = venv_path()
@@ -634,7 +345,8 @@ def ensure_environment(skip: bool = False, allow_system: bool = True,
         print("[bootstrap] existing environment inherits host packages, rebuilding it")
         rebuild = True
 
-    if not python.exists() or rebuild:
+    created = not python.exists() or rebuild
+    if created:
         try:
             create_venv(clear=rebuild)
         except Exception as exc:
@@ -646,9 +358,12 @@ def ensure_environment(skip: bool = False, allow_system: bool = True,
         print("[bootstrap] environment created but no interpreter at {0}".format(python))
         sys.exit(1)
 
-    # Refreshed before any dependency is resolved, since an old pip is exactly
-    # what turns a buildable package into an inscrutable metadata error.
-    install_requirements(python, BUILD_TOOLING, fatal=False)
+    # Refreshed once, when the environment is first built, since an old pip is
+    # exactly what turns an installable package into an inscrutable metadata
+    # error. Repeating it on every launch would add seconds of network round
+    # trips to a startup that otherwise touches nothing.
+    if created:
+        install_requirements(python, BUILD_TOOLING, fatal=False)
 
     # Resolve requirements against the environment rather than the current
     # interpreter, since the two have different search paths and a package present
