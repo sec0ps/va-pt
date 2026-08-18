@@ -40,9 +40,17 @@
 #   were imported first, the process would fail on a missing dependency before any
 #   code capable of installing that dependency had run.
 #
-#   The environment is created with system site packages visible so that a HackRF
-#   driver already provided by the distribution is usable without reinstalling it,
-#   while packages installed into the environment still take precedence.
+#   The environment is fully isolated from the host site packages. Every Python
+#   dependency, the HackRF driver included, installs from pip, so nothing is
+#   gained by exposing the system packages and a great deal can be lost. A host
+#   whose distribution numpy has moved ahead of its distribution scipy will import
+#   an incompatible pair and abort inside a compiled extension, and because those
+#   packages appear importable the environment would never install working copies
+#   over them. Isolation makes the environment reproducible regardless of what
+#   state the host Python is in.
+#
+#   Only C libraries are taken from the system, and those are linked against at
+#   build time rather than imported, so they are unaffected by this.
 #
 #   Three layers of dependency are handled differently and deliberately:
 #
@@ -118,9 +126,21 @@ REQUIREMENTS = {
 
 # Hardware support. Installed from pip like the others, but a failure is not fatal
 # because the synthetic and replay sources remain usable without a radio.
+# Deliberately unversioned. The source distribution declares its version as
+# 0.0.0 in the metadata its build backend generates, which does not match the
+# version in the filename. Any version specifier is therefore unsatisfiable, and
+# pip discards every candidate and reports that no matching distribution exists.
+# The API surface used by sdr_capture has been stable across the 1.x series, so a
+# bare requirement is both workable and honest about what can be enforced.
 OPTIONAL_REQUIREMENTS = {
-    "python_hackrf": "python-hackrf>=1.5",
+    "python_hackrf": "python-hackrf",
 }
+
+# Refreshed inside the environment before anything else is installed. The pip
+# shipped by ensurepip on a distribution Python is often old enough to mishandle
+# modern build backends, which surfaces as a confusing metadata error rather than
+# as an obvious version problem.
+BUILD_TOOLING = ["pip", "setuptools", "wheel"]
 
 # Libraries the HackRF driver compiles against, as a pkg-config name paired with
 # the headers that prove the library present when pkg-config is unavailable.
@@ -505,15 +525,43 @@ def _print_degraded_notice() -> None:
 # Environment creation and re-entry
 # -----------------------------------------------------------------------------
 
-def create_venv() -> None:
-    """Build the environment with pip and with system packages visible."""
+def venv_is_stale(base: Path = None) -> bool:
+    """Whether an existing environment was built with the wrong isolation setting.
+
+    An environment created by an earlier revision inherited the host site
+    packages, which is the defect this replaces. Isolation cannot be changed in
+    place, so such an environment has to be rebuilt rather than reused, and
+    silently reusing it would reproduce the original import failure on every
+    launch.
+    """
+    config = (base or venv_path()) / "pyvenv.cfg"
+    if not config.exists():
+        return False
+    try:
+        text = config.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    for line in text.splitlines():
+        key, _, value = line.partition("=")
+        if key.strip() == "include-system-site-packages":
+            return value.strip().lower() == "true"
+    return False
+
+
+def create_venv(clear: bool = False) -> None:
+    """Build an isolated environment with pip available.
+
+    Isolation is the point. Nothing this application needs from Python comes from
+    the distribution, and exposing the host packages means inheriting whatever
+    inconsistent set of versions happens to be installed there.
+    """
     target = venv_path()
     print("[bootstrap] creating virtual environment at {0}".format(target))
     builder = venv.EnvBuilder(
-        system_site_packages=True,
+        system_site_packages=False,
         with_pip=True,
         upgrade_deps=False,
-        clear=False,
+        clear=clear,
     )
     builder.create(str(target))
 
@@ -581,9 +629,14 @@ def ensure_environment(skip: bool = False, allow_system: bool = True,
     target = venv_path()
     python = venv_python(target)
 
-    if not python.exists():
+    rebuild = False
+    if python.exists() and venv_is_stale(target):
+        print("[bootstrap] existing environment inherits host packages, rebuilding it")
+        rebuild = True
+
+    if not python.exists() or rebuild:
         try:
-            create_venv()
+            create_venv(clear=rebuild)
         except Exception as exc:
             print("[bootstrap] could not create the environment: {0}".format(exc))
             print("[bootstrap] on Debian and Ubuntu this usually means python3-venv is absent")
@@ -592,6 +645,10 @@ def ensure_environment(skip: bool = False, allow_system: bool = True,
     if not python.exists():
         print("[bootstrap] environment created but no interpreter at {0}".format(python))
         sys.exit(1)
+
+    # Refreshed before any dependency is resolved, since an old pip is exactly
+    # what turns a buildable package into an inscrutable metadata error.
+    install_requirements(python, BUILD_TOOLING, fatal=False)
 
     # Resolve requirements against the environment rather than the current
     # interpreter, since the two have different search paths and a package present
