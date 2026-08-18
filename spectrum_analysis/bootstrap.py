@@ -46,6 +46,11 @@
 #   system counterparts, so this exposes the SDR runtime without surrendering
 #   control of the pinned dependencies.
 #
+#   Radio support is installed from pip alongside everything else, but is treated
+#   as optional. A host with no HackRF development headers cannot build the
+#   driver, and refusing to start over that would block the synthetic and replay
+#   sources which need no hardware at all.
+#
 #   Re-entry uses process replacement on POSIX and a child process on Windows.
 #   Windows lacks a true exec, and its emulation returns control to the parent
 #   immediately, which detaches a console application from its terminal and
@@ -93,15 +98,23 @@ REQUIREMENTS = {
     "pyqtgraph": "pyqtgraph>=0.13",
 }
 
-# Checked but never installed. SoapySDR ships as a system package with a compiled
-# extension and a driver module, and pip cannot provide it.
-SYSTEM_PACKAGES = {
-    "SoapySDR": {
-        "linux": "sudo apt install python3-soapysdr soapysdr-module-hackrf soapysdr-tools",
-        "win32": "install PothosSDR, which bundles SoapySDR and the HackRF module, "
-                 "then ensure its python site-packages directory is on PYTHONPATH",
-        "darwin": "brew install soapysdr soapyhackrf",
-    },
+# Hardware support. Installed from pip like the others, but a failure here is not
+# fatal, because the synthetic and replay sources remain usable without a radio
+# and blocking the whole application over an absent driver would be wrong.
+#
+# python_hackrf is a source distribution that links against the installed HackRF
+# host software rather than bundling it, so the build needs hackrf.h and the
+# libusb headers present. Those come from the development packages, which a host
+# with only the runtime HackRF tools installed will not have.
+OPTIONAL_REQUIREMENTS = {
+    "python_hackrf": "python-hackrf>=1.5",
+}
+
+BUILD_PREREQUISITES = {
+    "linux": "sudo apt install libhackrf-dev libusb-1.0-0-dev",
+    "darwin": "brew install hackrf libusb",
+    "win32": "install the HackRF host tools, then set PYTHON_HACKRF_INCLUDE_PATH "
+             "and PYTHON_HACKRF_LIB_PATH to their locations",
 }
 
 
@@ -148,22 +161,42 @@ def missing_requirements() -> list:
     return missing
 
 
-def check_system_packages(verbose: bool = True) -> list:
-    """Report system packages that are absent, without attempting to install them."""
+def check_hardware_support(python: Path = None, verbose: bool = True) -> list:
+    """Install hardware support if absent, warning rather than failing.
+
+    A missing radio driver degrades the application to the synthetic and replay
+    sources instead of stopping it, so the operator can still work on a machine
+    with no HackRF attached or no build toolchain present.
+    """
+    python = python or Path(sys.executable)
     absent = []
-    for import_name, hints in SYSTEM_PACKAGES.items():
+
+    for import_name, requirement in OPTIONAL_REQUIREMENTS.items():
         try:
             present = importlib.util.find_spec(import_name) is not None
         except (ImportError, ValueError):
             present = False
         if present:
             continue
+
+        if verbose:
+            print("[bootstrap] {0} not present, attempting installation".format(import_name))
+        if install_requirements(python, [requirement], fatal=False):
+            try:
+                importlib.invalidate_caches()
+                if importlib.util.find_spec(import_name) is not None:
+                    continue
+            except (ImportError, ValueError):
+                pass
+
         absent.append(import_name)
         if verbose:
-            hint = hints.get(sys.platform) or hints.get("linux")
-            print("[bootstrap] {0} not found. Hardware capture is unavailable.".format(import_name))
-            print("[bootstrap]   install with: {0}".format(hint))
-            print("[bootstrap]   run with --synthetic to work without a radio.")
+            hint = BUILD_PREREQUISITES.get(sys.platform) or BUILD_PREREQUISITES["linux"]
+            print("[bootstrap] {0} unavailable. Hardware capture is disabled.".format(import_name))
+            print("[bootstrap]   this package builds against the installed HackRF "
+                  "host software, so it needs the development headers:")
+            print("[bootstrap]   {0}".format(hint))
+            print("[bootstrap]   run with --synthetic or --replay to work without a radio.")
     return absent
 
 
@@ -180,19 +213,26 @@ def create_venv() -> None:
     builder.create(str(target))
 
 
-def install_requirements(python: Path, requirements: list) -> bool:
-    """Install the given requirements into the environment."""
+def install_requirements(python: Path, requirements: list, fatal: bool = True) -> bool:
+    """Install the given requirements into the environment.
+
+    Optional requirements pass fatal as False so a build failure on a host without
+    the HackRF development headers produces a warning rather than an abort.
+    """
     if not requirements:
         return True
     print("[bootstrap] installing: {0}".format(", ".join(requirements)))
     command = [str(python), "-m", "pip", "install", "--upgrade"] + requirements
     try:
-        result = subprocess.run(command, check=False)
+        result = subprocess.run(command, check=False,
+                                capture_output=not fatal, text=not fatal)
     except OSError as exc:
         print("[bootstrap] pip could not be launched: {0}".format(exc))
         return False
     if result.returncode != 0:
-        print("[bootstrap] dependency installation failed with code {0}".format(result.returncode))
+        if fatal:
+            print("[bootstrap] dependency installation failed with code {0}".format(
+                result.returncode))
         return False
     return True
 
@@ -232,7 +272,7 @@ def ensure_environment(skip: bool = False, verbose: bool = True) -> None:
     if skip or os.environ.get("RCS_SPECTRUM_NO_BOOTSTRAP"):
         if verbose:
             print("[bootstrap] disabled, using the current interpreter")
-        check_system_packages(verbose)
+        check_hardware_support(verbose=verbose)
         return
 
     already_reentered = os.environ.get(GUARD_ENV) == "1"
@@ -253,7 +293,7 @@ def ensure_environment(skip: bool = False, verbose: bool = True) -> None:
                     ", ".join(still_missing)))
                 print("[bootstrap] delete {0} and retry".format(venv_path()))
                 sys.exit(1)
-        check_system_packages(verbose)
+        check_hardware_support(verbose=verbose)
         return
 
     target = venv_path()
