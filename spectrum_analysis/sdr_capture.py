@@ -34,11 +34,16 @@
 #   selects the baseband filter, and runs the sweep loop that walks the segment
 #   plan produced by band_plan, retuning and capturing one IQ block per dwell.
 #
-#   This layer targets libhackrf directly through python_hackrf rather than going
-#   through a generic multi vendor abstraction. The platform is HackRF only, so an
-#   abstraction over hardware that is never attached costs a system dependency
-#   with nothing bought in return, and it hides the firmware sweep mode that only
-#   the native library exposes.
+#   This layer targets libhackrf directly rather than going through a generic
+#   multi vendor abstraction. The platform is HackRF only, so an abstraction over
+#   hardware that is never attached costs a dependency with nothing bought in
+#   return, and it hides the firmware sweep mode that only the native library
+#   exposes.
+#
+#   libhackrf is reached through hackrf_backend, a ctypes binding written against
+#   the library directly. A compiled binding would have to declare the whole
+#   modern API and would fail to build on any host carrying an older libhackrf,
+#   over functions this analyzer never calls.
 #
 #   libhackrf is callback driven. A USB transfer thread inside the library hands
 #   up buffers of interleaved signed 8 bit samples whenever they arrive, which
@@ -103,14 +108,12 @@ from dsp_psd import synthetic_iq
 
 LOG = logging.getLogger(__name__)
 
-# Imported lazily so this module can be imported, tested, and run against the
-# synthetic source on a host with no HackRF runtime present.
-try:
-    from python_hackrf import pyhackrf
-    HACKRF_AVAILABLE = True
-except ImportError:
-    pyhackrf = None
-    HACKRF_AVAILABLE = False
+import hackrf_backend
+from hackrf_backend import HackRFError
+
+# True when libhackrf could be loaded. The synthetic and replay sources work
+# regardless, so this gates only the hardware path.
+HACKRF_AVAILABLE = hackrf_backend.LIBRARY_AVAILABLE
 
 # Samples arrive as interleaved signed 8 bit values. Full scale is 127, so the
 # reciprocal of 128 maps the converter range onto plus or minus one and keeps the
@@ -140,35 +143,8 @@ READ_TIMEOUT_S = 1.0
 RECONNECT_MIN_S = 1.0
 RECONNECT_MAX_S = 15.0
 
-# Guards the library wide init and exit calls, which are global rather than per
-# device and must not be re-entered from several threads.
-_LIB_LOCK = threading.Lock()
-_LIB_REFCOUNT = 0
-
-
 class DeviceError(Exception):
     """Raised for any fault that requires tearing down and reopening the device."""
-
-
-def _library_acquire() -> None:
-    """Initialize the library on first use, reference counted."""
-    global _LIB_REFCOUNT
-    with _LIB_LOCK:
-        if _LIB_REFCOUNT == 0:
-            pyhackrf.pyhackrf_init()
-        _LIB_REFCOUNT += 1
-
-
-def _library_release() -> None:
-    """Shut the library down once the last device has closed."""
-    global _LIB_REFCOUNT
-    with _LIB_LOCK:
-        _LIB_REFCOUNT = max(0, _LIB_REFCOUNT - 1)
-        if _LIB_REFCOUNT == 0:
-            try:
-                pyhackrf.pyhackrf_exit()
-            except Exception as exc:
-                LOG.debug("library exit raised: %s", exc)
 
 
 def select_baseband_filter(sample_rate_hz: int, usable_fraction: float) -> int:
@@ -243,25 +219,12 @@ class CaptureBlock:
 
 
 def enumerate_devices() -> List[dict]:
-    """List attached HackRFs. Empty when no runtime or no hardware is present."""
+    """List attached HackRFs. Empty when no library or no hardware is present."""
     if not HACKRF_AVAILABLE:
-        LOG.warning("python_hackrf not installed, no devices can be enumerated")
+        LOG.warning("libhackrf could not be loaded, no devices can be enumerated")
         return []
     try:
-        _library_acquire()
-        try:
-            listing = pyhackrf.PyHackRFDeviceList()
-            devices = []
-            for index in range(listing.device_count):
-                devices.append({
-                    "index": index,
-                    "driver": "hackrf",
-                    "serial": listing.serial_numbers[index],
-                    "board": listing.pyhackrf_board_id_name(index),
-                })
-            return devices
-        finally:
-            _library_release()
+        return hackrf_backend.list_devices()
     except Exception as exc:
         LOG.error("device enumeration failed: %s", exc)
         return []
@@ -279,16 +242,15 @@ class HackRFSource:
                  usable_fraction: float = band_plan.USABLE_FRACTION):
         if not HACKRF_AVAILABLE:
             raise DeviceError(
-                "python_hackrf is not installed. Install it with "
-                "'pip install python-hackrf', which needs the HackRF host "
-                "software and its headers present, or run with --synthetic."
+                "libhackrf could not be loaded. Install the HackRF host software, "
+                "which on Debian and Ubuntu is the 'hackrf' package, or run with "
+                "--synthetic to work without a radio."
             )
         self.serial = serial
         self.gain = (gain or GainProfile()).clamp()
         self.usable_fraction = float(usable_fraction)
 
         self._device = None
-        self._acquired = False
         self._streaming = False
         self._sample_rate = None
         self._center_hz = None
@@ -300,47 +262,33 @@ class HackRFSource:
         self._condition = threading.Condition()
 
     def open(self) -> None:
-        """Open the device, apply configuration, and start the receive stream."""
+        """Open the device and apply the configuration that survives retuning."""
+        device = hackrf_backend.HackRFDevice(serial=self.serial)
         try:
-            _library_acquire()
-            self._acquired = True
-
-            if self.serial:
-                self._device = pyhackrf.pyhackrf_open_by_serial(self.serial)
-            else:
-                self._device = pyhackrf.pyhackrf_open()
-
-            if self._device is None:
-                raise DeviceError("no HackRF could be opened")
-
-            self._device.set_rx_callback(self._rx_callback)
+            device.open()
+            self._device = device
             self.apply_gain(self.gain)
 
-            # Explicitly off. Neither is needed for passive monitoring, and the
-            # bias tee will feed 3.3 V into whatever is connected to the antenna
-            # port, which can damage a passive antenna or a splitter.
-            self._device.pyhackrf_set_antenna_enable(False)
-
-        except DeviceError:
+            # Explicitly off. Not needed for passive monitoring, and it feeds
+            # 3.3 V into whatever is on the antenna port, which will damage a
+            # passive antenna or a splitter that is not expecting it.
+            device.set_antenna_enable(False)
+        except HackRFError as exc:
             self.close()
-            raise
+            raise DeviceError("failed to open HackRF: {0}".format(exc)) from exc
         except Exception as exc:
             self.close()
             raise DeviceError("failed to open HackRF: {0}".format(exc)) from exc
 
-        LOG.info("HackRF opened, serial %s, gain %s",
-                 self.serial or "first available", self.gain.to_dict())
+        LOG.info("HackRF opened, serial %s, libhackrf %s, gain %s",
+                 self.serial or "first available",
+                 hackrf_backend.library_version(), self.gain.to_dict())
 
     def close(self) -> None:
         """Stop streaming and release the device, tolerating a partial open."""
         if self._device is not None:
             try:
-                if self._streaming:
-                    self._device.pyhackrf_stop_rx()
-            except Exception as exc:
-                LOG.debug("stop_rx raised during close: %s", exc)
-            try:
-                self._device.pyhackrf_close()
+                self._device.close()
             except Exception as exc:
                 LOG.debug("close raised during close: %s", exc)
 
@@ -350,48 +298,28 @@ class HackRFSource:
         self._center_hz = None
         self._flush()
 
-        if self._acquired:
-            _library_release()
-            self._acquired = False
-
-    def _rx_callback(self, device, buffer, buffer_length, valid_length) -> int:
+    def _rx_callback(self, chunk: np.ndarray) -> None:
         """Receive one USB transfer. Runs on the library's transfer thread.
 
-        Kept as short as possible. The buffer is copied and queued raw, with the
+        Kept as short as possible. The transfer is queued raw, with the
         conversion to complex baseband deferred to the consumer, because every
         microsecond spent here is a microsecond not spent servicing the next
         transfer and shows up downstream as lost samples.
-
-        Returning zero asks the library to keep calling. Any other value stops the
-        stream, so this must return zero on every path including error paths.
         """
-        try:
-            valid = int(valid_length)
-            if valid <= 0:
-                return 0
+        with self._condition:
+            self._chunks.append(chunk)
+            self._available += chunk.size // 2
 
-            # Copy before returning. The library reuses the underlying buffer for
-            # the next transfer, so a retained reference would be overwritten
-            # under the consumer.
-            chunk = np.array(buffer[:valid], dtype=np.int8)
+            # Drop oldest under backpressure. The newest transfer is the one the
+            # display wants, and preferentially keeping stale data would make the
+            # display lag further behind the busier the host gets.
+            while len(self._chunks) > MAX_QUEUED_TRANSFERS:
+                stale = self._chunks.popleft()
+                lost = stale.size // 2
+                self._available -= lost
+                self._lost_samples += lost
 
-            with self._condition:
-                self._chunks.append(chunk)
-                self._available += chunk.size // 2
-
-                # Drop oldest under backpressure. The newest transfer is the one
-                # the display wants, and preferentially keeping stale data would
-                # make the display lag further behind the busier the host gets.
-                while len(self._chunks) > MAX_QUEUED_TRANSFERS:
-                    stale = self._chunks.popleft()
-                    lost = stale.size // 2
-                    self._available -= lost
-                    self._lost_samples += lost
-
-                self._condition.notify_all()
-        except Exception as exc:
-            LOG.error("receive callback failed: %s", exc)
-        return 0
+            self._condition.notify_all()
 
     def _flush(self) -> None:
         """Discard queued transfers. Called after any retune.
@@ -409,9 +337,9 @@ class HackRFSource:
         if self._device is None:
             return
         try:
-            self._device.pyhackrf_set_amp_enable(bool(self.gain.amp_db))
-            self._device.pyhackrf_set_lna_gain(int(self.gain.lna_db))
-            self._device.pyhackrf_set_vga_gain(int(self.gain.vga_db))
+            self._device.set_amp_enable(bool(self.gain.amp_db))
+            self._device.set_lna_gain(int(self.gain.lna_db))
+            self._device.set_vga_gain(int(self.gain.vga_db))
         except Exception as exc:
             raise DeviceError("failed to set gain: {0}".format(exc)) from exc
 
@@ -428,20 +356,20 @@ class HackRFSource:
 
         try:
             if sample_rate_hz != self._sample_rate:
-                self._device.pyhackrf_set_sample_rate(float(sample_rate_hz))
+                self._device.set_sample_rate(float(sample_rate_hz))
                 # Applied after the sample rate, because setting the rate also
-                # sets the filter and would otherwise overwrite this.
-                self._device.pyhackrf_set_baseband_filter_bandwidth(
+                # resets the filter and would otherwise overwrite this.
+                self._device.set_baseband_filter_bandwidth(
                     select_baseband_filter(sample_rate_hz, self.usable_fraction)
                 )
                 self._sample_rate = sample_rate_hz
 
             if center_hz != self._center_hz:
-                self._device.pyhackrf_set_freq(int(center_hz))
+                self._device.set_freq(int(center_hz))
                 self._center_hz = center_hz
 
             if not self._streaming:
-                self._device.pyhackrf_start_rx()
+                self._device.start_rx(self._rx_callback)
                 self._streaming = True
         except Exception as exc:
             raise DeviceError("failed to tune to {0} Hz: {1}".format(center_hz, exc)) from exc
@@ -514,14 +442,11 @@ class HackRFSource:
         """
         if self._device is None:
             return {"clkin_detected": False, "available": False}
-        try:
-            return {
-                "clkin_detected": bool(self._device.pyhackrf_get_clkin_status()),
-                "available": True,
-            }
-        except Exception as exc:
-            LOG.debug("clock status unavailable: %s", exc)
+        detected = self._device.clkin_detected()
+        if detected is None:
+            # The library or the device firmware predates the query.
             return {"clkin_detected": False, "available": False}
+        return {"clkin_detected": detected, "available": True}
 
 
 class SyntheticSource:
