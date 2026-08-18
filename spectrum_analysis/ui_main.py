@@ -74,7 +74,7 @@ import numpy as np
 from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QDockWidget,
+    QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget,
     QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
     QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QSlider, QSpinBox,
     QSplitter, QStatusBar, QTableWidget, QTableWidgetItem, QTabWidget,
@@ -87,7 +87,7 @@ from burst_detect import BurstDetector
 from dsp_psd import PSDEstimator
 from sdr_capture import GainProfile
 from store import Store
-from ui_spectrum import SpectrumDisplay
+from ui_spectrum import DEFAULT_PEAK_DECAY_DB, SpectrumDisplay
 
 # Display repaint interval. Roughly 20 frames per second, which is above the rate
 # at which a waterfall reads as continuous and well below the rate at which the
@@ -101,6 +101,13 @@ STATS_INTERVAL_MS = 500
 # bottom, since an unbounded table is the easiest way to turn a long engagement
 # into an out of memory failure.
 MAX_EVENT_ROWS = 300
+
+# Maximum closed detections retained on the display while hold is enabled. Held
+# detections exist so a transient is still there to be clicked and recorded
+# minutes after it ended, but a busy band would otherwise accumulate them without
+# limit until the trace is unreadable and the process is out of memory. The oldest
+# are shed first, so the most recent activity is always what survives.
+MAX_HELD_EVENTS = 400
 
 STYLE = """
 QMainWindow, QWidget { background: #0d0f12; color: #c8ccd4; }
@@ -266,6 +273,10 @@ class MainWindow(QMainWindow):
         self.preset_key = preset_key
 
         self._active_events: Dict[int, Dict] = {}
+        # Detections that have ended but are being retained for the record. Kept
+        # separate from active ones so the display can distinguish present
+        # activity from past activity.
+        self._held_events: Dict[int, Dict] = {}
         self._last_hover: Optional[Dict] = None
 
         self._build_ui()
@@ -313,7 +324,7 @@ class MainWindow(QMainWindow):
         tabs.addTab(self._build_markers_tab(), "Markers")
 
         dock.setWidget(tabs)
-        dock.setMinimumWidth(430)
+        dock.setMinimumWidth(320)
         self.addDockWidget(Qt.RightDockWidgetArea, dock)
 
     def _build_config_tab(self) -> QWidget:
@@ -415,9 +426,62 @@ class MainWindow(QMainWindow):
         self._update_reject_label()
 
         layout.addWidget(detect_box)
+        layout.addWidget(self._build_display_box())
         layout.addWidget(self._build_calibration_box())
         layout.addStretch(1)
         return page
+
+    def _build_display_box(self) -> QGroupBox:
+        """Controls governing whether the display forgets what it has seen."""
+        box = QGroupBox("Display retention")
+        layout = QVBoxLayout(box)
+
+        self.hold_peaks_check = QCheckBox("Hold peaks, no decay")
+        self.hold_peaks_check.toggled.connect(self._apply_peak_hold)
+        layout.addWidget(self.hold_peaks_check)
+
+        self.hold_events_check = QCheckBox("Keep detections after they end")
+        self.hold_events_check.toggled.connect(self._apply_event_hold)
+        layout.addWidget(self.hold_events_check)
+
+        clear_button = QPushButton("Clear held peaks and detections")
+        clear_button.clicked.connect(self._clear_held)
+        layout.addWidget(clear_button)
+
+        self.held_label = QLabel("holding 0 detections")
+        self.held_label.setObjectName("readout")
+        layout.addWidget(self.held_label)
+
+        note = QLabel(
+            "By default the trace sheds old peaks and a detection disappears when "
+            "the transmission stops, which suits watching a band live. Enable both "
+            "to turn the display into a record instead, so a burst that keyed once "
+            "an hour ago is still visible and still clickable to save as a marker."
+        )
+        note.setWordWrap(True)
+        note.setObjectName("warning")
+        layout.addWidget(note)
+        return box
+
+    def _apply_peak_hold(self, held: bool) -> None:
+        """Stop or resume peak decay on the trace."""
+        self.display.set_peak_decay(0.0 if held else DEFAULT_PEAK_DECAY_DB)
+
+    def _apply_event_hold(self, held: bool) -> None:
+        """Start or stop retaining detections past the end of a transmission."""
+        if not held:
+            self._held_events.clear()
+            self._update_held_label()
+
+    def _clear_held(self) -> None:
+        """Discard accumulated peaks and held detections, keeping the floor."""
+        self.display.clear_peak_hold()
+        self._held_events.clear()
+        self._update_held_label()
+        self.statusBar().showMessage("held peaks and detections cleared", 3000)
+
+    def _update_held_label(self) -> None:
+        self.held_label.setText("holding {0} detections".format(len(self._held_events)))
 
     def _build_calibration_box(self) -> QGroupBox:
         """Controls for deriving and applying the oscillator correction."""
@@ -626,6 +690,8 @@ class MainWindow(QMainWindow):
         # and different sample rates, so it is discarded rather than carried over.
         self.detector.reset()
         self._active_events.clear()
+        self._held_events.clear()
+        self._update_held_label()
         self.events_table.setRowCount(0)
 
         self.metrics_label.setText(
@@ -686,6 +752,17 @@ class MainWindow(QMainWindow):
             self._add_event_row(event)
         for event in result["closed"]:
             self._active_events.pop(event["event_id"], None)
+            if self.hold_events_check.isChecked():
+                held = dict(event)
+                held["classification"] = "held"
+                self._held_events[event["event_id"]] = held
+                # Oldest shed first, so a long session keeps the most recent
+                # activity rather than the first few minutes of it.
+                while len(self._held_events) > MAX_HELD_EVENTS:
+                    oldest = min(self._held_events,
+                                 key=lambda k: self._held_events[k]["last_seen"])
+                    del self._held_events[oldest]
+                self._update_held_label()
 
     @Slot(str)
     def _on_worker_error(self, message: str) -> None:
@@ -738,7 +815,11 @@ class MainWindow(QMainWindow):
         """
         best = None
         best_distance = None
-        for event in self._active_events.values():
+        # Held detections are searched alongside active ones. A retained spike
+        # that cannot be clicked is a picture rather than a record, which defeats
+        # the point of retaining it.
+        candidates = list(self._active_events.values()) + list(self._held_events.values())
+        for event in candidates:
             tolerance = max(event.get("occupied_bw_hz", 0.0), 5000.0)
             distance = abs(event["center_hz"] - hz)
             if distance <= tolerance and (best_distance is None or distance < best_distance):
@@ -810,7 +891,11 @@ class MainWindow(QMainWindow):
 
     def _redraw(self) -> None:
         self.display.redraw(threshold_offset_db=self.detector.threshold_on_db)
-        self.display.show_events(list(self._active_events.values()))
+        # Held detections are drawn under the active ones, so current activity is
+        # never obscured by the record of past activity.
+        self.display.show_events(
+            list(self._held_events.values()) + list(self._active_events.values())
+        )
 
     def _update_stats(self) -> None:
         stats = self.engine.stats()
