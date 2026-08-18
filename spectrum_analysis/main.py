@@ -156,6 +156,8 @@ def parse_args() -> argparse.Namespace:
                         help="starting band plan preset key")
     parser.add_argument("--ppm", type=float, default=0.0,
                         help="oscillator correction in ppm, or calibrate from the UI")
+    parser.add_argument("--reset-layout", action="store_true",
+                        help="ignore the saved window layout and start from defaults")
     parser.add_argument("--session", default=None,
                         help="engagement session name, defaults to a timestamp")
     parser.add_argument("--db", default="spectrum.db", help="path to the session database")
@@ -329,7 +331,8 @@ def main() -> int:
     engine = SweepEngine(source, segments, ppm_correction=args.ppm, recorder=recorder)
     engine.start()
 
-    window = MainWindow(engine, detector, store, preset_key=preset_key)
+    window = MainWindow(engine, detector, store, preset_key=preset_key,
+                        reset_layout=args.reset_layout)
     if plan_override is not None:
         # A replay is bound to the plan inside the recording, so the display is
         # pointed at that plan rather than at whatever preset was named.
