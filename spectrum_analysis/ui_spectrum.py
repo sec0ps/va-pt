@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # =============================================================================
-# Location: ui_main.py
+# Location: ui_spectrum.py
 #
 # Author: Keith Pachulski
 # Company: Red Cell Security LLC
@@ -30,1161 +30,885 @@
 #   DEALINGS IN THE SOFTWARE.
 #
 # Purpose:
-#   Main application window. Hosts the spectrum display, the band plan and gain
-#   controls, the live event list, and the saved marker list, and owns the worker
-#   thread that turns capture blocks into spectrum frames and burst events.
+#   Spectrum trace and waterfall display built on pyqtgraph, plus the composite
+#   model that stitches per segment frames into one continuous display surface.
 #
-#   Threading model. The sweep engine owns the radio on its own plain thread and
-#   publishes capture blocks to a bounded queue. A worker object living in a
-#   QThread drains that queue, runs the PSD estimate and the burst detector, and
-#   publishes results as Qt signals. Qt delivers cross thread signals through the
-#   receiving thread's event loop, so the GUI thread touches widgets and nothing
-#   else touches them. No Qt object is created on or accessed from the sweep
-#   thread.
+#   The display axis is a composite across the enabled bands rather than a linear
+#   frequency axis. A band plan is deliberately non contiguous, so a linear axis
+#   would spend nearly all of its width drawing empty spectrum between widely
+#   separated bands. Each band is allotted screen width proportional to its own
+#   span, separators are drawn at the joins, and the axis ticks are labelled in
+#   true frequency. Every position on screen maps back to a real frequency
+#   through the segment table, so the hover readout and any saved marker carry
+#   actual Hz and never a screen coordinate.
 #
-#   Display repaint is driven by a timer rather than by frame arrival. The sweeper
-#   produces frames an order of magnitude faster than a display needs to update,
-#   and repainting per frame would spend the entire budget in the renderer for no
-#   visible gain. Detection is unaffected, since it runs in the worker on every
-#   frame regardless of what the display is doing.
+#   The waterfall advances one row per completed sweep rather than one row per
+#   segment visit. A row is a picture of the whole selected spectrum at one
+#   moment, which is what an operator reads. Pushing a row per segment visit
+#   would produce a waterfall that alternates between disjoint bands on
+#   successive rows and is unreadable.
+#
+#   The waterfall buffer is a double height ring. Rows are written twice, once at
+#   the write index and once one buffer height later, so the visible window is a
+#   plain slice view rather than a scroll copy. This removes a full buffer memcpy
+#   from every display update.
 #
 # SECURITY NOTICE:
 #   This module is part of an RF spectrum analysis platform intended for
 #   authorized red team engagements and defensive spectrum monitoring conducted
-#   within a documented scope of engagement. The interface presents energy
-#   detection results only. It provides no demodulation, decoding, or recovery of
-#   communications content. Operators remain responsible for confirming that the
-#   frequencies swept fall within the authorized scope for the engagement and
-#   jurisdiction.
+#   within a documented scope of engagement. This module renders energy
+#   measurements only. It does not demodulate, decode, or display the content of
+#   any transmission.
 #
 # DISCLAIMER:
-#   This software is provided for lawful, authorized use only. Displayed and
-#   recorded levels are dBFS relative to converter full scale and are not
-#   calibrated to absolute power. The author and Red Cell Security LLC accept no
-#   liability for any use of this software, whether authorized or otherwise.
+#   This software is provided for lawful, authorized use only. Displayed levels
+#   are dBFS relative to converter full scale and are not calibrated to absolute
+#   power. Levels are comparable within a band and are not comparable across
+#   bands where the antenna differs. The author and Red Cell Security LLC accept
+#   no liability for any use of this software, whether authorized or otherwise.
 # =============================================================================
 
-"""Main window, processing worker thread, and operator controls."""
+"""Sweep composite model, spectrum trace, and waterfall display widgets."""
 
-import logging
-import queue
-import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-from PySide6.QtCore import QObject, QSettings, Qt, QThread, QTimer, Signal, Slot
-from PySide6.QtGui import QFont, QGuiApplication
-from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget,
-    QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-    QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSlider,
-    QSizePolicy, QSpinBox, QStatusBar, QTableWidget, QTableWidgetItem, QTabWidget,
-    QVBoxLayout, QWidget,
-)
+import pyqtgraph as pg
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 
-import band_plan
-import calibrate
-from burst_detect import BurstDetector
-from dsp_psd import PSDEstimator
-from sdr_capture import GainProfile
-from store import Store
-from ui_spectrum import DEFAULT_PEAK_DECAY_DB, PERSISTENCE_DECAY, SpectrumDisplay
+# Row major so that display arrays are indexed as (row, column), matching the
+# way the waterfall buffer is built and sliced.
+pg.setConfigOptions(imageAxisOrder="row-major", antialias=False)
 
-# Display repaint interval. Roughly 20 frames per second, which is above the rate
-# at which a waterfall reads as continuous and well below the rate at which the
-# renderer starts competing with the detector for CPU.
-REDRAW_INTERVAL_MS = 50
+# Display level window in dBFS. Values outside are clipped. The floor is set well
+# below the noise floor of an 8 bit converter at any usable gain setting so that
+# real signals are never clipped at the bottom of the colour scale.
+DISPLAY_DB_FLOOR = -130.0
+DISPLAY_DB_CEIL = 0.0
 
-# Interval for the health and statistics line.
-STATS_INTERVAL_MS = 500
+# Vertical resolution of the persistence histogram, in level bins across the
+# display window. Two hundred bins over 130 dB is about two thirds of a decibel
+# per cell, fine enough that a carrier and the noise beneath it occupy visibly
+# different rows without making the accumulator large enough to matter.
+PERSISTENCE_LEVELS = 200
 
-# Maximum rows retained in the live event table. Old rows are discarded from the
-# bottom, since an unbounded table is the easiest way to turn a long engagement
-# into an out of memory failure.
-MAX_EVENT_ROWS = 300
+# Fraction of accumulated persistence retained per update while decay is active.
+# Chosen so activity fades over roughly a thousand updates, which is long enough
+# that an intermittent signal stays visible between keyings and short enough that
+# the display still reflects the present when nothing is being held.
+PERSISTENCE_DECAY = 0.997
 
-# Identity under which window layout is stored. Layout is a per operator, per
-# machine preference rather than engagement data, so it lives in the platform's
-# own settings location and never inside the session database. Mixing the two
-# would put a display preference into a record that is meant to document an
-# engagement, and would carry it to any machine the database was copied to.
-SETTINGS_ORG = "RedCellSecurity"
-SETTINGS_APP = "RFSpectrumAnalyzer"
+# Waterfall history depth in rows, and total display columns across all bands.
+DEFAULT_HISTORY_ROWS = 400
+DEFAULT_DISPLAY_COLS = 1400
 
-# Maximum closed detections retained on the display while hold is enabled. Held
-# detections exist so a transient is still there to be clicked and recorded
-# minutes after it ended, but a busy band would otherwise accumulate them without
-# limit until the trace is unreadable and the process is out of memory. The oldest
-# are shed first, so the most recent activity is always what survives.
-MAX_HELD_EVENTS = 400
+# Minimum columns any one band is allotted, so that a narrow band such as PMR446
+# at 200 kHz beside a wide band is still wide enough to be readable.
+MIN_BAND_COLS = 24
 
-STYLE = """
-QMainWindow, QWidget { background: #0d0f12; color: #c3c9d4; font-size: 12px; }
-QGroupBox {
-    border: 1px solid #21242b; border-radius: 2px;
-    margin-top: 14px; padding: 10px 8px 8px 8px;
-    font-size: 11px; font-weight: 600;
-}
-QGroupBox::title {
-    subcontrol-origin: margin; subcontrol-position: top left;
-    left: 6px; padding: 0 4px; color: #6b7382;
-    text-transform: uppercase; letter-spacing: 1px;
-}
-QTableWidget {
-    background: #0f1216; alternate-background-color: #12151a;
-    gridline-color: #1c1f26; border: 1px solid #21242b;
-    selection-background-color: #1d3d52; selection-color: #e6ebf2;
-}
-QHeaderView::section {
-    background: #14171d; color: #6b7382; font-size: 10px;
-    text-transform: uppercase; letter-spacing: 1px;
-    border: none; border-bottom: 1px solid #21242b; padding: 5px 4px;
-}
-QPushButton {
-    background: #171b21; border: 1px solid #282d36;
-    border-radius: 2px; padding: 6px 10px; color: #c3c9d4;
-}
-QPushButton:hover { background: #1e232b; border-color: #37404d; }
-QPushButton:pressed { background: #253039; }
-QComboBox, QLineEdit, QSpinBox, QPlainTextEdit {
-    background: #0f1216; border: 1px solid #282d36;
-    border-radius: 2px; padding: 4px 6px; selection-background-color: #1d3d52;
-}
-QComboBox:focus, QLineEdit:focus, QSpinBox:focus { border-color: #3d7d99; }
-QComboBox::drop-down { border: none; width: 16px; }
-QCheckBox { spacing: 7px; padding: 2px 0; }
-QCheckBox::indicator {
-    width: 13px; height: 13px; border: 1px solid #363c47;
-    border-radius: 2px; background: #0f1216;
-}
-QCheckBox::indicator:checked { background: #3d7d99; border-color: #4e9ec0; }
-QSlider::groove:horizontal { height: 3px; background: #21242b; border-radius: 1px; }
-QSlider::sub-page:horizontal { background: #3d7d99; border-radius: 1px; }
-QSlider::handle:horizontal {
-    background: #8f9aab; width: 9px; margin: -5px 0; border-radius: 2px;
-}
-QSlider::handle:horizontal:hover { background: #c3c9d4; }
-QDockWidget { titlebar-close-icon: none; font-size: 11px; }
-QDockWidget::title {
-    background: #14171d; padding: 6px 8px; color: #6b7382;
-    text-transform: uppercase; letter-spacing: 1px;
-}
-QScrollArea { border: none; background: #0d0f12; }
-QScrollBar:vertical { background: #0d0f12; width: 9px; margin: 0; }
-QScrollBar::handle:vertical { background: #282d36; border-radius: 4px; min-height: 24px; }
-QScrollBar::handle:vertical:hover { background: #37404d; }
-QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
-QTabBar::tab {
-    background: transparent; padding: 7px 14px; color: #6b7382;
-    border: none; border-bottom: 2px solid transparent;
-    text-transform: uppercase; font-size: 10px; letter-spacing: 1px;
-}
-QTabBar::tab:selected { color: #4ec9b0; border-bottom-color: #4ec9b0; }
-QTabBar::tab:hover:!selected { color: #9aa3b2; }
-QTabWidget::pane { border: none; border-top: 1px solid #21242b; }
-QStatusBar { background: #14171d; border-top: 1px solid #21242b; color: #6b7382; }
-QStatusBar::item { border: none; }
-QLabel#readout { color: #4ec9b0; }
-QLabel#value { color: #8f9aab; }
-QLabel#alert { color: #c8964a; }
-QToolTip {
-    background: #14171d; color: #c3c9d4;
-    border: 1px solid #37404d; padding: 5px;
-}
-"""
+# Default peak hold decay per update, in dB. A pure maximum hold eventually
+# saturates a busy display, so the trace forgets stale peaks slowly by default.
+#
+# The decay is defeatable, and defeating it is the point of the hold control. A
+# decaying trace is a monitoring display, useful for watching what is happening
+# now. A held trace is an evidence display, and a burst that appeared once during
+# an hour of sweeping leaves a permanent mark on it. Those are different jobs and
+# the operator picks which one the display is doing.
+DEFAULT_PEAK_DECAY_DB = 0.35
 
 
-class ProcessingWorker(QObject):
-    """Drains capture blocks, runs DSP and detection, publishes Qt signals.
+def _persistence_lut() -> np.ndarray:
+    """Colour ramp for the persistence histogram, transparent at zero.
 
-    Lives in a QThread. Holds no references to widgets. Everything leaving this
-    object goes out as a signal, which Qt marshals onto the GUI thread's event
-    loop, so no widget is ever touched from here.
+    Alpha rises with activity as well as colour, so a cell visited once is a faint
+    tint while one visited constantly is close to solid. Encoding activity in both
+    channels rather than colour alone means the distinction survives on a display
+    where subtle hue differences are hard to judge.
+    """
+    stops = np.array([0, 40, 110, 190, 255], dtype=np.float64)
+    red = np.array([0, 26, 74, 214, 255], dtype=np.float64)
+    green = np.array([0, 106, 182, 186, 240], dtype=np.float64)
+    blue = np.array([0, 128, 148, 92, 205], dtype=np.float64)
+    alpha = np.array([0, 90, 155, 205, 235], dtype=np.float64)
+
+    index = np.arange(256, dtype=np.float64)
+    lut = np.empty((256, 4), dtype=np.uint8)
+    for channel, values in enumerate((red, green, blue, alpha)):
+        lut[:, channel] = np.interp(index, stops, values).astype(np.uint8)
+    return lut
+
+
+class SweepComposite:
+    """Maps per segment frames onto one continuous display surface.
+
+    Owns the mapping in both directions. Segment frames are written into the
+    composite by column range, and any composite column can be resolved back to a
+    true frequency, which is what makes the hover readout and click to mark
+    correct across a non contiguous band plan.
     """
 
-    frame_ready = Signal(object, object)
-    events_changed = Signal(dict)
-    error = Signal(str)
-
-    def __init__(self, capture_queue: "queue.Queue", detector: BurstDetector):
-        super().__init__()
-        self._queue = capture_queue
-        self._detector = detector
-        self._estimators: Dict[int, PSDEstimator] = {}
-        self._running = False
-
-    @Slot()
-    def run(self) -> None:
-        """Main worker loop. Exits when stop is called."""
-        self._running = True
-        while self._running:
-            try:
-                block = self._queue.get(timeout=0.2)
-            except queue.Empty:
-                continue
-
-            try:
-                estimator = self._estimators.get(block.segment.fft_size)
-                if estimator is None:
-                    estimator = PSDEstimator(block.segment.fft_size)
-                    self._estimators[block.segment.fft_size] = estimator
-
-                frame = estimator.compute(
-                    block.iq, block.segment,
-                    overruns=block.overruns, timestamp=block.timestamp,
-                )
-                result = self._detector.process(frame)
-                floor = self._detector.floor_for_segment(frame.segment_id)
-
-                self.frame_ready.emit(frame, floor)
-                if result["opened"] or result["closed"]:
-                    self.events_changed.emit(result)
-            except Exception as exc:
-                # A malformed block must not kill the worker, or the display goes
-                # dark permanently after one transient fault in the capture path.
-                self.error.emit("processing error: {0}".format(exc))
-
-    @Slot()
-    def stop(self) -> None:
-        self._running = False
-
-
-class MarkerDialog(QDialog):
-    """Prompts for a label and notes when saving a detected signal."""
-
-    def __init__(self, event: Dict, parent: Optional[QWidget] = None):
-        super().__init__(parent)
-        self.setWindowTitle("Save marker")
-        self.setMinimumWidth(400)
-        self.event = event
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 14, 14, 12)
-        layout.setSpacing(8)
-        form = QFormLayout()
-        form.setSpacing(5)
-        form.setLabelAlignment(Qt.AlignLeft)
-
-        self.label_edit = QLineEdit()
-        self.label_edit.setText("{0:.4f} MHz".format(event["center_hz"] / 1e6))
-        self.label_edit.selectAll()
-        form.addRow("Label", self.label_edit)
-
-        # Measured values are shown read only. They come from the detector, not
-        # from the click, and are recorded exactly as measured.
-        measured = [
-            ("Center", "{0:.6f} MHz".format(event["center_hz"] / 1e6)),
-            ("Occupied BW", "{0:.2f} kHz".format(event.get("occupied_bw_hz", 0) / 1e3)),
-            ("Peak", "{0:.1f} dBFS".format(event.get("peak_dbfs", 0))),
-            ("SNR", "{0:.1f} dB".format(event.get("snr_db", 0))),
-            ("Duration", "{0:.3f} s".format(event.get("duration_s", 0))),
-            ("Class", event.get("classification", "unknown")),
-            ("Band", event.get("band_name", "")),
-        ]
-        mono = QFont("Monospace", 9)
-        mono.setStyleHint(QFont.TypeWriter)
-        for name, value in measured:
-            field = QLabel(value)
-            field.setObjectName("readout")
-            field.setFont(mono)
-            caption = QLabel(name)
-            caption.setObjectName("value")
-            form.addRow(caption, field)
-
-        antenna = event.get("antenna_note", "")
-        if antenna:
-            note = QLabel(antenna)
-            note.setWordWrap(True)
-            note.setObjectName("alert")
-            form.addRow("Antenna", note)
-
-        layout.addLayout(form)
-        notes_caption = QLabel("Notes")
-        notes_caption.setObjectName("value")
-        layout.addWidget(notes_caption)
-        self.notes_edit = QPlainTextEdit()
-        self.notes_edit.setMaximumHeight(90)
-        layout.addWidget(self.notes_edit)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def values(self) -> tuple:
-        return self.label_edit.text().strip(), self.notes_edit.toPlainText().strip()
-
-
-class MainWindow(QMainWindow):
-    """Application window. Owns the sweep engine, worker thread, and store."""
-
-    def __init__(self, sweep_engine, detector: BurstDetector, store: Store,
-                 preset_key: str = band_plan.DEFAULT_PRESET_KEY,
-                 reset_layout: bool = False):
-        super().__init__()
-        self.setWindowTitle("Red Cell Security  RF Spectrum Analyzer")
-        self.setStyleSheet(STYLE)
-
-        # Sized against the screen actually attached rather than a fixed figure.
-        # A hardcoded size larger than the display pushes the control dock off the
-        # edge, where its buttons are unreachable and there is no obvious way to
-        # recover, since the window cannot be dragged smaller than its contents.
-        # Overridden below by any saved layout that is still usable.
-        available = QGuiApplication.primaryScreen().availableGeometry()
-        self.resize(min(1600, int(available.width() * 0.94)),
-                    min(950, int(available.height() * 0.90)))
-
-        self.engine = sweep_engine
-        self.detector = detector
-        self.store = store
-        self.preset_key = preset_key
-
-        self._active_events: Dict[int, Dict] = {}
-        # Detections that have ended but are being retained for the record. Kept
-        # separate from active ones so the display can distinguish present
-        # activity from past activity.
-        self._held_events: Dict[int, Dict] = {}
-        self._last_hover: Optional[Dict] = None
-
-        self._settings = QSettings(SETTINGS_ORG, SETTINGS_APP)
-
-        self._mono = QFont("Monospace", 9)
-        self._mono.setStyleHint(QFont.TypeWriter)
-
-        self._build_ui()
-        self._start_worker()
-        self._apply_preset(preset_key, initial=True)
-
-        # Restored last, once every widget the saved state refers to exists.
-        # Restoring earlier silently discards the parts that name widgets not yet
-        # created, which shows up as some panels remembering their size and
-        # others not.
-        if not reset_layout:
-            self._restore_layout()
-
-        self.redraw_timer = QTimer(self)
-        self.redraw_timer.timeout.connect(self._redraw)
-        self.redraw_timer.start(REDRAW_INTERVAL_MS)
-
-        self.stats_timer = QTimer(self)
-        self.stats_timer.timeout.connect(self._update_stats)
-        self.stats_timer.start(STATS_INTERVAL_MS)
-
-    def _build_ui(self) -> None:
-        central = QWidget()
-        layout = QVBoxLayout(central)
-        layout.setContentsMargins(6, 4, 6, 4)
-        layout.setSpacing(3)
-
-        self.readout = QLabel("hover the spectrum for a frequency readout")
-        self.readout.setObjectName("readout")
-        self.readout.setFont(self._mono)
-        # Allowed to shrink below its natural width. A fixed width readout sets a
-        # floor on the whole window, which on a small display is what pushes the
-        # control dock past the edge of the screen.
-        self.readout.setMinimumWidth(1)
-        self.readout.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
-        layout.addWidget(self.readout)
-
-        self.display = SpectrumDisplay()
-        self.display.hover_changed.connect(self._on_hover)
-        self.display.marker_requested.connect(self._on_marker_requested)
-        layout.addWidget(self.display, stretch=1)
-
-        self.setCentralWidget(central)
-        self.setStatusBar(QStatusBar())
-        self._build_dock()
-
-    def _build_dock(self) -> None:
-        dock = QDockWidget("Control", self)
-        # saveState keys dock entries on object name. Without one the dock is
-        # anonymous and its size and placement are silently dropped on restore.
-        dock.setObjectName("controlDock")
-        dock.setAllowedAreas(Qt.RightDockWidgetArea | Qt.LeftDockWidgetArea)
-        dock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable)
-
-        tabs = QTabWidget()
-        self.control_tabs = tabs
-        # The config tab is taller than any laptop screen once every group is
-        # expanded, so it scrolls. Without this the lower controls are simply
-        # clipped away with nothing to indicate they exist.
-        tabs.addTab(self._scrollable(self._build_config_tab()), "Config")
-        tabs.addTab(self._build_events_tab(), "Events")
-        tabs.addTab(self._build_markers_tab(), "Markers")
-
-        dock.setWidget(tabs)
-        dock.setMinimumWidth(300)
-        self.addDockWidget(Qt.RightDockWidgetArea, dock)
-
-        # Given a width proportional to the window rather than a fixed one, so a
-        # small display keeps most of its pixels for the spectrum.
-        self.resizeDocks([dock], [max(340, min(460, self.width() // 3))], Qt.Horizontal)
-
-    @staticmethod
-    def _scrollable(page: QWidget) -> QScrollArea:
-        """Wrap a panel so overflowing content scrolls instead of being clipped."""
-        area = QScrollArea()
-        area.setWidgetResizable(True)
-        area.setFrameShape(QFrame.NoFrame)
-        area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        area.setWidget(page)
-        return area
-
-    def _build_config_tab(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(10, 8, 10, 10)
-        layout.setSpacing(10)
-
-        layout.addWidget(self._build_plan_box())
-        layout.addWidget(self._build_gain_box())
-        layout.addWidget(self._build_detector_box())
-        layout.addWidget(self._build_retention_box())
-        layout.addWidget(self._build_calibration_box())
-        layout.addStretch(1)
-        return page
-
-    def _build_plan_box(self) -> QGroupBox:
-        box = QGroupBox("Band plan")
-        layout = QVBoxLayout(box)
-        layout.setSpacing(6)
-
-        self.region_combo = QComboBox()
-        self.region_combo.addItems(["US", "EU", "SA", "GLOBAL"])
-        self.region_combo.currentTextChanged.connect(self._populate_presets)
-        layout.addWidget(self.region_combo)
-
-        preset_row = QHBoxLayout()
-        preset_row.setSpacing(6)
-        self.preset_combo = QComboBox()
-        apply_button = QPushButton("Apply")
-        apply_button.setFixedWidth(64)
-        apply_button.clicked.connect(self._on_apply_preset)
-        preset_row.addWidget(self.preset_combo, 1)
-        preset_row.addWidget(apply_button)
-        layout.addLayout(preset_row)
-
-        custom_row = QHBoxLayout()
-        custom_row.setSpacing(6)
-        self.custom_start = QLineEdit()
-        self.custom_start.setPlaceholderText("start MHz")
-        self.custom_stop = QLineEdit()
-        self.custom_stop.setPlaceholderText("stop MHz")
-        custom_button = QPushButton("Set")
-        custom_button.setFixedWidth(64)
-        custom_button.clicked.connect(self._apply_custom_range)
-        custom_row.addWidget(self.custom_start, 1)
-        custom_row.addWidget(self.custom_stop, 1)
-        custom_row.addWidget(custom_button)
-        layout.addLayout(custom_row)
-
-        # Sweep consequences as a compact aligned block. A wide span silently
-        # trades away the ability to see short transmissions, and an operator who
-        # is not shown that reads an empty waterfall as an empty band.
-        self.metrics_grid = QFormLayout()
-        self.metrics_grid.setContentsMargins(0, 4, 0, 0)
-        self.metrics_grid.setSpacing(3)
-        self.metrics_grid.setLabelAlignment(Qt.AlignLeft)
-        self.metric_fields = {}
-        for key, label in (("segments", "Segments"), ("span", "Span"),
-                           ("revisit", "Revisit"), ("burst", "Min burst"),
-                           ("rbw", "RBW")):
-            field = QLabel("-")
-            field.setObjectName("readout")
-            field.setFont(self._mono)
-            self.metric_fields[key] = field
-            caption = QLabel(label)
-            caption.setObjectName("value")
-            self.metrics_grid.addRow(caption, field)
-        layout.addLayout(self.metrics_grid)
-
-        # Present only when a plan genuinely warrants a warning, and truncated to
-        # one line with the full text on hover.
-        self.warning_label = QLabel()
-        self.warning_label.setObjectName("alert")
-        self.warning_label.setWordWrap(False)
-        self.warning_label.hide()
-        layout.addWidget(self.warning_label)
-        return box
-
-    def _build_gain_box(self) -> QGroupBox:
-        box = QGroupBox("Gain")
-        layout = QFormLayout(box)
-        layout.setSpacing(6)
-        layout.setLabelAlignment(Qt.AlignLeft)
-
-        self.amp_combo = QComboBox()
-        self.amp_combo.addItems(["off", "14 dB"])
-        self.amp_combo.setToolTip(
-            "Front end amplifier. Off by default because it overloads readily in "
-            "dense RF, and the loss of segment wide dynamic range usually costs "
-            "more than the sensitivity it buys."
-        )
-        layout.addRow("Amp", self.amp_combo)
-
-        self.lna_slider, lna_row = self._make_slider(0, 40, 8, 16)
-        self.lna_slider.setToolTip("Intermediate frequency gain, 0 to 40 dB in 8 dB steps.")
-        layout.addRow("LNA", lna_row)
-
-        self.vga_slider, vga_row = self._make_slider(0, 62, 2, 20)
-        self.vga_slider.setToolTip("Baseband gain, 0 to 62 dB in 2 dB steps.")
-        layout.addRow("VGA", vga_row)
-
-        gain_button = QPushButton("Apply gain")
-        gain_button.setToolTip(
-            "Raising gain past the point where the noise floor lifts costs dynamic "
-            "range and produces false wideband detections. Detector state resets on "
-            "every gain change, since a floor learned at the old setting is wrong "
-            "by the gain delta."
-        )
-        gain_button.clicked.connect(self._apply_gain)
-        layout.addRow(gain_button)
-        return box
-
-    def _build_detector_box(self) -> QGroupBox:
-        box = QGroupBox("Detector")
-        layout = QFormLayout(box)
-        layout.setSpacing(6)
-        layout.setLabelAlignment(Qt.AlignLeft)
-
-        self.threshold_spin = QSpinBox()
-        self.threshold_spin.setRange(3, 30)
-        self.threshold_spin.setValue(int(self.detector.threshold_on_db))
-        self.threshold_spin.setSuffix(" dB")
-        self.threshold_spin.setToolTip(
-            "Trigger level above the tracked noise floor. Six decibels sits near "
-            "2.7 standard deviations of the PSD estimate at four averages. Lowering "
-            "it without raising the averages or the confirm count reintroduces "
-            "noise detections."
-        )
-        self.threshold_spin.valueChanged.connect(self._apply_threshold)
-        layout.addRow("Trigger", self.threshold_spin)
-
-        self.open_spin = QSpinBox()
-        self.open_spin.setRange(1, 10)
-        self.open_spin.setValue(self.detector.open_frames)
-        self.open_spin.setToolTip(
-            "Consecutive revisits a signal must be present before an event opens. "
-            "This multiplies directly into the shortest burst the plan can catch."
-        )
-        self.open_spin.valueChanged.connect(self._apply_open_frames)
-        layout.addRow("Confirm", self.open_spin)
-
-        self.reject_check = QCheckBox("Reject persistent carriers")
-        self.reject_check.setChecked(self.detector.reject_persistent)
-        self.reject_check.setToolTip(
-            "Suppress events from signals that are almost always present, such as "
-            "fixed spurs, images, and continuous carriers. They stay visible on the "
-            "trace and remain classified. Turn this off before calibrating, since "
-            "broadcast carriers are permanently on."
-        )
-        self.reject_check.toggled.connect(self._apply_reject)
-        layout.addRow(self.reject_check)
-        return box
-
-    def _build_retention_box(self) -> QGroupBox:
-        box = QGroupBox("Retention")
-        layout = QVBoxLayout(box)
-        layout.setSpacing(6)
-
-        self.persistence_check = QCheckBox("Persistence")
-        self.persistence_check.setChecked(True)
-        self.persistence_check.setToolTip(
-            "Shade the trace by how often activity has occurred at each frequency "
-            "and level. A frequency keyed repeatedly builds a bright solid column, "
-            "a single burst leaves a faint trace, which distinguishes steady "
-            "activity from a one off."
-        )
-        self.persistence_check.toggled.connect(self.display.set_persistence_enabled)
-        layout.addWidget(self.persistence_check)
-
-        self.hold_peaks_check = QCheckBox("Hold peaks")
-        self.hold_peaks_check.setToolTip(
-            "Stop the peak trace and the persistence shading decaying, so both "
-            "become a permanent record of everything seen since the last clear."
-        )
-        self.hold_peaks_check.toggled.connect(self._apply_peak_hold)
-        layout.addWidget(self.hold_peaks_check)
-
-        self.hold_events_check = QCheckBox("Hold detections")
-        self.hold_events_check.setToolTip(
-            "Keep detections drawn and clickable after the transmission ends, so a "
-            "transient can still be saved as a marker minutes later."
-        )
-        self.hold_events_check.toggled.connect(self._apply_event_hold)
-        layout.addWidget(self.hold_events_check)
-
-        clear_row = QHBoxLayout()
-        clear_row.setSpacing(6)
-        clear_button = QPushButton("Clear held")
-        clear_button.clicked.connect(self._clear_held)
-        self.held_label = QLabel("0")
-        self.held_label.setObjectName("readout")
-        self.held_label.setFont(self._mono)
-        self.held_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        clear_row.addWidget(clear_button, 1)
-        clear_row.addWidget(self.held_label)
-        layout.addLayout(clear_row)
-        return box
-
-    def _build_calibration_box(self) -> QGroupBox:
-        box = QGroupBox("Calibration")
-        layout = QVBoxLayout(box)
-        layout.setSpacing(6)
-
-        raster_row = QHBoxLayout()
-        raster_row.setSpacing(6)
-        self.raster_combo = QComboBox()
-        for key, raster in calibrate.RASTERS.items():
-            self.raster_combo.addItem(raster.name, key)
-        run_button = QPushButton("Run")
-        run_button.setFixedWidth(64)
-        run_button.setToolTip(
-            "Derive the oscillator correction from detected broadcast carriers. "
-            "Select the regional preset, disable persistent rejection, and let the "
-            "sweep run several seconds so each carrier averages out its modulation."
-        )
-        run_button.clicked.connect(self._run_calibration)
-        raster_row.addWidget(self.raster_combo, 1)
-        raster_row.addWidget(run_button)
-        layout.addLayout(raster_row)
-
-        self.ppm_label = QLabel("not measured")
-        self.ppm_label.setObjectName("readout")
-        self.ppm_label.setFont(self._mono)
-        layout.addWidget(self.ppm_label)
-        return box
-
-    def _apply_peak_hold(self, held: bool) -> None:
-        """Stop or resume decay of the peak trace and the persistence shading.
-
-        Both are governed together because they answer the same question over
-        different timescales. Holding one while the other fades would show a peak
-        with no history behind it, or history under a peak that has moved on.
+    def __init__(self, segments: List, total_cols: int = DEFAULT_DISPLAY_COLS):
+        self.segments = list(segments)
+        self.total_cols = int(total_cols)
+
+        # Per segment display allocation, as (segment, col_start, col_end).
+        self.spans: List[Tuple[object, int, int]] = []
+        # Column index where each band begins, used to draw separators.
+        self.band_edges: List[Tuple[int, str]] = []
+
+        self._build_layout()
+
+        # Zero means hold indefinitely. Any positive value is dB shed per update.
+        self.peak_decay_db = DEFAULT_PEAK_DECAY_DB
+
+        # Two dimensional histogram of how often the trace has passed through each
+        # frequency and level cell. This is what separates a frequency that keys
+        # constantly from one that fired once, which neither the live trace nor a
+        # plain maximum hold can show. A maximum hold records that something
+        # reached a level, never how often.
+        self.persistence = np.zeros((PERSISTENCE_LEVELS, self.total_cols), dtype=np.float32)
+        self.persistence_decay = PERSISTENCE_DECAY
+
+        # Frames discarded for describing a different plan than this composite.
+        self.rejected_frames = 0
+
+        self.current = np.full(self.total_cols, DISPLAY_DB_FLOOR, dtype=np.float32)
+        self.peak_hold = np.full(self.total_cols, DISPLAY_DB_FLOOR, dtype=np.float32)
+        self.floor = np.full(self.total_cols, DISPLAY_DB_FLOOR, dtype=np.float32)
+        # Tracks which segments have been written since the last sweep boundary,
+        # so that a row is emitted only when the whole span has been refreshed.
+        self._written = set()
+
+    def _build_layout(self) -> None:
+        """Allocate display columns to segments proportionally to their span."""
+        if not self.segments:
+            return
+
+        widths = [max(1, seg.usable_stop_hz - seg.usable_start_hz) for seg in self.segments]
+        total_width = float(sum(widths))
+
+        # Proportional allocation with a floor. The floor is applied first and the
+        # remainder distributed proportionally, so a narrow band stays legible
+        # without a wide band being starved.
+        raw = [max(MIN_BAND_COLS, int(self.total_cols * w / total_width)) for w in widths]
+        scale = self.total_cols / float(sum(raw))
+        cols = [max(MIN_BAND_COLS, int(round(c * scale))) for c in raw]
+
+        # Absorb any rounding residue into the widest allocation.
+        residue = self.total_cols - sum(cols)
+        if residue != 0:
+            widest = int(np.argmax(cols))
+            cols[widest] += residue
+
+        cursor = 0
+        last_band = None
+        for seg, width in zip(self.segments, cols):
+            self.spans.append((seg, cursor, cursor + width))
+            if seg.band_name != last_band:
+                self.band_edges.append((cursor, seg.band_name))
+                last_band = seg.band_name
+            cursor += width
+
+    def col_to_hz(self, col: float) -> Optional[float]:
+        """Resolve a composite column to a true frequency.
+
+        Interpolation is linear inside the owning segment. Returns None outside
+        the composite so the caller can suppress a readout rather than display a
+        fabricated frequency.
         """
-        self.display.set_peak_decay(0.0 if held else DEFAULT_PEAK_DECAY_DB)
-        self.display.set_persistence_decay(1.0 if held else PERSISTENCE_DECAY)
+        if not self.spans:
+            return None
+        col = float(col)
+        for seg, start, end in self.spans:
+            if start <= col < end:
+                fraction = (col - start) / float(end - start)
+                span_hz = seg.usable_stop_hz - seg.usable_start_hz
+                return seg.usable_start_hz + fraction * span_hz
+        if col < self.spans[0][1]:
+            return float(self.spans[0][0].usable_start_hz)
+        return float(self.spans[-1][0].usable_stop_hz)
 
-    def _apply_event_hold(self, held: bool) -> None:
-        """Start or stop retaining detections past the end of a transmission."""
-        if not held:
-            self._held_events.clear()
-            self._update_held_label()
+    def hz_to_col(self, hz: float) -> Optional[float]:
+        """Resolve a true frequency to a composite column, or None if not shown."""
+        for seg, start, end in self.spans:
+            if seg.usable_start_hz <= hz <= seg.usable_stop_hz:
+                span_hz = float(seg.usable_stop_hz - seg.usable_start_hz)
+                fraction = (hz - seg.usable_start_hz) / span_hz
+                return start + fraction * (end - start)
+        return None
 
-    def _clear_held(self) -> None:
-        """Discard accumulated peaks and held detections, keeping the floor.
+    def segment_at_col(self, col: float) -> Optional[object]:
+        """Return the segment owning a composite column, for the readout."""
+        for seg, start, end in self.spans:
+            if start <= col < end:
+                return seg
+        return None
 
-        The noise floor estimate is left alone deliberately. It takes time to
-        converge and starting a fresh observation window is no reason to throw it
-        away.
+    def ingest(self, frame, floor_dbfs: Optional[np.ndarray] = None) -> bool:
+        """Write one segment frame into the composite.
+
+        Returns True when this frame completes a full pass over every segment,
+        which is the signal to advance the waterfall by one row.
         """
-        self.display.clear_peak_hold()
-        self._held_events.clear()
-        self._update_held_label()
-        self.statusBar().showMessage("held peaks and detections cleared", 3000)
+        span = None
+        for seg, start, end in self.spans:
+            if seg.segment_id == frame.segment_id:
+                span = (seg, start, end)
+                break
+        if span is None:
+            return False
 
-    def _update_held_label(self) -> None:
-        self.held_label.setText(str(len(self._held_events)))
+        segment, start, end = span
 
-    def _run_calibration(self) -> None:
-        """Derive the oscillator correction from currently detected carriers.
+        # Confirm the frame actually describes the segment it claims. Segment ids
+        # restart from zero with every band plan, so a frame captured under the
+        # previous plan and still in the queue when the plan changed will match an
+        # id here while describing completely different frequencies. Accepting it
+        # writes one band's spectrum into another band's columns, and with
+        # retention enabled that contamination never fades. The frame carries its
+        # own frequency metadata precisely so this can be checked.
+        tolerance = max(frame.f_step_hz, 1.0)
+        if (abs(frame.f_start_hz - segment.usable_start_hz) > tolerance or
+                abs(frame.f_stop_hz - segment.usable_stop_hz) > tolerance):
+            self.rejected_frames += 1
+            return False
+        width = end - start
+        self.current[start:end] = self._resample(frame.power_dbfs, width)
 
-        Applied to the sweep engine so subsequent tuning is corrected, and stored
-        against the session so markers taken under it can be reconciled later.
-        Nothing already measured is retroactively adjusted, since the correction
-        is only valid from the moment it is applied.
-        """
-        raster_key = self.raster_combo.currentData()
-        events = list(self._active_events.values()) + self.detector.active_events()
+        if floor_dbfs is not None and floor_dbfs.size == frame.power_dbfs.size:
+            self.floor[start:end] = self._resample(floor_dbfs, width, use_max=False)
 
-        result = calibrate.estimate_ppm(events, raster_key)
+        # Decay is applied per update rather than per completed sweep, so the rate
+        # is independent of how many segments the plan contains. A decay of zero
+        # holds peaks permanently, which is what turns the trace into a record of
+        # everything seen rather than a picture of the present.
+        if self.peak_decay_db > 0.0:
+            self.peak_hold[start:end] -= self.peak_decay_db
+        np.maximum(self.peak_hold[start:end], self.current[start:end],
+                   out=self.peak_hold[start:end])
 
-        if not result.confident:
-            self.ppm_label.setText("{0} carriers, not confident".format(result.station_count))
-            self.ppm_label.setToolTip(result.message)
-            QMessageBox.information(self, "Calibration", result.message)
-            return
+        self._accumulate_persistence(start, end)
 
-        self.engine.set_ppm(result.ppm)
-        self.store.set_ppm_correction(result.ppm)
-        # Every tuned frequency shifts, so floors learned at the old tuning no
-        # longer describe the same bins.
-        self.detector.reset()
-        if self.display.composite is not None:
-            self.display.composite.reset()
-
-        self.ppm_label.setText("{0:+.2f} ppm   {1} carriers".format(
-            result.ppm, result.station_count))
-        self.ppm_label.setToolTip(result.summary())
-        detail = "\n".join(
-            "  {0:.4f} MHz  assigned {1:.4f}  offset {2:+.0f} Hz".format(
-                st["measured_hz"] / 1e6, st["expected_hz"] / 1e6, st["offset_hz"]
-            )
-            for st in result.stations
-        )
-        QMessageBox.information(
-            self, "Calibration applied",
-            "{0}\n\nStations used:\n{1}".format(result.summary(), detail),
-        )
-        self.statusBar().showMessage(
-            "calibration applied, {0:+.2f} ppm".format(result.ppm), 5000)
-
-    @staticmethod
-    def _make_slider(low: int, high: int, step: int, value: int) -> tuple:
-        """Slider with a live numeric label, stepped to hardware granularity."""
-        container = QWidget()
-        row = QHBoxLayout(container)
-        row.setContentsMargins(0, 0, 0, 0)
-
-        slider = QSlider(Qt.Horizontal)
-        slider.setRange(low, high)
-        slider.setSingleStep(step)
-        slider.setPageStep(step)
-        slider.setTickInterval(step)
-        slider.setValue(value)
-
-        label = QLabel("{0} dB".format(value))
-        label.setMinimumWidth(44)
-        label.setObjectName("value")
-        slider.valueChanged.connect(lambda v: label.setText("{0} dB".format(v)))
-
-        row.addWidget(slider)
-        row.addWidget(label)
-        return slider, container
-
-    def _build_events_tab(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
-
-        self.events_table = QTableWidget(0, 6)
-        self.events_table.setHorizontalHeaderLabels(
-            ["Freq MHz", "BW kHz", "SNR", "Class", "Dur s", "Band"]
-        )
-        self.events_table.setAlternatingRowColors(True)
-        self.events_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.events_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.events_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.events_table.setToolTip("Double click an event to save it as a marker.")
-        self.events_table.itemDoubleClicked.connect(self._on_event_double_click)
-        layout.addWidget(self.events_table)
-        return page
-
-    def _build_markers_tab(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
-
-        self.markers_table = QTableWidget(0, 4)
-        self.markers_table.setHorizontalHeaderLabels(["Label", "Freq MHz", "BW kHz", "Class"])
-        self.markers_table.setAlternatingRowColors(True)
-        self.markers_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.markers_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.markers_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        layout.addWidget(self.markers_table)
-
-        row = QHBoxLayout()
-        delete_button = QPushButton("Delete")
-        delete_button.clicked.connect(self._delete_marker)
-        export_button = QPushButton("Export CSV")
-        export_button.clicked.connect(self._export_markers)
-        row.addWidget(delete_button)
-        row.addWidget(export_button)
-        layout.addLayout(row)
-        return page
-
-    def _start_worker(self) -> None:
-        """Move the processing worker onto its own QThread and start it."""
-        self.worker_thread = QThread()
-        self.worker = ProcessingWorker(self.engine.queue, self.detector)
-        self.worker.moveToThread(self.worker_thread)
-        self.worker_thread.started.connect(self.worker.run)
-        self.worker.frame_ready.connect(self._on_frame)
-        self.worker.events_changed.connect(self._on_events)
-        self.worker.error.connect(self._on_worker_error)
-        self.worker_thread.start()
-
-    def _populate_presets(self, region: str) -> None:
-        self.preset_combo.clear()
-        for preset in band_plan.list_presets(region):
-            self.preset_combo.addItem(preset.name, preset.key)
-
-    def _on_apply_preset(self) -> None:
-        key = self.preset_combo.currentData()
-        if key:
-            self._apply_preset(key)
-
-    def _apply_preset(self, key: str, initial: bool = False) -> None:
-        """Switch the band plan, resetting display and detector state."""
-        try:
-            segments, metrics = band_plan.plan_from_preset(key)
-        except (KeyError, ValueError) as exc:
-            QMessageBox.warning(self, "Band plan", str(exc))
-            return
-
-        self.preset_key = key
-        preset = band_plan.get_preset(key)
-
-        if initial:
-            self.region_combo.setCurrentText(preset.region)
-            self._populate_presets(preset.region)
-            index = self.preset_combo.findData(key)
-            if index >= 0:
-                self.preset_combo.setCurrentIndex(index)
-
-        # Antenna notes travel with the band so that events and markers record
-        # what was connected when a level was measured.
-        self.detector.antenna_notes = {
-            band.name: band.antenna_note for band in preset.bands
-        }
-        self._install_plan(segments, metrics)
-
-    def _apply_custom_range(self) -> None:
-        """Apply an operator entered range in MHz."""
-        try:
-            start_hz = int(float(self.custom_start.text()) * 1e6)
-            stop_hz = int(float(self.custom_stop.text()) * 1e6)
-        except ValueError:
-            QMessageBox.warning(self, "Range", "Enter start and stop in MHz.")
-            return
-
-        try:
-            segments, metrics = band_plan.plan_from_custom_range(start_hz, stop_hz)
-        except ValueError as exc:
-            QMessageBox.warning(self, "Range", str(exc))
-            return
-
-        self.preset_key = "custom"
-        self.detector.antenna_notes = {}
-        self._install_plan(segments, metrics)
-
-    def _install_plan(self, segments: List, metrics) -> None:
-        """Push a new segment plan to the engine, display, and detector."""
-        self.engine.set_segments(segments)
-        self.display.set_plan(segments)
-        # State learned under the previous plan describes different frequencies
-        # and different sample rates, so it is discarded rather than carried over.
-        self.detector.reset()
-        self._active_events.clear()
-        self._held_events.clear()
-        self._update_held_label()
-        self.events_table.setRowCount(0)
-
-        self.metric_fields["segments"].setText("{0}".format(metrics.segment_count))
-        self.metric_fields["span"].setText("{0:.1f} MHz".format(metrics.total_span_hz / 1e6))
-        self.metric_fields["revisit"].setText("{0:.0f} ms".format(metrics.revisit_ms))
-        self.metric_fields["burst"].setText("{0:.0f} ms".format(metrics.min_reliable_burst_ms))
-        self.metric_fields["rbw"].setText("{0:.0f} Hz".format(metrics.coarsest_rbw_hz))
-
-        if metrics.warnings:
-            joined = "  ".join(metrics.warnings)
-            self.warning_label.setText(
-                (joined[:44] + "...") if len(joined) > 44 else joined)
-            self.warning_label.setToolTip("\n\n".join(metrics.warnings))
-            self.warning_label.show()
-        else:
-            self.warning_label.hide()
-        self._refresh_markers()
-
-    def _apply_gain(self) -> None:
-        gain = GainProfile(
-            amp_db=14 if self.amp_combo.currentIndex() == 1 else 0,
-            lna_db=self.lna_slider.value(),
-            vga_db=self.vga_slider.value(),
-        )
-        self.engine.set_gain(gain)
-        # Every level in the frame shifts by the gain delta, so a floor learned at
-        # the old setting is wrong by that amount and would blind or flood the
-        # detector until it reconverged.
-        self.detector.reset()
-        if self.display.composite is not None:
-            self.display.composite.reset()
-        self.statusBar().showMessage("gain applied, detector reset", 3000)
-
-    def _apply_threshold(self, value: int) -> None:
-        self.detector.threshold_on_db = float(value)
-        self.detector.threshold_off_db = float(value) - 2.0
-
-    def _apply_open_frames(self, value: int) -> None:
-        self.detector.open_frames = int(value)
-
-    def _apply_reject(self, enabled: bool) -> None:
-        self.detector.reject_persistent = bool(enabled)
-
-    @Slot(object, object)
-    def _on_frame(self, frame, floor) -> None:
-        self.display.ingest(frame, floor)
-
-    @Slot(dict)
-    def _on_events(self, result: Dict) -> None:
-        for event in result["opened"]:
-            self._active_events[event["event_id"]] = event
-            self._add_event_row(event)
-        for event in result["closed"]:
-            self._active_events.pop(event["event_id"], None)
-            if self.hold_events_check.isChecked():
-                held = dict(event)
-                held["classification"] = "held"
-                self._held_events[event["event_id"]] = held
-                # Oldest shed first, so a long session keeps the most recent
-                # activity rather than the first few minutes of it.
-                while len(self._held_events) > MAX_HELD_EVENTS:
-                    oldest = min(self._held_events,
-                                 key=lambda k: self._held_events[k]["last_seen"])
-                    del self._held_events[oldest]
-                self._update_held_label()
-
-    @Slot(str)
-    def _on_worker_error(self, message: str) -> None:
-        self.statusBar().showMessage(message, 5000)
-
-    def _add_event_row(self, event: Dict) -> None:
-        """Insert a detection at the top of the live event table."""
-        self.events_table.insertRow(0)
-        cells = [
-            "{0:.4f}".format(event["center_hz"] / 1e6),
-            "{0:.1f}".format(event.get("occupied_bw_hz", 0) / 1e3),
-            "{0:.1f}".format(event.get("snr_db", 0)),
-            event.get("classification", "unknown"),
-            "{0:.2f}".format(event.get("duration_s", 0)),
-            event.get("band_name", ""),
-        ]
-        for column, text in enumerate(cells):
-            item = QTableWidgetItem(text)
-            if column == 0:
-                item.setData(Qt.UserRole, event)
-            self.events_table.setItem(0, column, item)
-
-        while self.events_table.rowCount() > MAX_EVENT_ROWS:
-            self.events_table.removeRow(self.events_table.rowCount() - 1)
-
-    def _on_event_double_click(self, item: QTableWidgetItem) -> None:
-        event = self.events_table.item(item.row(), 0).data(Qt.UserRole)
-        if event:
-            self._save_marker(event)
-
-    def _on_hover(self, info: Dict) -> None:
-        """Update the frequency readout from a pointer position."""
-        self._last_hover = info
-        self.readout.setText(
-            "{0:.6f} MHz   level {1:.1f}   peak {2:.1f}   "
-            "floor {3:.1f} dBFS   RBW {4:.0f} Hz   {5}".format(
-                info["hz"] / 1e6, info["level_dbfs"], info["peak_dbfs"],
-                info["floor_dbfs"], info["rbw_hz"], info["band_name"],
-            )
-        )
-
-    def _on_marker_requested(self, hz: float) -> None:
-        """Bind a click to the nearest active detection, or to the raw cursor.
-
-        The detected event is preferred because it carries measured center
-        frequency and occupied bandwidth, whereas the click carries only wherever
-        the pointer happened to land. Matching tolerance scales with the event's
-        own occupied bandwidth so that a wide signal is clickable across its whole
-        width and a narrow one is not captured from far away.
-        """
-        best = None
-        best_distance = None
-        # Held detections are searched alongside active ones. A retained spike
-        # that cannot be clicked is a picture rather than a record, which defeats
-        # the point of retaining it.
-        candidates = list(self._active_events.values()) + list(self._held_events.values())
-        for event in candidates:
-            tolerance = max(event.get("occupied_bw_hz", 0.0), 5000.0)
-            distance = abs(event["center_hz"] - hz)
-            if distance <= tolerance and (best_distance is None or distance < best_distance):
-                best = event
-                best_distance = distance
-
-        if best is None:
-            info = self._last_hover or {}
-            best = {
-                "center_hz": hz,
-                "occupied_bw_hz": 0.0,
-                "peak_dbfs": info.get("level_dbfs", 0.0),
-                "floor_dbfs": info.get("floor_dbfs", 0.0),
-                "snr_db": info.get("level_dbfs", 0.0) - info.get("floor_dbfs", 0.0),
-                "first_seen": time.time(),
-                "last_seen": time.time(),
-                "duration_s": 0.0,
-                "frame_count": 0,
-                "classification": "manual",
-                "band_name": info.get("band_name", ""),
-                "antenna_note": "",
-            }
-        self._save_marker(best)
-
-    def _save_marker(self, event: Dict) -> None:
-        dialog = MarkerDialog(event, self)
-        if dialog.exec() != QDialog.Accepted:
-            return
-        label, notes = dialog.values()
-        if not label:
-            return
-        try:
-            self.store.save_marker(label, event, notes)
-        except RuntimeError as exc:
-            QMessageBox.warning(self, "Marker", str(exc))
-            return
-        self._refresh_markers()
-        self.statusBar().showMessage("marker saved: {0}".format(label), 3000)
-
-    def _refresh_markers(self) -> None:
-        markers = self.store.list_markers()
-        self.markers_table.setRowCount(len(markers))
-        for row, marker in enumerate(markers):
-            cells = [
-                marker["label"],
-                "{0:.6f}".format(marker["center_hz"] / 1e6),
-                "{0:.1f}".format((marker["occupied_bw_hz"] or 0) / 1e3),
-                marker["classification"] or "",
-            ]
-            for column, text in enumerate(cells):
-                item = QTableWidgetItem(text)
-                if column == 0:
-                    item.setData(Qt.UserRole, marker["id"])
-                self.markers_table.setItem(row, column, item)
-        self.display.show_saved_markers(markers)
-
-    def _delete_marker(self) -> None:
-        row = self.markers_table.currentRow()
-        if row < 0:
-            return
-        marker_id = self.markers_table.item(row, 0).data(Qt.UserRole)
-        self.store.delete_marker(marker_id)
-        self._refresh_markers()
-
-    def _export_markers(self) -> None:
-        path = "markers_{0}.csv".format(int(time.time()))
-        count = self.store.export_session_csv(path)
-        self.statusBar().showMessage("exported {0} markers to {1}".format(count, path), 5000)
-
-    def _redraw(self) -> None:
-        self.display.redraw(threshold_offset_db=self.detector.threshold_on_db)
-        # Held detections are drawn under the active ones, so current activity is
-        # never obscured by the record of past activity.
-        self.display.show_events(
-            list(self._held_events.values()) + list(self._active_events.values())
-        )
-
-    def _update_stats(self) -> None:
-        stats = self.engine.stats()
-        recording = ""
-        if stats.get("recording") and self.engine.recorder is not None:
-            rec = self.engine.recorder.stats()
-            recording = "   REC {0} MB ({1}%)".format(rec["megabytes"], rec["percent_full"])
-        self.statusBar().showMessage(
-            "device {0}   sweeps {1}   queue {2}   dropped {3}   overruns {4}   "
-            "ppm {5:+.2f}   active events {6}{7}".format(
-                "connected" if stats["connected"] else "DISCONNECTED",
-                stats["sweeps"], stats["queue_depth"], stats["dropped_frames"],
-                stats["overruns"], stats.get("ppm", 0.0),
-                len(self._active_events), recording,
-            )
-        )
-
-    def _save_layout(self) -> None:
-        """Record window, dock, splitter, and panel preferences."""
-        settings = self._settings
-        settings.setValue("window/geometry", self.saveGeometry())
-        # saveState covers dock placement, floating state, and width. It is keyed
-        # on object names, which is why the dock is named rather than anonymous.
-        settings.setValue("window/state", self.saveState())
-        settings.setValue("splitter/spectrum", self.display.splitter.saveState())
-        settings.setValue("dock/tab", self.control_tabs.currentIndex())
-        settings.setValue("display/persistence", self.persistence_check.isChecked())
-        settings.setValue("display/hold_peaks", self.hold_peaks_check.isChecked())
-        settings.setValue("display/hold_events", self.hold_events_check.isChecked())
-        settings.sync()
-
-    def _restore_layout(self) -> None:
-        """Reapply saved layout, falling back to defaults on anything unusable.
-
-        Every restore is guarded. A saved geometry can name a monitor that is no
-        longer attached, which leaves the window positioned off every screen with
-        no way to drag it back, and a settings file written by a different version
-        can contain state this build cannot interpret.
-        """
-        settings = self._settings
-
-        geometry = settings.value("window/geometry")
-        if geometry is not None:
-            try:
-                if self.restoreGeometry(geometry) and not self._on_a_screen():
-                    # Positioned outside every attached display, which happens
-                    # when a monitor present at the last shutdown is now gone.
-                    # Discard it and size against the current screen instead.
-                    self.statusBar().showMessage(
-                        "saved window position is off screen, using defaults", 5000)
-                    self._size_to_screen()
-            except Exception:
-                self._size_to_screen()
-
-        state = settings.value("window/state")
-        if state is not None:
-            try:
-                self.restoreState(state)
-            except Exception:
-                pass
-
-        splitter_state = settings.value("splitter/spectrum")
-        if splitter_state is not None:
-            try:
-                self.display.splitter.restoreState(splitter_state)
-            except Exception:
-                pass
-
-        try:
-            index = int(settings.value("dock/tab", 0))
-            if 0 <= index < self.control_tabs.count():
-                self.control_tabs.setCurrentIndex(index)
-        except (TypeError, ValueError):
-            pass
-
-        # Retention preferences are restored through the checkboxes so their
-        # toggled handlers run and the display actually adopts the setting,
-        # rather than the box showing one thing while the trace does another.
-        for key, widget in (("display/persistence", self.persistence_check),
-                            ("display/hold_peaks", self.hold_peaks_check),
-                            ("display/hold_events", self.hold_events_check)):
-            value = settings.value(key)
-            if value is None:
-                continue
-            widget.setChecked(value in (True, "true", "True", 1, "1"))
-
-    def _on_a_screen(self) -> bool:
-        """Whether the window would be visible on some currently attached display."""
-        frame = self.frameGeometry()
-        for screen in QGuiApplication.screens():
-            if screen.availableGeometry().intersects(frame):
-                return True
+        self._written.add(frame.segment_id)
+        if len(self._written) >= len(self.spans):
+            self._written.clear()
+            return True
         return False
 
-    def _size_to_screen(self) -> None:
-        """Default sizing against the display actually attached."""
-        available = QGuiApplication.primaryScreen().availableGeometry()
-        self.resize(min(1600, int(available.width() * 0.94)),
-                    min(950, int(available.height() * 0.90)))
-        self.move(available.center() - self.rect().center())
+    def _accumulate_persistence(self, start: int, end: int) -> None:
+        """Record where the trace sat, for the columns just refreshed.
 
-    def closeEvent(self, event) -> None:
-        """Save layout, then shut down the worker, sweep thread, and store."""
-        try:
-            self._save_layout()
-        except Exception as exc:
-            # Never let a settings failure prevent a clean shutdown, since that
-            # would leave the radio streaming and the session database open.
-            logging.getLogger(__name__).warning("could not save layout: %s", exc)
+        Only the segment's own columns are touched, so a segment visited more
+        often than another cannot inflate its neighbours. Each column receives
+        exactly one increment per update, which means the level and column index
+        pairs are unique and plain fancy indexing accumulates correctly without
+        the unbuffered add that duplicate indices would require.
 
-        self.redraw_timer.stop()
-        self.stats_timer.stop()
-        self.worker.stop()
-        self.worker_thread.quit()
-        self.worker_thread.wait(3000)
-        self.engine.stop()
-        if self.engine.recorder is not None:
-            self.engine.recorder.stop()
-        self.store.close()
-        super().closeEvent(event)
+        Decay is applied to the same columns rather than to the whole array, for
+        the same reason. Decaying globally on every segment update would fade a
+        band in proportion to how many segments the plan contains rather than to
+        how long ago it was active.
+        """
+        span = DISPLAY_DB_CEIL - DISPLAY_DB_FLOOR
+        scale = (PERSISTENCE_LEVELS - 1) / span
+
+        levels = (self.current[start:end] - DISPLAY_DB_FLOOR) * scale
+        np.clip(levels, 0, PERSISTENCE_LEVELS - 1, out=levels)
+
+        if self.persistence_decay < 1.0:
+            self.persistence[:, start:end] *= self.persistence_decay
+
+        columns = np.arange(start, end)
+        self.persistence[levels.astype(np.int32), columns] += 1.0
+
+    def clear_persistence(self) -> None:
+        """Discard accumulated activity history."""
+        self.persistence[:] = 0.0
+
+    @staticmethod
+    def _resample(source: np.ndarray, width: int, use_max: bool = True) -> np.ndarray:
+        """Resize a full resolution array to a display column count.
+
+        Column boundaries are computed as exact fractional positions across the
+        source and then truncated, so every column covers its true share of the
+        span no matter what the ratio is. An earlier version divided the source
+        length by the column count with integer division and used that as a fixed
+        group size, which silently misplaced the entire display whenever the ratio
+        was not close to a whole number. With 2688 bins across 907 columns the
+        group size truncated from 2.96 to 2, so the first two thirds of the
+        segment was stretched over every column and the remaining third was folded
+        into the last one. The spectrum was compressed horizontally while the axis
+        and the hover readout continued to use the correct scale, which put every
+        trace feature at the wrong frequency by a margin that grew across the span.
+
+        Downsampling takes a maximum over each column's range rather than a mean.
+        A mean averages an occupied bin against its unoccupied neighbours and
+        attenuates a narrow carrier by the reduction ratio, hiding exactly the
+        signals this display exists to reveal. The floor overlay is the one
+        exception and interpolates, since a maximum of the floor would overstate
+        it.
+        """
+        n = int(source.size)
+        if n == width:
+            return source.astype(np.float32)
+
+        if n > width and use_max:
+            # Fractional edges truncated to indices. Guaranteed strictly
+            # increasing because the source is longer than the output, so the
+            # spacing is at least one.
+            edges = np.linspace(0, n, width + 1).astype(np.int64)
+            reduced = np.maximum.reduceat(source, edges[:-1])
+            return reduced.astype(np.float32)
+
+        # Upsampling, or downsampling the floor overlay.
+        return np.interp(
+            np.linspace(0.0, n - 1.0, width),
+            np.arange(n, dtype=np.float64),
+            source.astype(np.float64),
+        ).astype(np.float32)
+
+    def reset(self) -> None:
+        """Clear traces without rebuilding layout. Used on a gain change."""
+        self.current[:] = DISPLAY_DB_FLOOR
+        self.peak_hold[:] = DISPLAY_DB_FLOOR
+        self.floor[:] = DISPLAY_DB_FLOOR
+        self.persistence[:] = 0.0
+        self._written.clear()
+
+    def clear_peak_hold(self) -> None:
+        """Drop accumulated peaks, leaving the live trace and floor intact.
+
+        Separate from reset because an operator holding peaks over a long session
+        needs to start a fresh observation window without also discarding the
+        noise floor estimate that took time to converge.
+        """
+        self.peak_hold[:] = DISPLAY_DB_FLOOR
+
+
+class FrequencyAxis(pg.AxisItem):
+    """Axis that labels composite columns with the true frequency they represent."""
+
+    def __init__(self, composite: Optional[SweepComposite] = None, **kwargs):
+        super().__init__(**kwargs)
+        self.composite = composite
+
+    def set_composite(self, composite: Optional[SweepComposite]) -> None:
+        """Point the axis at a new composite and force the labels to regenerate.
+
+        Simply reassigning the composite is not enough. The axis is drawn in
+        column space, so a change of band plan leaves the tick positions
+        identical, and pyqtgraph reuses its cached rendering rather than asking
+        for the strings again. The labels then keep describing the previous plan
+        while the trace beneath them shows the new one, which is worse than an
+        obviously broken axis because it looks entirely plausible.
+        """
+        self.composite = composite
+        self.picture = None
+        self.update()
+
+    def tickStrings(self, values, scale, spacing):
+        if self.composite is None:
+            return ["" for _ in values]
+        labels = []
+        for value in values:
+            hz = self.composite.col_to_hz(value)
+            if hz is None:
+                labels.append("")
+            elif hz >= 1e9:
+                labels.append("{0:.4f}G".format(hz / 1e9))
+            else:
+                labels.append("{0:.3f}".format(hz / 1e6))
+        return labels
+
+
+class SpectrumDisplay(QWidget):
+    """Linked spectrum trace and waterfall with hover readout and click to mark.
+
+    Emits hover_changed on every pointer move over either panel, carrying the
+    resolved frequency and level, and emits marker_requested on a click so the
+    main window can bind the click to a detected event.
+    """
+
+    hover_changed = Signal(dict)
+    marker_requested = Signal(float)
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.composite: Optional[SweepComposite] = None
+        self.history_rows = DEFAULT_HISTORY_ROWS
+
+        # Double height ring buffer. Every row is written at both idx and
+        # idx + history_rows so that the visible window is a contiguous slice
+        # view, avoiding a full buffer copy on each advance.
+        self._waterfall = None
+        self._write_row = 0
+
+        # Colour scale limits for the waterfall, tracked in quantised units.
+        # The quantisation window spans 130 dB so that no real signal is ever
+        # clipped, but the occupied part of it is rarely more than 40 dB wide, and
+        # mapping the whole window onto the colour map leaves every row a single
+        # flat shade. These follow the data so the colours cover what is actually
+        # there.
+        self._level_lo = 0.0
+        self._level_hi = 255.0
+        self.auto_contrast = True
+
+        self._cursor_labels: List[pg.TextItem] = []
+        self._event_markers: List[pg.LinearRegionItem] = []
+        self._saved_markers: List[pg.InfiniteLine] = []
+        self._band_separators: List[pg.InfiniteLine] = []
+
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # A splitter rather than a fixed layout, so the operator decides how much
+        # screen goes to the trace and how much to the waterfall. Which of the two
+        # matters more depends entirely on the task, and a ratio chosen here would
+        # be wrong for half of them.
+        self.splitter = QSplitter(Qt.Vertical)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.setHandleWidth(6)
+        layout.addWidget(self.splitter)
+
+        self.trace_axis = FrequencyAxis(orientation="bottom")
+        self.trace_widget = pg.PlotWidget(axisItems={"bottom": self.trace_axis})
+        self.trace_widget.setBackground("#0d0f12")
+        self.trace_widget.setMinimumHeight(80)
+        self.trace_plot = self.trace_widget.getPlotItem()
+        self.trace_plot.setLabel("left", "dBFS")
+        self.trace_plot.showGrid(x=True, y=True, alpha=0.18)
+        self.trace_plot.setMouseEnabled(x=True, y=True)
+        self.trace_plot.setYRange(DISPLAY_DB_FLOOR, DISPLAY_DB_CEIL, padding=0.0)
+        self.trace_plot.setMenuEnabled(False)
+        self.splitter.addWidget(self.trace_widget)
+
+        # Drawn behind every curve, so the trace and the floor overlay stay legible
+        # on top of it. The lookup table ramps alpha from fully transparent at zero
+        # activity, which is what stops an empty band being painted over.
+        self.persistence_image = pg.ImageItem()
+        self.persistence_image.setLookupTable(_persistence_lut())
+        self.persistence_image.setLevels([0, 255])
+        self.persistence_image.setZValue(-20)
+        self.trace_plot.addItem(self.persistence_image)
+        self.persistence_enabled = True
+
+        self.peak_curve = self.trace_plot.plot(pen=pg.mkPen("#3a5f8a", width=1))
+        self.floor_curve = self.trace_plot.plot(
+            pen=pg.mkPen("#8a5a2a", width=1, style=Qt.DashLine)
+        )
+        self.threshold_curve = self.trace_plot.plot(
+            pen=pg.mkPen("#a03030", width=1, style=Qt.DotLine)
+        )
+        self.trace_curve = self.trace_plot.plot(pen=pg.mkPen("#4ec9b0", width=1))
+
+        self.waterfall_axis = FrequencyAxis(orientation="bottom")
+        self.waterfall_widget = pg.PlotWidget(axisItems={"bottom": self.waterfall_axis})
+        self.waterfall_widget.setBackground("#0d0f12")
+        self.waterfall_widget.setMinimumHeight(80)
+        self.waterfall_plot = self.waterfall_widget.getPlotItem()
+        self.waterfall_plot.setLabel("left", "history")
+        self.waterfall_plot.setMouseEnabled(x=True, y=False)
+        self.waterfall_plot.setMenuEnabled(False)
+        self.waterfall_plot.hideAxis("left")
+        self.splitter.addWidget(self.waterfall_widget)
+
+        self.waterfall_image = pg.ImageItem()
+        self.waterfall_plot.addItem(self.waterfall_image)
+        colormap = pg.colormap.get("inferno")
+        self.waterfall_image.setLookupTable(colormap.getLookupTable(0.0, 1.0, 256))
+        self.waterfall_image.setLevels([0, 255])
+
+        # X axes are linked so panning or zooming either panel moves both, and a
+        # feature in the waterfall always sits directly under the same feature in
+        # the trace regardless of how the splitter is dragged.
+        self.waterfall_plot.setXLink(self.trace_plot)
+
+        self.splitter.setStretchFactor(0, 2)
+        self.splitter.setStretchFactor(1, 3)
+        self.splitter.setSizes([320, 480])
+
+        self.cursor_line = pg.InfiniteLine(angle=90, movable=False,
+                                           pen=pg.mkPen("#ffffff", width=1, style=Qt.DashLine))
+        self.cursor_line.setZValue(100)
+        self.trace_plot.addItem(self.cursor_line, ignoreBounds=True)
+        self.cursor_line_wf = pg.InfiniteLine(angle=90, movable=False,
+                                              pen=pg.mkPen("#ffffff", width=1, style=Qt.DashLine))
+        self.cursor_line_wf.setZValue(100)
+        self.waterfall_plot.addItem(self.cursor_line_wf, ignoreBounds=True)
+
+        # A readout that travels with the pointer. The strip above the plots
+        # carries the same frequency along with more detail, but reading it means
+        # looking away from the signal being pointed at, and on a wide display
+        # that is a real interruption. This puts the number where the eye already
+        # is. It is added with ignoreBounds so its extent never participates in
+        # autoranging, which would otherwise let the label drag the view around as
+        # the pointer moves.
+        for plot in (self.trace_plot, self.waterfall_plot):
+            label = pg.TextItem(anchor=(0.0, 1.0), color="#e8ecf2",
+                                fill=pg.mkBrush(13, 15, 18, 210),
+                                border=pg.mkPen("#2c313b"))
+            label.setZValue(200)
+            label.hide()
+            plot.addItem(label, ignoreBounds=True)
+            self._cursor_labels.append(label)
+
+        # Each widget owns its own graphics scene now that they are separate, so
+        # the plot the pointer is over is bound at connection time rather than
+        # searched for afterwards.
+        for widget, plot in ((self.trace_widget, self.trace_plot),
+                             (self.waterfall_widget, self.waterfall_plot)):
+            widget.scene().sigMouseMoved.connect(
+                lambda pos, p=plot: self._on_mouse_moved(pos, p))
+            widget.scene().sigMouseClicked.connect(
+                lambda event, p=plot: self._on_mouse_clicked(event, p))
+
+    def set_peak_decay(self, decay_db: float) -> None:
+        """Set peak hold decay in dB per update. Zero holds indefinitely."""
+        if self.composite is not None:
+            self.composite.peak_decay_db = max(0.0, float(decay_db))
+
+    def clear_peak_hold(self) -> None:
+        """Discard accumulated peaks and activity, leaving the floor estimate."""
+        if self.composite is not None:
+            self.composite.clear_peak_hold()
+            self.composite.clear_persistence()
+
+    def set_plan(self, segments: List, history_rows: int = DEFAULT_HISTORY_ROWS) -> None:
+        """Rebuild the composite and the waterfall for a new band plan."""
+        self.composite = SweepComposite(segments)
+        self.history_rows = int(history_rows)
+        self.trace_axis.set_composite(self.composite)
+        self.waterfall_axis.set_composite(self.composite)
+
+        cols = self.composite.total_cols
+        self._waterfall = np.zeros((self.history_rows * 2, cols), dtype=np.uint8)
+        self._write_row = 0
+        # The previous plan's levels describe different frequencies at a possibly
+        # different gain, so the scale restarts rather than converging away from a
+        # stale starting point.
+        self._level_lo = 0.0
+        self._level_hi = 255.0
+
+        self.trace_plot.setXRange(0, cols, padding=0.0)
+        self.waterfall_image.setRect(0, 0, cols, self.history_rows)
+        self.waterfall_plot.setYRange(0, self.history_rows, padding=0.0)
+
+        self._clear_items(self._band_separators, self.trace_plot)
+        self._band_separators = []
+        for col, name in self.composite.band_edges:
+            if col == 0:
+                continue
+            for plot in (self.trace_plot, self.waterfall_plot):
+                line = pg.InfiniteLine(
+                    pos=col, angle=90, movable=False,
+                    pen=pg.mkPen("#4a4a55", width=1, style=Qt.DashDotLine),
+                )
+                line.setZValue(50)
+                plot.addItem(line, ignoreBounds=True)
+                self._band_separators.append(line)
+
+        self.clear_event_markers()
+        self._hide_cursor_labels()
+
+    def ingest(self, frame, floor_dbfs: Optional[np.ndarray] = None) -> None:
+        """Fold one segment frame into the display, advancing on sweep completion."""
+        if self.composite is None:
+            return
+        completed = self.composite.ingest(frame, floor_dbfs)
+        if completed:
+            self._advance_waterfall()
+
+    def _advance_waterfall(self) -> None:
+        """Write the current composite as a new waterfall row."""
+        if self._waterfall is None:
+            return
+        span = DISPLAY_DB_CEIL - DISPLAY_DB_FLOOR
+        clipped = np.clip(self.composite.current, DISPLAY_DB_FLOOR, DISPLAY_DB_CEIL)
+        row = ((clipped - DISPLAY_DB_FLOOR) * (255.0 / span)).astype(np.uint8)
+
+        self._waterfall[self._write_row] = row
+        self._waterfall[self._write_row + self.history_rows] = row
+        self._write_row = (self._write_row + 1) % self.history_rows
+
+    def redraw(self, threshold_offset_db: float = 6.0) -> None:
+        """Repaint traces and waterfall. Called on a display timer, not per frame.
+
+        Decoupling repaint from frame arrival is what keeps the UI responsive. The
+        sweeper produces frames far faster than a display needs to update, and
+        repainting on every frame would spend the whole budget in the renderer for
+        no visible benefit.
+        """
+        if self.composite is None or self._waterfall is None:
+            return
+
+        self._redraw_persistence()
+
+        x = np.arange(self.composite.total_cols, dtype=np.float32)
+        self.trace_curve.setData(x, self.composite.current)
+        self.peak_curve.setData(x, self.composite.peak_hold)
+        self.floor_curve.setData(x, self.composite.floor)
+        self.threshold_curve.setData(x, self.composite.floor + threshold_offset_db)
+
+        # Slice view into the ring, newest row at the top of the visible window.
+        start = self._write_row
+        view = self._waterfall[start:start + self.history_rows]
+
+        if self.auto_contrast:
+            self._track_levels()
+        self.waterfall_image.setImage(view[::-1], autoLevels=False,
+                                      levels=[self._level_lo, self._level_hi])
+
+    def _redraw_persistence(self) -> None:
+        """Paint the activity histogram beneath the trace.
+
+        Counts are compressed logarithmically before display. Activity spans
+        orders of magnitude between a frequency that fired once and one occupied
+        continuously, and a linear scale would render the single event as nothing
+        at all. The logarithm keeps the one off faintly visible while still making
+        sustained activity unmistakably brighter.
+        """
+        if not self.persistence_enabled:
+            return
+
+        counts = self.composite.persistence
+        peak = float(counts.max())
+        if peak <= 0.0:
+            return
+
+        scaled = np.log1p(counts) * (255.0 / np.log1p(peak))
+
+        # Transposed because the image item expects column major extent here, and
+        # the histogram is stored level by frequency for cheap column updates.
+        self.persistence_image.setImage(scaled.T, autoLevels=False, levels=[0, 255])
+        self.persistence_image.setRect(
+            0, DISPLAY_DB_FLOOR, self.composite.total_cols,
+            DISPLAY_DB_CEIL - DISPLAY_DB_FLOOR,
+        )
+
+    def set_persistence_enabled(self, enabled: bool) -> None:
+        """Show or hide the activity histogram."""
+        self.persistence_enabled = bool(enabled)
+        self.persistence_image.setVisible(self.persistence_enabled)
+
+    def set_persistence_decay(self, decay: float) -> None:
+        """Set retention per update. One means accumulate without fading."""
+        if self.composite is not None:
+            self.composite.persistence_decay = float(decay)
+
+    def clear_persistence(self) -> None:
+        """Discard accumulated activity history."""
+        if self.composite is not None:
+            self.composite.clear_persistence()
+
+    def _track_levels(self) -> None:
+        """Follow the occupied part of the level range with the colour scale.
+
+        Anchored to the tracked noise floor rather than to percentiles of the
+        image. A percentile over the waterfall would be dominated by whichever
+        rows happen to be in the buffer, so the colours would shift every time
+        history scrolled. The floor is already an estimate of where nothing is
+        happening, which makes it the right bottom of the scale, and the top is
+        set from the peak trace so a strong emitter defines full scale.
+
+        Both ends move slowly. A scale that jumped to each frame's extremes would
+        make the waterfall flicker on every burst and destroy the eye's ability to
+        compare one row against another.
+        """
+        span = DISPLAY_DB_CEIL - DISPLAY_DB_FLOOR
+        scale = 255.0 / span
+
+        floor_db = float(np.median(self.composite.floor))
+        # A high percentile rather than the maximum. One anomalous bin, whether a
+        # genuine strong emitter or a transient artifact, would otherwise stretch
+        # the colour scale across a range nothing else occupies and flatten the
+        # whole waterfall to a single shade.
+        peak_db = float(np.percentile(self.composite.peak_hold, 99.5))
+        if not np.isfinite(floor_db) or not np.isfinite(peak_db):
+            return
+
+        # A couple of dB below the floor so the quiet parts are genuinely dark,
+        # and a small margin above the strongest peak so it is not clipped.
+        target_lo = (max(floor_db - 4.0, DISPLAY_DB_FLOOR) - DISPLAY_DB_FLOOR) * scale
+        target_hi = (min(peak_db + 4.0, DISPLAY_DB_CEIL) - DISPLAY_DB_FLOOR) * scale
+
+        # Never let the window collapse. A span narrower than this turns ordinary
+        # noise variation into full scale colour swings.
+        if target_hi - target_lo < 20.0:
+            target_hi = target_lo + 20.0
+
+        alpha = 0.08
+        self._level_lo += alpha * (target_lo - self._level_lo)
+        self._level_hi += alpha * (target_hi - self._level_hi)
+
+    def show_events(self, events: List[Dict]) -> None:
+        """Draw a shaded region over each active detection on the trace."""
+        if self.composite is None:
+            return
+        self.clear_event_markers()
+
+        colours = {
+            # Held detections are past activity being retained for the record, so
+            # they are drawn in a distinct colour and never mistaken for something
+            # currently transmitting.
+            "held": (200, 90, 90, 40),
+            "new": (80, 200, 120, 55),
+            "intermittent": (200, 170, 60, 45),
+            "persistent": (110, 110, 130, 30),
+            "unknown": (120, 160, 200, 40),
+        }
+
+        for event in events:
+            low = self.composite.hz_to_col(event["center_hz"] - event["occupied_bw_hz"] / 2.0)
+            high = self.composite.hz_to_col(event["center_hz"] + event["occupied_bw_hz"] / 2.0)
+            if low is None or high is None:
+                continue
+            # Guarantee a minimum visible width so a narrow carrier is not drawn
+            # as a zero width region that the operator cannot see or click.
+            if high - low < 2.0:
+                centre = (low + high) / 2.0
+                low, high = centre - 1.0, centre + 1.0
+            region = pg.LinearRegionItem(
+                values=(low, high),
+                brush=pg.mkBrush(*colours.get(event.get("classification", "unknown"))),
+                movable=False,
+            )
+            region.setZValue(-10)
+            self.trace_plot.addItem(region)
+            self._event_markers.append(region)
+
+    def show_saved_markers(self, markers: List[Dict]) -> None:
+        """Draw a labelled vertical line for each saved marker on both panels."""
+        if self.composite is None:
+            return
+        self._clear_items(self._saved_markers, None)
+        self._saved_markers = []
+
+        for marker in markers:
+            col = self.composite.hz_to_col(marker["center_hz"])
+            if col is None:
+                continue
+            for plot, with_label in ((self.trace_plot, True), (self.waterfall_plot, False)):
+                line = pg.InfiniteLine(
+                    pos=col, angle=90, movable=False,
+                    pen=pg.mkPen("#e05c5c", width=1),
+                    label=marker["label"] if with_label else None,
+                    labelOpts={"position": 0.92, "color": "#e05c5c", "movable": False},
+                )
+                line.setZValue(60)
+                plot.addItem(line, ignoreBounds=True)
+                self._saved_markers.append(line)
+
+    def clear_event_markers(self) -> None:
+        """Remove all detection regions from the trace."""
+        for region in self._event_markers:
+            self.trace_plot.removeItem(region)
+        self._event_markers = []
+
+    @staticmethod
+    def _clear_items(items: List, plot) -> None:
+        """Remove items from whichever plot currently owns them."""
+        for item in items:
+            scene = item.scene()
+            if scene is not None:
+                for view in scene.views():
+                    pass
+            if item.parentItem() is not None or scene is not None:
+                try:
+                    item.getViewBox().removeItem(item)
+                except Exception:
+                    pass
+
+    def _resolve_pointer(self, scene_pos, plot) -> Optional[dict]:
+        """Convert a scene position into frequency, level, and segment context."""
+        if self.composite is None:
+            return None
+        if not plot.sceneBoundingRect().contains(scene_pos):
+            return None
+
+        point = plot.vb.mapSceneToView(scene_pos)
+        col = float(point.x())
+        if col < 0 or col >= self.composite.total_cols:
+            return None
+
+        hz = self.composite.col_to_hz(col)
+        if hz is None:
+            return None
+        segment = self.composite.segment_at_col(col)
+        index = int(min(max(col, 0), self.composite.total_cols - 1))
+
+        return {
+            "hz": hz,
+            "col": col,
+            "level_dbfs": float(self.composite.current[index]),
+            "peak_dbfs": float(self.composite.peak_hold[index]),
+            "floor_dbfs": float(self.composite.floor[index]),
+            "band_name": segment.band_name if segment is not None else "",
+            "segment_id": segment.segment_id if segment is not None else -1,
+            "rbw_hz": segment.rbw_hz if segment is not None else 0.0,
+        }
+
+    def _on_mouse_moved(self, scene_pos, plot) -> None:
+        info = self._resolve_pointer(scene_pos, plot)
+        if info is None:
+            self._hide_cursor_labels()
+            return
+
+        self.cursor_line.setPos(info["col"])
+        self.cursor_line_wf.setPos(info["col"])
+        self._update_cursor_label(scene_pos, plot, info)
+        self.hover_changed.emit(info)
+
+    def _hide_cursor_labels(self) -> None:
+        for label in self._cursor_labels:
+            label.hide()
+
+    def _update_cursor_label(self, scene_pos, plot, info: dict) -> None:
+        """Place the travelling readout beside the pointer, on the panel it is over.
+
+        Only the panel under the pointer shows a label. Showing both would put a
+        second copy of the same number somewhere the operator is not looking, and
+        the vertical cursor line already ties the two panels together.
+
+        The anchor flips once the pointer passes the middle of the span so the
+        text extends back toward the centre. Without that, hovering near the right
+        edge draws the label off the plot where it cannot be read.
+        """
+        if self.composite is None:
+            return
+
+        point = plot.vb.mapSceneToView(scene_pos)
+        past_middle = info["col"] > self.composite.total_cols * 0.5
+        anchor = (1.0, 1.0) if past_middle else (0.0, 1.0)
+
+        hz = info["hz"]
+        if hz >= 1e9:
+            frequency = "{0:.6f} GHz".format(hz / 1e9)
+        else:
+            frequency = "{0:.6f} MHz".format(hz / 1e6)
+
+        text = "{0}\n{1:.1f} dBFS".format(frequency, info["level_dbfs"])
+        if info["band_name"]:
+            text += "\n{0}".format(info["band_name"])
+
+        for label, owner in zip(self._cursor_labels,
+                                (self.trace_plot, self.waterfall_plot)):
+            if owner is not plot:
+                label.hide()
+                continue
+            label.setAnchor(anchor)
+            label.setText(text)
+            label.setPos(point.x(), point.y())
+            label.show()
+
+    def _on_mouse_clicked(self, event, plot) -> None:
+        if event.button() != Qt.LeftButton:
+            return
+        info = self._resolve_pointer(event.scenePos(), plot)
+        if info is None:
+            return
+        self.marker_requested.emit(info["hz"])
