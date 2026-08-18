@@ -55,11 +55,18 @@
 #   sources rather than stopping it, which is correct, since neither needs a radio.
 #
 #   System libraries are optional and privileged. Resolving them means installing
-#   distribution packages, which requires root. Elevation is never silent. If
-#   passwordless sudo is configured the command runs directly, otherwise the exact
-#   command is displayed and consent is requested once. With no terminal available
-#   to ask on, the instructions are printed and the application continues without
-#   hardware support rather than blocking on a prompt nobody can see.
+#   distribution packages, which requires root, and that happens automatically
+#   when they are found to be missing. The package list is fixed in this file and
+#   is never derived from input, so what can be installed is fully determined by
+#   the source. Each transaction is announced before it runs, so an operator
+#   reading the console or a log can see exactly what was changed and when.
+#
+#   Elevation is obtained through sudo, whose own password prompt is left in
+#   place. That prompt is the operating system's authorisation gate rather than
+#   this application's, and suppressing it is neither possible nor desirable. Where
+#   no terminal exists to answer it, sudo is invoked in its non interactive form
+#   so it fails immediately instead of blocking forever on a prompt nobody can
+#   see, and the application continues without hardware support.
 #
 # SECURITY NOTICE:
 #   This module installs packages from the configured Python package index and,
@@ -69,9 +76,11 @@
 #   and launch with bootstrapping disabled rather than allowing an unplanned
 #   outbound connection or a privileged package transaction during an operation.
 #   Dependencies are version floored rather than pinned to an exact hash, so an
-#   upstream supply chain compromise is not detected here. Elevation is requested
-#   only to install the named build libraries, the command is shown before it
-#   runs, and it can be refused without preventing the application from starting.
+#   upstream supply chain compromise is not detected here. Elevation is used only
+#   to install the fixed set of build libraries named in this file, each
+#   transaction is announced before it runs, and the whole privileged path can be
+#   disabled with --no-system-deps without preventing the application from
+#   starting.
 #
 # DISCLAIMER:
 #   This software is provided for lawful, authorized use only. The author and Red
@@ -335,12 +344,12 @@ def detect_package_manager() -> dict:
     return None
 
 
-def _elevation_prefix(manager: dict, assume_yes: bool) -> list:
+def _elevation_prefix(manager: dict) -> list:
     """Decide how, or whether, to elevate for a package transaction.
 
     Returns the command prefix to use, an empty list when no elevation is needed,
-    or None when elevation is impossible or refused. Nothing here runs a command,
-    so the caller can display exactly what will execute before it does.
+    or None when elevation is impossible. Nothing here runs a package command, so
+    the caller retains the choice of announcing it first.
     """
     if not manager["needs_root"]:
         return []
@@ -352,8 +361,8 @@ def _elevation_prefix(manager: dict, assume_yes: bool) -> list:
         print("[bootstrap] root privileges are required and sudo is not available")
         return None
 
-    # A passwordless sudo rule means the operator has already granted this and no
-    # prompt is warranted.
+    # A passwordless rule means no prompt will appear at all, so the non
+    # interactive form is preferred wherever it works.
     try:
         probe = subprocess.run(["sudo", "-n", "true"], check=False, capture_output=True)
         if probe.returncode == 0:
@@ -361,23 +370,28 @@ def _elevation_prefix(manager: dict, assume_yes: bool) -> list:
     except OSError:
         return None
 
-    if assume_yes:
-        return ["sudo"]
-
     if not sys.stdin.isatty():
-        # No terminal to prompt on. Blocking here would hang with an invisible
-        # password prompt, which is worse than starting without hardware support.
-        print("[bootstrap] elevation needed but no terminal is available to ask on")
-        return None
+        # Without a terminal there is nowhere to answer a password prompt, and
+        # plain sudo would block indefinitely waiting for one. The non
+        # interactive form fails immediately instead, which degrades the
+        # application to its no radio sources rather than hanging it.
+        print("[bootstrap] elevation needed but no terminal is available for the "
+              "sudo password prompt")
+        return ["sudo", "-n"]
 
     return ["sudo"]
 
 
-def install_native_libraries(assume_yes: bool = False, verbose: bool = True) -> bool:
-    """Resolve the native build dependencies, asking before elevating.
+def install_native_libraries(verbose: bool = True) -> bool:
+    """Resolve the native build dependencies without prompting.
 
-    Returns True when the libraries are present afterwards. A refusal or a failure
-    returns False and is not treated as fatal by the caller.
+    Runs as soon as the libraries are found to be missing. The package list is a
+    module constant rather than anything derived at runtime, so the set of things
+    this can install is fixed by the source. The transaction is announced before
+    it runs so it is visible in the console and in any captured log.
+
+    Returns True when the libraries are present afterwards. A failure returns
+    False and is not treated as fatal by the caller.
     """
     manager = detect_package_manager()
     if manager is None:
@@ -388,7 +402,7 @@ def install_native_libraries(assume_yes: bool = False, verbose: bool = True) -> 
                   "libhackrf and libusb development packages manually")
         return False
 
-    prefix = _elevation_prefix(manager, assume_yes)
+    prefix = _elevation_prefix(manager)
     if prefix is None:
         print("[bootstrap] install manually with: {0} {1}".format(
             " ".join(manager["install"]), " ".join(manager["packages"])))
@@ -396,21 +410,13 @@ def install_native_libraries(assume_yes: bool = False, verbose: bool = True) -> 
 
     install_command = prefix + manager["install"] + manager["packages"]
 
-    if prefix and not assume_yes:
-        # Shown in full before anything runs. An operator asked for a password
-        # should be able to see precisely what it will be spent on.
-        print("[bootstrap] the HackRF driver builds against system libraries that "
-              "are not installed.")
-        print("[bootstrap] this will run, and will ask for your password:")
-        print("[bootstrap]   {0}".format(" ".join(install_command)))
-        try:
-            answer = input("[bootstrap] proceed? [y/N] ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            answer = "n"
-        if answer not in ("y", "yes"):
-            print("[bootstrap] declined, continuing without hardware support")
-            return False
+    # Announced rather than asked. The operator gets a record of the privileged
+    # change without a question standing between them and a working analyzer.
+    print("[bootstrap] the HackRF driver builds against system libraries that are "
+          "not installed, resolving them now")
+    print("[bootstrap]   {0}".format(" ".join(install_command)))
+    if prefix and prefix[-1] != "-n":
+        print("[bootstrap]   sudo may ask for your password")
 
     if manager["refresh"]:
         try:
@@ -438,8 +444,8 @@ def install_native_libraries(assume_yes: bool = False, verbose: bool = True) -> 
     return True
 
 
-def ensure_hardware_support(python: Path = None, assume_yes: bool = False,
-                            allow_system: bool = True, verbose: bool = True) -> bool:
+def ensure_hardware_support(python: Path = None, allow_system: bool = True,
+                            verbose: bool = True) -> bool:
     """Make the HackRF driver importable, resolving what it needs to build.
 
     Ordered cheapest first. An already importable driver costs one spec lookup and
@@ -471,7 +477,7 @@ def ensure_hardware_support(python: Path = None, assume_yes: bool = False,
                 print("[bootstrap] missing native libraries: {0}".format(", ".join(missing)))
             if not _compiler_present():
                 print("[bootstrap] no C compiler found, the driver cannot be built")
-        if not install_native_libraries(assume_yes=assume_yes, verbose=verbose):
+        if not install_native_libraries(verbose=verbose):
             _print_degraded_notice()
             return False
 
@@ -537,8 +543,8 @@ def reenter(python: Path) -> None:
     os.execv(str(python), argv)
 
 
-def ensure_environment(skip: bool = False, assume_yes: bool = False,
-                       allow_system: bool = True, verbose: bool = True) -> None:
+def ensure_environment(skip: bool = False, allow_system: bool = True,
+                       verbose: bool = True) -> None:
     """Entry point. Provisions and re-enters the environment as required.
 
     Called before any third party import. Either returns with every mandatory
@@ -550,8 +556,7 @@ def ensure_environment(skip: bool = False, assume_yes: bool = False,
     if skip or os.environ.get("RCS_SPECTRUM_NO_BOOTSTRAP"):
         if verbose:
             print("[bootstrap] disabled, using the current interpreter")
-        ensure_hardware_support(assume_yes=assume_yes, allow_system=allow_system,
-                                verbose=verbose)
+        ensure_hardware_support(allow_system=allow_system, verbose=verbose)
         return
 
     already_reentered = os.environ.get(GUARD_ENV) == "1"
@@ -570,8 +575,7 @@ def ensure_environment(skip: bool = False, assume_yes: bool = False,
                     ", ".join(still_missing)))
                 print("[bootstrap] delete {0} and retry".format(venv_path()))
                 sys.exit(1)
-        ensure_hardware_support(assume_yes=assume_yes, allow_system=allow_system,
-                                verbose=verbose)
+        ensure_hardware_support(allow_system=allow_system, verbose=verbose)
         return
 
     target = venv_path()
