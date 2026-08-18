@@ -1071,6 +1071,11 @@ class MainWindow(QMainWindow):
 
     def _update_stats(self) -> None:
         stats = self.engine.stats()
+        # Surfaced so a plan change that discards in flight frames is visible
+        # rather than looking like a stall.
+        rejected = 0
+        if self.display.composite is not None:
+            rejected = self.display.composite.rejected_frames
         recording = ""
         if stats.get("recording") and self.engine.recorder is not None:
             rec = self.engine.recorder.stats()
@@ -1081,8 +1086,9 @@ class MainWindow(QMainWindow):
                 "connected" if stats["connected"] else "DISCONNECTED",
                 stats["sweeps"], stats["queue_depth"], stats["dropped_frames"],
                 stats["overruns"], stats.get("ppm", 0.0),
-                len(self._active_events), recording,
-            )
+                len(self._active_events),
+                "   stale {0}".format(rejected) if rejected else "",
+            ) + recording
         )
 
     def _save_layout(self) -> None:
