@@ -119,41 +119,78 @@ SETTINGS_APP = "RFSpectrumAnalyzer"
 MAX_HELD_EVENTS = 400
 
 STYLE = """
-QMainWindow, QWidget { background: #0d0f12; color: #c8ccd4; }
+QMainWindow, QWidget { background: #0d0f12; color: #c3c9d4; font-size: 12px; }
 QGroupBox {
-    border: 1px solid #23262e; border-radius: 3px;
-    margin-top: 8px; padding-top: 8px; font-weight: bold;
+    border: 1px solid #21242b; border-radius: 2px;
+    margin-top: 14px; padding: 10px 8px 8px 8px;
+    font-size: 11px; font-weight: 600;
 }
-QGroupBox::title { subcontrol-origin: margin; left: 8px; color: #7f8796; }
+QGroupBox::title {
+    subcontrol-origin: margin; subcontrol-position: top left;
+    left: 6px; padding: 0 4px; color: #6b7382;
+    text-transform: uppercase; letter-spacing: 1px;
+}
 QTableWidget {
-    background: #101319; alternate-background-color: #14171e;
-    gridline-color: #23262e; border: 1px solid #23262e;
-    selection-background-color: #1f3a4d;
+    background: #0f1216; alternate-background-color: #12151a;
+    gridline-color: #1c1f26; border: 1px solid #21242b;
+    selection-background-color: #1d3d52; selection-color: #e6ebf2;
 }
 QHeaderView::section {
-    background: #171b22; color: #7f8796;
-    border: none; border-right: 1px solid #23262e; padding: 4px;
+    background: #14171d; color: #6b7382; font-size: 10px;
+    text-transform: uppercase; letter-spacing: 1px;
+    border: none; border-bottom: 1px solid #21242b; padding: 5px 4px;
 }
 QPushButton {
-    background: #1a1e26; border: 1px solid #2c313b;
-    border-radius: 3px; padding: 5px 12px;
+    background: #171b21; border: 1px solid #282d36;
+    border-radius: 2px; padding: 6px 10px; color: #c3c9d4;
 }
-QPushButton:hover { background: #232833; }
-QPushButton:pressed { background: #2c313b; }
+QPushButton:hover { background: #1e232b; border-color: #37404d; }
+QPushButton:pressed { background: #253039; }
 QComboBox, QLineEdit, QSpinBox, QPlainTextEdit {
-    background: #101319; border: 1px solid #2c313b;
-    border-radius: 3px; padding: 3px 6px;
+    background: #0f1216; border: 1px solid #282d36;
+    border-radius: 2px; padding: 4px 6px; selection-background-color: #1d3d52;
 }
-QDockWidget { titlebar-close-icon: none; }
+QComboBox:focus, QLineEdit:focus, QSpinBox:focus { border-color: #3d7d99; }
+QComboBox::drop-down { border: none; width: 16px; }
+QCheckBox { spacing: 7px; padding: 2px 0; }
+QCheckBox::indicator {
+    width: 13px; height: 13px; border: 1px solid #363c47;
+    border-radius: 2px; background: #0f1216;
+}
+QCheckBox::indicator:checked { background: #3d7d99; border-color: #4e9ec0; }
+QSlider::groove:horizontal { height: 3px; background: #21242b; border-radius: 1px; }
+QSlider::sub-page:horizontal { background: #3d7d99; border-radius: 1px; }
+QSlider::handle:horizontal {
+    background: #8f9aab; width: 9px; margin: -5px 0; border-radius: 2px;
+}
+QSlider::handle:horizontal:hover { background: #c3c9d4; }
+QDockWidget { titlebar-close-icon: none; font-size: 11px; }
+QDockWidget::title {
+    background: #14171d; padding: 6px 8px; color: #6b7382;
+    text-transform: uppercase; letter-spacing: 1px;
+}
 QScrollArea { border: none; background: #0d0f12; }
-QDockWidget::title { background: #171b22; padding: 5px; }
+QScrollBar:vertical { background: #0d0f12; width: 9px; margin: 0; }
+QScrollBar::handle:vertical { background: #282d36; border-radius: 4px; min-height: 24px; }
+QScrollBar::handle:vertical:hover { background: #37404d; }
+QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
 QTabBar::tab {
-    background: #171b22; padding: 6px 14px; border: 1px solid #23262e;
+    background: transparent; padding: 7px 14px; color: #6b7382;
+    border: none; border-bottom: 2px solid transparent;
+    text-transform: uppercase; font-size: 10px; letter-spacing: 1px;
 }
-QTabBar::tab:selected { background: #1f2530; color: #4ec9b0; }
-QStatusBar { background: #171b22; border-top: 1px solid #23262e; }
-QLabel#readout { font-family: monospace; color: #4ec9b0; }
-QLabel#warning { color: #d4a04a; }
+QTabBar::tab:selected { color: #4ec9b0; border-bottom-color: #4ec9b0; }
+QTabBar::tab:hover:!selected { color: #9aa3b2; }
+QTabWidget::pane { border: none; border-top: 1px solid #21242b; }
+QStatusBar { background: #14171d; border-top: 1px solid #21242b; color: #6b7382; }
+QStatusBar::item { border: none; }
+QLabel#readout { color: #4ec9b0; }
+QLabel#value { color: #8f9aab; }
+QLabel#alert { color: #c8964a; }
+QToolTip {
+    background: #14171d; color: #c3c9d4;
+    border: 1px solid #37404d; padding: 5px;
+}
 """
 
 
@@ -218,11 +255,15 @@ class MarkerDialog(QDialog):
     def __init__(self, event: Dict, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setWindowTitle("Save marker")
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(400)
         self.event = event
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 14, 14, 12)
+        layout.setSpacing(8)
         form = QFormLayout()
+        form.setSpacing(5)
+        form.setLabelAlignment(Qt.AlignLeft)
 
         self.label_edit = QLineEdit()
         self.label_edit.setText("{0:.4f} MHz".format(event["center_hz"] / 1e6))
@@ -240,20 +281,27 @@ class MarkerDialog(QDialog):
             ("Class", event.get("classification", "unknown")),
             ("Band", event.get("band_name", "")),
         ]
+        mono = QFont("Monospace", 9)
+        mono.setStyleHint(QFont.TypeWriter)
         for name, value in measured:
             field = QLabel(value)
             field.setObjectName("readout")
-            form.addRow(name, field)
+            field.setFont(mono)
+            caption = QLabel(name)
+            caption.setObjectName("value")
+            form.addRow(caption, field)
 
         antenna = event.get("antenna_note", "")
         if antenna:
             note = QLabel(antenna)
             note.setWordWrap(True)
-            note.setObjectName("warning")
+            note.setObjectName("alert")
             form.addRow("Antenna", note)
 
         layout.addLayout(form)
-        layout.addWidget(QLabel("Notes"))
+        notes_caption = QLabel("Notes")
+        notes_caption.setObjectName("value")
+        layout.addWidget(notes_caption)
         self.notes_edit = QPlainTextEdit()
         self.notes_edit.setMaximumHeight(90)
         layout.addWidget(self.notes_edit)
@@ -300,6 +348,9 @@ class MainWindow(QMainWindow):
 
         self._settings = QSettings(SETTINGS_ORG, SETTINGS_APP)
 
+        self._mono = QFont("Monospace", 9)
+        self._mono.setStyleHint(QFont.TypeWriter)
+
         self._build_ui()
         self._start_worker()
         self._apply_preset(preset_key, initial=True)
@@ -322,14 +373,12 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         central = QWidget()
         layout = QVBoxLayout(central)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(4)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(3)
 
         self.readout = QLabel("hover the spectrum for a frequency readout")
         self.readout.setObjectName("readout")
-        mono = QFont("Monospace", 9)
-        mono.setStyleHint(QFont.TypeWriter)
-        self.readout.setFont(mono)
+        self.readout.setFont(self._mono)
         # Allowed to shrink below its natural width. A fixed width readout sets a
         # floor on the whole window, which on a small display is what pushes the
         # control dock past the edge of the screen.
@@ -384,148 +433,215 @@ class MainWindow(QMainWindow):
     def _build_config_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
+        layout.setContentsMargins(10, 8, 10, 10)
+        layout.setSpacing(10)
 
-        plan_box = QGroupBox("Band plan")
-        plan_layout = QVBoxLayout(plan_box)
+        layout.addWidget(self._build_plan_box())
+        layout.addWidget(self._build_gain_box())
+        layout.addWidget(self._build_detector_box())
+        layout.addWidget(self._build_retention_box())
+        layout.addWidget(self._build_calibration_box())
+        layout.addStretch(1)
+        return page
+
+    def _build_plan_box(self) -> QGroupBox:
+        box = QGroupBox("Band plan")
+        layout = QVBoxLayout(box)
+        layout.setSpacing(6)
 
         self.region_combo = QComboBox()
         self.region_combo.addItems(["US", "EU", "SA", "GLOBAL"])
         self.region_combo.currentTextChanged.connect(self._populate_presets)
-        plan_layout.addWidget(self.region_combo)
+        layout.addWidget(self.region_combo)
 
+        preset_row = QHBoxLayout()
+        preset_row.setSpacing(6)
         self.preset_combo = QComboBox()
-        plan_layout.addWidget(self.preset_combo)
-
-        apply_button = QPushButton("Apply preset")
+        apply_button = QPushButton("Apply")
+        apply_button.setFixedWidth(64)
         apply_button.clicked.connect(self._on_apply_preset)
-        plan_layout.addWidget(apply_button)
+        preset_row.addWidget(self.preset_combo, 1)
+        preset_row.addWidget(apply_button)
+        layout.addLayout(preset_row)
 
-        # Entry fields on their own row and the button beneath, so the group stays
-        # legible at the narrowest dock width rather than pushing the stop field
-        # off the edge.
         custom_row = QHBoxLayout()
+        custom_row.setSpacing(6)
         self.custom_start = QLineEdit()
         self.custom_start.setPlaceholderText("start MHz")
         self.custom_stop = QLineEdit()
         self.custom_stop.setPlaceholderText("stop MHz")
-        custom_row.addWidget(self.custom_start)
-        custom_row.addWidget(self.custom_stop)
-        plan_layout.addLayout(custom_row)
-
-        custom_button = QPushButton("Apply custom range")
+        custom_button = QPushButton("Set")
+        custom_button.setFixedWidth(64)
         custom_button.clicked.connect(self._apply_custom_range)
-        plan_layout.addWidget(custom_button)
+        custom_row.addWidget(self.custom_start, 1)
+        custom_row.addWidget(self.custom_stop, 1)
+        custom_row.addWidget(custom_button)
+        layout.addLayout(custom_row)
 
-        # The sweep consequences are shown live because a wide span silently
+        # Sweep consequences as a compact aligned block. A wide span silently
         # trades away the ability to see short transmissions, and an operator who
-        # is not told that reads an empty waterfall as an empty band.
-        # Both labels wrap and are told to grow vertically. Without the size
-        # policy a long warning is clipped by the group box rather than making it
-        # taller, which is how the sweep metrics ended up drawn over the button
-        # above them.
-        self.metrics_label = QLabel()
-        self.metrics_label.setObjectName("readout")
-        self.metrics_label.setWordWrap(True)
-        self.metrics_label.setMinimumHeight(34)
-        self.metrics_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
-        plan_layout.addWidget(self.metrics_label)
+        # is not shown that reads an empty waterfall as an empty band.
+        self.metrics_grid = QFormLayout()
+        self.metrics_grid.setContentsMargins(0, 4, 0, 0)
+        self.metrics_grid.setSpacing(3)
+        self.metrics_grid.setLabelAlignment(Qt.AlignLeft)
+        self.metric_fields = {}
+        for key, label in (("segments", "Segments"), ("span", "Span"),
+                           ("revisit", "Revisit"), ("burst", "Min burst"),
+                           ("rbw", "RBW")):
+            field = QLabel("-")
+            field.setObjectName("readout")
+            field.setFont(self._mono)
+            self.metric_fields[key] = field
+            caption = QLabel(label)
+            caption.setObjectName("value")
+            self.metrics_grid.addRow(caption, field)
+        layout.addLayout(self.metrics_grid)
 
+        # Present only when a plan genuinely warrants a warning, and truncated to
+        # one line with the full text on hover.
         self.warning_label = QLabel()
-        self.warning_label.setObjectName("warning")
-        self.warning_label.setWordWrap(True)
-        self.warning_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
-        plan_layout.addWidget(self.warning_label)
+        self.warning_label.setObjectName("alert")
+        self.warning_label.setWordWrap(False)
+        self.warning_label.hide()
+        layout.addWidget(self.warning_label)
+        return box
 
-        layout.addWidget(plan_box)
-
-        gain_box = QGroupBox("Gain")
-        gain_layout = QFormLayout(gain_box)
+    def _build_gain_box(self) -> QGroupBox:
+        box = QGroupBox("Gain")
+        layout = QFormLayout(box)
+        layout.setSpacing(6)
+        layout.setLabelAlignment(Qt.AlignLeft)
 
         self.amp_combo = QComboBox()
         self.amp_combo.addItems(["off", "14 dB"])
-        gain_layout.addRow("Front end amp", self.amp_combo)
+        self.amp_combo.setToolTip(
+            "Front end amplifier. Off by default because it overloads readily in "
+            "dense RF, and the loss of segment wide dynamic range usually costs "
+            "more than the sensitivity it buys."
+        )
+        layout.addRow("Amp", self.amp_combo)
 
         self.lna_slider, lna_row = self._make_slider(0, 40, 8, 16)
-        gain_layout.addRow("LNA", lna_row)
+        self.lna_slider.setToolTip("Intermediate frequency gain, 0 to 40 dB in 8 dB steps.")
+        layout.addRow("LNA", lna_row)
+
         self.vga_slider, vga_row = self._make_slider(0, 62, 2, 20)
-        gain_layout.addRow("VGA", vga_row)
+        self.vga_slider.setToolTip("Baseband gain, 0 to 62 dB in 2 dB steps.")
+        layout.addRow("VGA", vga_row)
 
         gain_button = QPushButton("Apply gain")
-        gain_button.clicked.connect(self._apply_gain)
-        gain_layout.addRow(gain_button)
-
-        gain_note = QLabel(
-            "Raising gain past the point where the floor lifts costs dynamic "
-            "range and creates false wideband detections. Detector state resets "
-            "on every gain change."
+        gain_button.setToolTip(
+            "Raising gain past the point where the noise floor lifts costs dynamic "
+            "range and produces false wideband detections. Detector state resets on "
+            "every gain change, since a floor learned at the old setting is wrong "
+            "by the gain delta."
         )
-        gain_note.setWordWrap(True)
-        gain_note.setObjectName("warning")
-        gain_layout.addRow(gain_note)
+        gain_button.clicked.connect(self._apply_gain)
+        layout.addRow(gain_button)
+        return box
 
-        layout.addWidget(gain_box)
-
-        detect_box = QGroupBox("Detector")
-        detect_layout = QFormLayout(detect_box)
+    def _build_detector_box(self) -> QGroupBox:
+        box = QGroupBox("Detector")
+        layout = QFormLayout(box)
+        layout.setSpacing(6)
+        layout.setLabelAlignment(Qt.AlignLeft)
 
         self.threshold_spin = QSpinBox()
         self.threshold_spin.setRange(3, 30)
         self.threshold_spin.setValue(int(self.detector.threshold_on_db))
         self.threshold_spin.setSuffix(" dB")
+        self.threshold_spin.setToolTip(
+            "Trigger level above the tracked noise floor. Six decibels sits near "
+            "2.7 standard deviations of the PSD estimate at four averages. Lowering "
+            "it without raising the averages or the confirm count reintroduces "
+            "noise detections."
+        )
         self.threshold_spin.valueChanged.connect(self._apply_threshold)
-        detect_layout.addRow("Trigger above floor", self.threshold_spin)
+        layout.addRow("Trigger", self.threshold_spin)
 
         self.open_spin = QSpinBox()
         self.open_spin.setRange(1, 10)
         self.open_spin.setValue(self.detector.open_frames)
+        self.open_spin.setToolTip(
+            "Consecutive revisits a signal must be present before an event opens. "
+            "This multiplies directly into the shortest burst the plan can catch."
+        )
         self.open_spin.valueChanged.connect(self._apply_open_frames)
-        detect_layout.addRow("Confirm visits", self.open_spin)
+        layout.addRow("Confirm", self.open_spin)
 
-        reject_button = QPushButton("Toggle persistent rejection")
-        reject_button.clicked.connect(self._toggle_reject)
-        detect_layout.addRow(reject_button)
+        self.reject_check = QCheckBox("Reject persistent carriers")
+        self.reject_check.setChecked(self.detector.reject_persistent)
+        self.reject_check.setToolTip(
+            "Suppress events from signals that are almost always present, such as "
+            "fixed spurs, images, and continuous carriers. They stay visible on the "
+            "trace and remain classified. Turn this off before calibrating, since "
+            "broadcast carriers are permanently on."
+        )
+        self.reject_check.toggled.connect(self._apply_reject)
+        layout.addRow(self.reject_check)
+        return box
 
-        self.reject_label = QLabel()
-        self.reject_label.setObjectName("readout")
-        detect_layout.addRow(self.reject_label)
-        self._update_reject_label()
-
-        layout.addWidget(detect_box)
-        layout.addWidget(self._build_display_box())
-        layout.addWidget(self._build_calibration_box())
-        layout.addStretch(1)
-        return page
-
-    def _build_display_box(self) -> QGroupBox:
-        """Controls governing whether the display forgets what it has seen."""
-        box = QGroupBox("Display retention")
+    def _build_retention_box(self) -> QGroupBox:
+        box = QGroupBox("Retention")
         layout = QVBoxLayout(box)
+        layout.setSpacing(6)
 
-        self.hold_peaks_check = QCheckBox("Hold peaks, no decay")
+        self.hold_peaks_check = QCheckBox("Hold peaks")
+        self.hold_peaks_check.setToolTip(
+            "Stop the peak trace decaying, turning it into a permanent high water "
+            "mark of everything seen since the last clear."
+        )
         self.hold_peaks_check.toggled.connect(self._apply_peak_hold)
         layout.addWidget(self.hold_peaks_check)
 
-        self.hold_events_check = QCheckBox("Keep detections after they end")
+        self.hold_events_check = QCheckBox("Hold detections")
+        self.hold_events_check.setToolTip(
+            "Keep detections drawn and clickable after the transmission ends, so a "
+            "transient can still be saved as a marker minutes later."
+        )
         self.hold_events_check.toggled.connect(self._apply_event_hold)
         layout.addWidget(self.hold_events_check)
 
-        clear_button = QPushButton("Clear held peaks and detections")
+        clear_row = QHBoxLayout()
+        clear_row.setSpacing(6)
+        clear_button = QPushButton("Clear held")
         clear_button.clicked.connect(self._clear_held)
-        layout.addWidget(clear_button)
-
-        self.held_label = QLabel("holding 0 detections")
+        self.held_label = QLabel("0")
         self.held_label.setObjectName("readout")
-        layout.addWidget(self.held_label)
+        self.held_label.setFont(self._mono)
+        self.held_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        clear_row.addWidget(clear_button, 1)
+        clear_row.addWidget(self.held_label)
+        layout.addLayout(clear_row)
+        return box
 
-        note = QLabel(
-            "By default the trace sheds old peaks and a detection disappears when "
-            "the transmission stops, which suits watching a band live. Enable both "
-            "to turn the display into a record instead, so a burst that keyed once "
-            "an hour ago is still visible and still clickable to save as a marker."
+    def _build_calibration_box(self) -> QGroupBox:
+        box = QGroupBox("Calibration")
+        layout = QVBoxLayout(box)
+        layout.setSpacing(6)
+
+        raster_row = QHBoxLayout()
+        raster_row.setSpacing(6)
+        self.raster_combo = QComboBox()
+        for key, raster in calibrate.RASTERS.items():
+            self.raster_combo.addItem(raster.name, key)
+        run_button = QPushButton("Run")
+        run_button.setFixedWidth(64)
+        run_button.setToolTip(
+            "Derive the oscillator correction from detected broadcast carriers. "
+            "Select the regional preset, disable persistent rejection, and let the "
+            "sweep run several seconds so each carrier averages out its modulation."
         )
-        note.setWordWrap(True)
-        note.setObjectName("warning")
-        layout.addWidget(note)
+        run_button.clicked.connect(self._run_calibration)
+        raster_row.addWidget(self.raster_combo, 1)
+        raster_row.addWidget(run_button)
+        layout.addLayout(raster_row)
+
+        self.ppm_label = QLabel("not measured")
+        self.ppm_label.setObjectName("readout")
+        self.ppm_label.setFont(self._mono)
+        layout.addWidget(self.ppm_label)
         return box
 
     def _apply_peak_hold(self, held: bool) -> None:
@@ -539,44 +655,19 @@ class MainWindow(QMainWindow):
             self._update_held_label()
 
     def _clear_held(self) -> None:
-        """Discard accumulated peaks and held detections, keeping the floor."""
+        """Discard accumulated peaks and held detections, keeping the floor.
+
+        The noise floor estimate is left alone deliberately. It takes time to
+        converge and starting a fresh observation window is no reason to throw it
+        away.
+        """
         self.display.clear_peak_hold()
         self._held_events.clear()
         self._update_held_label()
         self.statusBar().showMessage("held peaks and detections cleared", 3000)
 
     def _update_held_label(self) -> None:
-        self.held_label.setText("holding {0} detections".format(len(self._held_events)))
-
-    def _build_calibration_box(self) -> QGroupBox:
-        """Controls for deriving and applying the oscillator correction."""
-        box = QGroupBox("Frequency calibration")
-        layout = QVBoxLayout(box)
-
-        self.raster_combo = QComboBox()
-        for key, raster in calibrate.RASTERS.items():
-            self.raster_combo.addItem(raster.name, key)
-        layout.addWidget(self.raster_combo)
-
-        run_button = QPushButton("Calibrate from detections")
-        run_button.clicked.connect(self._run_calibration)
-        layout.addWidget(run_button)
-
-        self.ppm_label = QLabel("correction 0.000 ppm, not yet measured")
-        self.ppm_label.setObjectName("readout")
-        self.ppm_label.setWordWrap(True)
-        layout.addWidget(self.ppm_label)
-
-        note = QLabel(
-            "Select the broadcast preset for your region, let the sweep settle "
-            "until several carriers are listed under Events, then calibrate. The "
-            "HackRF has no temperature compensated oscillator and drifts most in "
-            "the first ten minutes after power on, so recalibrate once warm."
-        )
-        note.setWordWrap(True)
-        note.setObjectName("warning")
-        layout.addWidget(note)
-        return box
+        self.held_label.setText(str(len(self._held_events)))
 
     def _run_calibration(self) -> None:
         """Derive the oscillator correction from currently detected carriers.
@@ -592,7 +683,8 @@ class MainWindow(QMainWindow):
         result = calibrate.estimate_ppm(events, raster_key)
 
         if not result.confident:
-            self.ppm_label.setText(result.summary())
+            self.ppm_label.setText("{0} carriers, not confident".format(result.station_count))
+            self.ppm_label.setToolTip(result.message)
             QMessageBox.information(self, "Calibration", result.message)
             return
 
@@ -604,20 +696,21 @@ class MainWindow(QMainWindow):
         if self.display.composite is not None:
             self.display.composite.reset()
 
-        self.ppm_label.setText(result.summary())
+        self.ppm_label.setText("{0:+.2f} ppm   {1} carriers".format(
+            result.ppm, result.station_count))
+        self.ppm_label.setToolTip(result.summary())
         detail = "\n".join(
             "  {0:.4f} MHz  assigned {1:.4f}  offset {2:+.0f} Hz".format(
-                s["measured_hz"] / 1e6, s["expected_hz"] / 1e6, s["offset_hz"]
+                st["measured_hz"] / 1e6, st["expected_hz"] / 1e6, st["offset_hz"]
             )
-            for s in result.stations
+            for st in result.stations
         )
         QMessageBox.information(
             self, "Calibration applied",
             "{0}\n\nStations used:\n{1}".format(result.summary(), detail),
         )
         self.statusBar().showMessage(
-            "calibration applied, {0:+.2f} ppm".format(result.ppm), 5000
-        )
+            "calibration applied, {0:+.2f} ppm".format(result.ppm), 5000)
 
     @staticmethod
     def _make_slider(low: int, high: int, step: int, value: int) -> tuple:
@@ -634,8 +727,8 @@ class MainWindow(QMainWindow):
         slider.setValue(value)
 
         label = QLabel("{0} dB".format(value))
-        label.setMinimumWidth(52)
-        label.setObjectName("readout")
+        label.setMinimumWidth(44)
+        label.setObjectName("value")
         slider.valueChanged.connect(lambda v: label.setText("{0} dB".format(v)))
 
         row.addWidget(slider)
@@ -645,6 +738,8 @@ class MainWindow(QMainWindow):
     def _build_events_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
 
         self.events_table = QTableWidget(0, 6)
         self.events_table.setHorizontalHeaderLabels(
@@ -654,15 +749,16 @@ class MainWindow(QMainWindow):
         self.events_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.events_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.events_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.events_table.setToolTip("Double click an event to save it as a marker.")
         self.events_table.itemDoubleClicked.connect(self._on_event_double_click)
         layout.addWidget(self.events_table)
-
-        layout.addWidget(QLabel("Double click an event to save it as a marker."))
         return page
 
     def _build_markers_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
 
         self.markers_table = QTableWidget(0, 4)
         self.markers_table.setHorizontalHeaderLabels(["Label", "Freq MHz", "BW kHz", "Class"])
@@ -759,18 +855,20 @@ class MainWindow(QMainWindow):
         self._update_held_label()
         self.events_table.setRowCount(0)
 
-        self.metrics_label.setText(
-            "{0} segments, {1:.1f} MHz span\n"
-            "revisit {2:.0f} ms, shortest burst {3:.0f} ms\n"
-            "coarsest RBW {4:.0f} Hz".format(
-                metrics.segment_count,
-                metrics.total_span_hz / 1e6,
-                metrics.revisit_ms,
-                metrics.min_reliable_burst_ms,
-                metrics.coarsest_rbw_hz,
-            )
-        )
-        self.warning_label.setText("\n".join(metrics.warnings))
+        self.metric_fields["segments"].setText("{0}".format(metrics.segment_count))
+        self.metric_fields["span"].setText("{0:.1f} MHz".format(metrics.total_span_hz / 1e6))
+        self.metric_fields["revisit"].setText("{0:.0f} ms".format(metrics.revisit_ms))
+        self.metric_fields["burst"].setText("{0:.0f} ms".format(metrics.min_reliable_burst_ms))
+        self.metric_fields["rbw"].setText("{0:.0f} Hz".format(metrics.coarsest_rbw_hz))
+
+        if metrics.warnings:
+            joined = "  ".join(metrics.warnings)
+            self.warning_label.setText(
+                (joined[:44] + "...") if len(joined) > 44 else joined)
+            self.warning_label.setToolTip("\n\n".join(metrics.warnings))
+            self.warning_label.show()
+        else:
+            self.warning_label.hide()
         self._refresh_markers()
 
     def _apply_gain(self) -> None:
@@ -795,17 +893,8 @@ class MainWindow(QMainWindow):
     def _apply_open_frames(self, value: int) -> None:
         self.detector.open_frames = int(value)
 
-    def _toggle_reject(self) -> None:
-        self.detector.reject_persistent = not self.detector.reject_persistent
-        self._update_reject_label()
-
-    def _update_reject_label(self) -> None:
-        state = "on" if self.detector.reject_persistent else "off"
-        self.reject_label.setText(
-            "persistent rejection {0}, always on carriers {1} raise events".format(
-                state, "do not" if self.detector.reject_persistent else "do"
-            )
-        )
+    def _apply_reject(self, enabled: bool) -> None:
+        self.detector.reject_persistent = bool(enabled)
 
     @Slot(object, object)
     def _on_frame(self, frame, floor) -> None:
