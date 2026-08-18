@@ -682,9 +682,14 @@ class SpectrumDisplay(QWidget):
 
         scaled = np.log1p(counts) * (255.0 / np.log1p(peak))
 
-        # Transposed because the image item expects column major extent here, and
-        # the histogram is stored level by frequency for cheap column updates.
-        self.persistence_image.setImage(scaled.T, autoLevels=False, levels=[0, 255])
+        # Passed without transposing. The module configures pyqtgraph for row major
+        # image order, so setImage expects the first axis to be the vertical one,
+        # which is exactly how the histogram is already stored. Transposing here
+        # drew frequency up the vertical axis and level across the horizontal,
+        # which renders as a bright vertical band at the horizontal position
+        # corresponding to the noise floor's level bin, spanning the full height
+        # because every frequency contributed to it.
+        self.persistence_image.setImage(scaled, autoLevels=False, levels=[0, 255])
         self.persistence_image.setRect(
             0, DISPLAY_DB_FLOOR, self.composite.total_cols,
             DISPLAY_DB_CEIL - DISPLAY_DB_FLOOR,
