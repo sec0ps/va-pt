@@ -78,11 +78,24 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bootstrap
 
-_SKIP_BOOTSTRAP = "--no-bootstrap" in sys.argv
-if _SKIP_BOOTSTRAP:
-    sys.argv.remove("--no-bootstrap")
+# Consumed before argparse exists, since the bootstrap has to run before any
+# third party import and argparse cannot be reached through one.
+def _take_flag(flag: str) -> bool:
+    present = flag in sys.argv
+    if present:
+        sys.argv.remove(flag)
+    return present
 
-bootstrap.ensure_environment(skip=_SKIP_BOOTSTRAP)
+
+_SKIP_BOOTSTRAP = _take_flag("--no-bootstrap")
+_NO_SYSTEM_DEPS = _take_flag("--no-system-deps")
+_ASSUME_YES = _take_flag("--assume-yes") or _take_flag("-y")
+
+bootstrap.ensure_environment(
+    skip=_SKIP_BOOTSTRAP,
+    assume_yes=_ASSUME_YES,
+    allow_system=not _NO_SYSTEM_DEPS,
+)
 
 # Safe from here. Everything below either was importable already or was installed
 # by the bootstrap above.
@@ -121,8 +134,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Red Cell Security RF spectrum analyzer, single HackRF sweep and detect.",
         epilog="On first launch a virtual environment is created beside this "
-               "script and dependencies are installed into it. Pass "
-               "--no-bootstrap to use the current interpreter instead.",
+               "script, Python dependencies are installed into it, and the system "
+               "libraries the HackRF driver builds against are resolved, which "
+               "asks for elevation once. Bootstrap flags are handled before "
+               "argument parsing: --no-bootstrap uses the current interpreter, "
+               "--no-system-deps skips privileged package installation, and "
+               "--assume-yes installs without prompting.",
     )
     source_group = parser.add_argument_group("capture source")
     source_group.add_argument("--synthetic", action="store_true",
@@ -162,6 +179,17 @@ def parse_args() -> argparse.Namespace:
     info_group.add_argument("--describe", metavar="FILE", default=None,
                             help="summarize an IQ recording and exit")
     info_group.add_argument("--verbose", action="store_true", help="debug level logging")
+
+    # Declared for help output only. These are stripped from argv before argparse
+    # runs, because the bootstrap they control must execute before any third party
+    # import and therefore before a parser can exist.
+    boot_group = parser.add_argument_group("environment bootstrap")
+    boot_group.add_argument("--no-bootstrap", action="store_true",
+                            help="use the current interpreter, skip the virtual environment")
+    boot_group.add_argument("--no-system-deps", action="store_true",
+                            help="never install distribution packages or request elevation")
+    boot_group.add_argument("-y", "--assume-yes", action="store_true",
+                            help="install system build dependencies without prompting")
     return parser.parse_args()
 
 
