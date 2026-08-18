@@ -75,8 +75,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 
 # Row major so that display arrays are indexed as (row, column), matching the
 # way the waterfall buffer is built and sliced.
@@ -96,10 +95,15 @@ DEFAULT_DISPLAY_COLS = 1400
 # at 200 kHz beside a wide band is still wide enough to be readable.
 MIN_BAND_COLS = 24
 
-# Peak hold decay per completed sweep, in dB. A pure maximum hold saturates the
-# display within a minute of sweeping and stops conveying anything. A slow decay
-# keeps recent peaks visible while letting the trace forget stale ones.
-PEAK_DECAY_DB = 0.35
+# Default peak hold decay per update, in dB. A pure maximum hold eventually
+# saturates a busy display, so the trace forgets stale peaks slowly by default.
+#
+# The decay is defeatable, and defeating it is the point of the hold control. A
+# decaying trace is a monitoring display, useful for watching what is happening
+# now. A held trace is an evidence display, and a burst that appeared once during
+# an hour of sweeping leaves a permanent mark on it. Those are different jobs and
+# the operator picks which one the display is doing.
+DEFAULT_PEAK_DECAY_DB = 0.35
 
 
 class SweepComposite:
@@ -121,6 +125,9 @@ class SweepComposite:
         self.band_edges: List[Tuple[int, str]] = []
 
         self._build_layout()
+
+        # Zero means hold indefinitely. Any positive value is dB shed per update.
+        self.peak_decay_db = DEFAULT_PEAK_DECAY_DB
 
         self.current = np.full(self.total_cols, DISPLAY_DB_FLOOR, dtype=np.float32)
         self.peak_hold = np.full(self.total_cols, DISPLAY_DB_FLOOR, dtype=np.float32)
@@ -215,9 +222,12 @@ class SweepComposite:
         if floor_dbfs is not None and floor_dbfs.size == frame.power_dbfs.size:
             self.floor[start:end] = self._resample(floor_dbfs, width, use_max=False)
 
-        # Peak hold decays every update rather than only on sweep completion, so
-        # the decay rate is independent of how many segments are in the plan.
-        self.peak_hold[start:end] -= PEAK_DECAY_DB
+        # Decay is applied per update rather than per completed sweep, so the rate
+        # is independent of how many segments the plan contains. A decay of zero
+        # holds peaks permanently, which is what turns the trace into a record of
+        # everything seen rather than a picture of the present.
+        if self.peak_decay_db > 0.0:
+            self.peak_hold[start:end] -= self.peak_decay_db
         np.maximum(self.peak_hold[start:end], self.current[start:end],
                    out=self.peak_hold[start:end])
 
@@ -262,6 +272,15 @@ class SweepComposite:
         self.peak_hold[:] = DISPLAY_DB_FLOOR
         self.floor[:] = DISPLAY_DB_FLOOR
         self._written.clear()
+
+    def clear_peak_hold(self) -> None:
+        """Drop accumulated peaks, leaving the live trace and floor intact.
+
+        Separate from reset because an operator holding peaks over a long session
+        needs to start a fresh observation window without also discarding the
+        noise floor estimate that took time to converge.
+        """
+        self.peak_hold[:] = DISPLAY_DB_FLOOR
 
 
 class FrequencyAxis(pg.AxisItem):
@@ -319,20 +338,26 @@ class SpectrumDisplay(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self.graphics = pg.GraphicsLayoutWidget()
-        self.graphics.setBackground("#0d0f12")
-        layout.addWidget(self.graphics)
-
-        mono = QFont("Monospace", 9)
-        mono.setStyleHint(QFont.TypeWriter)
+        # A splitter rather than a fixed layout, so the operator decides how much
+        # screen goes to the trace and how much to the waterfall. Which of the two
+        # matters more depends entirely on the task, and a ratio chosen here would
+        # be wrong for half of them.
+        self.splitter = QSplitter(Qt.Vertical)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.setHandleWidth(6)
+        layout.addWidget(self.splitter)
 
         self.trace_axis = FrequencyAxis(orientation="bottom")
-        self.trace_plot = self.graphics.addPlot(row=0, col=0, axisItems={"bottom": self.trace_axis})
+        self.trace_widget = pg.PlotWidget(axisItems={"bottom": self.trace_axis})
+        self.trace_widget.setBackground("#0d0f12")
+        self.trace_widget.setMinimumHeight(80)
+        self.trace_plot = self.trace_widget.getPlotItem()
         self.trace_plot.setLabel("left", "dBFS")
         self.trace_plot.showGrid(x=True, y=True, alpha=0.18)
-        self.trace_plot.setMouseEnabled(x=True, y=False)
+        self.trace_plot.setMouseEnabled(x=True, y=True)
         self.trace_plot.setYRange(DISPLAY_DB_FLOOR, DISPLAY_DB_CEIL, padding=0.0)
         self.trace_plot.setMenuEnabled(False)
+        self.splitter.addWidget(self.trace_widget)
 
         self.peak_curve = self.trace_plot.plot(pen=pg.mkPen("#3a5f8a", width=1))
         self.floor_curve = self.trace_plot.plot(
@@ -344,13 +369,15 @@ class SpectrumDisplay(QWidget):
         self.trace_curve = self.trace_plot.plot(pen=pg.mkPen("#4ec9b0", width=1))
 
         self.waterfall_axis = FrequencyAxis(orientation="bottom")
-        self.waterfall_plot = self.graphics.addPlot(
-            row=1, col=0, axisItems={"bottom": self.waterfall_axis}
-        )
+        self.waterfall_widget = pg.PlotWidget(axisItems={"bottom": self.waterfall_axis})
+        self.waterfall_widget.setBackground("#0d0f12")
+        self.waterfall_widget.setMinimumHeight(80)
+        self.waterfall_plot = self.waterfall_widget.getPlotItem()
         self.waterfall_plot.setLabel("left", "history")
         self.waterfall_plot.setMouseEnabled(x=True, y=False)
         self.waterfall_plot.setMenuEnabled(False)
         self.waterfall_plot.hideAxis("left")
+        self.splitter.addWidget(self.waterfall_widget)
 
         self.waterfall_image = pg.ImageItem()
         self.waterfall_plot.addItem(self.waterfall_image)
@@ -358,13 +385,14 @@ class SpectrumDisplay(QWidget):
         self.waterfall_image.setLookupTable(colormap.getLookupTable(0.0, 1.0, 256))
         self.waterfall_image.setLevels([0, 255])
 
-        # X axes are linked so that panning or zooming either panel moves both,
-        # and so a feature in the waterfall always sits directly under the same
-        # feature in the trace.
+        # X axes are linked so panning or zooming either panel moves both, and a
+        # feature in the waterfall always sits directly under the same feature in
+        # the trace regardless of how the splitter is dragged.
         self.waterfall_plot.setXLink(self.trace_plot)
 
-        self.graphics.ci.layout.setRowStretchFactor(0, 2)
-        self.graphics.ci.layout.setRowStretchFactor(1, 3)
+        self.splitter.setStretchFactor(0, 2)
+        self.splitter.setStretchFactor(1, 3)
+        self.splitter.setSizes([320, 480])
 
         self.cursor_line = pg.InfiniteLine(angle=90, movable=False,
                                            pen=pg.mkPen("#ffffff", width=1, style=Qt.DashLine))
@@ -375,8 +403,25 @@ class SpectrumDisplay(QWidget):
         self.cursor_line_wf.setZValue(100)
         self.waterfall_plot.addItem(self.cursor_line_wf, ignoreBounds=True)
 
-        self.graphics.scene().sigMouseMoved.connect(self._on_mouse_moved)
-        self.graphics.scene().sigMouseClicked.connect(self._on_mouse_clicked)
+        # Each widget owns its own graphics scene now that they are separate, so
+        # the plot the pointer is over is bound at connection time rather than
+        # searched for afterwards.
+        for widget, plot in ((self.trace_widget, self.trace_plot),
+                             (self.waterfall_widget, self.waterfall_plot)):
+            widget.scene().sigMouseMoved.connect(
+                lambda pos, p=plot: self._on_mouse_moved(pos, p))
+            widget.scene().sigMouseClicked.connect(
+                lambda event, p=plot: self._on_mouse_clicked(event, p))
+
+    def set_peak_decay(self, decay_db: float) -> None:
+        """Set peak hold decay in dB per update. Zero holds indefinitely."""
+        if self.composite is not None:
+            self.composite.peak_decay_db = max(0.0, float(decay_db))
+
+    def clear_peak_hold(self) -> None:
+        """Discard accumulated peaks without disturbing the floor estimate."""
+        if self.composite is not None:
+            self.composite.clear_peak_hold()
 
     def set_plan(self, segments: List, history_rows: int = DEFAULT_HISTORY_ROWS) -> None:
         """Rebuild the composite and the waterfall for a new band plan."""
@@ -458,6 +503,10 @@ class SpectrumDisplay(QWidget):
         self.clear_event_markers()
 
         colours = {
+            # Held detections are past activity being retained for the record, so
+            # they are drawn in a distinct colour and never mistaken for something
+            # currently transmitting.
+            "held": (200, 90, 90, 40),
             "new": (80, 200, 120, 55),
             "intermittent": (200, 170, 60, 45),
             "persistent": (110, 110, 130, 30),
@@ -525,49 +574,47 @@ class SpectrumDisplay(QWidget):
                 except Exception:
                     pass
 
-    def _resolve_pointer(self, scene_pos) -> Optional[dict]:
+    def _resolve_pointer(self, scene_pos, plot) -> Optional[dict]:
         """Convert a scene position into frequency, level, and segment context."""
         if self.composite is None:
             return None
+        if not plot.sceneBoundingRect().contains(scene_pos):
+            return None
 
-        for plot in (self.trace_plot, self.waterfall_plot):
-            if not plot.sceneBoundingRect().contains(scene_pos):
-                continue
-            point = plot.vb.mapSceneToView(scene_pos)
-            col = float(point.x())
-            if col < 0 or col >= self.composite.total_cols:
-                return None
+        point = plot.vb.mapSceneToView(scene_pos)
+        col = float(point.x())
+        if col < 0 or col >= self.composite.total_cols:
+            return None
 
-            hz = self.composite.col_to_hz(col)
-            if hz is None:
-                return None
-            segment = self.composite.segment_at_col(col)
-            index = int(min(max(col, 0), self.composite.total_cols - 1))
+        hz = self.composite.col_to_hz(col)
+        if hz is None:
+            return None
+        segment = self.composite.segment_at_col(col)
+        index = int(min(max(col, 0), self.composite.total_cols - 1))
 
-            return {
-                "hz": hz,
-                "col": col,
-                "level_dbfs": float(self.composite.current[index]),
-                "peak_dbfs": float(self.composite.peak_hold[index]),
-                "floor_dbfs": float(self.composite.floor[index]),
-                "band_name": segment.band_name if segment is not None else "",
-                "segment_id": segment.segment_id if segment is not None else -1,
-                "rbw_hz": segment.rbw_hz if segment is not None else 0.0,
-            }
-        return None
+        return {
+            "hz": hz,
+            "col": col,
+            "level_dbfs": float(self.composite.current[index]),
+            "peak_dbfs": float(self.composite.peak_hold[index]),
+            "floor_dbfs": float(self.composite.floor[index]),
+            "band_name": segment.band_name if segment is not None else "",
+            "segment_id": segment.segment_id if segment is not None else -1,
+            "rbw_hz": segment.rbw_hz if segment is not None else 0.0,
+        }
 
-    def _on_mouse_moved(self, scene_pos) -> None:
-        info = self._resolve_pointer(scene_pos)
+    def _on_mouse_moved(self, scene_pos, plot) -> None:
+        info = self._resolve_pointer(scene_pos, plot)
         if info is None:
             return
         self.cursor_line.setPos(info["col"])
         self.cursor_line_wf.setPos(info["col"])
         self.hover_changed.emit(info)
 
-    def _on_mouse_clicked(self, event) -> None:
+    def _on_mouse_clicked(self, event, plot) -> None:
         if event.button() != Qt.LeftButton:
             return
-        info = self._resolve_pointer(event.scenePos())
+        info = self._resolve_pointer(event.scenePos(), plot)
         if info is None:
             return
         self.marker_requested.emit(info["hz"])
