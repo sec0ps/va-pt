@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # =============================================================================
 # VAPT Toolkit - Vulnerability Assessment and Penetration Testing Toolkit
 # =============================================================================
@@ -328,6 +329,57 @@ def check_and_install(repo_url, install_dir, setup_commands=None):
     if setup_commands:
         for command in setup_commands:
             run_command(f"cd {install_dir} && {command}")
+
+def fix_searchsploit_rc():
+    """Correct the searchsploit rc that ships inside the exploitdb clone.
+
+    Upstream's .searchsploit_rc points path_array at /opt/exploitdb (and
+    /opt/exploitdb-papers), so a clone living at /vapt/exploits/exploitdb makes
+    searchsploit miss its own CSVs, fall back to a directory scan, and print the
+    'please edit ... to point too' notice on every run. This rewrites the
+    Exploit/Shellcode path to the real clone location and drops the Papers block
+    entirely, since papers are not provisioned by this installer. Both CSVs
+    (files_exploits.csv, files_shellcodes.csv) live in the one exploitdb clone,
+    so the single corrected path resolves both.
+
+    Idempotent: re-running against an already corrected file writes nothing.
+    Only the .searchsploit_rc shipped in the clone is touched; a higher-precedence
+    ~/.searchsploit_rc or /etc/searchsploit_rc, if present, still wins the lookup
+    order and would need its own correction."""
+    rc_path = "/vapt/exploits/exploitdb/.searchsploit_rc"
+    if not os.path.exists(rc_path):
+        return
+
+    with open(rc_path) as f:
+        lines = f.readlines()
+
+    corrected = []
+    skipping_papers = False
+    changed = False
+    for line in lines:
+        # Drop the whole Papers block: from its "##-- Papers" marker through its
+        # closing package_array line (inclusive).
+        if line.strip() == "##-- Papers":
+            skipping_papers = True
+            changed = True
+            continue
+        if skipping_papers:
+            if line.strip() == 'package_array+=("exploitdb-papers")':
+                skipping_papers = False
+            continue
+        # Repoint the Exploit/Shellcode path at the real clone location.
+        if line.rstrip("\n") == 'path_array+=("/opt/exploitdb")':
+            corrected.append('path_array+=("/vapt/exploits/exploitdb")\n')
+            changed = True
+            continue
+        corrected.append(line)
+
+    if changed:
+        with open(rc_path, "w") as f:
+            f.writelines(corrected)
+        print("Corrected searchsploit rc paths.")
+    else:
+        print("searchsploit rc already correct, skipping.")
 
 def install_go():
     """Install a current Go toolchain to /usr/local/go from go.dev.
@@ -815,6 +867,10 @@ def install_toolkit_packages():
                 audit_tools + vulnerability_scanners + osint_tools + wireless_tools):
         check_and_install(*tool)
 
+    # exploitdb ships a .searchsploit_rc pointing at /opt/exploitdb; correct it
+    # to the real clone path so searchsploit resolves its CSVs and stops nagging.
+    fix_searchsploit_rc()
+
     print("Toolkit packages install pass complete.")
     print_failure_summary()
 
@@ -839,6 +895,10 @@ def update_toolsets():
     ]
     for tool in exploit_tools:
         run_command(f"cd {tool} && git pull")
+
+    # A git pull on exploitdb can restore the upstream .searchsploit_rc (a tracked
+    # file), so re-apply the path correction to keep the fix durable across updates.
+    fix_searchsploit_rc()
 
     print("Updating Web Tools")
     web_tools = [
