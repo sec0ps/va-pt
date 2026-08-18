@@ -216,25 +216,48 @@ US_LMR_UHF = Band(
     "UHF whip",
     "Business and industrial land mobile, analog and DMR and P25.",
 )
-US_PS_700 = Band(
-    "Public safety 700", 769_000_000, 806_000_000, 12_500,
+# Public safety allocations are split into their real sub bands rather than swept
+# as one contiguous block. A single 769 to 806 block covers 37 MHz to reach the
+# 12 MHz that actually carries public safety traffic, and every megahertz of the
+# remainder lengthens the revisit interval for no return.
+US_PS_700_BASE = Band(
+    "Public safety 700 base", 769_000_000, 775_000_000, 12_500,
     "700 to 800 MHz whip",
-    "Narrowband public safety and adjacent commercial.",
+    "Narrowband base station transmit. Repeater output side.",
 )
-US_PS_800 = Band(
-    "Public safety 800", 806_000_000, 869_000_000, 25_000,
+US_PS_700_MOBILE = Band(
+    "Public safety 700 mobile", 799_000_000, 805_000_000, 12_500,
     "700 to 800 MHz whip",
-    "Trunked public safety, SMR, and cellular adjacent allocations.",
+    "Narrowband mobile transmit, paired 30 MHz above the base segment.",
+)
+US_PS_800_MOBILE = Band(
+    "Public safety 800 mobile", 806_000_000, 824_000_000, 25_000,
+    "700 to 800 MHz whip",
+    "Mobile and portable transmit, including the NPSPAC input segment.",
+)
+US_PS_800_BASE = Band(
+    "Public safety 800 base", 851_000_000, 869_000_000, 25_000,
+    "700 to 800 MHz whip",
+    "Base and repeater transmit. The side an outside listener normally hears.",
 )
 US_HAM_2M = Band(
     "Amateur 2 m", 144_000_000, 148_000_000, 12_500,
     "VHF whip",
     "Region 2 amateur allocation. Repeater output and simplex.",
 )
+# The Region 2 allocation runs from 420, but repeater and simplex activity is
+# concentrated in the top 10 MHz. Sweeping the full 30 MHz triples the revisit
+# interval for this band to cover spectrum that is almost always empty. The full
+# allocation remains reachable through a custom range.
 US_HAM_70CM = Band(
-    "Amateur 70 cm", 420_000_000, 450_000_000, 12_500,
+    "Amateur 70 cm", 440_000_000, 450_000_000, 12_500,
     "UHF whip",
-    "Region 2 amateur allocation, wider than the Region 1 equivalent.",
+    "Repeater output and simplex portion of the Region 2 allocation.",
+)
+US_HAM_70CM_FULL = Band(
+    "Amateur 70 cm full", 420_000_000, 450_000_000, 12_500,
+    "UHF whip",
+    "Entire Region 2 allocation including the weak signal and ATV segments.",
 )
 US_ISM_902 = Band(
     "ISM 902 to 928", 902_000_000, 928_000_000, 200_000,
@@ -336,6 +359,23 @@ SA_ISM_915_UPPER = Band(
     "Upper half of the Region 2 ISM band.",
 )
 
+# Tuning range of a typical dual band handheld transceiver, the class of radio
+# that includes the widely deployed inexpensive Chinese models. This describes
+# hardware rather than a regulatory allocation, which is why it is region
+# independent. Sweeping it finds anything such a radio could be programmed to,
+# without assuming which service the operator of that radio is using or whether
+# they are licensed for it.
+HANDHELD_TX_VHF = Band(
+    "Handheld VHF 136 to 174", 136_000_000, 174_000_000, 12_500,
+    "VHF whip, roughly 48 cm quarter wave",
+    "Lower limit of common dual band handheld coverage through the top of VHF land mobile.",
+)
+HANDHELD_TX_UHF = Band(
+    "Handheld UHF 400 to 520", 400_000_000, 520_000_000, 12_500,
+    "UHF whip, roughly 16 cm quarter wave",
+    "Full UHF span of common dual band handhelds, spanning amateur, business, and land mobile.",
+)
+
 # Region independent bands.
 ISM_2G4 = Band(
     "ISM 2.4 GHz", 2_400_000_000, 2_483_500_000, 1_000_000,
@@ -396,8 +436,8 @@ _register(Preset(
 ))
 _register(Preset(
     "us_public_safety", "US Public Safety", "US",
-    "700 and 800 MHz narrowband and trunked public safety allocations.",
-    (US_PS_700, US_PS_800),
+    "700 and 800 MHz public safety, split into base and mobile sub bands.",
+    (US_PS_700_BASE, US_PS_700_MOBILE, US_PS_800_MOBILE, US_PS_800_BASE),
 ))
 _register(Preset(
     "us_amateur", "US Amateur", "US",
@@ -405,14 +445,15 @@ _register(Preset(
     (US_HAM_2M, US_HAM_70CM),
 ))
 _register(Preset(
-    "us_ism", "US ISM and Unlicensed", "US",
-    "902 to 928 and 2.4 GHz. Requires an antenna change between the two bands.",
-    (US_ISM_902, ISM_2G4),
+    "us_ism", "US ISM 902 to 928", "US",
+    "Sub gigahertz unlicensed. Telemetry, LoRa, metering, cordless.",
+    (US_ISM_902,),
 ))
 _register(Preset(
     "us_full_lmr", "US Land Mobile Full", "US",
-    "VHF and UHF land mobile plus public safety. Four to five segments.",
-    (US_LMR_VHF, US_LMR_UHF, US_PS_700, US_PS_800),
+    "VHF and UHF land mobile plus the public safety sub bands.",
+    (US_LMR_VHF, US_LMR_UHF, US_PS_700_BASE, US_PS_700_MOBILE,
+     US_PS_800_MOBILE, US_PS_800_BASE),
 ))
 
 _register(Preset(
@@ -439,8 +480,8 @@ _register(Preset(
 ))
 _register(Preset(
     "eu_ism", "EU ISM and Unlicensed", "EU",
-    "433 and 868 short range device bands plus 2.4 GHz.",
-    (EU_LPD433, EU_SRD_868, ISM_2G4),
+    "433 and 868 short range device bands. Both reachable on one UHF antenna.",
+    (EU_LPD433, EU_SRD_868),
 ))
 
 _register(Preset(
@@ -462,11 +503,28 @@ _register(Preset(
 ))
 _register(Preset(
     "sa_ism", "South America ISM", "SA",
-    "Split 900 MHz ISM allocation plus 2.4 GHz. Reflects the Brazilian split.",
-    (SA_ISM_915_LOWER, SA_ISM_915_UPPER, ISM_2G4),
+    "Split 900 MHz ISM allocation, reflecting the Brazilian cellular carve out.",
+    (SA_ISM_915_LOWER, SA_ISM_915_UPPER),
     verify_locally=True,
 ))
 
+_register(Preset(
+    "handheld_radio", "Handheld Radio Tuning Range", "GLOBAL",
+    "136 to 174 and 400 to 520 MHz, the coverage of a typical dual band handheld. "
+    "Finds anything such a radio could be programmed to, in any region.",
+    (HANDHELD_TX_VHF, HANDHELD_TX_UHF),
+))
+_register(Preset(
+    "handheld_radio_uhf", "Handheld Radio, UHF only", "GLOBAL",
+    "400 to 520 MHz only. Half the revisit interval of the full range when the "
+    "activity of interest is known to be UHF.",
+    (HANDHELD_TX_UHF,),
+))
+_register(Preset(
+    "us_amateur_70cm_full", "US Amateur 70 cm Full", "US",
+    "Entire 420 to 450 allocation rather than the active top segment.",
+    (US_HAM_70CM_FULL,),
+))
 _register(Preset(
     "wifi_24", "WiFi and Bluetooth 2.4 GHz", "GLOBAL",
     "2.4 GHz ISM only. Requires a 2.4 GHz antenna.",
