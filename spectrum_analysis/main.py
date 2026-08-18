@@ -89,11 +89,9 @@ def _take_flag(flag: str) -> bool:
 
 _SKIP_BOOTSTRAP = _take_flag("--no-bootstrap")
 _NO_SYSTEM_DEPS = _take_flag("--no-system-deps")
-_ASSUME_YES = _take_flag("--assume-yes") or _take_flag("-y")
 
 bootstrap.ensure_environment(
     skip=_SKIP_BOOTSTRAP,
-    assume_yes=_ASSUME_YES,
     allow_system=not _NO_SYSTEM_DEPS,
 )
 
@@ -135,11 +133,11 @@ def parse_args() -> argparse.Namespace:
         description="Red Cell Security RF spectrum analyzer, single HackRF sweep and detect.",
         epilog="On first launch a virtual environment is created beside this "
                "script, Python dependencies are installed into it, and the system "
-               "libraries the HackRF driver builds against are resolved, which "
-               "asks for elevation once. Bootstrap flags are handled before "
-               "argument parsing: --no-bootstrap uses the current interpreter, "
-               "--no-system-deps skips privileged package installation, and "
-               "--assume-yes installs without prompting.",
+               "libraries the HackRF driver builds against are installed, "
+               "which needs root and may make sudo ask for a password. "
+               "Bootstrap flags are handled before argument parsing: "
+               "--no-bootstrap uses the current interpreter and "
+               "--no-system-deps skips privileged package installation.",
     )
     source_group = parser.add_argument_group("capture source")
     source_group.add_argument("--synthetic", action="store_true",
@@ -188,8 +186,6 @@ def parse_args() -> argparse.Namespace:
                             help="use the current interpreter, skip the virtual environment")
     boot_group.add_argument("--no-system-deps", action="store_true",
                             help="never install distribution packages or request elevation")
-    boot_group.add_argument("-y", "--assume-yes", action="store_true",
-                            help="install system build dependencies without prompting")
     return parser.parse_args()
 
 
