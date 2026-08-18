@@ -87,6 +87,18 @@ pg.setConfigOptions(imageAxisOrder="row-major", antialias=False)
 DISPLAY_DB_FLOOR = -130.0
 DISPLAY_DB_CEIL = 0.0
 
+# Vertical resolution of the persistence histogram, in level bins across the
+# display window. Two hundred bins over 130 dB is about two thirds of a decibel
+# per cell, fine enough that a carrier and the noise beneath it occupy visibly
+# different rows without making the accumulator large enough to matter.
+PERSISTENCE_LEVELS = 200
+
+# Fraction of accumulated persistence retained per update while decay is active.
+# Chosen so activity fades over roughly a thousand updates, which is long enough
+# that an intermittent signal stays visible between keyings and short enough that
+# the display still reflects the present when nothing is being held.
+PERSISTENCE_DECAY = 0.997
+
 # Waterfall history depth in rows, and total display columns across all bands.
 DEFAULT_HISTORY_ROWS = 400
 DEFAULT_DISPLAY_COLS = 1400
@@ -104,6 +116,27 @@ MIN_BAND_COLS = 24
 # an hour of sweeping leaves a permanent mark on it. Those are different jobs and
 # the operator picks which one the display is doing.
 DEFAULT_PEAK_DECAY_DB = 0.35
+
+
+def _persistence_lut() -> np.ndarray:
+    """Colour ramp for the persistence histogram, transparent at zero.
+
+    Alpha rises with activity as well as colour, so a cell visited once is a faint
+    tint while one visited constantly is close to solid. Encoding activity in both
+    channels rather than colour alone means the distinction survives on a display
+    where subtle hue differences are hard to judge.
+    """
+    stops = np.array([0, 40, 110, 190, 255], dtype=np.float64)
+    red = np.array([0, 26, 74, 214, 255], dtype=np.float64)
+    green = np.array([0, 106, 182, 186, 240], dtype=np.float64)
+    blue = np.array([0, 128, 148, 92, 205], dtype=np.float64)
+    alpha = np.array([0, 90, 155, 205, 235], dtype=np.float64)
+
+    index = np.arange(256, dtype=np.float64)
+    lut = np.empty((256, 4), dtype=np.uint8)
+    for channel, values in enumerate((red, green, blue, alpha)):
+        lut[:, channel] = np.interp(index, stops, values).astype(np.uint8)
+    return lut
 
 
 class SweepComposite:
@@ -128,6 +161,14 @@ class SweepComposite:
 
         # Zero means hold indefinitely. Any positive value is dB shed per update.
         self.peak_decay_db = DEFAULT_PEAK_DECAY_DB
+
+        # Two dimensional histogram of how often the trace has passed through each
+        # frequency and level cell. This is what separates a frequency that keys
+        # constantly from one that fired once, which neither the live trace nor a
+        # plain maximum hold can show. A maximum hold records that something
+        # reached a level, never how often.
+        self.persistence = np.zeros((PERSISTENCE_LEVELS, self.total_cols), dtype=np.float32)
+        self.persistence_decay = PERSISTENCE_DECAY
 
         self.current = np.full(self.total_cols, DISPLAY_DB_FLOOR, dtype=np.float32)
         self.peak_hold = np.full(self.total_cols, DISPLAY_DB_FLOOR, dtype=np.float32)
@@ -231,32 +272,77 @@ class SweepComposite:
         np.maximum(self.peak_hold[start:end], self.current[start:end],
                    out=self.peak_hold[start:end])
 
+        self._accumulate_persistence(start, end)
+
         self._written.add(frame.segment_id)
         if len(self._written) >= len(self.spans):
             self._written.clear()
             return True
         return False
 
+    def _accumulate_persistence(self, start: int, end: int) -> None:
+        """Record where the trace sat, for the columns just refreshed.
+
+        Only the segment's own columns are touched, so a segment visited more
+        often than another cannot inflate its neighbours. Each column receives
+        exactly one increment per update, which means the level and column index
+        pairs are unique and plain fancy indexing accumulates correctly without
+        the unbuffered add that duplicate indices would require.
+
+        Decay is applied to the same columns rather than to the whole array, for
+        the same reason. Decaying globally on every segment update would fade a
+        band in proportion to how many segments the plan contains rather than to
+        how long ago it was active.
+        """
+        span = DISPLAY_DB_CEIL - DISPLAY_DB_FLOOR
+        scale = (PERSISTENCE_LEVELS - 1) / span
+
+        levels = (self.current[start:end] - DISPLAY_DB_FLOOR) * scale
+        np.clip(levels, 0, PERSISTENCE_LEVELS - 1, out=levels)
+
+        if self.persistence_decay < 1.0:
+            self.persistence[:, start:end] *= self.persistence_decay
+
+        columns = np.arange(start, end)
+        self.persistence[levels.astype(np.int32), columns] += 1.0
+
+    def clear_persistence(self) -> None:
+        """Discard accumulated activity history."""
+        self.persistence[:] = 0.0
+
     @staticmethod
     def _resample(source: np.ndarray, width: int, use_max: bool = True) -> np.ndarray:
         """Resize a full resolution array to a display column count.
 
-        Downsampling takes a maximum over each group rather than a mean. A mean
-        averages an occupied bin against its unoccupied neighbours and attenuates
-        a narrow carrier by the reduction ratio, which hides exactly the signals
-        this display exists to reveal. The floor overlay is the one exception and
-        uses interpolation, since a maximum of the floor would overstate it.
+        Column boundaries are computed as exact fractional positions across the
+        source and then truncated, so every column covers its true share of the
+        span no matter what the ratio is. An earlier version divided the source
+        length by the column count with integer division and used that as a fixed
+        group size, which silently misplaced the entire display whenever the ratio
+        was not close to a whole number. With 2688 bins across 907 columns the
+        group size truncated from 2.96 to 2, so the first two thirds of the
+        segment was stretched over every column and the remaining third was folded
+        into the last one. The spectrum was compressed horizontally while the axis
+        and the hover readout continued to use the correct scale, which put every
+        trace feature at the wrong frequency by a margin that grew across the span.
+
+        Downsampling takes a maximum over each column's range rather than a mean.
+        A mean averages an occupied bin against its unoccupied neighbours and
+        attenuates a narrow carrier by the reduction ratio, hiding exactly the
+        signals this display exists to reveal. The floor overlay is the one
+        exception and interpolates, since a maximum of the floor would overstate
+        it.
         """
         n = int(source.size)
         if n == width:
             return source.astype(np.float32)
 
         if n > width and use_max:
-            group = n // width
-            trimmed = group * width
-            reduced = source[:trimmed].reshape(width, group).max(axis=1)
-            if trimmed < n:
-                reduced[-1] = max(float(reduced[-1]), float(source[trimmed:].max()))
+            # Fractional edges truncated to indices. Guaranteed strictly
+            # increasing because the source is longer than the output, so the
+            # spacing is at least one.
+            edges = np.linspace(0, n, width + 1).astype(np.int64)
+            reduced = np.maximum.reduceat(source, edges[:-1])
             return reduced.astype(np.float32)
 
         # Upsampling, or downsampling the floor overlay.
@@ -271,6 +357,7 @@ class SweepComposite:
         self.current[:] = DISPLAY_DB_FLOOR
         self.peak_hold[:] = DISPLAY_DB_FLOOR
         self.floor[:] = DISPLAY_DB_FLOOR
+        self.persistence[:] = 0.0
         self._written.clear()
 
     def clear_peak_hold(self) -> None:
@@ -384,6 +471,16 @@ class SpectrumDisplay(QWidget):
         self.trace_plot.setMenuEnabled(False)
         self.splitter.addWidget(self.trace_widget)
 
+        # Drawn behind every curve, so the trace and the floor overlay stay legible
+        # on top of it. The lookup table ramps alpha from fully transparent at zero
+        # activity, which is what stops an empty band being painted over.
+        self.persistence_image = pg.ImageItem()
+        self.persistence_image.setLookupTable(_persistence_lut())
+        self.persistence_image.setLevels([0, 255])
+        self.persistence_image.setZValue(-20)
+        self.trace_plot.addItem(self.persistence_image)
+        self.persistence_enabled = True
+
         self.peak_curve = self.trace_plot.plot(pen=pg.mkPen("#3a5f8a", width=1))
         self.floor_curve = self.trace_plot.plot(
             pen=pg.mkPen("#8a5a2a", width=1, style=Qt.DashLine)
@@ -460,9 +557,10 @@ class SpectrumDisplay(QWidget):
             self.composite.peak_decay_db = max(0.0, float(decay_db))
 
     def clear_peak_hold(self) -> None:
-        """Discard accumulated peaks without disturbing the floor estimate."""
+        """Discard accumulated peaks and activity, leaving the floor estimate."""
         if self.composite is not None:
             self.composite.clear_peak_hold()
+            self.composite.clear_persistence()
 
     def set_plan(self, segments: List, history_rows: int = DEFAULT_HISTORY_ROWS) -> None:
         """Rebuild the composite and the waterfall for a new band plan."""
@@ -532,6 +630,8 @@ class SpectrumDisplay(QWidget):
         if self.composite is None or self._waterfall is None:
             return
 
+        self._redraw_persistence()
+
         x = np.arange(self.composite.total_cols, dtype=np.float32)
         self.trace_curve.setData(x, self.composite.current)
         self.peak_curve.setData(x, self.composite.peak_hold)
@@ -546,6 +646,48 @@ class SpectrumDisplay(QWidget):
             self._track_levels()
         self.waterfall_image.setImage(view[::-1], autoLevels=False,
                                       levels=[self._level_lo, self._level_hi])
+
+    def _redraw_persistence(self) -> None:
+        """Paint the activity histogram beneath the trace.
+
+        Counts are compressed logarithmically before display. Activity spans
+        orders of magnitude between a frequency that fired once and one occupied
+        continuously, and a linear scale would render the single event as nothing
+        at all. The logarithm keeps the one off faintly visible while still making
+        sustained activity unmistakably brighter.
+        """
+        if not self.persistence_enabled:
+            return
+
+        counts = self.composite.persistence
+        peak = float(counts.max())
+        if peak <= 0.0:
+            return
+
+        scaled = np.log1p(counts) * (255.0 / np.log1p(peak))
+
+        # Transposed because the image item expects column major extent here, and
+        # the histogram is stored level by frequency for cheap column updates.
+        self.persistence_image.setImage(scaled.T, autoLevels=False, levels=[0, 255])
+        self.persistence_image.setRect(
+            0, DISPLAY_DB_FLOOR, self.composite.total_cols,
+            DISPLAY_DB_CEIL - DISPLAY_DB_FLOOR,
+        )
+
+    def set_persistence_enabled(self, enabled: bool) -> None:
+        """Show or hide the activity histogram."""
+        self.persistence_enabled = bool(enabled)
+        self.persistence_image.setVisible(self.persistence_enabled)
+
+    def set_persistence_decay(self, decay: float) -> None:
+        """Set retention per update. One means accumulate without fading."""
+        if self.composite is not None:
+            self.composite.persistence_decay = float(decay)
+
+    def clear_persistence(self) -> None:
+        """Discard accumulated activity history."""
+        if self.composite is not None:
+            self.composite.clear_persistence()
 
     def _track_levels(self) -> None:
         """Follow the occupied part of the level range with the colour scale.
