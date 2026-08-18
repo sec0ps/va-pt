@@ -86,11 +86,19 @@ HACKRF_SAMPLE_RATES_HZ = (
     20_000_000,
 )
 
-# Fraction of the complex sample rate that is usable after the analog and
-# digital filter roll off at the band edges. The outer bins of any segment show
-# filter skirt rather than real signal level, so they are discarded and the
-# segments are overlapped by the discarded amount.
-USABLE_FRACTION = 0.80
+# Fraction of the complex sample rate kept from each segment. The outer bins show
+# filter skirt rather than true level, so they are discarded and segments are
+# overlapped by the discarded amount.
+#
+# This value is set by hardware, not by preference. The MAX2837 baseband filter
+# has discrete steps rather than a continuously variable bandwidth, and at the
+# 20 MS/s maximum sample rate the widest step that still provides anti alias
+# margin is 15 MHz. Three quarters is therefore the largest fraction that is
+# actually inside the passband at the rate the analyzer uses for wide segments.
+# Claiming more would place the outermost kept bins in the filter skirt, where
+# they read low, and the detector would see a level step at every segment
+# boundary.
+USABLE_FRACTION = 0.75
 
 # Tuner retune and PLL settle time. Measured empirically per host, this is a
 # conservative default. Samples captured before settle completes contain a
