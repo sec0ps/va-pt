@@ -290,6 +290,20 @@ class FrequencyAxis(pg.AxisItem):
         super().__init__(**kwargs)
         self.composite = composite
 
+    def set_composite(self, composite: Optional[SweepComposite]) -> None:
+        """Point the axis at a new composite and force the labels to regenerate.
+
+        Simply reassigning the composite is not enough. The axis is drawn in
+        column space, so a change of band plan leaves the tick positions
+        identical, and pyqtgraph reuses its cached rendering rather than asking
+        for the strings again. The labels then keep describing the previous plan
+        while the trace beneath them shows the new one, which is worse than an
+        obviously broken axis because it looks entirely plausible.
+        """
+        self.composite = composite
+        self.picture = None
+        self.update()
+
     def tickStrings(self, values, scale, spacing):
         if self.composite is None:
             return ["" for _ in values]
@@ -326,6 +340,16 @@ class SpectrumDisplay(QWidget):
         # view, avoiding a full buffer copy on each advance.
         self._waterfall = None
         self._write_row = 0
+
+        # Colour scale limits for the waterfall, tracked in quantised units.
+        # The quantisation window spans 130 dB so that no real signal is ever
+        # clipped, but the occupied part of it is rarely more than 40 dB wide, and
+        # mapping the whole window onto the colour map leaves every row a single
+        # flat shade. These follow the data so the colours cover what is actually
+        # there.
+        self._level_lo = 0.0
+        self._level_hi = 255.0
+        self.auto_contrast = True
 
         self._cursor_labels: List[pg.TextItem] = []
         self._event_markers: List[pg.LinearRegionItem] = []
@@ -444,12 +468,17 @@ class SpectrumDisplay(QWidget):
         """Rebuild the composite and the waterfall for a new band plan."""
         self.composite = SweepComposite(segments)
         self.history_rows = int(history_rows)
-        self.trace_axis.composite = self.composite
-        self.waterfall_axis.composite = self.composite
+        self.trace_axis.set_composite(self.composite)
+        self.waterfall_axis.set_composite(self.composite)
 
         cols = self.composite.total_cols
         self._waterfall = np.zeros((self.history_rows * 2, cols), dtype=np.uint8)
         self._write_row = 0
+        # The previous plan's levels describe different frequencies at a possibly
+        # different gain, so the scale restarts rather than converging away from a
+        # stale starting point.
+        self._level_lo = 0.0
+        self._level_hi = 255.0
 
         self.trace_plot.setXRange(0, cols, padding=0.0)
         self.waterfall_image.setRect(0, 0, cols, self.history_rows)
@@ -512,7 +541,47 @@ class SpectrumDisplay(QWidget):
         # Slice view into the ring, newest row at the top of the visible window.
         start = self._write_row
         view = self._waterfall[start:start + self.history_rows]
-        self.waterfall_image.setImage(view[::-1], autoLevels=False, levels=[0, 255])
+
+        if self.auto_contrast:
+            self._track_levels()
+        self.waterfall_image.setImage(view[::-1], autoLevels=False,
+                                      levels=[self._level_lo, self._level_hi])
+
+    def _track_levels(self) -> None:
+        """Follow the occupied part of the level range with the colour scale.
+
+        Anchored to the tracked noise floor rather than to percentiles of the
+        image. A percentile over the waterfall would be dominated by whichever
+        rows happen to be in the buffer, so the colours would shift every time
+        history scrolled. The floor is already an estimate of where nothing is
+        happening, which makes it the right bottom of the scale, and the top is
+        set from the peak trace so a strong emitter defines full scale.
+
+        Both ends move slowly. A scale that jumped to each frame's extremes would
+        make the waterfall flicker on every burst and destroy the eye's ability to
+        compare one row against another.
+        """
+        span = DISPLAY_DB_CEIL - DISPLAY_DB_FLOOR
+        scale = 255.0 / span
+
+        floor_db = float(np.median(self.composite.floor))
+        peak_db = float(np.max(self.composite.peak_hold))
+        if not np.isfinite(floor_db) or not np.isfinite(peak_db):
+            return
+
+        # A couple of dB below the floor so the quiet parts are genuinely dark,
+        # and a small margin above the strongest peak so it is not clipped.
+        target_lo = (max(floor_db - 4.0, DISPLAY_DB_FLOOR) - DISPLAY_DB_FLOOR) * scale
+        target_hi = (min(peak_db + 4.0, DISPLAY_DB_CEIL) - DISPLAY_DB_FLOOR) * scale
+
+        # Never let the window collapse. A span narrower than this turns ordinary
+        # noise variation into full scale colour swings.
+        if target_hi - target_lo < 20.0:
+            target_hi = target_lo + 20.0
+
+        alpha = 0.08
+        self._level_lo += alpha * (target_lo - self._level_lo)
+        self._level_hi += alpha * (target_hi - self._level_hi)
 
     def show_events(self, events: List[Dict]) -> None:
         """Draw a shaded region over each active detection on the trace."""
