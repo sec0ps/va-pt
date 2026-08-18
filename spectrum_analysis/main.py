@@ -99,7 +99,7 @@ from burst_detect import BurstDetector
 from iq_replay import IQRecorder, ReplaySource, describe
 from sdr_capture import (
     GainProfile, HackRFSource, SweepEngine, SyntheticSource,
-    SOAPY_AVAILABLE, enumerate_devices,
+    HACKRF_AVAILABLE, enumerate_devices,
 )
 from store import Store
 from ui_main import MainWindow
@@ -203,18 +203,19 @@ def build_source(args: argparse.Namespace, gain: GainProfile):
         return SyntheticSource(tones_hz=SYNTHETIC_TONES, gain=gain,
                                burst_period_s=1.2, burst_duty=0.35), None, "synthetic"
 
-    if not SOAPY_AVAILABLE:
-        LOG.error("SoapySDR is not installed, cannot open hardware")
+    if not HACKRF_AVAILABLE:
+        LOG.error("python_hackrf is not installed, cannot open hardware")
         return None, None, "none"
 
-    devices = enumerate_devices()
-    hackrfs = [d for d in devices if "hackrf" in str(d.get("driver", "")).lower()]
+    hackrfs = enumerate_devices()
     if not hackrfs:
-        LOG.error("no HackRF found, %d other SDR devices present", len(devices))
+        LOG.error("no HackRF found. Confirm the device is attached and that "
+                  "hackrf_info sees it.")
         return None, None, "none"
     if len(hackrfs) > 1 and args.serial is None:
         LOG.warning("%d HackRF devices attached, opening the first, "
-                    "pass --serial to choose", len(hackrfs))
+                    "pass --serial to choose. Serials: %s", len(hackrfs),
+                    ", ".join(str(d.get("serial")) for d in hackrfs))
 
     return HackRFSource(serial=args.serial, gain=gain), None, "hardware"
 
@@ -241,11 +242,12 @@ def main() -> int:
     if args.list_devices:
         devices = enumerate_devices()
         if not devices:
-            print("no SDR devices found")
-            if not SOAPY_AVAILABLE:
-                print("SoapySDR is not installed on this host")
-        for index, device in enumerate(devices):
-            print("[{0}] {1}".format(index, device))
+            print("no HackRF devices found")
+            if not HACKRF_AVAILABLE:
+                print("python_hackrf is not installed on this host")
+        for device in devices:
+            print("[{0}] {1}  serial {2}".format(
+                device["index"], device["board"], device["serial"]))
         return 0 if devices else 1
 
     gain = GainProfile(amp_db=14 if args.amp else 0, lna_db=args.lna, vga_db=args.vga).clamp()
