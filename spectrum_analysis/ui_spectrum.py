@@ -327,6 +327,7 @@ class SpectrumDisplay(QWidget):
         self._waterfall = None
         self._write_row = 0
 
+        self._cursor_labels: List[pg.TextItem] = []
         self._event_markers: List[pg.LinearRegionItem] = []
         self._saved_markers: List[pg.InfiniteLine] = []
         self._band_separators: List[pg.InfiniteLine] = []
@@ -403,6 +404,22 @@ class SpectrumDisplay(QWidget):
         self.cursor_line_wf.setZValue(100)
         self.waterfall_plot.addItem(self.cursor_line_wf, ignoreBounds=True)
 
+        # A readout that travels with the pointer. The strip above the plots
+        # carries the same frequency along with more detail, but reading it means
+        # looking away from the signal being pointed at, and on a wide display
+        # that is a real interruption. This puts the number where the eye already
+        # is. It is added with ignoreBounds so its extent never participates in
+        # autoranging, which would otherwise let the label drag the view around as
+        # the pointer moves.
+        for plot in (self.trace_plot, self.waterfall_plot):
+            label = pg.TextItem(anchor=(0.0, 1.0), color="#e8ecf2",
+                                fill=pg.mkBrush(13, 15, 18, 210),
+                                border=pg.mkPen("#2c313b"))
+            label.setZValue(200)
+            label.hide()
+            plot.addItem(label, ignoreBounds=True)
+            self._cursor_labels.append(label)
+
         # Each widget owns its own graphics scene now that they are separate, so
         # the plot the pointer is over is bound at connection time rather than
         # searched for afterwards.
@@ -453,6 +470,7 @@ class SpectrumDisplay(QWidget):
                 self._band_separators.append(line)
 
         self.clear_event_markers()
+        self._hide_cursor_labels()
 
     def ingest(self, frame, floor_dbfs: Optional[np.ndarray] = None) -> None:
         """Fold one segment frame into the display, advancing on sweep completion."""
@@ -606,10 +624,55 @@ class SpectrumDisplay(QWidget):
     def _on_mouse_moved(self, scene_pos, plot) -> None:
         info = self._resolve_pointer(scene_pos, plot)
         if info is None:
+            self._hide_cursor_labels()
             return
+
         self.cursor_line.setPos(info["col"])
         self.cursor_line_wf.setPos(info["col"])
+        self._update_cursor_label(scene_pos, plot, info)
         self.hover_changed.emit(info)
+
+    def _hide_cursor_labels(self) -> None:
+        for label in self._cursor_labels:
+            label.hide()
+
+    def _update_cursor_label(self, scene_pos, plot, info: dict) -> None:
+        """Place the travelling readout beside the pointer, on the panel it is over.
+
+        Only the panel under the pointer shows a label. Showing both would put a
+        second copy of the same number somewhere the operator is not looking, and
+        the vertical cursor line already ties the two panels together.
+
+        The anchor flips once the pointer passes the middle of the span so the
+        text extends back toward the centre. Without that, hovering near the right
+        edge draws the label off the plot where it cannot be read.
+        """
+        if self.composite is None:
+            return
+
+        point = plot.vb.mapSceneToView(scene_pos)
+        past_middle = info["col"] > self.composite.total_cols * 0.5
+        anchor = (1.0, 1.0) if past_middle else (0.0, 1.0)
+
+        hz = info["hz"]
+        if hz >= 1e9:
+            frequency = "{0:.6f} GHz".format(hz / 1e9)
+        else:
+            frequency = "{0:.6f} MHz".format(hz / 1e6)
+
+        text = "{0}\n{1:.1f} dBFS".format(frequency, info["level_dbfs"])
+        if info["band_name"]:
+            text += "\n{0}".format(info["band_name"])
+
+        for label, owner in zip(self._cursor_labels,
+                                (self.trace_plot, self.waterfall_plot)):
+            if owner is not plot:
+                label.hide()
+                continue
+            label.setAnchor(anchor)
+            label.setText(text)
+            label.setPos(point.x(), point.y())
+            label.show()
 
     def _on_mouse_clicked(self, event, plot) -> None:
         if event.button() != Qt.LeftButton:
