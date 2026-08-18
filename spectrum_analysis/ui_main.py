@@ -66,12 +66,13 @@
 
 """Main window, processing worker thread, and operator controls."""
 
+import logging
 import queue
 import time
 from typing import Dict, List, Optional
 
 import numpy as np
-from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, QSettings, Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QFont, QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget,
@@ -101,6 +102,14 @@ STATS_INTERVAL_MS = 500
 # bottom, since an unbounded table is the easiest way to turn a long engagement
 # into an out of memory failure.
 MAX_EVENT_ROWS = 300
+
+# Identity under which window layout is stored. Layout is a per operator, per
+# machine preference rather than engagement data, so it lives in the platform's
+# own settings location and never inside the session database. Mixing the two
+# would put a display preference into a record that is meant to document an
+# engagement, and would carry it to any machine the database was copied to.
+SETTINGS_ORG = "RedCellSecurity"
+SETTINGS_APP = "RFSpectrumAnalyzer"
 
 # Maximum closed detections retained on the display while hold is enabled. Held
 # detections exist so a transient is still there to be clicked and recorded
@@ -262,7 +271,8 @@ class MainWindow(QMainWindow):
     """Application window. Owns the sweep engine, worker thread, and store."""
 
     def __init__(self, sweep_engine, detector: BurstDetector, store: Store,
-                 preset_key: str = band_plan.DEFAULT_PRESET_KEY):
+                 preset_key: str = band_plan.DEFAULT_PRESET_KEY,
+                 reset_layout: bool = False):
         super().__init__()
         self.setWindowTitle("Red Cell Security  RF Spectrum Analyzer")
         self.setStyleSheet(STYLE)
@@ -271,6 +281,7 @@ class MainWindow(QMainWindow):
         # A hardcoded size larger than the display pushes the control dock off the
         # edge, where its buttons are unreachable and there is no obvious way to
         # recover, since the window cannot be dragged smaller than its contents.
+        # Overridden below by any saved layout that is still usable.
         available = QGuiApplication.primaryScreen().availableGeometry()
         self.resize(min(1600, int(available.width() * 0.94)),
                     min(950, int(available.height() * 0.90)))
@@ -287,9 +298,18 @@ class MainWindow(QMainWindow):
         self._held_events: Dict[int, Dict] = {}
         self._last_hover: Optional[Dict] = None
 
+        self._settings = QSettings(SETTINGS_ORG, SETTINGS_APP)
+
         self._build_ui()
         self._start_worker()
         self._apply_preset(preset_key, initial=True)
+
+        # Restored last, once every widget the saved state refers to exists.
+        # Restoring earlier silently discards the parts that name widgets not yet
+        # created, which shows up as some panels remembering their size and
+        # others not.
+        if not reset_layout:
+            self._restore_layout()
 
         self.redraw_timer = QTimer(self)
         self.redraw_timer.timeout.connect(self._redraw)
@@ -328,10 +348,14 @@ class MainWindow(QMainWindow):
 
     def _build_dock(self) -> None:
         dock = QDockWidget("Control", self)
+        # saveState keys dock entries on object name. Without one the dock is
+        # anonymous and its size and placement are silently dropped on restore.
+        dock.setObjectName("controlDock")
         dock.setAllowedAreas(Qt.RightDockWidgetArea | Qt.LeftDockWidgetArea)
         dock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable)
 
         tabs = QTabWidget()
+        self.control_tabs = tabs
         # The config tab is taller than any laptop screen once every group is
         # expanded, so it scrolls. Without this the lower controls are simply
         # clipped away with nothing to indicate they exist.
@@ -955,8 +979,97 @@ class MainWindow(QMainWindow):
             )
         )
 
+    def _save_layout(self) -> None:
+        """Record window, dock, splitter, and panel preferences."""
+        settings = self._settings
+        settings.setValue("window/geometry", self.saveGeometry())
+        # saveState covers dock placement, floating state, and width. It is keyed
+        # on object names, which is why the dock is named rather than anonymous.
+        settings.setValue("window/state", self.saveState())
+        settings.setValue("splitter/spectrum", self.display.splitter.saveState())
+        settings.setValue("dock/tab", self.control_tabs.currentIndex())
+        settings.setValue("display/hold_peaks", self.hold_peaks_check.isChecked())
+        settings.setValue("display/hold_events", self.hold_events_check.isChecked())
+        settings.sync()
+
+    def _restore_layout(self) -> None:
+        """Reapply saved layout, falling back to defaults on anything unusable.
+
+        Every restore is guarded. A saved geometry can name a monitor that is no
+        longer attached, which leaves the window positioned off every screen with
+        no way to drag it back, and a settings file written by a different version
+        can contain state this build cannot interpret.
+        """
+        settings = self._settings
+
+        geometry = settings.value("window/geometry")
+        if geometry is not None:
+            try:
+                if self.restoreGeometry(geometry) and not self._on_a_screen():
+                    # Positioned outside every attached display, which happens
+                    # when a monitor present at the last shutdown is now gone.
+                    # Discard it and size against the current screen instead.
+                    self.statusBar().showMessage(
+                        "saved window position is off screen, using defaults", 5000)
+                    self._size_to_screen()
+            except Exception:
+                self._size_to_screen()
+
+        state = settings.value("window/state")
+        if state is not None:
+            try:
+                self.restoreState(state)
+            except Exception:
+                pass
+
+        splitter_state = settings.value("splitter/spectrum")
+        if splitter_state is not None:
+            try:
+                self.display.splitter.restoreState(splitter_state)
+            except Exception:
+                pass
+
+        try:
+            index = int(settings.value("dock/tab", 0))
+            if 0 <= index < self.control_tabs.count():
+                self.control_tabs.setCurrentIndex(index)
+        except (TypeError, ValueError):
+            pass
+
+        # Retention preferences are restored through the checkboxes so their
+        # toggled handlers run and the display actually adopts the setting,
+        # rather than the box showing one thing while the trace does another.
+        for key, widget in (("display/hold_peaks", self.hold_peaks_check),
+                            ("display/hold_events", self.hold_events_check)):
+            value = settings.value(key)
+            if value is None:
+                continue
+            widget.setChecked(value in (True, "true", "True", 1, "1"))
+
+    def _on_a_screen(self) -> bool:
+        """Whether the window would be visible on some currently attached display."""
+        frame = self.frameGeometry()
+        for screen in QGuiApplication.screens():
+            if screen.availableGeometry().intersects(frame):
+                return True
+        return False
+
+    def _size_to_screen(self) -> None:
+        """Default sizing against the display actually attached."""
+        available = QGuiApplication.primaryScreen().availableGeometry()
+        self.resize(min(1600, int(available.width() * 0.94)),
+                    min(950, int(available.height() * 0.90)))
+        self.move(available.center() - self.rect().center())
+
     def closeEvent(self, event) -> None:
-        """Shut down the worker, the sweep thread, and the store in order."""
+        """Save layout, then shut down the worker, sweep thread, and store."""
+        try:
+            self._save_layout()
+        except Exception as exc:
+            # Never let a settings failure prevent a clean shutdown, since that
+            # would leave the radio streaming and the session database open.
+            logging.getLogger(__name__).warning("could not save layout: %s", exc)
+
         self.redraw_timer.stop()
         self.stats_timer.stop()
         self.worker.stop()
