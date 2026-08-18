@@ -72,12 +72,12 @@ from typing import Dict, List, Optional
 
 import numpy as np
 from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal, Slot
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget,
-    QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-    QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QSlider, QSpinBox,
-    QSplitter, QStatusBar, QTableWidget, QTableWidgetItem, QTabWidget,
+    QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+    QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSlider,
+    QSizePolicy, QSpinBox, QStatusBar, QTableWidget, QTableWidgetItem, QTabWidget,
     QVBoxLayout, QWidget,
 )
 
@@ -136,6 +136,7 @@ QComboBox, QLineEdit, QSpinBox, QPlainTextEdit {
     border-radius: 3px; padding: 3px 6px;
 }
 QDockWidget { titlebar-close-icon: none; }
+QScrollArea { border: none; background: #0d0f12; }
 QDockWidget::title { background: #171b22; padding: 5px; }
 QTabBar::tab {
     background: #171b22; padding: 6px 14px; border: 1px solid #23262e;
@@ -264,8 +265,15 @@ class MainWindow(QMainWindow):
                  preset_key: str = band_plan.DEFAULT_PRESET_KEY):
         super().__init__()
         self.setWindowTitle("Red Cell Security  RF Spectrum Analyzer")
-        self.resize(1600, 950)
         self.setStyleSheet(STYLE)
+
+        # Sized against the screen actually attached rather than a fixed figure.
+        # A hardcoded size larger than the display pushes the control dock off the
+        # edge, where its buttons are unreachable and there is no obvious way to
+        # recover, since the window cannot be dragged smaller than its contents.
+        available = QGuiApplication.primaryScreen().availableGeometry()
+        self.resize(min(1600, int(available.width() * 0.94)),
+                    min(950, int(available.height() * 0.90)))
 
         self.engine = sweep_engine
         self.detector = detector
@@ -299,9 +307,14 @@ class MainWindow(QMainWindow):
 
         self.readout = QLabel("hover the spectrum for a frequency readout")
         self.readout.setObjectName("readout")
-        mono = QFont("Monospace", 10)
+        mono = QFont("Monospace", 9)
         mono.setStyleHint(QFont.TypeWriter)
         self.readout.setFont(mono)
+        # Allowed to shrink below its natural width. A fixed width readout sets a
+        # floor on the whole window, which on a small display is what pushes the
+        # control dock past the edge of the screen.
+        self.readout.setMinimumWidth(1)
+        self.readout.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         layout.addWidget(self.readout)
 
         self.display = SpectrumDisplay()
@@ -319,13 +332,30 @@ class MainWindow(QMainWindow):
         dock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable)
 
         tabs = QTabWidget()
-        tabs.addTab(self._build_config_tab(), "Config")
+        # The config tab is taller than any laptop screen once every group is
+        # expanded, so it scrolls. Without this the lower controls are simply
+        # clipped away with nothing to indicate they exist.
+        tabs.addTab(self._scrollable(self._build_config_tab()), "Config")
         tabs.addTab(self._build_events_tab(), "Events")
         tabs.addTab(self._build_markers_tab(), "Markers")
 
         dock.setWidget(tabs)
-        dock.setMinimumWidth(320)
+        dock.setMinimumWidth(300)
         self.addDockWidget(Qt.RightDockWidgetArea, dock)
+
+        # Given a width proportional to the window rather than a fixed one, so a
+        # small display keeps most of its pixels for the spectrum.
+        self.resizeDocks([dock], [max(340, min(460, self.width() // 3))], Qt.Horizontal)
+
+    @staticmethod
+    def _scrollable(page: QWidget) -> QScrollArea:
+        """Wrap a panel so overflowing content scrolls instead of being clipped."""
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.NoFrame)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        area.setWidget(page)
+        return area
 
     def _build_config_tab(self) -> QWidget:
         page = QWidget()
@@ -342,33 +372,44 @@ class MainWindow(QMainWindow):
         self.preset_combo = QComboBox()
         plan_layout.addWidget(self.preset_combo)
 
+        apply_button = QPushButton("Apply preset")
+        apply_button.clicked.connect(self._on_apply_preset)
+        plan_layout.addWidget(apply_button)
+
+        # Entry fields on their own row and the button beneath, so the group stays
+        # legible at the narrowest dock width rather than pushing the stop field
+        # off the edge.
         custom_row = QHBoxLayout()
         self.custom_start = QLineEdit()
         self.custom_start.setPlaceholderText("start MHz")
         self.custom_stop = QLineEdit()
         self.custom_stop.setPlaceholderText("stop MHz")
-        custom_button = QPushButton("Apply range")
-        custom_button.clicked.connect(self._apply_custom_range)
         custom_row.addWidget(self.custom_start)
         custom_row.addWidget(self.custom_stop)
-        custom_row.addWidget(custom_button)
         plan_layout.addLayout(custom_row)
 
-        apply_button = QPushButton("Apply preset")
-        apply_button.clicked.connect(self._on_apply_preset)
-        plan_layout.addWidget(apply_button)
+        custom_button = QPushButton("Apply custom range")
+        custom_button.clicked.connect(self._apply_custom_range)
+        plan_layout.addWidget(custom_button)
 
         # The sweep consequences are shown live because a wide span silently
         # trades away the ability to see short transmissions, and an operator who
         # is not told that reads an empty waterfall as an empty band.
+        # Both labels wrap and are told to grow vertically. Without the size
+        # policy a long warning is clipped by the group box rather than making it
+        # taller, which is how the sweep metrics ended up drawn over the button
+        # above them.
         self.metrics_label = QLabel()
         self.metrics_label.setObjectName("readout")
         self.metrics_label.setWordWrap(True)
+        self.metrics_label.setMinimumHeight(34)
+        self.metrics_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
         plan_layout.addWidget(self.metrics_label)
 
         self.warning_label = QLabel()
         self.warning_label.setObjectName("warning")
         self.warning_label.setWordWrap(True)
+        self.warning_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
         plan_layout.addWidget(self.warning_label)
 
         layout.addWidget(plan_box)
@@ -695,8 +736,9 @@ class MainWindow(QMainWindow):
         self.events_table.setRowCount(0)
 
         self.metrics_label.setText(
-            "{0} segments   {1:.1f} MHz span   revisit {2:.0f} ms\n"
-            "shortest reliable burst {3:.0f} ms   coarsest RBW {4:.0f} Hz".format(
+            "{0} segments, {1:.1f} MHz span\n"
+            "revisit {2:.0f} ms, shortest burst {3:.0f} ms\n"
+            "coarsest RBW {4:.0f} Hz".format(
                 metrics.segment_count,
                 metrics.total_span_hz / 1e6,
                 metrics.revisit_ms,
@@ -797,8 +839,8 @@ class MainWindow(QMainWindow):
         """Update the frequency readout from a pointer position."""
         self._last_hover = info
         self.readout.setText(
-            "{0:12.6f} MHz    level {1:7.1f} dBFS    peak {2:7.1f}    "
-            "floor {3:7.1f}    RBW {4:6.0f} Hz    {5}".format(
+            "{0:.6f} MHz   level {1:.1f}   peak {2:.1f}   "
+            "floor {3:.1f} dBFS   RBW {4:.0f} Hz   {5}".format(
                 info["hz"] / 1e6, info["level_dbfs"], info["peak_dbfs"],
                 info["floor_dbfs"], info["rbw_hz"], info["band_name"],
             )
