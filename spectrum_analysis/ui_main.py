@@ -88,7 +88,7 @@ from burst_detect import BurstDetector
 from dsp_psd import PSDEstimator
 from sdr_capture import GainProfile
 from store import Store
-from ui_spectrum import DEFAULT_PEAK_DECAY_DB, SpectrumDisplay
+from ui_spectrum import DEFAULT_PEAK_DECAY_DB, PERSISTENCE_DECAY, SpectrumDisplay
 
 # Display repaint interval. Roughly 20 frames per second, which is above the rate
 # at which a waterfall reads as continuous and well below the rate at which the
@@ -587,10 +587,21 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(box)
         layout.setSpacing(6)
 
+        self.persistence_check = QCheckBox("Persistence")
+        self.persistence_check.setChecked(True)
+        self.persistence_check.setToolTip(
+            "Shade the trace by how often activity has occurred at each frequency "
+            "and level. A frequency keyed repeatedly builds a bright solid column, "
+            "a single burst leaves a faint trace, which distinguishes steady "
+            "activity from a one off."
+        )
+        self.persistence_check.toggled.connect(self.display.set_persistence_enabled)
+        layout.addWidget(self.persistence_check)
+
         self.hold_peaks_check = QCheckBox("Hold peaks")
         self.hold_peaks_check.setToolTip(
-            "Stop the peak trace decaying, turning it into a permanent high water "
-            "mark of everything seen since the last clear."
+            "Stop the peak trace and the persistence shading decaying, so both "
+            "become a permanent record of everything seen since the last clear."
         )
         self.hold_peaks_check.toggled.connect(self._apply_peak_hold)
         layout.addWidget(self.hold_peaks_check)
@@ -645,8 +656,14 @@ class MainWindow(QMainWindow):
         return box
 
     def _apply_peak_hold(self, held: bool) -> None:
-        """Stop or resume peak decay on the trace."""
+        """Stop or resume decay of the peak trace and the persistence shading.
+
+        Both are governed together because they answer the same question over
+        different timescales. Holding one while the other fades would show a peak
+        with no history behind it, or history under a peak that has moved on.
+        """
         self.display.set_peak_decay(0.0 if held else DEFAULT_PEAK_DECAY_DB)
+        self.display.set_persistence_decay(1.0 if held else PERSISTENCE_DECAY)
 
     def _apply_event_hold(self, held: bool) -> None:
         """Start or stop retaining detections past the end of a transmission."""
@@ -1077,6 +1094,7 @@ class MainWindow(QMainWindow):
         settings.setValue("window/state", self.saveState())
         settings.setValue("splitter/spectrum", self.display.splitter.saveState())
         settings.setValue("dock/tab", self.control_tabs.currentIndex())
+        settings.setValue("display/persistence", self.persistence_check.isChecked())
         settings.setValue("display/hold_peaks", self.hold_peaks_check.isChecked())
         settings.setValue("display/hold_events", self.hold_events_check.isChecked())
         settings.sync()
@@ -1128,7 +1146,8 @@ class MainWindow(QMainWindow):
         # Retention preferences are restored through the checkboxes so their
         # toggled handlers run and the display actually adopts the setting,
         # rather than the box showing one thing while the trace does another.
-        for key, widget in (("display/hold_peaks", self.hold_peaks_check),
+        for key, widget in (("display/persistence", self.persistence_check),
+                            ("display/hold_peaks", self.hold_peaks_check),
                             ("display/hold_events", self.hold_events_check)):
             value = settings.value(key)
             if value is None:
