@@ -230,19 +230,42 @@ class MsfClient:
             from pymetasploit3.msfrpc import MsfRpcClient
         except Exception as e:
             raise MsfUnavailable(f"pymetasploit3 not installed: {e}")
-        try:
-            self._client = MsfRpcClient(
-                self.cfg.password, server=self.cfg.host, port=self.cfg.port,
-                ssl=self.cfg.ssl, username=self.cfg.username)
-        except Exception as e:
-            raise MsfUnavailable(
-                f"cannot connect to msfrpcd at {self.cfg.host}:{self.cfg.port}: {e}")
-        try:
-            ver = self._client.core.version
-        except Exception as e:
-            raise MsfUnavailable(f"msfrpcd auth/probe failed: {e}")
-        logger.info("msfrpcd connected: %s", ver)
-        return self
+        import socket
+        import time
+        timeout = getattr(self.cfg, "connect_timeout", 90)
+        deadline = time.monotonic() + timeout
+        # msfrpcd binds its port only after loading the whole framework, which can
+        # take tens of seconds after the process spawns. Wait quietly for the port
+        # to listen before attempting the RPC connect, so a just-restarted daemon
+        # does not fail the run.
+        waited = False
+        while time.monotonic() < deadline:
+            try:
+                with socket.create_connection(
+                        (self.cfg.host, self.cfg.port), timeout=2):
+                    break
+            except OSError:
+                waited = True
+                time.sleep(1.0)
+        if waited:
+            logger.info("waited for msfrpcd to begin listening on %s:%s",
+                        self.cfg.host, self.cfg.port)
+        # Port is up (or we ran out of time); attempt the RPC connect, retrying
+        # briefly in case the API is not serving yet.
+        while True:
+            try:
+                self._client = MsfRpcClient(
+                    self.cfg.password, server=self.cfg.host, port=self.cfg.port,
+                    ssl=self.cfg.ssl, username=self.cfg.username)
+                ver = self._client.core.version
+                logger.info("msfrpcd connected: %s", ver)
+                return self
+            except Exception as e:
+                if time.monotonic() >= deadline:
+                    raise MsfUnavailable(
+                        f"cannot connect to msfrpcd at "
+                        f"{self.cfg.host}:{self.cfg.port} after {timeout}s: {e}")
+                time.sleep(2.0)
 
     def close(self):
         if self._client is not None:
