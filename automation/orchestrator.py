@@ -392,6 +392,10 @@ class Orchestrator:
         # to exploited/failed only when its last service completes.
         self._fire_lock = threading.Lock()
         self._fire_pending = {}          # ip -> outstanding attack-task count
+        # Seeded mode: hosts arrive already analyzed (from a prior pass's findings),
+        # so discovery, scan, credential priming, and the brute phase are skipped and
+        # only analyze->attack runs. Set by _main when --seed-file is given.
+        self.seeded = False
 
     # -- lifecycle --
 
@@ -399,11 +403,12 @@ class Orchestrator:
         self._install_signal_handlers()
         try:
             self.fw.disable()
-            self._discover_phase()
-            # Resolve wordlists once, before firing, so credentialed exploits can
-            # draw a default USERNAME/PASSWORD from the seclists top entries, and so
-            # the brute phase reuses the same resolution.
-            self._prime_credentials()
+            if not self.seeded:
+                self._discover_phase()
+                # Resolve wordlists once, before firing, so credentialed exploits
+                # can draw a default USERNAME/PASSWORD from the seclists top
+                # entries, and so the brute phase reuses the same resolution.
+                self._prime_credentials()
             self.run.set_phase("scan")
             self._scan_pool = ThreadPoolExecutor(
                 max_workers=self.cfg.workers, thread_name_prefix="scan")
@@ -416,8 +421,9 @@ class Orchestrator:
             self._main_loop(display)
             # The brute phase runs once the attack pipeline has drained, on a clean
             # completion only (a signal skips it). Credentials it finds upgrade any
-            # host the per-host attack left clean.
-            if not self._stop.is_set():
+            # host the per-host attack left clean. Seeded passes are targeted and
+            # skip brute.
+            if not self._stop.is_set() and not self.seeded:
                 self._brute_phase(display)
                 self._reconcile_after_brute()
             # Normal completion means we ended on _is_done, not a signal.
@@ -1042,6 +1048,42 @@ def _resolve(spec):
 
 # --- cli -------------------------------------------------------------------
 
+def _build_seeded_run(args):
+    """Build a RunState from a seed file of already-analyzed hosts. Each host's
+    services (with their product/version and CVEs) are set and the host is moved to
+    the analyzed state, so the pipeline runs analyze->attack without discovery or
+    scan. Returns the run, or None if the seed has no hosts."""
+    from state import Service
+    with open(args.seed_file) as fh:
+        data = json.load(fh)
+    hosts = data.get("hosts", [])
+    if not hosts:
+        return None
+    run = RunState(mode=args.mode, checkpoint_path=args.checkpoint,
+                   findings_path=args.findings)
+    added = 0
+    for h in hosts:
+        ip = h.get("ip")
+        if not ip:
+            continue
+        run.add_host(ip)
+        if h.get("hostname"):
+            run.set_hostname(ip, h["hostname"])
+        if h.get("os"):
+            run.set_fingerprint(ip, os_match=h["os"])
+        services = [Service.from_dict(s) for s in h.get("services", [])]
+        run.set_services(ip, services)
+        # step through the lifecycle to analyzed so the pipeline picks it up
+        run.transition(ip, HostState.DISCOVERED)
+        run.transition(ip, HostState.SCANNING)
+        run.transition(ip, HostState.ANALYZED)
+        added += 1
+    if not added:
+        return None
+    logger.info("seeded pass: %d host(s) loaded from %s", added, args.seed_file)
+    return run
+
+
 def _read_lines(path):
     with open(path) as f:
         return [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
@@ -1120,6 +1162,10 @@ def _parse_args(argv):
     p.add_argument("--max-hosts", type=int, default=65536)
     p.add_argument("--confirm-threshold", type=int, default=4096)
     p.add_argument("--yes", action="store_true", help="skip scope confirmation")
+    p.add_argument("--seed-file",
+                   help="JSON of already-analyzed hosts/services to attack "
+                        "directly, skipping discovery and scan. Used for a "
+                        "second, findings-seeded attack pass.")
     p.add_argument("--checkpoint", default="vapt_run_checkpoint.json")
     p.add_argument("--findings", default="vapt_findings.json")
     p.add_argument("--nmap-out-dir", default="",
@@ -1199,7 +1245,15 @@ def main(argv=None):
     if args.exclude_file:
         exspecs += _read_lines(args.exclude_file)
 
-    if args.resume and os.path.exists(args.checkpoint):
+    if args.seed_file:
+        # Seeded pass: hosts and their services come from a prior pass's findings
+        # (e.g. web-discovered CVEs and product versions). Build them straight into
+        # the analyzed state and let the normal analyze->attack pipeline run.
+        run = _build_seeded_run(args)
+        if run is None:
+            _startup_error(args, "seed file has no hosts")
+            return 2
+    elif args.resume and os.path.exists(args.checkpoint):
         run = RunState.load_checkpoint(args.checkpoint, mode=args.mode,
                                        findings_path=args.findings)
         run.normalize_for_resume()
@@ -1280,6 +1334,7 @@ def main(argv=None):
         chunk_size=args.chunk_size, checkpoint_interval=args.checkpoint_interval,
         keep_msfrpcd=args.keep_msfrpcd)
     orch = Orchestrator(run, scanner, msf_client, fw, msfd, ocfg, cfgfile)
+    orch.seeded = bool(args.seed_file)
 
     display = None
     if not args.no_tui:
