@@ -1188,6 +1188,25 @@ def _print_sessions(sessions):
     console.print(t)
 
 
+def _sessions_json(sessions):
+    """Emit the live session list as JSON on stdout, for programmatic callers such
+    as the console. Same fields the table shows, machine-readable."""
+    import json as _json
+    out = []
+    for sid, meta in (sessions or {}).items():
+        ip = (meta.get("session_host") or meta.get("target_host")
+              or _peer_host(meta.get("tunnel_peer", "")))
+        out.append({
+            "session_id": str(sid),
+            "ip": str(ip or ""),
+            "module": meta.get("via_exploit") or "",
+            "payload": (meta.get("via_payload") or "").removeprefix("payload/"),
+            "type": str(meta.get("type", "")),
+            "info": str(meta.get("info", "")),
+        })
+    print(_json.dumps({"sessions": out}))
+
+
 def _peer_host(peer):
     """IP from a 'host:port' tunnel peer, tolerating IPv6 in brackets."""
     peer = (peer or "").strip()
@@ -1264,6 +1283,8 @@ def _main(argv=None):
                         help="close all open sessions")
     p.add_argument("-y", "--yes", action="store_true",
                    help="skip the confirmation prompt for --kill-all")
+    p.add_argument("--json", action="store_true",
+                   help="print the session list as JSON (for the console)")
     p.add_argument("--host", default=None)
     p.add_argument("--port", type=int, default=None)
     p.add_argument("--user", default=None)
@@ -1306,6 +1327,8 @@ def _main(argv=None):
             print(f"closed {n} of {len(args.kill)} session(s)")
         elif args.interact:
             _session_console(client, args.interact)
+        elif args.json:
+            _sessions_json(client.session_list())
         else:
             _print_sessions(client.session_list())
     finally:
