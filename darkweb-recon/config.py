@@ -43,6 +43,7 @@ _DEFAULT_UA = "Mozilla/5.0 (Windows NT 10.0; rv:115.0) Gecko/20100101 Firefox/11
 _TORCH_DEFAULT = "http://rz6wxogwwbqdadlncnp2q26kbgcbbaqnitzueohj73fzmlx3mt467wqd.onion"
 _EXCAVATOR_DEFAULT = "http://2fd6cemt4gmccflhm6imvdfvli3nf7zn6rfrwpsy7uhxrgbypvwf5fad.onion"
 _TOR66_DEFAULT = "https://tor66.org"
+_ONIONLIVE_DEFAULT = "http://search7tdrcvri22rieiwgi5g46qnwsesvnubqav2xakhezv4hjzkkad.onion"
 
 # Settings that can be overridden from the database via the admin settings page.
 # Precedence per value is database override, then environment variable, then default.
@@ -120,6 +121,7 @@ class Config:
         self.torch_base_url = os.environ.get("TORCH_BASE_URL", _TORCH_DEFAULT)
         self.excavator_base_url = os.environ.get("EXCAVATOR_BASE_URL", _EXCAVATOR_DEFAULT)
         self.tor66_base_url = os.environ.get("TOR66_BASE_URL", _TOR66_DEFAULT)
+        self.onionlive_base_url = os.environ.get("ONIONLIVE_BASE_URL", _ONIONLIVE_DEFAULT)
 
         self.data_dir = os.environ.get("DARKWEB_DATA_DIR", os.path.join(_ROOT, "data"))
         self.db_path = os.environ.get("DARKWEB_DB", os.path.join(self.data_dir, "recon.db"))
