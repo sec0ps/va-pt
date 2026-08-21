@@ -53,15 +53,29 @@ Location: darkweb-recon/console/templates/workspace.html
 <thead><tr><th>type</th><th>term</th><th>enabled</th><th></th></tr></thead>
 <tbody>
 {% for t in terms %}
+{% if edit_id == t.id %}
+<tr>
+<td colspan="4">
+<form method="post" action="{{ url_for('ui.edit_term', tid=t.id) }}" class="inline" autocomplete="off">
+<select name="term_type">{% for tt in term_types %}<option value="{{ tt }}"{% if tt == t.term_type %} selected{% endif %}>{{ tt }}</option>{% endfor %}</select>
+<input name="term" value="{{ t.term or '' }}" placeholder="value, or blank to extract all of the type" autocomplete="off">
+<button type="submit">save</button>
+<a href="{{ url_for('ui.workspace_detail', wid=ws.id) }}">cancel</a>
+</form>
+</td>
+</tr>
+{% else %}
 <tr>
 <td>{{ t.term_type }}</td>
 <td class="mono">{{ t.term or '(any)' }}</td>
 <td>{{ 'yes' if t.enabled else 'no' }}</td>
 <td>
+<a href="{{ url_for('ui.workspace_detail', wid=ws.id, edit=t.id) }}">edit</a>
 <form method="post" action="{{ url_for('ui.toggle_term', tid=t.id) }}" class="inline" autocomplete="off"><button>toggle</button></form>
 <form method="post" action="{{ url_for('ui.delete_term', tid=t.id) }}" class="inline" autocomplete="off"><button class="danger">delete</button></form>
 </td>
 </tr>
+{% endif %}
 {% else %}
 <tr><td colspan="4">no terms</td></tr>
 {% endfor %}
@@ -212,10 +226,9 @@ Location: darkweb-recon/console/templates/workspace.html
 {% if current_user.role == 'admin' %}
 <h2>danger zone</h2>
 <div class="card">
-<form method="post" action="{{ url_for('ui.purge_findings', wid=ws.id) }}" class="inline" autocomplete="off" onsubmit='return confirm("Purge ALL findings in " + {{ ws.name|tojson }} + "? Watch terms and schedules are kept. This cannot be undone.");'>
-<button class="danger" type="submit">purge workspace</button>
-</form>
-<form method="post" action="{{ url_for('ui.delete_workspace', wid=ws.id) }}" class="inline" autocomplete="off" onsubmit='return confirm("Delete workspace " + {{ ws.name|tojson }} + " with all of its terms, schedules, jobs, and findings? This cannot be undone.");'>
+<p class="hint">Deleting this workspace permanently removes its watch terms, schedules, jobs, and all findings. This cannot be undone.</p>
+<form method="post" action="{{ url_for('ui.delete_workspace', wid=ws.id) }}" autocomplete="off">
+<label>type <strong>{{ ws.name }}</strong> to confirm<input name="confirm" autocomplete="off"></label>
 <button class="danger" type="submit">delete workspace</button>
 </form>
 </div>
