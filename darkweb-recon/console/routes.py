@@ -220,8 +220,8 @@ def add_term(wid):
     if term_type not in matching.TERM_TYPES:
         flash("invalid term type", "error")
         return redirect(url_for("ui.workspace_detail", wid=wid))
-    if term_type in ("literal", "any", "regex") and not term:
-        flash("literal, any, and regex terms require a value", "error")
+    if term_type in ("literal", "regex") and not term:
+        flash("literal and regex terms require a value", "error")
         return redirect(url_for("ui.workspace_detail", wid=wid))
     db.create_watch_term(wid, term, term_type)
     flash("term added", "ok")
@@ -353,9 +353,6 @@ def delete_workspace(wid):
     ws = db.get_workspace(wid)
     if ws is None:
         abort(404)
-    if request.form.get("confirm", "").strip() != (ws["name"] or ""):
-        flash("type the workspace name exactly to confirm deletion", "error")
-        return redirect(url_for("ui.workspace_detail", wid=wid))
     # Cancel any live scheduler jobs for this workspace before removing rows, so a
     # scheduled run cannot fire against a workspace that no longer exists.
     for sch in db.list_schedules(wid):
@@ -363,6 +360,17 @@ def delete_workspace(wid):
     db.delete_workspace(wid)
     flash("workspace '%s' deleted" % ws["name"], "ok")
     return redirect(url_for("ui.dashboard"))
+
+
+@ui.route("/workspaces/<int:wid>/purge", methods=["POST"])
+@admin_required
+def purge_findings(wid):
+    ws = db.get_workspace(wid)
+    if ws is None:
+        abort(404)
+    removed = db.delete_findings_for_workspace(wid)
+    flash("purged %d findings from '%s'" % (removed, ws["name"]), "ok")
+    return redirect(url_for("ui.workspace_detail", wid=wid))
 
 
 # findings and jobs
