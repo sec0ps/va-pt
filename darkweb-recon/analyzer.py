@@ -152,6 +152,11 @@ class Analyzer:
             log.warning("analyze fetch failed for %s: %s", url, exc)
             return None
 
+        status = result.get("status")
+        if isinstance(status, int) and not 200 <= status < 300:
+            log.debug("analyze skipping %s: non-2xx status %s", url, status)
+            return None
+
         soup = BeautifulSoup(result["text"], "lxml")
         title_el = soup.find("title")
         title = title_el.get_text(strip=True) if title_el else ""
