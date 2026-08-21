@@ -289,3 +289,69 @@ class TorController:
 
     def __exit__(self, exc_type, exc, tb):
         self.stop()
+
+
+class AttachedTorController:
+    """Control-only client for a tor this process does not own.
+
+    Attaches to a tor already running on the configured control port -- the
+    console's managed instance -- so a separate tool such as the engine probe can
+    rotate identity and share circuits without launching a second tor on the same
+    ports. It never launches, terminates, or reaps a process: start() opens and
+    authenticates a control connection and nothing more, and stop() closes only
+    that connection, leaving the borrowed tor running. If no tor is listening on
+    the control port, start() raises TorError so the caller can launch its own or
+    fail per its selected mode.
+    """
+
+    def __init__(self, config=None):
+        self.config = config or Config()
+        self._controller = None
+        self._newnym_lock = threading.Lock()
+        self._last_newnym = 0.0
+
+    def start(self):
+        if self._controller is not None:
+            return
+        if _port_available(self.config.tor_control_port):
+            raise TorError(
+                "no running tor on control port %d to attach to; start the console "
+                "(run.py) or use --tor-mode launch" % self.config.tor_control_port)
+        try:
+            self._controller = Controller.from_port(port=self.config.tor_control_port)
+            self._controller.authenticate()
+        except (stem.SocketError, stem.connection.AuthenticationFailure) as exc:
+            self.stop()
+            raise TorError("could not attach to running tor control port: %s" % exc)
+
+    def new_identity(self, wait_for_guard=True):
+        with self._newnym_lock:
+            if self._controller is None:
+                raise TorError("controller not started")
+            if wait_for_guard:
+                elapsed = time.time() - self._last_newnym
+                guard = self.config.tor_newnym_guard
+                if elapsed < guard:
+                    time.sleep(guard - elapsed)
+            self._controller.signal(stem.Signal.NEWNYM)
+            self._last_newnym = time.time()
+
+    def is_running(self):
+        return self._controller is not None
+
+    def stop(self):
+        # Close only the control connection; never signal, terminate, or reap the
+        # process -- the tor belongs to the console, not to this client.
+        if self._controller is not None:
+            try:
+                self._controller.close()
+            except Exception:
+                pass
+            self._controller = None
+
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.stop()
