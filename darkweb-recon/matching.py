@@ -37,6 +37,7 @@ import re
 
 TERM_TYPES = (
     "literal",
+    "any",
     "regex",
     "domain",
     "email",
@@ -137,6 +138,18 @@ class Matcher:
         if self.term.lower() in text.lower():
             return [self.term]
         return []
+
+    def _match_any(self, text):
+        if not self.term:
+            return []
+        results = []
+        for word in self.term.split():
+            try:
+                pattern = re.compile(r"\b" + re.escape(word) + r"\b", re.IGNORECASE)
+            except re.error:
+                continue
+            results.extend(m.group(0) for m in pattern.finditer(text))
+        return results
 
     def _match_regex(self, text):
         if not self.term:
