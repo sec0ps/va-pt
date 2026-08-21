@@ -887,13 +887,9 @@ def update_toolsets():
         if not os.path.exists(path):
             continue
         if git_pull_changed(path):
-            print(f"  {name}: changes pulled, rebuilding")
             run_command(f"cd {path} && {build}")
-        else:
-            print(f"  {name}: already up to date, skipping rebuild")
 
     # bettercap ships as a precompiled release binary; pull latest over existing
-    print("Updating bettercap")
     run_command("cd /tmp && curl -sL -o bettercap.zip https://github.com/bettercap/bettercap/releases/latest/download/bettercap_linux_amd64.zip")
     run_command("cd /tmp && 7z x bettercap.zip -y")
     run_command("cd /tmp && sudo install -m 755 bettercap /usr/local/bin/bettercap")
