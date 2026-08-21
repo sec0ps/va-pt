@@ -456,6 +456,14 @@ def get_watch_term(term_id):
         return _row(conn.execute("SELECT * FROM watch_terms WHERE id = ?", (term_id,)))
 
 
+def update_watch_term(term_id, term, term_type):
+    with connection() as conn:
+        conn.execute(
+            "UPDATE watch_terms SET term = ?, term_type = ? WHERE id = ?",
+            (term, term_type, term_id),
+        )
+
+
 def list_enabled_watch_terms(workspace_id):
     with connection() as conn:
         return _rows(conn.execute(
