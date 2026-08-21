@@ -266,6 +266,13 @@ def init_db():
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 ("excavator", "search", 1, json.dumps({}), None, _now()),
             )
+        cur = conn.execute("SELECT id FROM sources WHERE name = ?", ("tor66",))
+        if cur.fetchone() is None:
+            conn.execute(
+                "INSERT INTO sources (name, kind, enabled, config_json, auth_blob, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                ("tor66", "search", 1, json.dumps({}), None, _now()),
+            )
 
 
 # users
