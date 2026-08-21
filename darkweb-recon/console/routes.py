@@ -170,6 +170,10 @@ def workspace_detail(wid):
     status = request.args.get("status") or None
     matched = request.args.get("matched") in ("1", "true", "yes", "on")
     try:
+        edit_id = int(request.args.get("edit", "0")) or None
+    except ValueError:
+        edit_id = None
+    try:
         per_page = int(request.args.get("per_page", "10"))
     except ValueError:
         per_page = 10
@@ -196,6 +200,7 @@ def workspace_detail(wid):
         matched=matched,
         sources=db.list_enabled_sources(),
         term_types=matching.TERM_TYPES,
+        edit_id=edit_id,
         status=status,
         per_page=per_page,
         page=page,
@@ -250,6 +255,27 @@ def delete_term(tid):
         abort(403)
     db.delete_watch_term(tid)
     flash("term removed", "ok")
+    return redirect(url_for("ui.workspace_detail", wid=term["workspace_id"]))
+
+
+@ui.route("/terms/<int:tid>/edit", methods=["POST"])
+@login_required
+def edit_term(tid):
+    term = db.get_watch_term(tid)
+    if term is None:
+        abort(404)
+    if not auth.can_access_workspace(g.user, term["workspace_id"]):
+        abort(403)
+    value = request.form.get("term", "").strip()
+    term_type = request.form.get("term_type", "").strip()
+    if term_type not in matching.TERM_TYPES:
+        flash("invalid term type", "error")
+        return redirect(url_for("ui.workspace_detail", wid=term["workspace_id"]))
+    if term_type in ("literal", "any", "regex") and not value:
+        flash("literal, any, and regex terms require a value", "error")
+        return redirect(url_for("ui.workspace_detail", wid=term["workspace_id"], edit=tid))
+    db.update_watch_term(tid, value, term_type)
+    flash("term updated", "ok")
     return redirect(url_for("ui.workspace_detail", wid=term["workspace_id"]))
 
 
@@ -353,6 +379,9 @@ def delete_workspace(wid):
     ws = db.get_workspace(wid)
     if ws is None:
         abort(404)
+    if request.form.get("confirm", "").strip() != (ws["name"] or ""):
+        flash("type the workspace name exactly to confirm deletion", "error")
+        return redirect(url_for("ui.workspace_detail", wid=wid))
     # Cancel any live scheduler jobs for this workspace before removing rows, so a
     # scheduled run cannot fire against a workspace that no longer exists.
     for sch in db.list_schedules(wid):
@@ -360,17 +389,6 @@ def delete_workspace(wid):
     db.delete_workspace(wid)
     flash("workspace '%s' deleted" % ws["name"], "ok")
     return redirect(url_for("ui.dashboard"))
-
-
-@ui.route("/workspaces/<int:wid>/purge", methods=["POST"])
-@admin_required
-def purge_findings(wid):
-    ws = db.get_workspace(wid)
-    if ws is None:
-        abort(404)
-    removed = db.delete_findings_for_workspace(wid)
-    flash("purged %d findings from '%s'" % (removed, ws["name"]), "ok")
-    return redirect(url_for("ui.workspace_detail", wid=wid))
 
 
 # findings and jobs
