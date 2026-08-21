@@ -220,8 +220,8 @@ def add_term(wid):
     if term_type not in matching.TERM_TYPES:
         flash("invalid term type", "error")
         return redirect(url_for("ui.workspace_detail", wid=wid))
-    if term_type in ("literal", "regex") and not term:
-        flash("literal and regex terms require a value", "error")
+    if term_type in ("literal", "any", "regex") and not term:
+        flash("literal, any, and regex terms require a value", "error")
         return redirect(url_for("ui.workspace_detail", wid=wid))
     db.create_watch_term(wid, term, term_type)
     flash("term added", "ok")
