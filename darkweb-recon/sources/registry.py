@@ -13,7 +13,7 @@
 #          You are free to use, modify, and distribute this software
 #          in accordance with the terms of the license.
 #
-# Purpose: Source registry that instantiates enabled source plugins from database configuration, mapping each stored source row (ahmia, torch, excavator) to its implementation and filtering by kind and requested subset.
+# Purpose: Source registry that instantiates enabled source plugins from database configuration, mapping each stored source row (ahmia, torch, excavator, tor66) to its implementation and filtering by kind and requested subset.
 #
 # DISCLAIMER: This software is provided "as-is," without warranty of any kind,
 #             express or implied, including but not limited to the warranties
@@ -40,6 +40,7 @@ import db
 from sources.ahmia import AhmiaSource
 from sources.torch import TorchSource
 from sources.excavator import ExcavatorSource
+from sources.tor66 import Tor66Source
 
 log = logging.getLogger("recon.registry")
 
@@ -62,6 +63,9 @@ class SourceRegistry:
         if row["name"] == "excavator":
             base_url = cfg.get("base_url") or self.config.excavator_base_url
             return ExcavatorSource(base_url)
+        if row["name"] == "tor66":
+            base_url = cfg.get("base_url") or self.config.tor66_base_url
+            return Tor66Source(base_url)
         log.warning("no plugin implementation for source %s, skipping", row["name"])
         return None
 
