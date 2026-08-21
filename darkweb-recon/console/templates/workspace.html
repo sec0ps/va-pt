@@ -212,9 +212,10 @@ Location: darkweb-recon/console/templates/workspace.html
 {% if current_user.role == 'admin' %}
 <h2>danger zone</h2>
 <div class="card">
-<p class="hint">Deleting this workspace permanently removes its watch terms, schedules, jobs, and all findings. This cannot be undone.</p>
-<form method="post" action="{{ url_for('ui.delete_workspace', wid=ws.id) }}" autocomplete="off">
-<label>type <strong>{{ ws.name }}</strong> to confirm<input name="confirm" autocomplete="off"></label>
+<form method="post" action="{{ url_for('ui.purge_findings', wid=ws.id) }}" class="inline" autocomplete="off" onsubmit='return confirm("Purge ALL findings in " + {{ ws.name|tojson }} + "? Watch terms and schedules are kept. This cannot be undone.");'>
+<button class="danger" type="submit">purge workspace</button>
+</form>
+<form method="post" action="{{ url_for('ui.delete_workspace', wid=ws.id) }}" class="inline" autocomplete="off" onsubmit='return confirm("Delete workspace " + {{ ws.name|tojson }} + " with all of its terms, schedules, jobs, and findings? This cannot be undone.");'>
 <button class="danger" type="submit">delete workspace</button>
 </form>
 </div>
