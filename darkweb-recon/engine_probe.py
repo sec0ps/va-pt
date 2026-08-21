@@ -74,6 +74,7 @@ from sources.ahmia import AhmiaSource
 from sources.torch import TorchSource
 from sources.excavator import ExcavatorSource
 from sources.tor66 import Tor66Source
+from sources.onionlive import OnionLiveSource
 
 log = logging.getLogger("recon.probe")
 
@@ -85,6 +86,7 @@ def build_engines(config):
         "torch": TorchSource(config.torch_base_url),
         "excavator": ExcavatorSource(config.excavator_base_url),
         "tor66": Tor66Source(config.tor66_base_url),
+        "onionlive": OnionLiveSource(config.onionlive_base_url),
     }
 
 
@@ -178,7 +180,7 @@ def build_parser():
     p.add_argument("-t", "--term", required=True, action="append",
                    help="target phrase to search, may be repeated")
     p.add_argument("-e", "--engine", action="append",
-                   help="engine to test (ahmia, torch, excavator, tor66); repeatable; default all")
+                   help="engine to test (ahmia, torch, excavator, tor66, onionlive); repeatable; default all")
     p.add_argument("-l", "--limit", type=int, default=25, help="max results per term")
     p.add_argument("--engagement", default="probe",
                    help="engagement tag used for circuit isolation")
