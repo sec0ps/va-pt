@@ -286,23 +286,39 @@ class MsfClient:
 
     def session_handle(self, sid):
         """Resolve a session id to (handle, type_str). (None, '') if not found.
-        The handle is the pymetasploit3 session object for read/write."""
+        The handle is the pymetasploit3 session object for read/write. Some session
+        types (for example smb) are not interactive read/write consoles and the
+        client library raises when constructing a handle for them, so the type is
+        read from the session table first and the handle is only built for types
+        this console can drive. For those, (None, type_str) is returned so the
+        caller can report the type without crashing."""
         sessions = self.session_list()
         key = next((k for k in sessions if str(k) == str(sid)), None)
         if key is None:
             return None, ""
-        return (self._client.sessions.session(key),
-                str(sessions[key].get("type", "")))
+        stype = str(sessions[key].get("type", ""))
+        try:
+            handle = self._client.sessions.session(key)
+        except Exception as e:
+            logger.warning("session %s is type '%s' and cannot be attached as an "
+                           "interactive console: %s", sid, stype or "unknown", e)
+            return None, stype
+        return handle, stype
 
     def session_stop(self, sid):
         """Close a session by id. Returns True if a matching session was found and
         the stop was issued, False if no such session exists. Any RPC error from
-        the stop itself propagates to the caller."""
+        the stop itself propagates to the caller. Session types the client library
+        cannot construct a handle for (for example smb) are stopped with a direct
+        session.stop RPC call, so any session can be terminated."""
         sessions = self.session_list()
         key = next((k for k in sessions if str(k) == str(sid)), None)
         if key is None:
             return False
-        self._client.sessions.session(key).stop()
+        try:
+            self._client.sessions.session(key).stop()
+        except Exception:
+            self._client.call("session.stop", [str(key)])
         return True
 
     def db_status(self):
@@ -1236,8 +1252,13 @@ def _kill_sessions(client, ids):
 def _session_console(client, sid):
     handle, stype = client.session_handle(sid)
     if handle is None:
-        print(f"session {sid} not found. open sessions:")
-        _print_sessions(client.session_list())
+        if stype:
+            print(f"session {sid} is type '{stype}', which is not an interactive "
+                  f"shell or meterpreter console and cannot be attached here.")
+            print("use the Metasploit console directly for this session type.")
+        else:
+            print(f"session {sid} not found. open sessions:")
+            _print_sessions(client.session_list())
         return
     print(f"attached to session {sid} ({stype}); 'exit' or Ctrl-D detaches "
           "(the session stays open)\n")
