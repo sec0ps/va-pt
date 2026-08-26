@@ -90,12 +90,15 @@ def find_scripts_dir(nmap_path="nmap"):
     return None
 
 
-def update_scripts_db(nmap_path="nmap"):
+def update_scripts_db(nmap_path="nmap", sudo_prefix=None):
     """Refresh nmap's script database so newly added scripts are usable. This is the
-    scripts-only update the nightly job runs; it does not rebuild nmap itself."""
+    scripts-only update the nightly job runs; it does not rebuild nmap itself.
+    sudo_prefix is an optional argv prefix (for example ["sudo", "-n"]) for when the
+    script database lives in a root-owned directory the caller cannot write; left
+    unset, nmap runs directly, which is correct for a standalone root user."""
+    cmd = list(sudo_prefix or []) + [nmap_path, "--script-updatedb"]
     try:
-        proc = subprocess.run([nmap_path, "--script-updatedb"],
-                              capture_output=True, text=True, timeout=120)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         ok = proc.returncode == 0
         if not ok:
             logger.warning("script-updatedb rc=%s: %s", proc.returncode,
@@ -230,12 +233,13 @@ def load_catalog(path=None):
         return None
 
 
-def rebuild(nmap_path="nmap", scripts_dir=None, update_db=True, path=None):
+def rebuild(nmap_path="nmap", scripts_dir=None, update_db=True, path=None,
+            sudo_prefix=None):
     """The full nightly action: optionally refresh nmap's script database, parse the
     installed vuln and exploit scripts, and write the catalog. Returns the catalog.
     """
     if update_db:
-        update_scripts_db(nmap_path)
+        update_scripts_db(nmap_path, sudo_prefix=sudo_prefix)
     catalog = build_catalog(scripts_dir=scripts_dir, nmap_path=nmap_path)
     out = write_catalog(catalog, path)
     logger.info("nse catalog rebuilt: %d vuln/exploit script(s), %d cve(s) -> %s",
@@ -254,10 +258,16 @@ def _main(argv=None):
     p.add_argument("--out", default=None, help="catalog output path")
     p.add_argument("--no-update-db", action="store_true",
                    help="skip nmap --script-updatedb before building")
+    p.add_argument("--sudo", default="",
+                   help="sudo binary to run nmap --script-updatedb through, for "
+                        "when the script database is in a root-owned directory; "
+                        "empty runs nmap directly")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+    sudo_prefix = [args.sudo, "-n"] if args.sudo else None
     cat = rebuild(nmap_path=args.nmap, scripts_dir=args.scripts_dir,
-                  update_db=not args.no_update_db, path=args.out)
+                  update_db=not args.no_update_db, path=args.out,
+                  sudo_prefix=sudo_prefix)
     print(f"cataloged {cat['count']} vuln/exploit script(s), "
           f"{len(cat['by_cve'])} cve(s)")
     return 0
