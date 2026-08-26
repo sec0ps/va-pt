@@ -394,21 +394,35 @@ def _parse_open_services(host, with_vulners=False, mincvss=0.0):
         except (TypeError, ValueError):
             continue
         name = product = version = cpe = ""
+        method = ""
+        conf = 0
         svc_el = port.find("service")
         if svc_el is not None:
             name = svc_el.get("name", "")
             product = svc_el.get("product", "")
             version = svc_el.get("version", "")
+            method = svc_el.get("method", "")
+            try:
+                conf = int(svc_el.get("conf", "0") or 0)
+            except ValueError:
+                conf = 0
             cpe_el = svc_el.find("cpe")
             if cpe_el is not None and cpe_el.text:
                 cpe = cpe_el.text
         svc = Service(port=portid, protocol=proto, name=name,
-                      product=product, version=version, cpe=cpe)
+                      product=product, version=version, cpe=cpe,
+                      method=method, conf=conf)
         if with_vulners:
-            for sc in port.findall("script"):
-                if sc.get("id") == "vulners":
-                    svc.cves = _parse_vulners(sc, mincvss)
-                    break
+            # Only attach CVEs when nmap actually identified the service. vulners
+            # keys its hits off the detected product/version; on an unprobed
+            # port-table guess there is no real identification to match, so any
+            # CVE attributed to it would be firing at a phantom product.
+            probed = (method.lower() == "probed") or bool(product)
+            if probed:
+                for sc in port.findall("script"):
+                    if sc.get("id") == "vulners":
+                        svc.cves = _parse_vulners(sc, mincvss)
+                        break
         services.append(svc)
     return services
 
