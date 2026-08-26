@@ -215,6 +215,7 @@ class OrchestratorConfig:
     poll_interval: float = 0.25
     headless_status_interval: float = 5.0
     keep_msfrpcd: bool = False       # force-keep even with no open sessions
+    nse_catalog_path: str = ""       # explicit NSE catalog path; empty uses the engine default
 
 
 DEFAULT_CONFIG_FILE = ".orchestration_config"
@@ -378,6 +379,7 @@ class Orchestrator:
         self.msfd = msfd
         self.cfg = cfg
         self.config_file = config_file or OrchestrationConfig()
+        self._nse_catalog = self._load_nse_catalog()
         self._scan_pool = None
         self._fire_pool = None
         self._brute_pool = None
@@ -639,10 +641,35 @@ class Orchestrator:
         self.run.set_services(ip, services)
         self.run.transition(ip, HostState.ANALYZED)
 
+    def _load_nse_catalog(self):
+        """Load the NSE detection catalog once. Honors an explicit path from config
+        (the console points this at its instance dir), else the engine default
+        beside the builder. Missing or unbuilt catalog disables NSE discovery
+        silently, the scan still runs, just without the extra detection layer."""
+        try:
+            import nse_catalog
+        except ImportError:
+            return None
+        path = getattr(self.cfg, "nse_catalog_path", "") or None
+        catalog = nse_catalog.load_catalog(path)
+        if catalog is None:
+            logger.info("nse catalog not found%s; detection pass disabled "
+                        "(build it with nse_catalog.py)",
+                        f" at {path}" if path else "")
+            return None
+        logger.info("nse catalog loaded: %d vuln/exploit script(s), %d cve(s)",
+                    catalog.get("count", 0), len(catalog.get("by_cve", {})))
+        return catalog
+
     def _do_analyze(self, ip):
         """Build every avenue of attack for the host: exploit and auxiliary modules
-        matched by CVE and product, plus the curated unauthenticated tier. A host
-        with no avenue goes straight to CLEAN; otherwise it enters ATTACKING."""
+        matched by CVE and product, plus the curated unauthenticated tier. Before
+        matching, an NSE detection pass runs the catalog's vuln/exploit scripts
+        against each probed service and attaches any CVEs they confirm, so flaws
+        version matching missed still reach the exploit path. A host with no avenue
+        goes straight to CLEAN; otherwise it enters ATTACKING."""
+        host = self.run.host_copy(ip)
+        self._nse_discover_host(ip, host)
         host = self.run.host_copy(ip)
         candidates = []
         for svc in host.services:
@@ -654,6 +681,22 @@ class Orchestrator:
             return
         self.run.set_candidates(ip, candidates)
         self.run.transition(ip, HostState.ATTACKING)
+
+    def _nse_discover_host(self, ip, host):
+        """Run the NSE detection pass on each probed service and record any CVEs the
+        catalog scripts confirm, so they feed candidate selection. Best effort: no
+        catalog, or no discoveries, simply leaves the host's CVE set unchanged."""
+        catalog = self._nse_catalog
+        if catalog is None:
+            return
+        for svc in host.services:
+            try:
+                found = self.scanner.nse_discover(ip, svc, catalog)
+            except Exception as e:
+                logger.warning("nse discover error %s:%s: %s", ip, svc.port, e)
+                continue
+            for cve_id, script_id in found:
+                self.run.add_nse_cve(ip, svc.port, cve_id, script_id)
 
     def _ports_from_state(self, ip):
         host = self.run.host_copy(ip)
