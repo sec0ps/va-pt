@@ -168,13 +168,16 @@ class Service:
     product: str = ""
     version: str = ""
     cpe: str = ""
+    method: str = ""               # nmap service detection method: probed | table
+    conf: int = 0                  # nmap confidence 0-10 for the identification
     cves: list[CVE] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, d):
         s = cls(port=int(d["port"]), protocol=d.get("protocol", "tcp"),
                 name=d.get("name", ""), product=d.get("product", ""),
-                version=d.get("version", ""), cpe=d.get("cpe", ""))
+                version=d.get("version", ""), cpe=d.get("cpe", ""),
+                method=d.get("method", ""), conf=int(d.get("conf", 0) or 0))
         s.cves = [CVE.from_dict(x) for x in d.get("cves", [])]
         return s
 
