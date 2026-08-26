@@ -921,11 +921,21 @@ def _fireable(host):
 def _aux_candidates(host):
     """Auxiliary and unauthenticated candidates for the run path, deduped by
     module so a module reached by both CVE/product search and the curated map runs
-    once."""
+    once. When an exploit module exists for a port, the search-derived auxiliary
+    modules on that port are dropped: they are detectors that shadow the exploit
+    (java_rmi_server's scanner reports what its exploit lands), and firing the
+    exploit is always preferred. Curated unauthenticated-access modules (source
+    'unauth': anonymous FTP, unauthenticated Redis, null-session SMB) are always
+    kept, since they have no exploit equivalent and are the proof of access."""
+    exploit_ports = {c.port for c in host.candidates if c.source == "msf"}
     seen = set()
     out = []
     for c in host.candidates:
         if c.source not in ("auxiliary", "unauth"):
+            continue
+        if c.source == "auxiliary" and c.port in exploit_ports:
+            logger.debug("skip detector aux %s on :%s, exploit available",
+                         c.module, c.port)
             continue
         if c.module in seen:
             continue
