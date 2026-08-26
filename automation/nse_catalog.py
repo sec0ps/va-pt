@@ -43,6 +43,12 @@ logger = logging.getLogger(__name__)
 # excluded: it is broad and includes brute and dos-adjacent scripts.
 CATALOG_CATEGORIES = ("vuln", "exploit")
 
+# Hard exclusions. A script declaring any of these is never cataloged, even when it
+# also carries vuln or exploit. dos is a denial-of-service script and must never be
+# fired during an assessment; broadcast-avahi-dos is one such script that also tags
+# vuln. This is a safety floor, not a preference.
+EXCLUDE_CATEGORIES = ("dos",)
+
 # Common locations nmap installs its scripts to, in priority order. The nmap binary
 # is asked first (authoritative), these are the fallback.
 _SCRIPT_DIRS = (
@@ -168,6 +174,8 @@ def parse_script(path):
         return None
     cats = _categories(text)
     if not (cats & set(CATALOG_CATEGORIES)):
+        return None
+    if cats & set(EXCLUDE_CATEGORIES):
         return None
     script_id = os.path.basename(path)[:-4] if path.endswith(".nse") \
         else os.path.basename(path)
