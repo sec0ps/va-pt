@@ -444,8 +444,20 @@ class MsfClient:
                     logger.debug("  accept %s rank=%s via product '%s'",
                                  full, entry.get("rank"), term)
                     by_module[full] = (entry, "", 0.0)
-        ranked = sorted(by_module.values(),
-                        key=lambda t: _rank_value(t[0].get("rank")), reverse=True)
+        # Prefer exploits over auxiliary for the same service, always. An auxiliary
+        # scanner may merely detect what an exploit module can actually leverage
+        # (java_rmi_server is the classic case: the scanner reports class-loader
+        # enabled, the exploit lands a session). Sort by module type first so every
+        # exploit is attempted before any auxiliary, then by MSF rank within type.
+        # Auxiliary is still kept as a fallback for services with no exploit module
+        # and for the genuine unauthenticated-access modules that have no exploit
+        # equivalent (anonymous FTP, unauthenticated Redis, null-session SMB).
+        def _order_key(t):
+            entry = t[0]
+            is_exploit = not entry.get("fullname", "").startswith("auxiliary/")
+            return (0 if is_exploit else 1, -_rank_value(entry.get("rank")))
+
+        ranked = sorted(by_module.values(), key=_order_key)
         ranked = ranked[: self.cfg.candidates_per_service]
         out = []
         for entry, cve_id, _cvss in ranked:
