@@ -479,6 +479,28 @@ class RunState:
             h.access.append(acc)
             h.updated_at = _now()
 
+    def add_nse_cve(self, ip, port, cve_id, script_id=""):
+        """Attach a CVE an NSE detection script confirmed to the matching service,
+        so it feeds candidate selection. Deduped against CVEs already on the service
+        (from vulners), and marked source 'nse' so its origin is visible. No-op when
+        the service or CVE is already present."""
+        with self._lock:
+            h = self._hosts.get(ip)
+            if h is None:
+                return
+            cid = (cve_id or "").upper()
+            if not cid:
+                return
+            for svc in h.services:
+                if svc.port != port:
+                    continue
+                if any((c.cve_id or "").upper() == cid for c in svc.cves):
+                    return
+                svc.cves.append(CVE(cve_id=cid, cvss=0.0, exploit=False,
+                                    source="nse"))
+                h.updated_at = _now()
+                return
+
     def set_note(self, ip, note):
         with self._lock:
             h = self._hosts[ip]
