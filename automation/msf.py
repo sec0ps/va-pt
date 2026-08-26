@@ -90,8 +90,17 @@ def _product_search_terms(service):
     """Distinctive lowercase alphanumeric tokens (>=4 chars, non-generic) from the
     service product (preferred) or name, longest first. Returns a list so a
     multi-word product like 'Apache Tomcat' searches every component rather than
-    only the longest token. Empty when nothing specific enough is present."""
-    source = service.product or service.name or ""
+    only the longest token. Empty when nothing specific enough is present.
+
+    The name is only trusted when nmap actually probed the service. nmap fills the
+    product field only on a real probe, but the name can be a bare port-table guess
+    (method 'table'), for example port 3001 labelled 'nessus' with no banner. Using
+    a table guess as a search term fires phantom exploits at a service that was
+    never confirmed, so an unprobed name is ignored here and left for display only."""
+    source = service.product
+    if not source and (service.method or "").lower() == "probed":
+        source = service.name
+    source = source or ""
     toks = [t for t in re.findall(r"[a-z0-9]+", source.lower())
             if len(t) >= 4 and t not in _GENERIC_PRODUCT_TOKENS]
     out = []
