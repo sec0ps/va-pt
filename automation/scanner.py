@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -211,6 +212,57 @@ class Scanner:
         services = _parse_open_services(host, with_vulners=True,
                                         mincvss=self.cfg.mincvss)
         return _host_name(host), _parse_os(host), services
+
+    # -- nse discovery (analyze phase) --
+
+    def nse_discover(self, ip, service, catalog):
+        """Run the catalog's vuln/exploit scripts that match a probed service and
+        return the CVEs any of them report VULNERABLE. This is the detection layer:
+        NSE finds flaws version matching missed, and the CVEs flow into the exploit
+        path. Only probed services are tested, so an unconfirmed port-table guess
+        never triggers a script run. Returns a list of (cve_id, script_id). Never
+        raises; a tooling problem yields no discoveries."""
+        if catalog is None:
+            return []
+        if (service.method or "").lower() != "probed" and not service.product:
+            return []
+        scripts = _match_catalog_scripts(service, catalog)
+        if not scripts:
+            return []
+        args = ["-sV", "-Pn", "-n", self.cfg.timing,
+                "-p", str(service.port),
+                "--script", ",".join(sorted(scripts))]
+        args += list(self.cfg.extra_args)
+        args += [ip]
+        try:
+            root = self._run_nmap(args, self.cfg.nse_timeout)
+        except NmapError as e:
+            logger.warning("nse discover failed %s:%s: %s", ip, service.port, e)
+            return []
+        host = root.find("host")
+        if host is None:
+            return []
+        by_cve = catalog.get("by_cve", {})
+        # map each script's declared CVEs for quick lookup
+        script_cves = {s["id"]: s.get("cves", []) for s in catalog.get("scripts", [])}
+        found = []
+        seen = set()
+        for sid, output in _collect_script_outputs(host).items():
+            if verdict_from_nse(output) != Verdict.VULNERABLE:
+                continue
+            # CVEs the script declares, plus any CVE ids printed in its output
+            cids = set(script_cves.get(sid, []))
+            cids |= set(_cve_ids_in_text(output))
+            for cid in cids:
+                if cid in seen:
+                    continue
+                seen.add(cid)
+                found.append((cid, sid))
+        if found:
+            logger.info("nse discover %s:%s -> %d cve(s) via %d script(s)",
+                        ip, service.port, len(found),
+                        len({s for _, s in found}))
+        return found
 
     # -- nse verify (check phase) --
 
@@ -481,6 +533,54 @@ def _collect_script_text(host):
             if elem.text:
                 texts.append(elem.text)
     return texts
+
+
+def _collect_script_outputs(host):
+    """Per-script output keyed by script id, so a discovery pass can tell which
+    script fired and pull that script's CVEs. Aggregates the script output plus any
+    nested elem text."""
+    out = {}
+    for sc in (host.findall("./ports/port/script")
+               + host.findall("./hostscript/script")):
+        sid = sc.get("id", "")
+        if not sid:
+            continue
+        parts = [sc.get("output", "")]
+        for elem in sc.iter("elem"):
+            if elem.text:
+                parts.append(elem.text)
+        out[sid] = "\n".join(p for p in parts if p)
+    return out
+
+
+_DISCOVER_CVE_RE = re.compile(r"CVE[-\s]?(\d{4})[-\s]?(\d{4,7})", re.IGNORECASE)
+
+
+def _cve_ids_in_text(text):
+    return {f"CVE-{y}-{n}" for y, n in _DISCOVER_CVE_RE.findall(text or "")}
+
+
+def _match_catalog_scripts(service, catalog):
+    """Select catalog scripts whose service or port targets this probed service.
+    Matching is on the confirmed service identity (name and product tokens) and the
+    open port, not the port alone, so a script only runs where nmap actually saw
+    the service it targets. nmap re-applies each script's real portrule at run time,
+    so a loose match here is filtered there, never a false run."""
+    svc_tokens = set()
+    for field_val in (service.name, service.product):
+        for tok in re.findall(r"[a-z0-9]+", (field_val or "").lower()):
+            if len(tok) >= 3:
+                svc_tokens.add(tok)
+    port = service.port
+    selected = set()
+    for s in catalog.get("scripts", []):
+        if port and port in (s.get("ports") or []):
+            selected.add(s["id"])
+            continue
+        s_services = {t.lower() for t in (s.get("services") or [])}
+        if s_services & svc_tokens:
+            selected.add(s["id"])
+    return selected
 
 
 def _strongest_nse_verdict(texts):
