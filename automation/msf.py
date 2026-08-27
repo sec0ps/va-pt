@@ -132,45 +132,103 @@ _PLATFORMS = (
     "firefox", "mainframe", "netware",
 )
 
-# OS-family compatibility for the candidate platform filter. A module's OS-specific
-# platform is fired only if it matches the host's detected family. Language and
-# runtime platforms and 'multi' are OS-agnostic and always allowed. An unknown host
-# family disables the filter entirely (fire-all fallback).
-_OS_AGNOSTIC_PLATFORMS = frozenset({
-    "multi", "java", "php", "python", "ruby", "nodejs", "firefox",
+# OS-family taxonomy for the candidate platform filter. A module's declared
+# platform comes from Metasploit metadata (module.info), not from its path, so
+# new platform tokens are inherited automatically. The only static data here is
+# the real OS family tree: a module is compatible with a host when its platform
+# and the host family share a lineage (one is the other or an ancestor of it).
+# Language and runtime platforms are OS-agnostic and always allowed. An unknown
+# host family disables the filter entirely (fire-all fallback).
+_AGNOSTIC_PLATFORMS = frozenset({
+    "multi", "java", "php", "python", "ruby", "nodejs", "perl", "firefox",
+    "generic",
 })
-_OS_COMPATIBLE = {
-    "linux":   frozenset({"linux", "unix"}),
-    "unix":    frozenset({"unix", "linux", "bsd", "solaris", "aix", "osx"}),
-    "bsd":     frozenset({"bsd", "unix"}),
-    "solaris": frozenset({"solaris", "unix"}),
-    "osx":     frozenset({"osx", "unix", "bsd"}),
-    "aix":     frozenset({"aix", "unix"}),
-    "windows": frozenset({"windows"}),
+
+# child -> parent in the OS family tree. Roots (unix, windows, android, ...) have
+# no entry. This is stable OS domain knowledge, not the Metasploit platform list.
+_OS_FAMILY_PARENT = {
+    "linux": "unix",
+    "bsd": "unix",
+    "freebsd": "bsd",
+    "openbsd": "bsd",
+    "netbsd": "bsd",
+    "bsdi": "bsd",
+    "osx": "bsd",
+    "solaris": "unix",
+    "aix": "unix",
+    "hpux": "unix",
+    "irix": "unix",
 }
 
+# Synonyms folded to the canonical family token. Kept minimal: this is not a
+# platform registry, only known aliases MSF or nmap may emit for the same OS.
+_PLATFORM_ALIASES = {
+    "macos": "osx", "mac_os": "osx", "mac_os_x": "osx", "darwin": "osx",
+    "win": "windows", "win32": "windows", "win64": "windows",
+    "nix": "unix", "gnu_linux": "linux",
+}
 
-def _module_platform_segment(full):
-    """The platform segment of a module path (the token after the type), including
-    'multi'. None if that segment is not a known platform."""
-    parts = (full or "").split("/")
-    if len(parts) >= 2 and parts[1] in _PLATFORMS:
-        return parts[1]
-    return None
+# Tokens recognized when metadata is absent and we fall back to the module path.
+# Unified on the family tree so the fallback shares one vocabulary with the match.
+_KNOWN_PLATFORM_TOKENS = (
+    frozenset(_OS_FAMILY_PARENT)
+    | frozenset(_OS_FAMILY_PARENT.values())
+    | frozenset({"unix", "windows", "android", "apple_ios", "netware",
+                 "mainframe", "solaris"})
+    | _AGNOSTIC_PLATFORMS
+)
 
 
-def _platform_ok(module_fullname, host_os):
-    """True if the module's OS platform is compatible with the host's detected OS
-    family. Unknown host_os allows everything; OS-agnostic platforms (multi, java,
-    php, ...) and modules with no recognizable platform segment are always allowed;
-    otherwise the module platform must fall in the host family's compatible set, so
-    a Solaris or Windows module is not fired at a Linux host."""
-    if not host_os:
+def _normalize_platforms(raw):
+    """Module.info platform field (list, comma/space string, or None) to a token set."""
+    if not raw:
+        return frozenset()
+    parts = raw if isinstance(raw, (list, tuple, set)) else re.split(r"[,\s/]+", str(raw))
+    out = set()
+    for p in parts:
+        t = re.sub(r"[^a-z0-9_]", "", str(p).lower())
+        if t:
+            out.add(_PLATFORM_ALIASES.get(t, t))
+    return frozenset(out)
+
+
+def _family_ancestors(tok):
+    """The token plus every ancestor up the OS family tree, self first."""
+    seen = [tok]
+    cur = tok
+    while cur in _OS_FAMILY_PARENT:
+        cur = _OS_FAMILY_PARENT[cur]
+        if cur in seen:
+            break
+        seen.append(cur)
+    return seen
+
+
+def _family_compatible(module_plat, host_family):
+    """True if a module platform token shares an OS lineage with the host family.
+    Agnostic platforms and an unknown host family always pass; otherwise one must be
+    an ancestor of the other, so a unix module fires on linux and freebsd does not."""
+    if module_plat in _AGNOSTIC_PLATFORMS:
         return True
-    plat = _module_platform_segment(module_fullname)
-    if plat is None or plat in _OS_AGNOSTIC_PLATFORMS:
+    if not host_family:
         return True
-    return plat in _OS_COMPATIBLE.get(host_os, frozenset({plat}))
+    mp = _PLATFORM_ALIASES.get(module_plat, module_plat)
+    hf = _PLATFORM_ALIASES.get(host_family, host_family)
+    if mp == hf:
+        return True
+    return hf in _family_ancestors(mp) or mp in _family_ancestors(hf)
+
+
+def _platform_from_path(fullname):
+    """Last-resort platform token from the module path, used only when metadata
+    carries no platform. One-token set when the path segment names a known family or
+    agnostic platform, else an empty set (no constraint)."""
+    parts = (fullname or "").split("/")
+    if len(parts) >= 2:
+        tok = _PLATFORM_ALIASES.get(parts[1], parts[1])
+        if tok in _KNOWN_PLATFORM_TOKENS:
+            return frozenset({tok})
+    return frozenset()
 
 
 class MsfUnavailable(Exception):
@@ -221,6 +279,8 @@ class MsfClient:
         self._lport_pool: queue.Queue = queue.Queue()
         for p in range(cfg.lport_base, cfg.lport_base + cfg.lport_count):
             self._lport_pool.put(p)
+        # module fullname -> declared platform token set, cached per run
+        self._platform_cache = {}
 
     def _activity(self, source, text):
         if not self._on_activity:
@@ -395,6 +455,41 @@ class MsfClient:
             return False
         return True
 
+    def _module_platforms(self, fullname):
+        """Declared platform token set for a module, from module.info and cached for
+        the run. Falls back to the module path only when metadata carries no platform,
+        and returns an empty set when neither source constrains it (filter allows)."""
+        cached = self._platform_cache.get(fullname)
+        if cached is not None:
+            return cached
+        plats = frozenset()
+        mtype, _, ref = (fullname or "").partition("/")
+        if mtype and ref:
+            try:
+                info = self._client.call("module.info", [mtype, ref])
+            except Exception as e:
+                logger.debug("module.info failed for %s: %s", fullname, e)
+                info = None
+            if isinstance(info, dict):
+                plats = _normalize_platforms(info.get("platform"))
+        if not plats:
+            plats = _platform_from_path(fullname)
+        self._platform_cache[fullname] = plats
+        return plats
+
+    def _platform_ok(self, fullname, host_os):
+        """True if the module may fire at a host of the given OS family. Unknown host
+        family allows everything (fire-all fallback); a module with no declared
+        platform is allowed; otherwise the module is kept when any declared platform
+        shares an OS lineage with the host family, so a freebsd module is dropped on a
+        linux host while a unix module is kept."""
+        if not host_os:
+            return True
+        plats = self._module_platforms(fullname)
+        if not plats:
+            return True
+        return any(_family_compatible(p, host_os) for p in plats)
+
     def candidates_for_service(self, service, host_os=""):
         """Search every CVE on the service plus the product name, filter to fireable
         exploit modules, dedup, rank-sort, and cap. Returns a list of Candidate
@@ -418,7 +513,7 @@ class MsfClient:
                     logger.debug("  reject %s type=%s rank=%s",
                                  full, entry.get("type"), entry.get("rank"))
                     continue
-                if not _platform_ok(full, host_os):
+                if not self._platform_ok(full, host_os):
                     logger.debug("  skip %s (platform vs host '%s')", full, host_os)
                     continue
                 logger.debug("  accept %s rank=%s", full, entry.get("rank"))
@@ -446,7 +541,7 @@ class MsfClient:
                     if not _product_relevant(term, full):
                         logger.debug("  skip irrelevant %s", full)
                         continue
-                    if not _platform_ok(full, host_os):
+                    if not self._platform_ok(full, host_os):
                         logger.debug("  skip %s (platform vs host '%s')",
                                      full, host_os)
                         continue
