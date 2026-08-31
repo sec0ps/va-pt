@@ -422,6 +422,7 @@ def install_ruby():
     if not run_command(f"{rbenv_bin} install -s 3.3.9"):
         print("  ERROR: rbenv install 3.3.9 failed. Usual causes: stale "
               f"ruby-build definitions or a missing compile header (see {LOG_PATH}).")
+        FAILED_PACKAGES.append("ruby: 3.3.9 (rbenv install failed)")
         return
 
     run_command(f"{rbenv_bin} global 3.3.9")
@@ -434,6 +435,7 @@ def install_ruby():
     else:
         print(f"  WARNING: install ran but active ruby is: {verify.stdout.strip()} "
               "(shims or PATH issue). Run: source ~/.bashrc")
+        FAILED_PACKAGES.append("ruby: 3.3.9 (verify failed)")
 
 def install_base_dependencies():
     global PIP
@@ -522,8 +524,14 @@ def install_base_dependencies():
         print("Rust already installed, skipping.")
     else:
         print("Installing Rust...")
-        run_command("curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y")
-        run_command('bash -c "source $HOME/.cargo/env"')
+        if not run_command("curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"):
+            FAILED_PACKAGES.append("rust: toolchain")
+
+    # Make cargo usable for the rest of this run regardless of .bashrc state
+    # (both install and skip paths) so Rust-built wheels like aardwolf/NetExec find rustc
+    cargo_path = os.path.expanduser("~/.cargo/bin")
+    if os.path.isdir(cargo_path) and cargo_path not in os.environ.get('PATH', ''):
+        os.environ['PATH'] = f"{cargo_path}:{os.environ['PATH']}"
 
     # Install NetExec (skip if already present)
     netexec_check = subprocess.run("pipx list", shell=True, capture_output=True, text=True)
@@ -532,7 +540,7 @@ def install_base_dependencies():
     else:
         print("Installing NetExec...")
         run_command("pipx ensurepath")
-        run_command("pipx install git+https://github.com/Pennyw0rth/NetExec")
+        install_one("pipx", "pipx install git+https://github.com/Pennyw0rth/NetExec", "netexec")
 
     # Ruby via rbenv (self-contained and idempotent)
     install_ruby()
