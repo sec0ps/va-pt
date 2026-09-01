@@ -1,4 +1,42 @@
 #!/usr/bin/env python3
+# =============================================================================
+# VAPT Toolkit - Vulnerability Assessment and Penetration Testing Toolkit
+# =============================================================================
+#
+# Author: Keith Pachulski
+# Company: Red Cell Security, LLC
+# Email: keith@redcellsecurity.org
+# Website: www.redcellsecurity.org
+#
+# Copyright (c) 2026 Keith Pachulski. All rights reserved.
+#
+# License: This software is licensed under the MIT License.
+#          You are free to use, modify, and distribute this software
+#          in accordance with the terms of the license.
+#
+# Purpose: Lifecycle manager for a tleemcjr/metasploitable2 target on a Docker
+#          macvlan network. Provides up/down/restart/status actions with an
+#          autodetected LAN parent and IP, a host<->container macvlan shim so
+#          the Docker host can reach the target, validation that a reused
+#          macvlan network still shares the current parent (a stale network is
+#          rebuilt rather than silently reused), an honest post-deploy
+#          reachability probe, and JSON-backed state so the target can be torn
+#          down and re-added on a stable IP.
+#
+# DISCLAIMER: This software is provided "as-is," without warranty of any kind,
+#             express or implied, including but not limited to the warranties
+#             of merchantability, fitness for a particular purpose, and non-infringement.
+#             In no event shall the authors or copyright holders be liable for any claim,
+#             damages, or other liability, whether in an action of contract, tort, or otherwise,
+#             arising from, out of, or in connection with the software or the use or other dealings
+#             in the software.
+#
+# NOTICE: This toolkit is intended for authorized security testing only.
+#         Users are responsible for ensuring compliance with all applicable laws
+#         and regulations. Unauthorized use of these tools may violate local,
+#         state, federal, and international laws.
+#
+# =============================================================================
 """
 deploy_metasploitable.py
 
@@ -32,6 +70,14 @@ Notes:
   * macvlan needs a WIRED parent in promiscuous mode. On Wi-Fi most APs drop
     the spoofed MACs and the target is unreachable; the parent is checked and
     a warning is printed if it is wireless.
+  * A reused macvlan network is validated against the current parent NIC and
+    subnet. If it was created over a different parent (e.g. an earlier Wi-Fi
+    session), the shim and container would land on different lower devices and
+    never exchange traffic; the stale network is torn down and rebuilt on the
+    current parent instead of being silently reused.
+  * The final banner reflects an actual host->target reachability probe. When
+    the shim is enabled and the host still cannot reach the target, the deploy
+    reports UNREACHABLE (and exits non-zero) rather than claiming success.
   * The host<->container shim is ephemeral (gone on reboot). Re-run `up` to
     recreate it.
 """
@@ -295,18 +341,66 @@ def image_present(image):
     return run(["docker", "image", "inspect", image], check=False).returncode == 0
 
 
-def ensure_network(name, network, gateway, iface, force):
+def network_details(name):
+    p = run(["docker", "network", "inspect", name, "--format",
+             "{{.Driver}}|{{index .Options \"parent\"}}|"
+             "{{range .IPAM.Config}}{{.Subnet}}{{end}}"], check=False)
+    if p.returncode != 0:
+        return None
+    parts = p.stdout.strip().split("|")
+    if len(parts) != 3:
+        return None
+    return {"driver": parts[0], "parent": parts[1], "subnet": parts[2]}
+
+
+def containers_on_network(name):
+    p = run(["docker", "network", "inspect", name, "--format",
+             "{{range .Containers}}{{.Name}} {{end}}"], check=False)
+    if p.returncode != 0:
+        return []
+    return p.stdout.split()
+
+
+def recreate_network(name, container):
+    if container and container_state(container) is not None:
+        log.info("detaching container %s from %s", container, name)
+        run(["docker", "rm", "-f", container], check=False)
+    rm = run(["docker", "network", "rm", name], check=False)
+    if rm.returncode != 0:
+        others = containers_on_network(name)
+        if others:
+            die(f"cannot rebuild network {name}: still in use by "
+                f"{', '.join(others)}; remove those containers or re-run with "
+                f"--force")
+        die(f"cannot remove network {name}: {rm.stderr.strip()}")
+
+
+def ensure_network(name, network, gateway, iface, force, container=None):
     if network_exists(name):
-        info = run(["docker", "network", "inspect", name, "--format",
-                    "{{.Driver}} {{range .IPAM.Config}}{{.Subnet}}{{end}}"]
-                   ).stdout.strip()
-        if force:
-            log.info("--force: removing macvlan network %s (%s)", name, info)
-            run(["docker", "network", "rm", name])
-        else:
-            log.info("macvlan network %s already exists (%s); reusing",
-                     name, info)
+        details = network_details(name)
+        cur_driver = details["driver"] if details else "?"
+        cur_parent = details["parent"] if details else "?"
+        cur_subnet = details["subnet"] if details else "?"
+        mismatch = (details is None
+                    or cur_driver != "macvlan"
+                    or cur_parent != iface
+                    or cur_subnet != str(network))
+
+        if not force and not mismatch:
+            log.info("macvlan network %s already exists (parent=%s subnet=%s); "
+                     "reusing", name, cur_parent, cur_subnet)
             return
+
+        if force:
+            log.info("--force: rebuilding macvlan network %s (parent=%s "
+                     "subnet=%s)", name, cur_parent, cur_subnet)
+        else:
+            log.warning("macvlan network %s is stale (parent=%s subnet=%s, want "
+                        "parent=%s subnet=%s); rebuilding so the shim and "
+                        "container share one parent", name, cur_parent,
+                        cur_subnet, iface, network)
+        recreate_network(name, container)
+
     run(["docker", "network", "create", "-d", "macvlan",
          "--subnet", str(network), "--gateway", str(gateway),
          "-o", f"parent={iface}", name])
@@ -491,9 +585,12 @@ def cmd_up(args):
         shim_enabled = state.get("shim_enabled", True)
 
     container_ip = resolve_container_ip(args, state, network, gateway, iface, name)
-    ensure_network(args.network_name, network, gateway, iface, args.force)
+    ensure_network(args.network_name, network, gateway, iface, args.force,
+                   container=name)
 
     shim_ip = None
+    reachable = None
+    seen = set()
     attempts = 1 if args.ip else 3
     for attempt in range(1, attempts + 1):
         deploy_container(name, args.image, args.network_name, container_ip,
@@ -515,11 +612,12 @@ def cmd_up(args):
             prev_shim = state.get("shim_ip") if state else None
             shim_ip = setup_shim(iface, network, container_ip, gateway,
                                  args.shim_ip or prev_shim)
-            if host_can_reach(container_ip):
+            reachable = host_can_reach(container_ip)
+            if reachable:
                 log.info("host reaches target at %s via shim", container_ip)
             else:
-                log.warning("host still cannot ping %s — likely a Wi-Fi parent "
-                            "or AP MAC filtering", container_ip)
+                log.warning("host still cannot reach %s through the shim — see "
+                            "the diagnostics printed below", container_ip)
 
         foreign = detect_ip_conflict(name, container_ip, iface)
         if not foreign:
@@ -553,7 +651,10 @@ def cmd_up(args):
     })
 
     summary(name, container_ip, args.network_name, iface, shim_ip, seen,
-            args.state_file)
+            args.state_file, shim_enabled, reachable)
+
+    if shim_enabled and reachable is False:
+        sys.exit(2)
 
 
 def cmd_down(args):
@@ -603,7 +704,15 @@ def cmd_status(args):
         print(line + "\n")
         return
 
-    print(f"  network {net:<8}: {'present' if network_exists(net) else 'absent'}")
+    if network_exists(net):
+        details = network_details(net)
+        if details:
+            print(f"  network {net:<8}: present "
+                  f"(parent={details['parent']} subnet={details['subnet']})")
+        else:
+            print(f"  network {net:<8}: present")
+    else:
+        print(f"  network {net:<8}: absent")
 
     cs = container_state(name)
     if cs is None:
@@ -623,6 +732,13 @@ def cmd_status(args):
     if shim_exists():
         tgt = state.get("container_ip") if state else "?"
         print(f"  shim {SHIM_IF}: up -> {tgt}")
+        if cs == "running":
+            probe = container_ip_addr(name) or (state.get("container_ip")
+                                                if state else None)
+            if probe:
+                ok = host_can_reach(probe)
+                print(f"  host reaches  : "
+                      f"{'yes' if ok else 'NO — host cannot reach the target'}")
     else:
         print(f"  shim {SHIM_IF}: absent")
 
@@ -634,20 +750,28 @@ def cmd_status(args):
 # --------------------------------------------------------------------------- #
 # summary
 # --------------------------------------------------------------------------- #
-def summary(container, ip, network, iface, shim_ip, seen_ports, state_file):
+def summary(container, ip, network, iface, shim_ip, seen_ports, state_file,
+            shim_enabled, reachable):
     script = os.path.basename(__file__)
     line = "=" * 64
+    operational = (not shim_enabled) or bool(reachable)
+
     print("\n" + line)
-    print("  Metasploitable2 is operational")
+    if operational:
+        print("  Metasploitable2 is operational")
+    else:
+        print("  Metasploitable2 DEPLOYED but UNREACHABLE from this host")
     print(line)
     print(f"  Target IP     : {ip}")
     print(f"  Docker network: {network} (macvlan, parent {iface})")
     print(f"  Container     : {container}")
     print(f"  Credentials   : msfadmin / msfadmin")
-    if shim_ip:
-        print(f"  Host shim     : {SHIM_IF} @ {shim_ip} (host can reach target)")
-    else:
+    if not shim_enabled:
         print(f"  Host shim     : disabled (attack from another LAN host)")
+    elif reachable:
+        print(f"  Host shim     : {SHIM_IF} @ {shim_ip} (host reaches target)")
+    else:
+        print(f"  Host shim     : {SHIM_IF} @ {shim_ip} (NOT reaching target)")
 
     if seen_ports:
         pretty = ", ".join(
@@ -661,6 +785,20 @@ def summary(container, ip, network, iface, shim_ip, seen_ports, state_file):
         print(f"                  retry: docker exec {container} /bin/services.sh")
 
     print(line)
+    if shim_enabled and not reachable:
+        print("  Host cannot reach the target. The container is up and its")
+        print("  services are listening, but the host<->container macvlan path")
+        print("  is not passing traffic. Check, in order:")
+        print("    1. parent match : docker network inspect " + str(network)
+              + " -f '{{.Options.parent}}'  (want " + str(iface) + ")")
+        print(f"    2. promisc mode : sudo ip link set {iface} promisc on")
+        print(f"    3. host route   : ip route get {ip}   (want dev {SHIM_IF})")
+        print(f"    4. switch / AP  : single-MAC port security drops the target MAC")
+        print(f"    5. container IP : docker exec {container} ip addr show eth0")
+        print(f"    6. host fw      : nft list ruleset | grep -i {SHIM_IF}")
+        print("  Or drive it from another LAN host and re-run with --no-shim.")
+        print(line)
+
     print(f"  Shell in      : docker exec -it {container} bash")
     print(f"  Scan it       : nmap -sV {ip}")
     print(f"  Status        : sudo {script} status")
