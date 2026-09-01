@@ -185,8 +185,9 @@ class Scanner:
         set (and no explicit ports), sweeps all 65535 ports; -sV and vulners only
         touch ports nmap finds open, so the wide range costs only the SYN sweep,
         no separate port-discovery scan. Returns (hostname, os_family, [Service])
-        with CVEs attached. os_family is a best-effort OS token (linux, windows,
-        unix, ...) from -sV ostype/CPE hints, or "" when nothing identifies it."""
+        with CVEs attached. os_family prefers nmap -O stack fingerprinting (gated
+        by an accuracy floor and kept distinct for BSD variants) and falls back to
+        -sV ostype/CPE hints, or "" when nothing identifies it."""
         if self.cfg.full_ports and not ports:
             port_args = ["-p-"]
             timeout = self.cfg.port_scan_timeout
@@ -195,7 +196,7 @@ class Scanner:
                 return "", "", []
             port_args = ["-p", ",".join(str(p) for p in ports)]
             timeout = self.cfg.vulners_timeout
-        args = ["-sS", "-sV", "-Pn", self.cfg.timing,
+        args = ["-sS", "-sV", "-O", "-Pn", self.cfg.timing,
                 "--script", "vulners",
                 "--script-args", f"mincvss={self.cfg.mincvss}"]
         args += port_args
@@ -211,7 +212,7 @@ class Scanner:
             return "", "", []
         services = _parse_open_services(host, with_vulners=True,
                                         mincvss=self.cfg.mincvss)
-        return _host_name(host), _parse_os(host), services
+        return _host_name(host), _resolve_os_family(host), services
 
     # -- nse discovery (analyze phase) --
 
@@ -365,6 +366,71 @@ def _host_addr(host):
 def _host_name(host):
     hn = host.find("./hostnames/hostname")
     return hn.get("name", "") if hn is not None else ""
+
+
+# nmap -O osmatch accuracy below this is treated as a guess and ignored, falling
+# back to the weaker -sV hints. OS detection is critical to what the exploit phase
+# fires, so the floor is deliberately high; nmap emits high 90s on a clean match.
+_OSSCAN_ACCURACY_FLOOR = 85
+
+
+def _resolve_os_family(host):
+    """Host OS family, preferring nmap -O over -sV hints. -O classifies the TCP/IP
+    stack and distinguishes BSD variants, so it is the stronger signal; the -sV
+    ostype and CPE hints fill in when -O is absent or below the accuracy floor."""
+    fam = _parse_os_fingerprint(host)
+    return fam or _parse_os(host)
+
+
+def _parse_os_fingerprint(host):
+    """OS family from nmap -O output. Takes the highest-accuracy osmatch and, when
+    it meets the accuracy floor, maps its osclass osfamily to a family token. Keeps
+    freebsd, openbsd, and netbsd distinct so the exploit platform filter can drop a
+    wrong-OS module. Returns "" when -O found nothing confident."""
+    os_el = host.find("os")
+    if os_el is None:
+        return ""
+    best, best_acc = None, -1
+    for m in os_el.findall("osmatch"):
+        try:
+            acc = int(m.get("accuracy") or "0")
+        except ValueError:
+            acc = 0
+        if acc > best_acc:
+            best, best_acc = m, acc
+    if best is None or best_acc < _OSSCAN_ACCURACY_FLOOR:
+        return ""
+    cls = best.find("osclass")
+    return _os_family_from_osclass(cls) if cls is not None else ""
+
+
+def _os_family_from_osclass(cls):
+    """Map an nmap <osclass osfamily=...> to a family token, keeping BSD variants
+    distinct. Falls back to the osclass OS CPE when osfamily is unhelpful."""
+    fam = (cls.get("osfamily") or "").lower()
+    if "windows" in fam:
+        return "windows"
+    if "linux" in fam:
+        return "linux"
+    if "freebsd" in fam:
+        return "freebsd"
+    if "openbsd" in fam:
+        return "openbsd"
+    if "netbsd" in fam:
+        return "netbsd"
+    if "bsd" in fam:
+        return "bsd"
+    if "solaris" in fam or "sunos" in fam:
+        return "solaris"
+    if any(k in fam for k in ("mac os", "macos", "os x", "darwin")):
+        return "osx"
+    if "aix" in fam:
+        return "aix"
+    for cpe in cls.findall("cpe"):
+        f = _os_family_from_cpe((cpe.text or "").lower())
+        if f:
+            return f
+    return ""
 
 
 def _parse_os(host):
