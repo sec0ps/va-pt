@@ -682,12 +682,6 @@ class MsfClient:
                                    f"LPORT={lport} @ {rhost}")
             logger.info("fire %s @ %s:%s payload=%s LHOST=%s LPORT=%s",
                         candidate.module, rhost, port, payload_name, lhost, lport)
-            # Session ids present before we fire, so _await_session only claims a
-            # session that opened from this attempt and never an unrelated one.
-            try:
-                baseline = set(self._client.sessions.list or {})
-            except Exception:
-                baseline = set()
             result = exploit.execute(payload=payload)
             if not isinstance(result, dict) or not result.get("uuid"):
                 err = ""
@@ -701,9 +695,7 @@ class MsfClient:
                                      err or "execute returned no uuid")
             uuid = result.get("uuid")
             job_id = result.get("job_id")
-            matched = self._await_session(
-                uuid, candidate.module, rhost, self.cfg.exploit_timeout,
-                baseline)
+            matched = self._await_session(uuid, self.cfg.exploit_timeout)
             if matched is None:
                 logger.info("fire %s @ %s -> no session", candidate.module, rhost)
                 return None, "no_session", "fired, no session within timeout"
@@ -754,29 +746,15 @@ class MsfClient:
             fails += _apply_options(exploit, [(opt, val)])
         return fails
 
-    def _await_session(self, uuid, module, rhost, timeout, baseline):
-        """Wait up to timeout for a session opened by this fire, returning (sid, dict)
-        or None. A session is claimed only when it is new (its id was not in the
-        pre-fire baseline) and it either carries this run's exploit_uuid or was opened
-        by this module against this host. The exploit_uuid alone is not enough:
-        command-shell sessions from cmd/unix reverse payloads and handler-caught
-        callbacks routinely land with exploit_uuid empty while via_exploit and the
-        target host still identify them, so the old strict-uuid match left real shells
-        unattributed and reported them as no session. Restricting to new sessions and
-        matching via_exploit plus host keeps a concurrent fire from claiming another's
-        session while catching the ones MSF does not tag."""
+    def _await_session(self, uuid, timeout):
         start = time.time()
         while time.time() - start < timeout:
             try:
-                sessions = self._client.sessions.list or {}
+                sessions = self._client.sessions.list
             except Exception:
                 sessions = {}
-            new = [(sid, s) for sid, s in sessions.items() if sid not in baseline]
-            for sid, s in new:
-                if uuid and s.get("exploit_uuid") == uuid:
-                    return sid, s
-            for sid, s in new:
-                if s.get("via_exploit") == module and _session_targets(s, rhost):
+            for sid, s in sessions.items():
+                if s.get("exploit_uuid") == uuid:
                     return sid, s
             time.sleep(1.0)
         return None
@@ -1155,17 +1133,6 @@ def _apply_options(mod, pairs):
     return failures
 
 
-def _session_targets(s, rhost):
-    """True if a session dict points at rhost, by session or target host, or by the
-    host part of tunnel_peer (ip:port)."""
-    if not rhost:
-        return False
-    if s.get("session_host") == rhost or s.get("target_host") == rhost:
-        return True
-    peer = str(s.get("tunnel_peer") or "")
-    return peer.rsplit(":", 1)[0] == rhost
-
-
 def _lhost_for(target):
     """Source IP the kernel would use to reach target. UDP connect consults the
     routing table without sending packets, so this works offline."""
@@ -1448,6 +1415,29 @@ def _kill_sessions(client, ids):
     return closed
 
 
+def _shell_read(handle):
+    """Read shell output without choking when the RPC response has no 'data' key.
+    pymetasploit3's ShellSession.read() indexes response['data'] directly, so an
+    empty or error response raises KeyError('data') and hides the real reason. This
+    reads the same RPC and returns the data if present, an empty string when there
+    is simply nothing to read, or a surfaced error message so it is visible instead
+    of masked."""
+    try:
+        resp = handle.rpc.call("session.shell_read", [handle.sid])
+    except Exception:
+        try:
+            return handle.read()
+        except Exception as e:
+            return f"[read error: {e}]\n"
+    if isinstance(resp, dict):
+        if resp.get("data") is not None:
+            return resp["data"]
+        if resp.get("error"):
+            return "[msf] " + str(resp.get("error_message") or resp) + "\n"
+        return ""
+    return str(resp)
+
+
 def _session_console(client, sid):
     handle, stype = client.session_handle(sid)
     if handle is None:
@@ -1462,7 +1452,10 @@ def _session_console(client, sid):
     print(f"attached to session {sid} ({stype}); 'exit' or Ctrl-D detaches "
           "(the session stays open)\n")
     try:
-        handle.read()                      # drain any pending banner
+        if stype != "meterpreter":
+            _shell_read(handle)            # drain any pending banner
+        else:
+            handle.read()
     except Exception:
         pass
     while True:
@@ -1481,7 +1474,7 @@ def _session_console(client, sid):
             else:
                 handle.write(cmd + "\n")
                 time.sleep(0.4)
-                sys.stdout.write(handle.read())
+                sys.stdout.write(_shell_read(handle))
             sys.stdout.flush()
         except Exception as e:
             print(f"error: {e}")
