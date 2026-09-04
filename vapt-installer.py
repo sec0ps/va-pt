@@ -735,7 +735,7 @@ def install_toolkit_packages():
 
     vulnerability_scanners = [
         ("https://github.com/sqlmapproject/sqlmap.git", "/vapt/scanners/sqlmap", None),
-        ("https://github.com/nmap/nmap.git", "/vapt/scanners/nmap", ["./configure --without-zenmap", "make", "sudo make install"]),
+        ("https://github.com/nmap/nmap.git", "/vapt/scanners/nmap", ["./configure --without-zenmap --without-ndiff", "make", "sudo make install"]),
         ("https://github.com/makefu/dnsmap.git", "/vapt/scanners/dnsmap", ["gcc -o dnsmap dnsmap.c"]),
         ("https://github.com/fwaeytens/dnsenum.git", "/vapt/scanners/dnsenum", None),
         ("https://github.com/nccgroup/cisco-SNMP-enumeration.git", "/vapt/scanners/cisco-SNMP-enumeration", None),
