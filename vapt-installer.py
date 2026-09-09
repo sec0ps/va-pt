@@ -437,6 +437,63 @@ def install_ruby():
               "(shims or PATH issue). Run: source ~/.bashrc")
         FAILED_PACKAGES.append("ruby: 3.3.9 (verify failed)")
 
+
+def install_firefox_headless():
+    """Install a real .deb Firefox from Mozilla's APT repo (not the Ubuntu snap
+    shim, which cannot be driven headless by ZAP's Selenium) plus a matching
+    geckodriver on PATH. ZAP's AJAX spider needs both."""
+    print("Installing headless Firefox (.deb) and geckodriver")
+
+    real = subprocess.run(
+        "readlink -f \"$(command -v firefox)\" 2>/dev/null", shell=True,
+        capture_output=True, text=True).stdout.strip()
+    have_deb = bool(real) and "/snap" not in real and os.path.exists(
+        "/etc/apt/sources.list.d/mozilla.list")
+
+    if not have_deb:
+        run_command("sudo snap remove firefox")          # no-op if not a snap
+        run_command("sudo apt-get purge -y firefox")     # transitional package
+        run_command("sudo install -d -m 0755 /etc/apt/keyrings")
+        run_command(
+            "wget -qO- https://packages.mozilla.org/apt/repo-signing-key.gpg "
+            "| sudo tee /etc/apt/keyrings/packages.mozilla.org.asc >/dev/null")
+        run_command(
+            "echo 'deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] "
+            "https://packages.mozilla.org/apt mozilla main' "
+            "| sudo tee /etc/apt/sources.list.d/mozilla.list")
+        run_command(
+            "printf 'Package: *\\nPin: origin packages.mozilla.org\\n"
+            "Pin-Priority: 1000\\n' | sudo tee /etc/apt/preferences.d/mozilla")
+        run_command("sudo DEBIAN_FRONTEND=noninteractive apt-get update")
+        run_command(
+            "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y firefox")
+    else:
+        print("Real .deb Firefox already present, skipping repo setup.")
+
+    if subprocess.run("command -v geckodriver", shell=True,
+                      capture_output=True).returncode != 0:
+        print("Installing geckodriver")
+        run_command(
+            "cd /tmp && GV=$(curl -s "
+            "https://api.github.com/repos/mozilla/geckodriver/releases/latest "
+            "| grep -oP '\"tag_name\": \"\\K[^\"]+') && "
+            "curl -sL -o geckodriver.tar.gz "
+            "\"https://github.com/mozilla/geckodriver/releases/download/"
+            "$GV/geckodriver-$GV-linux64.tar.gz\" && "
+            "tar -xzf geckodriver.tar.gz && "
+            "sudo install -m 0755 geckodriver /usr/local/bin/geckodriver && "
+            "rm -f geckodriver geckodriver.tar.gz")
+    else:
+        print("geckodriver already present, skipping.")
+
+    ff = subprocess.run("firefox --version 2>/dev/null", shell=True,
+                        capture_output=True, text=True).stdout.strip()
+    gd = subprocess.run("geckodriver --version 2>/dev/null", shell=True,
+                        capture_output=True, text=True).stdout.splitlines()
+    print(f"  firefox:     {ff or 'NOT FOUND'}")
+    print(f"  geckodriver: {gd[0] if gd else 'NOT FOUND'}")
+
+
 def install_base_dependencies():
     global PIP
     print("Performing system update and upgrade before installing package dependencies...")
@@ -452,7 +509,7 @@ def install_base_dependencies():
         "libbson-dev", "libmongoc-dev", "python3-pip", "netsniff-ng", "httptunnel",
         "ptunnel-ng", "udptunnel", "pipx", "python3-venv", "ruby-dev", "webhttrack",
         "minicom", "openjdk-21-jre", "gnome-tweaks", "macchanger", "recordmydesktop",
-        "postgresql", "hydra-gtk", "hydra", "wine-development", "firefox",
+        "postgresql", "hydra-gtk", "hydra", "wine-development",
         "libcurl4-openssl-dev", "smbclient", "hackrf", "nfs-common", "samba", "gpsd",
         "snmp", "libsnmp-dev", "libsnmp-perl", "snmp-mibs-downloader", "docker.io",
         "docker-compose", "hcxtools", "httrack", "tshark", "git", "python-is-python3",
@@ -732,6 +789,8 @@ def install_toolkit_packages():
         run_command("cd /vapt/web && tar xvf ZAP_2.17.0_Linux.tar.gz")
         run_command("cd /vapt/web && rm -rf ZAP_2.17.0_Linux.tar.gz")
         run_command("cd /vapt/web && mv ZAP_2.17.0/ zap/")
+
+    install_firefox_headless()
 
     vulnerability_scanners = [
         ("https://github.com/sqlmapproject/sqlmap.git", "/vapt/scanners/sqlmap", None),
