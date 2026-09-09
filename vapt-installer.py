@@ -452,7 +452,7 @@ def install_base_dependencies():
         "libbson-dev", "libmongoc-dev", "python3-pip", "netsniff-ng", "httptunnel",
         "ptunnel-ng", "udptunnel", "pipx", "python3-venv", "ruby-dev", "webhttrack",
         "minicom", "openjdk-21-jre", "gnome-tweaks", "macchanger", "recordmydesktop",
-        "postgresql", "hydra-gtk", "hydra", "wine-development",
+        "postgresql", "hydra-gtk", "hydra", "wine-development", "firefox",
         "libcurl4-openssl-dev", "smbclient", "hackrf", "nfs-common", "samba", "gpsd",
         "snmp", "libsnmp-dev", "libsnmp-perl", "snmp-mibs-downloader", "docker.io",
         "docker-compose", "hcxtools", "httrack", "tshark", "git", "python-is-python3",
