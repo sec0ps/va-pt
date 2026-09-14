@@ -44,7 +44,9 @@ import logging
 import os
 import re
 import shutil
+import signal
 import subprocess
+import time
 import tempfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -116,10 +118,50 @@ class DiscoveryResult:
     services: list = field(default_factory=list)
 
 
+def _kill_proc_tree(proc):
+    """Terminate a subprocess and any children in its process group, promptly.
+    SIGTERM the group first, then SIGKILL if it does not exit within a short grace.
+    nmap ignores a single SIGINT, so a group SIGTERM is what stops it fast."""
+    try:
+        pgid = os.getpgid(proc.pid)
+    except (OSError, ProcessLookupError):
+        pgid = None
+    try:
+        if pgid is not None:
+            os.killpg(pgid, signal.SIGTERM)
+        else:
+            proc.terminate()
+    except (OSError, ProcessLookupError):
+        pass
+    try:
+        proc.wait(timeout=5)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        if pgid is not None:
+            os.killpg(pgid, signal.SIGKILL)
+        else:
+            proc.kill()
+    except (OSError, ProcessLookupError):
+        pass
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+
+
 class Scanner:
     def __init__(self, cfg: ScanConfig, on_activity=None):
         self.cfg = cfg
         self._on_activity = on_activity
+        self._stop_event = None
+
+    def attach_stop(self, event):
+        """Attach the run's stop event so a cancel kills in-flight nmap promptly
+        instead of waiting out the subprocess timeout. Optional: a standalone
+        Scanner without one still honors the timeout."""
+        self._stop_event = event
 
     def _activity(self, args):
         """Log the nmap invocation and report it to the feed, eliding temp-file
@@ -296,20 +338,36 @@ class Scanner:
         eff = self._with_limits(args, timeout)
         self._activity(eff)
         cmd = [self.cfg.nmap_path] + [a for a in eff if a] + ["-oX", xml_path]
+        # nmap runs in its own process group so a cancel can kill it and any NSE
+        # children as a group. The wait loop polls the stop event, so a cancel stops
+        # nmap within about a second instead of blocking until the timeout.
         try:
-            proc = subprocess.run(
+            proc = subprocess.Popen(
                 cmd, stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                timeout=timeout)
+                start_new_session=True)
         except FileNotFoundError:
             _unlink(xml_path)
             raise NmapError(f"nmap not found at '{self.cfg.nmap_path}'")
-        except subprocess.TimeoutExpired:
-            _unlink(xml_path)
-            raise NmapError(f"nmap timed out after {timeout}s")
+        stop = self._stop_event
+        deadline = time.monotonic() + timeout
+        stderr_b = b""
+        while True:
+            try:
+                _out, stderr_b = proc.communicate(timeout=1.0)
+                break
+            except subprocess.TimeoutExpired:
+                if stop is not None and stop.is_set():
+                    _kill_proc_tree(proc)
+                    _unlink(xml_path)
+                    raise NmapError("nmap cancelled")
+                if time.monotonic() >= deadline:
+                    _kill_proc_tree(proc)
+                    _unlink(xml_path)
+                    raise NmapError(f"nmap timed out after {timeout}s")
         try:
             if proc.returncode != 0 and os.path.getsize(xml_path) == 0:
-                err = proc.stderr.decode(errors="replace").strip()
+                err = (stderr_b or b"").decode(errors="replace").strip()
                 raise NmapError(f"nmap failed (rc={proc.returncode}): {err}")
             root = ET.parse(xml_path).getroot()
             if save_to:
@@ -320,7 +378,7 @@ class Scanner:
                     logger.warning("could not save nmap xml to %s: %s", save_to, e)
             return root
         except ET.ParseError as e:
-            err = proc.stderr.decode(errors="replace").strip()
+            err = (stderr_b or b"").decode(errors="replace").strip()
             raise NmapError(f"could not parse nmap XML: {e}; stderr: {err}")
         finally:
             _unlink(xml_path)
