@@ -384,6 +384,9 @@ class Orchestrator:
         self._fire_pool = None
         self._brute_pool = None
         self._stop = threading.Event()
+        # let the scanner kill in-flight nmap the moment we start stopping
+        if hasattr(self.scanner, "attach_stop"):
+            self.scanner.attach_stop(self._stop)
         self._teardown_done = False
         self._teardown_lock = threading.Lock()
         self._completed = False         # True only on normal completion (no signal)
@@ -510,8 +513,11 @@ class Orchestrator:
                 if state == HostState.ATTACKING:
                     self._submit_attack(ip)
             except Exception as e:
-                self.run.set_error(ip, f"pipeline error: {e}")
-                logger.exception("pipeline failed for %s", ip)
+                if self._stop.is_set():
+                    logger.info("host %s stopped by cancel", ip)
+                else:
+                    self.run.set_error(ip, f"pipeline error: {e}")
+                    logger.exception("pipeline failed for %s", ip)
 
     def _submit_attack(self, ip):
         """Attack the host on every avenue at once: exploit candidates fire (grouped
