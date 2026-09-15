@@ -13,11 +13,6 @@
 #             verification, parsed in-process from nmap XML. With nmap_out_dir
 #             set, the per-host vulners pass also archives its XML for reuse.
 #
-# SECURITY NOTICE
-#             This software is intended for authorized security assessment and
-#             defensive operations only. Use it exclusively on systems you own or
-#             are explicitly permitted to test. Unauthorized use may violate law.
-#
 # DISCLAIMER
 #             This software is provided "as is" without warranty of any kind. The
 #             author and Red Cell Security LLC accept no liability for damage or
