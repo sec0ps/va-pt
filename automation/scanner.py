@@ -350,7 +350,9 @@ class Scanner:
             _unlink(xml_path)
             raise NmapError(f"nmap not found at '{self.cfg.nmap_path}'")
         stop = self._stop_event
-        deadline = time.monotonic() + timeout
+        # timeout is None for phases that run without a hard wall (discovery); poll
+        # for cancel forever in that case, but never impose a deadline.
+        deadline = None if timeout is None else time.monotonic() + timeout
         stderr_b = b""
         while True:
             try:
@@ -361,7 +363,7 @@ class Scanner:
                     _kill_proc_tree(proc)
                     _unlink(xml_path)
                     raise NmapError("nmap cancelled")
-                if time.monotonic() >= deadline:
+                if deadline is not None and time.monotonic() >= deadline:
                     _kill_proc_tree(proc)
                     _unlink(xml_path)
                     raise NmapError(f"nmap timed out after {timeout}s")
