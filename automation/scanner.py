@@ -217,22 +217,48 @@ class Scanner:
 
     # -- vulners (per host) --
 
+    def _discover_open_ports(self, ip, timeout):
+        """Fast SYN-only sweep of all 65535 ports. No -sV, -O, or scripts, so it
+        stays well under the wall even on a host with many services. Returns the
+        open port numbers; if nmap times out, the ports found before the cutoff are
+        still returned from the partial XML."""
+        args = ["-sS", "-Pn", "-n", self.cfg.timing, "-p-"]
+        args += list(self.cfg.extra_args)
+        args += [ip]
+        root = self._run_nmap(args, timeout)
+        host = root.find("host")
+        if host is None:
+            return []
+        found = []
+        for port in host.findall("./ports/port"):
+            st = port.find("state")
+            if st is None or st.get("state") != "open":
+                continue
+            try:
+                found.append(int(port.get("portid")))
+            except (TypeError, ValueError):
+                continue
+        return found
+
     def vulners_scan(self, ip, ports=None):
-        """Version detection plus vulners in a single nmap pass. With full_ports
-        set (and no explicit ports), sweeps all 65535 ports; -sV and vulners only
-        touch ports nmap finds open, so the wide range costs only the SYN sweep,
-        no separate port-discovery scan. Returns (hostname, os_family, [Service])
-        with CVEs attached. os_family prefers nmap -O stack fingerprinting (gated
-        by an accuracy floor and kept distinct for BSD variants) and falls back to
-        -sV ostype/CPE hints, or "" when nothing identifies it."""
+        """Version detection plus vulners, in two stages when sweeping all ports.
+        A single -sS -sV -O --script vulners pass over -p- times out on hosts with
+        many services (nmap marks the host timedout and emits no port data), so with
+        full_ports set this first runs a fast SYN-only sweep to find the open ports,
+        then runs the heavy -sV/-O/vulners pass only against those. When explicit
+        ports are given, it scans just those in one pass. Returns (hostname,
+        os_family, [Service]) with CVEs attached. os_family prefers nmap -O stack
+        fingerprinting (gated by an accuracy floor and kept distinct for BSD
+        variants) and falls back to -sV ostype/CPE hints, or "" when nothing
+        identifies it."""
         if self.cfg.full_ports and not ports:
-            port_args = ["-p-"]
-            timeout = self.cfg.port_scan_timeout
-        else:
+            ports = self._discover_open_ports(ip, self.cfg.port_scan_timeout)
             if not ports:
                 return "", "", []
-            port_args = ["-p", ",".join(str(p) for p in ports)]
-            timeout = self.cfg.vulners_timeout
+        elif not ports:
+            return "", "", []
+        port_args = ["-p", ",".join(str(p) for p in ports)]
+        timeout = self.cfg.vulners_timeout
         args = ["-sS", "-sV", "-O", "-Pn", self.cfg.timing,
                 "--script", "vulners",
                 "--script-args", f"mincvss={self.cfg.mincvss}"]
