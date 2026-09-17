@@ -120,6 +120,21 @@ DEFAULT_FLOOR_ALPHA = 0.05
 # that carrier permanently undetectable.
 FLOOR_SEED_KERNEL = 129
 
+# Rate used to re-converge the floor once a level shift is recognised. An order
+# of magnitude faster than normal tracking, because the alternative is remaining
+# blind, or flooding the operator with detections, for the twenty or more revisits
+# ordinary tracking needs to climb twenty decibels.
+FLOOR_SHIFT_ALPHA = 0.4
+
+# Widest a single detection may be, as a fraction of its segment. Real emissions
+# occupy kilohertz to a few megahertz. A detection spanning a large part of a
+# segment is not a transmission, it is the segment itself having moved, which
+# happens when a strong nearby emitter compresses the front end and flattens the
+# whole span into an elevated plateau. Drawn on the display, one such detection
+# shades an entire band, and across a multi segment plan they stack into a solid
+# wash that hides everything real.
+MAX_DETECTION_FRACTION = 0.30
+
 # Fraction of bins in a segment that may be simultaneously active before the
 # excluded bin floor update is overridden and every bin is updated.
 #
@@ -236,6 +251,10 @@ class _SegmentState:
     # Events currently open in this segment, keyed by event id.
     open_events: Dict[int, BurstEvent] = field(default_factory=dict, repr=False)
     frames_seen: int = 0
+    # Visits in which this segment was judged to have shifted as a whole rather
+    # than to contain a signal. Surfaced so a saturating front end is visible as
+    # itself rather than as a wall of detections.
+    overload_frames: int = 0
 
     @classmethod
     def create(cls, n_bins: int, first_power: np.ndarray) -> "_SegmentState":
@@ -329,7 +348,7 @@ class BurstDetector:
         # a gap of unknown length.
         discontinuous = frame.overruns > 0
 
-        self._update_floor(state, power)
+        shifted = self._update_floor(state, power)
 
         threshold_on = state.floor + self.threshold_on_db
         threshold_off = state.floor + self.threshold_off_db
@@ -344,6 +363,13 @@ class BurstDetector:
         # deviations and is crossed by noise routinely.
         active = above_on | (state.confirmed & above_off)
 
+        # Judged from this frame as well as the last. The floor update can only
+        # see the previous frame's activity, so on the first frame of a sudden
+        # shift it has not fired yet, and that one frame is enough to remeasure an
+        # open event against a compressed span and record it as megahertz wide.
+        if float(np.count_nonzero(active)) / float(state.n_bins) > FLOOR_SHIFT_ACTIVE_FRACTION:
+            shifted = True
+
         state.occupancy += self.occupancy_alpha * (active.astype(np.float32) - state.occupancy)
 
         if not discontinuous:
@@ -354,6 +380,21 @@ class BurstDetector:
         state.confirmed = eligible | (state.confirmed & above_off)
         state.active_prev = active
 
+        if shifted:
+            # The segment as a whole has moved rather than something in it
+            # transmitting. Nothing measured under these conditions describes a
+            # signal, so the run counters are cleared and no group is formed.
+            #
+            # Open events are aged toward closure without being remeasured. Passing
+            # them through the usual path would rewrite their centre frequency and
+            # occupied bandwidth from a compressed frame, so an event that was
+            # tracking a ten kilohertz carrier would be recorded as megahertz wide
+            # for the visits before it closed, and drawn that way on the display.
+            state.above_run[:] = 0
+            state.confirmed[:] = False
+            state.overload_frames += 1
+            return self._age_events(state, [])
+
         if self.reject_persistent:
             # Fixed spurs, LO images, and continuous carriers sit above threshold
             # nearly always. Excluding them here keeps the detector focused on
@@ -362,10 +403,19 @@ class BurstDetector:
             eligible = eligible & (state.occupancy < PERSISTENT_OCCUPANCY)
 
         groups = self._group_bins(eligible)
-        return self._reconcile(frame, state, groups, power)
 
-    def _update_floor(self, state: _SegmentState, power: np.ndarray) -> None:
-        """Track the noise floor from unoccupied bins only.
+        # Discard anything too wide to be a transmission. This catches a partial
+        # compression, where only part of the span lifts and the whole segment
+        # test above does not fire.
+        width_limit = max(self.min_bins, int(state.n_bins * MAX_DETECTION_FRACTION))
+        kept = [(lo, hi) for lo, hi in groups if (hi - lo + 1) <= width_limit]
+        if len(kept) != len(groups):
+            state.overload_frames += 1
+
+        return self._reconcile(frame, state, kept, power)
+
+    def _update_floor(self, state: _SegmentState, power: np.ndarray) -> bool:
+        """Track the noise floor from unoccupied bins only. Returns True on a shift.
 
         Bins that were active on the previous visit are excluded from the update
         so that neither a burst nor a continuous carrier can drag the floor up to
@@ -382,11 +432,12 @@ class BurstDetector:
         active_fraction = float(np.count_nonzero(state.active_prev)) / float(state.n_bins)
 
         if active_fraction > FLOOR_SHIFT_ACTIVE_FRACTION:
-            state.floor += (self.floor_alpha * delta).astype(np.float32)
-            return
+            state.floor += (FLOOR_SHIFT_ALPHA * delta).astype(np.float32)
+            return True
 
         update_mask = ~state.active_prev
         state.floor[update_mask] += (self.floor_alpha * delta[update_mask]).astype(np.float32)
+        return False
 
     def _group_bins(self, eligible: np.ndarray) -> List[tuple]:
         """Merge contiguous eligible bins into groups, bridging small gaps.
@@ -481,8 +532,19 @@ class BurstDetector:
             matched_event_ids.add(event.event_id)
             opened.append(event.to_dict())
 
+        closed.extend(self._age_events(state, matched_event_ids)["closed"])
+        return {"opened": opened, "updated": updated, "closed": closed}
+
+    def _age_events(self, state: _SegmentState, matched) -> Dict[str, List[Dict]]:
+        """Advance the miss counter on unmatched events and close the expired ones.
+
+        Measurements are left untouched. An event closes carrying the last figures
+        taken while it was genuinely measurable, which is what a saved marker
+        should record.
+        """
+        closed: List[Dict] = []
         for event_id in list(state.open_events):
-            if event_id in matched_event_ids:
+            if event_id in matched:
                 continue
             event = state.open_events[event_id]
             event.missing_frames += 1
@@ -490,8 +552,7 @@ class BurstDetector:
                 event.active = False
                 closed.append(event.to_dict())
                 del state.open_events[event_id]
-
-        return {"opened": opened, "updated": updated, "closed": closed}
+        return {"opened": [], "updated": [], "closed": closed}
 
     def _measure(self, frame, state: _SegmentState, power: np.ndarray, lo: int, hi: int) -> Dict:
         """Characterize one detection group.
@@ -523,13 +584,21 @@ class BurstDetector:
         else:
             centroid_bin = float(peak_bin)
 
+        # Bounded search. On a compressed segment the level is flat and elevated,
+        # so an unbounded walk outward never falls the required six decibels and
+        # runs to the edge of the span, reporting a single detection megahertz
+        # wide. The bound keeps a measurement error from becoming a display that
+        # shades an entire band.
         cutoff = peak_dbfs - OCCUPIED_BW_DROP_DB
+        reach = max(self.min_bins, int(power.size * MAX_DETECTION_FRACTION) // 2)
+
         left = peak_bin
-        while left > 0 and power[left - 1] >= cutoff:
+        stop_left = max(0, peak_bin - reach)
+        while left > stop_left and power[left - 1] >= cutoff:
             left -= 1
         right = peak_bin
-        last_bin = power.size - 1
-        while right < last_bin and power[right + 1] >= cutoff:
+        stop_right = min(power.size - 1, peak_bin + reach)
+        while right < stop_right and power[right + 1] >= cutoff:
             right += 1
 
         occupied_bw = (right - left + 1) * frame.f_step_hz
@@ -589,6 +658,10 @@ class BurstDetector:
         for state in self._segments.values():
             events.extend(event.to_dict() for event in state.open_events.values())
         return sorted(events, key=lambda e: e["last_seen"], reverse=True)
+
+    def overload_frames(self) -> int:
+        """Total visits across all segments judged to be a level shift."""
+        return sum(st.overload_frames for st in self._segments.values())
 
     def floor_for_segment(self, segment_id: int) -> Optional[np.ndarray]:
         """Current tracked floor for a segment, for the threshold display overlay."""
