@@ -1076,6 +1076,9 @@ class MainWindow(QMainWindow):
         rejected = 0
         if self.display.composite is not None:
             rejected = self.display.composite.rejected_frames
+        # A saturating front end is reported as itself. Without this it presents
+        # as an unexplained absence of detections while a strong emitter is keyed.
+        overload = self.detector.overload_frames()
         recording = ""
         if stats.get("recording") and self.engine.recorder is not None:
             rec = self.engine.recorder.stats()
@@ -1087,7 +1090,8 @@ class MainWindow(QMainWindow):
                 stats["sweeps"], stats["queue_depth"], stats["dropped_frames"],
                 stats["overruns"], stats.get("ppm", 0.0),
                 len(self._active_events),
-                "   stale {0}".format(rejected) if rejected else "",
+                ("   stale {0}".format(rejected) if rejected else "")
+                + ("   OVERLOAD {0}".format(overload) if overload else ""),
             ) + recording
         )
 
