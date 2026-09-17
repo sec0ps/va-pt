@@ -38,21 +38,20 @@ import subprocess
 
 logger = logging.getLogger(__name__)
 
-# Categories worth cataloging for the detection path. Only vuln: these scripts
-# detect a flaw without triggering it. The exploit category is deliberately
-# excluded because exploit-class scripts actually fire the exploit to prove it, and
-# for stateful flaws (the UnrealIRCd 3.2.8.1 backdoor, for one) that burns the
-# target before the msf phase reaches it, so msf's later attempt gets no session.
-# Detection stays passive here; all real exploitation is left to msf, which finds
-# the same services from nmap's -sV product identification. intrusive is also
+# Categories worth cataloging for the detection-into-exploitation path. vuln is the
+# large detection win; exploit actually proves the flaw. intrusive is deliberately
 # excluded: it is broad and includes brute and dos-adjacent scripts.
-CATALOG_CATEGORIES = ("vuln",)
+CATALOG_CATEGORIES = ("vuln", "exploit")
 
 # Hard exclusions. A script declaring any of these is never cataloged, even when it
 # also carries vuln or exploit. dos is a denial-of-service script and must never be
-# fired during an assessment; broadcast-avahi-dos is one such script that also tags
-# vuln. This is a safety floor, not a preference.
-EXCLUDE_CATEGORIES = ("dos",)
+# fired during an assessment. malware marks scripts that interact with a backdoor or
+# implant to detect it -- ftp-vsftpd-backdoor, ftp-proftpd-backdoor, and
+# irc-unrealircd-backdoor all carry it and trigger the backdoor to confirm it, which
+# breaks the service before the msf phase can exploit it cleanly. Detection must stay
+# passive; the backdoor invocation is left to the single msf fire. This is a safety
+# floor, not a preference.
+EXCLUDE_CATEGORIES = ("dos", "malware")
 
 # Common locations nmap installs its scripts to, in priority order. The nmap binary
 # is asked first (authoritative), these are the fallback.
