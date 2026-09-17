@@ -707,7 +707,7 @@ class MsfClient:
                         rhost, sid)
             session = Session(
                 session_id=str(sid), module=candidate.module,
-                payload=payload_name,
+                payload=payload_name, port=candidate.port,
                 info=str(sdict.get("info") or sdict.get("desc") or ""))
             return session, "session", f"session {sid} ({payload_name})"
         except Exception as e:
@@ -838,7 +838,7 @@ class MsfClient:
             data = self._console_run(console, "\n".join(lines) + "\n",
                                      self.cfg.brute_timeout)
             creds = _parse_brute_creds(data, service, port, login_module)
-            sessions = self._brute_sessions_for(login_module, rhost, creds)
+            sessions = self._brute_sessions_for(login_module, rhost, creds, port)
             logger.info("brute %s @ %s:%s -> %d credential(s), %d session(s)",
                         login_module, rhost, port, len(creds), len(sessions))
             return creds, sessions
@@ -852,7 +852,7 @@ class MsfClient:
                 except Exception:
                     pass
 
-    def _brute_sessions_for(self, login_module, rhost, creds):
+    def _brute_sessions_for(self, login_module, rhost, creds, port=0):
         """Sessions this login scanner opened on rhost, read from the session list
         by (via_exploit, host) rather than scraped from console output. MSF
         broadcasts the 'session N opened' event to every console reading at once,
@@ -882,7 +882,7 @@ class MsfClient:
                 cred.session_id = sid
             info = f"{cred.username}:{cred.password}" if cred else ""
             sessions.append(Session(session_id=sid, module=login_module,
-                                    payload="", info=info))
+                                    payload="", port=port, info=info))
         return sessions
 
 
