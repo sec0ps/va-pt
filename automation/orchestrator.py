@@ -669,6 +669,8 @@ class Orchestrator:
     def _main_loop(self, display):
         last_ckpt = time.time()
         last_status = time.time()
+        last_status_log = 0.0
+        last_status_snap = None
         while not self._stop.is_set():
             if display is not None:
                 try:
@@ -681,9 +683,20 @@ class Orchestrator:
                 last_ckpt = now
             if display is None and now - last_status >= self.cfg.headless_status_interval:
                 s = self.run.stats()
-                logger.info("progress: %d/%d done, %d compromised, %d sessions, "
-                            "%d workers", s.completed, s.total, s.compromised,
-                            s.sessions, s.active_workers)
+                snap = (s.completed, s.total, s.compromised, s.sessions,
+                        s.active_workers)
+                # log only when the numbers change; a long, quiet phase (a slow
+                # vulners scan or a single long exploit) otherwise repeats the same
+                # line every interval. A keepalive after a longer idle still shows
+                # the run is alive without the spam.
+                changed = snap != last_status_snap
+                keepalive = now - last_status_log >= self.cfg.status_keepalive_interval
+                if changed or keepalive:
+                    logger.info("progress: %d/%d done, %d compromised, %d sessions, "
+                                "%d workers", s.completed, s.total, s.compromised,
+                                s.sessions, s.active_workers)
+                    last_status_log = now
+                last_status_snap = snap
                 last_status = now
             if self._is_done():
                 break
