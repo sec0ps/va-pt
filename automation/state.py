@@ -11,12 +11,6 @@
 # Purpose     Shared run state, host lifecycle, stats, and checkpoint/findings
 #             persistence for the orchestrator. Single source of truth read by
 #             the TUI and written by the pipeline workers under one lock.
-#
-# SECURITY NOTICE
-#             This software is intended for authorized security assessment and
-#             defensive operations only. Use it exclusively on systems you own or
-#             are explicitly permitted to test. Unauthorized use may violate law.
-#
 # DISCLAIMER
 #             This software is provided "as is" without warranty of any kind. The
 #             author and Red Cell Security LLC accept no liability for damage or
@@ -617,6 +611,12 @@ class RunState:
         with self._lock:
             return [h.ip for h in self._hosts.values()
                     if h.state not in TERMINAL_STATES]
+
+    def live_hosts(self):
+        """IPs of hosts that were scanned (have at least one service). Used by the
+        post-exploitation verification pass to iterate real targets."""
+        with self._lock:
+            return [h.ip for h in self._hosts.values() if h.services]
 
     # -- resume --
 
