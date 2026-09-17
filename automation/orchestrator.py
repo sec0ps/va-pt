@@ -210,6 +210,7 @@ class OrchestratorConfig:
     poll_interval: float = 0.25
     headless_status_interval: float = 5.0
     status_keepalive_interval: float = 60.0   # heartbeat when stats unchanged
+    verify_catalog_path: str = ""    # scripted-verify catalog; empty uses engine default
     keep_msfrpcd: bool = False       # force-keep even with no open sessions
 
 
@@ -382,6 +383,7 @@ class Orchestrator:
         if hasattr(self.scanner, "attach_stop"):
             self.scanner.attach_stop(self._stop)
         self._teardown_done = False
+        self._verify_catalog = self._load_verify_catalog()
         self._teardown_lock = threading.Lock()
         self._completed = False         # True only on normal completion (no signal)
         self._discovered_ports = {}
@@ -397,6 +399,59 @@ class Orchestrator:
         self.seeded = False
 
     # -- lifecycle --
+
+    def _load_verify_catalog(self):
+        """Load the script catalog used by the post-exploitation verification pass.
+        Absent or unbuilt catalog disables that pass silently; exploitation is
+        unaffected either way."""
+        try:
+            import nse_catalog
+        except ImportError:
+            return None
+        try:
+            return nse_catalog.load_catalog(
+                getattr(self.cfg, "verify_catalog_path", "") or None)
+        except Exception:
+            return None
+
+    def _verify_phase(self, display):
+        """Second stage, after all exploitation has settled. Runs the catalog's
+        scripted checks against services that were NOT exploited, to surface flaws
+        the exploitation pass did not prove. HARD SAFETY RULE: a service that has an
+        open session is never touched here -- the scripted checks are more volatile
+        than the exploitation payloads and must not risk an established session or
+        the service under it. Ports with a session are fenced out; everything else
+        on the host is fair game. Best effort; a tooling problem on one service does
+        not affect the sessions or the rest of the run."""
+        catalog = self._verify_catalog
+        if catalog is None or self._stop.is_set():
+            return
+        self.run.set_phase("verify")
+        for ip in list(self.run.live_hosts()):
+            if self._stop.is_set():
+                break
+            host = self.run.host_copy(ip)
+            # ports that own a live session are sacred and excluded
+            fenced = {s.port for s in host.sessions}
+            scanned = 0
+            for svc in host.services:
+                if self._stop.is_set():
+                    break
+                if svc.port in fenced:
+                    logger.info("verify: fencing %s:%s (session held); not scanned",
+                                ip, svc.port)
+                    continue
+                try:
+                    found = self.scanner.nse_discover(ip, svc, catalog)
+                except Exception as e:
+                    logger.warning("verify error %s:%s: %s", ip, svc.port, e)
+                    continue
+                scanned += 1
+                for cve_id, script_id in found:
+                    self.run.add_nse_cve(ip, svc.port, cve_id, script_id)
+            if scanned or fenced:
+                logger.info("verify %s: %d service(s) scanned, %d fenced by session",
+                            ip, scanned, len(fenced))
 
     def run_pipeline(self, display=None):
         self._install_signal_handlers()
@@ -425,6 +480,10 @@ class Orchestrator:
             if not self._stop.is_set() and not self.seeded:
                 self._brute_phase(display)
                 self._reconcile_after_brute()
+            # Verification runs only after all exploitation has settled, and never
+            # touches a port that holds a session (see _verify_phase).
+            if not self._stop.is_set():
+                self._verify_phase(display)
             # Normal completion means we ended on _is_done, not a signal.
             self._completed = not self._stop.is_set()
         finally:
