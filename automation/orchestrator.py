@@ -209,6 +209,7 @@ class OrchestratorConfig:
     checkpoint_interval: float = 15.0
     poll_interval: float = 0.25
     headless_status_interval: float = 5.0
+    status_keepalive_interval: float = 60.0   # heartbeat when stats unchanged
     keep_msfrpcd: bool = False       # force-keep even with no open sessions
 
 
