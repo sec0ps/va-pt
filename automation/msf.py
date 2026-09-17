@@ -1607,5 +1607,33 @@ def _main(argv=None):
         client.close()
 
 
+def _reexec_into_venv():
+    """Standalone use of the session tools needs pymetasploit3, which lives in the
+    engine's root-owned venv, not system Python. If this interpreter cannot import
+    it but the venv exists, re-exec there so `python msf.py` works the way the
+    orchestrator does. The venv is built by the orchestrator (root); if it is not
+    present this returns and the normal import error explains what to do."""
+    venv_dir = os.environ.get("VAPT_VENV_DIR", "/opt/va-pt-venv")
+    venv_python = os.path.join(venv_dir, "bin", "python")
+    if os.environ.get("VAPT_MSF_REEXEC"):
+        return
+    if os.path.realpath(sys.prefix) == os.path.realpath(venv_dir):
+        return
+    if not os.access(venv_python, os.X_OK):
+        return
+    try:
+        import pymetasploit3  # noqa: F401
+        return
+    except ImportError:
+        pass
+    os.environ["VAPT_MSF_REEXEC"] = "1"
+    try:
+        os.execv(venv_python,
+                 [venv_python, os.path.abspath(__file__)] + sys.argv[1:])
+    except OSError:
+        return
+
+
 if __name__ == "__main__":
+    _reexec_into_venv()
     _main()
