@@ -201,12 +201,14 @@ class Session:
     module: str
     payload: str = ""
     info: str = ""
+    port: int = 0                  # rhost service port this session sits on
     opened_at: float = field(default_factory=_now)
 
     @classmethod
     def from_dict(cls, d):
         return cls(session_id=str(d["session_id"]), module=d.get("module", ""),
                    payload=d.get("payload", ""), info=d.get("info", ""),
+                   port=int(d.get("port", 0)),
                    opened_at=float(d.get("opened_at", _now())))
 
 
@@ -713,6 +715,7 @@ def _session_row(host, s):
         "finding_type": "session",
         "module": s.module or None,
         "payload": s.payload or None,
+        "port": s.port or None,
         "session_id": s.session_id,
         "info": s.info or None,
         "exploited": True,
