@@ -38,10 +38,15 @@ import subprocess
 
 logger = logging.getLogger(__name__)
 
-# Categories worth cataloging for the detection-into-exploitation path. vuln is the
-# large detection win; exploit actually proves the flaw. intrusive is deliberately
+# Categories worth cataloging for the detection path. Only vuln: these scripts
+# detect a flaw without triggering it. The exploit category is deliberately
+# excluded because exploit-class scripts actually fire the exploit to prove it, and
+# for stateful flaws (the UnrealIRCd 3.2.8.1 backdoor, for one) that burns the
+# target before the msf phase reaches it, so msf's later attempt gets no session.
+# Detection stays passive here; all real exploitation is left to msf, which finds
+# the same services from nmap's -sV product identification. intrusive is also
 # excluded: it is broad and includes brute and dos-adjacent scripts.
-CATALOG_CATEGORIES = ("vuln", "exploit")
+CATALOG_CATEGORIES = ("vuln",)
 
 # Hard exclusions. A script declaring any of these is never cataloged, even when it
 # also carries vuln or exploit. dos is a denial-of-service script and must never be
