@@ -697,7 +697,8 @@ class MsfClient:
             job_id = result.get("job_id")
             matched = self._await_session(uuid, self.cfg.exploit_timeout,
                                           rhost=rhost, lport=lport,
-                                          before=before_sids)
+                                          before=before_sids,
+                                          module=candidate.module)
             if matched is None:
                 logger.info("fire %s @ %s -> no session", candidate.module, rhost)
                 return None, "no_session", "fired, no session within timeout"
@@ -748,41 +749,47 @@ class MsfClient:
             fails += _apply_options(exploit, [(opt, val)])
         return fails
 
-    def _await_session(self, uuid, timeout, rhost=None, lport=None, before=None):
-        """Wait for the session this fire opened. MSF only tags meterpreter sessions
-        with exploit_uuid; a command-shell reverse payload opens a session with no
-        uuid link, so uuid-only matching misses exactly the shells this engine
-        prefers. Correlate in order of certainty: (1) exact exploit_uuid, (2) a
-        session NEW since this fire whose target host matches rhost and whose handler
-        LPORT matches the one we assigned (the per-fire unique LPORT disambiguates
-        concurrent fires), (3) a session new since this fire whose target host matches
-        rhost. Returns (sid, sdict) or None."""
+    def _await_session(self, uuid, timeout, rhost=None, lport=None, before=None,
+                       module=None):
+        """Wait for the session THIS fire opened, correlating in order of certainty.
+        MSF records the opening module on the session as via_exploit and the exploit
+        uuid on meterpreter sessions; a command-shell reverse payload carries
+        via_exploit but no uuid. So: (1) a session NEW since this fire whose
+        via_exploit is the module we fired and whose target is rhost -- exact and
+        unforgeable, this is what disambiguates concurrent fires and stops one
+        session being claimed by several modules; (2) exact exploit_uuid; (3) a new
+        session to rhost on the handler LPORT we assigned. There is deliberately no
+        host-only tier: matching any new session to the host let every concurrent
+        fire claim the same session and credited modules that opened nothing.
+        Returns (sid, sdict) or None."""
         before = before or set()
         want_lport = str(lport) if lport is not None else None
+        want_mod = _strip_type(module) if module else None
         start = time.time()
         while time.time() - start < timeout:
             try:
                 sessions = self._client.sessions.list
             except Exception:
                 sessions = {}
-            # (1) exact uuid
-            for sid, sdict in sessions.items():
-                if uuid and sdict.get("exploit_uuid") == uuid:
-                    return sid, sdict
-            # (2) new session, target matches rhost, handler LPORT matches
-            # (3) new session, target matches rhost
-            host_only = None
+            uuid_hit = None
+            lport_hit = None
             for sid, sdict in sessions.items():
                 if sid in before:
                     continue
                 if not _session_targets_host(sdict, rhost):
                     continue
-                if want_lport and _session_lport(sdict) == want_lport:
+                # (1) exact opening module -- the authoritative correlation
+                if want_mod and _strip_type(sdict.get("via_exploit") or "") == want_mod:
                     return sid, sdict
-                if host_only is None:
-                    host_only = (sid, sdict)
-            if host_only is not None:
-                return host_only
+                if uuid and sdict.get("exploit_uuid") == uuid and uuid_hit is None:
+                    uuid_hit = (sid, sdict)
+                if want_lport and _session_lport(sdict) == want_lport \
+                        and lport_hit is None:
+                    lport_hit = (sid, sdict)
+            if uuid_hit is not None:
+                return uuid_hit
+            if lport_hit is not None:
+                return lport_hit
             time.sleep(1.0)
         return None
 
