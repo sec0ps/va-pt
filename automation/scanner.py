@@ -281,11 +281,13 @@ class Scanner:
 
     def nse_discover(self, ip, service, catalog):
         """Run the catalog's vuln/exploit scripts that match a probed service and
-        return the CVEs any of them report VULNERABLE. This is the detection layer:
-        NSE finds flaws version matching missed, and the CVEs flow into the exploit
-        path. Only probed services are tested, so an unconfirmed port-table guess
-        never triggers a script run. Returns a list of (cve_id, script_id). Never
-        raises; a tooling problem yields no discoveries."""
+        return one detection record per script that reported a result. Each record
+        carries the script id, the NSE categories the catalog holds for it, the
+        verdict read from its output, any CVEs it declares or prints, and the raw
+        output as evidence. The verify phase classifies and records these; a script
+        that produced no output and no vulnerable verdict is dropped. Only probed
+        services are tested, so an unconfirmed port-table guess never triggers a
+        script run. Never raises; a tooling problem yields no discoveries."""
         if catalog is None:
             return []
         if (service.method or "").lower() != "probed" and not service.product:
@@ -306,26 +308,28 @@ class Scanner:
         host = root.find("host")
         if host is None:
             return []
-        by_cve = catalog.get("by_cve", {})
-        # map each script's declared CVEs for quick lookup
-        script_cves = {s["id"]: s.get("cves", []) for s in catalog.get("scripts", [])}
+        meta = {s["id"]: s for s in catalog.get("scripts", [])}
         found = []
-        seen = set()
         for sid, output in _collect_script_outputs(host).items():
-            if verdict_from_nse(output) != Verdict.VULNERABLE:
+            text = (output or "").strip()
+            verdict = verdict_from_nse(output)
+            if verdict != Verdict.VULNERABLE and not text:
                 continue
-            # CVEs the script declares, plus any CVE ids printed in its output
-            cids = set(script_cves.get(sid, []))
+            entry = meta.get(sid, {})
+            cids = set(entry.get("cves", []))
             cids |= set(_cve_ids_in_text(output))
-            for cid in cids:
-                if cid in seen:
-                    continue
-                seen.add(cid)
-                found.append((cid, sid))
+            found.append({
+                "script_id": sid,
+                "categories": (entry.get("all_categories")
+                               or entry.get("categories") or []),
+                "verdict": verdict.name.lower(),
+                "cves": sorted(cids),
+                "output": text,
+            })
         if found:
-            logger.info("nse discover %s:%s -> %d cve(s) via %d script(s)",
-                        ip, service.port, len(found),
-                        len({s for _, s in found}))
+            vuln = sum(1 for d in found if d["verdict"] == "vulnerable")
+            logger.info("nse discover %s:%s -> %d script result(s), %d vulnerable",
+                        ip, service.port, len(found), vuln)
         return found
 
     # -- nse verify (check phase) --
