@@ -201,14 +201,12 @@ class Session:
     module: str
     payload: str = ""
     info: str = ""
-    port: int = 0                  # rhost service port this session sits on
     opened_at: float = field(default_factory=_now)
 
     @classmethod
     def from_dict(cls, d):
         return cls(session_id=str(d["session_id"]), module=d.get("module", ""),
                    payload=d.get("payload", ""), info=d.get("info", ""),
-                   port=int(d.get("port", 0)),
                    opened_at=float(d.get("opened_at", _now())))
 
 
@@ -679,6 +677,26 @@ class RunState:
         _atomic_write_json(path, data)
         return path
 
+    def write_nse_detections(self, detections, path=None):
+        """Write the verify phase's NSE detections to verify_findings.json beside
+        the findings file, for the console to classify and ingest. Raw detection
+        facts only; the console owns severity and titles. No findings path or no
+        detections writes nothing and returns None."""
+        if not detections:
+            return None
+        if path is None:
+            if not self.findings_path:
+                return None
+            path = os.path.join(os.path.dirname(self.findings_path),
+                                "verify_findings.json")
+        data = {
+            "run": {"tool": TOOL, "version": VERSION, "mode": self.mode,
+                    "finished_at": _now()},
+            "detections": detections,
+        }
+        _atomic_write_json(path, data)
+        return path
+
     def _build_findings(self) -> dict:
         """Proven findings only: one row per session, credential, and access. CVEs
         stay on services in the checkpoint as context and are not emitted here."""
@@ -715,7 +733,6 @@ def _session_row(host, s):
         "finding_type": "session",
         "module": s.module or None,
         "payload": s.payload or None,
-        "port": s.port or None,
         "session_id": s.session_id,
         "info": s.info or None,
         "exploited": True,
