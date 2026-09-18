@@ -427,7 +427,6 @@ class Orchestrator:
         if catalog is None or self._stop.is_set():
             return
         self.run.set_phase("verify")
-        detections = []
         for ip in list(self.run.live_hosts()):
             if self._stop.is_set():
                 break
@@ -448,36 +447,11 @@ class Orchestrator:
                     logger.warning("verify error %s:%s: %s", ip, svc.port, e)
                     continue
                 scanned += 1
-                for det in found:
-                    # Checkpoint context is unchanged: a vulnerable detection's
-                    # CVEs are recorded on the service.
-                    if det["verdict"] == "vulnerable":
-                        for cve_id in det["cves"]:
-                            self.run.add_nse_cve(ip, svc.port, cve_id,
-                                                 det["script_id"])
-                    # Every kept detection is emitted for the console to classify.
-                    detections.append({
-                        "ip": ip,
-                        "port": svc.port,
-                        "service": svc.name or "",
-                        "product": svc.product or "",
-                        "script_id": det["script_id"],
-                        "categories": det["categories"],
-                        "verdict": det["verdict"],
-                        "cves": det["cves"],
-                        "output": det["output"],
-                    })
+                for cve_id, script_id in found:
+                    self.run.add_nse_cve(ip, svc.port, cve_id, script_id)
             if scanned or fenced:
                 logger.info("verify %s: %d service(s) scanned, %d fenced by session",
                             ip, scanned, len(fenced))
-        if detections:
-            try:
-                path = self.run.write_nse_detections(detections)
-                if path:
-                    logger.info("verify detections written to %s (%d record(s))",
-                                path, len(detections))
-            except Exception:
-                logger.exception("verify detections write failed")
 
     def run_pipeline(self, display=None):
         self._install_signal_handlers()
