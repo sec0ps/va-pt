@@ -1255,6 +1255,9 @@ def _parse_args(argv):
     p.add_argument("--findings", default="vapt_findings.json")
     p.add_argument("--nmap-out-dir", default="",
                    help="write per-host nmap -sV/vulners XML into this directory")
+    p.add_argument("--nse-catalog", default="",
+                   help="path to a prebuilt NSE detection catalog for the verify "
+                        "pass; empty uses the engine default location")
     p.add_argument("--resume", action="store_true",
                    help="resume from --checkpoint")
     p.add_argument("--no-tui", action="store_true", help="headless")
@@ -1417,6 +1420,7 @@ def main(argv=None):
     ocfg = OrchestratorConfig(
         workers=args.workers, fire_workers=args.fire_workers,
         chunk_size=args.chunk_size, checkpoint_interval=args.checkpoint_interval,
+        verify_catalog_path=args.nse_catalog or "",
         keep_msfrpcd=args.keep_msfrpcd)
     orch = Orchestrator(run, scanner, msf_client, fw, msfd, ocfg, cfgfile)
     orch.seeded = bool(args.seed_file)
