@@ -8,14 +8,16 @@
 #
 # License     MIT License
 #
-# Purpose     Build a catalog of nmap NSE vuln and exploit scripts by parsing the
-#             installed script corpus. For each script it records the categories it
-#             declares, the CVEs it references, and the ports and services its
-#             portrule targets. The catalog replaces the small hand-kept CVE to NSE
-#             map with a generated index covering every script on the box, and it
-#             drives the NSE detection pass that feeds discovered CVEs into the
-#             exploit path. Rebuilt on demand, so a nightly script refresh plus a
-#             rebuild keeps coverage current with no manual maintenance.
+# Purpose     Build a catalog of nmap NSE scripts by parsing the installed script
+#             corpus. It admits the vuln and exploit scripts that drive the
+#             detection into exploitation path, and the discovery and auth
+#             enumeration scripts that extract actionable data from services the
+#             exploitation pass did not land on. For each script it records the
+#             categories it declares, the CVEs it references, and the ports and
+#             services its portrule targets. The catalog replaces the small
+#             hand-kept CVE to NSE map with a generated index covering every
+#             applicable script on the box, rebuilt on demand so a nightly script
+#             refresh plus a rebuild keeps coverage current with no manual upkeep.
 #
 # SECURITY NOTICE
 #             This software is intended for authorized security assessment and
@@ -28,7 +30,7 @@
 #             misuse arising from its operation.
 # =============================================================================
 
-"""automation/nse_catalog.py - build a CVE and service index from installed NSE scripts."""
+"""automation/nse_catalog.py - build a detection and enumeration index from installed NSE scripts."""
 
 import json
 import logging
@@ -38,20 +40,29 @@ import subprocess
 
 logger = logging.getLogger(__name__)
 
-# Categories worth cataloging for the detection-into-exploitation path. vuln is the
-# large detection win; exploit actually proves the flaw. intrusive is deliberately
-# excluded: it is broad and includes brute and dos-adjacent scripts.
+# Categories admitted to the catalog. vuln and exploit drive the detection into
+# exploitation path, vuln for the detection win and exploit to prove the flaw.
+# discovery and auth are the enumeration categories, admitted so the verify phase
+# can pull actionable data from services the exploitation pass did not land on.
+# intrusive is never admitted on its own, so a purely intrusive script never runs,
+# but a script that carries intrusive alongside an admitted category is kept. That
+# is what lets the safe enumeration scripts through without dragging in the volatile
+# intrusive-only corpus.
 CATALOG_CATEGORIES = ("vuln", "exploit")
+ENUM_CATEGORIES = ("discovery", "auth")
+ADMIT_CATEGORIES = CATALOG_CATEGORIES + ENUM_CATEGORIES
 
 # Hard exclusions. A script declaring any of these is never cataloged, even when it
-# also carries vuln or exploit. dos is a denial-of-service script and must never be
-# fired during an assessment. malware marks scripts that interact with a backdoor or
-# implant to detect it -- ftp-vsftpd-backdoor, ftp-proftpd-backdoor, and
-# irc-unrealircd-backdoor all carry it and trigger the backdoor to confirm it, which
-# breaks the service before the msf phase can exploit it cleanly. Detection must stay
-# passive; the backdoor invocation is left to the single msf fire. This is a safety
-# floor, not a preference.
-EXCLUDE_CATEGORIES = ("dos", "malware")
+# also carries an admitted category. dos is a denial of service script and must
+# never fire during an assessment. brute is the heavy credential brute corpus, left
+# to the engine brute phase and excluded here to avoid both the target load and the
+# duplication of that phase. malware marks scripts that interact with a backdoor or
+# implant to detect it, and ftp-vsftpd-backdoor, ftp-proftpd-backdoor, and
+# irc-unrealircd-backdoor all trigger the backdoor to confirm it, which breaks the
+# service before the msf phase can exploit it cleanly. Detection stays passive and
+# the backdoor invocation is left to the single msf fire. This is a safety floor,
+# not a preference.
+EXCLUDE_CATEGORIES = ("dos", "malware", "brute")
 
 # Common locations nmap installs its scripts to, in priority order. The nmap binary
 # is asked first (authoritative), these are the fallback.
@@ -70,7 +81,7 @@ _SERVICE_TOKEN_RE = re.compile(r'"([a-z0-9][a-z0-9+._-]{1,30})"')
 
 
 def default_catalog_path(scripts_dir=None):
-    """Where the generated catalog lives: beside this module, so the engine reads
+    """Where the generated catalog lives, beside this module, so the engine reads
     it without configuration and a rebuild simply overwrites it."""
     return os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         "nse_catalog.json")
@@ -169,15 +180,17 @@ def _ports_and_services(text):
 
 
 def parse_script(path):
-    """Parse one .nse file into a catalog entry, or None when it is not a vuln or
-    exploit script. Never raises; an unreadable script is skipped."""
+    """Parse one .nse file into a catalog entry, or None when it is not admitted. A
+    script is admitted when it declares a vuln, exploit, discovery, or auth category
+    and declares none of the hard exclusions. Never raises; an unreadable script is
+    skipped."""
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
             text = fh.read()
     except OSError:
         return None
     cats = _categories(text)
-    if not (cats & set(CATALOG_CATEGORIES)):
+    if not (cats & set(ADMIT_CATEGORIES)):
         return None
     if cats & set(EXCLUDE_CATEGORIES):
         return None
@@ -189,7 +202,7 @@ def parse_script(path):
         services.insert(0, prefix)
     return {
         "id": script_id,
-        "categories": sorted(cats & set(CATALOG_CATEGORIES)),
+        "categories": sorted(cats & set(ADMIT_CATEGORIES)),
         "all_categories": sorted(cats),
         "cves": sorted(_cves(text)),
         "ports": ports,
@@ -198,7 +211,7 @@ def parse_script(path):
 
 
 def build_catalog(scripts_dir=None, nmap_path="nmap"):
-    """Parse every vuln and exploit NSE script in the directory into a catalog dict.
+    """Parse every admitted NSE script in the directory into a catalog dict.
     Returns {"scripts": [...], "by_cve": {CVE: [ids]}, "count": n, "scripts_dir": d}.
     """
     scripts_dir = scripts_dir or find_scripts_dir(nmap_path)
@@ -247,14 +260,13 @@ def load_catalog(path=None):
 
 def rebuild(nmap_path="nmap", scripts_dir=None, update_db=True, path=None,
             sudo_prefix=None):
-    """The full nightly action: optionally refresh nmap's script database, parse the
-    installed vuln and exploit scripts, and write the catalog. Returns the catalog.
-    """
+    """The full nightly action. Optionally refresh nmap's script database, parse the
+    installed admitted scripts, and write the catalog. Returns the catalog."""
     if update_db:
         update_scripts_db(nmap_path, sudo_prefix=sudo_prefix)
     catalog = build_catalog(scripts_dir=scripts_dir, nmap_path=nmap_path)
     out = write_catalog(catalog, path)
-    logger.info("nse catalog rebuilt: %d vuln/exploit script(s), %d cve(s) -> %s",
+    logger.info("nse catalog rebuilt with %d script(s) and %d cve(s) -> %s",
                 catalog["count"], len(catalog["by_cve"]), out)
     return catalog
 
@@ -263,7 +275,7 @@ def _main(argv=None):
     import argparse
     p = argparse.ArgumentParser(
         prog="nse_catalog.py",
-        description="build the NSE vuln/exploit catalog from installed scripts")
+        description="build the NSE catalog from installed scripts")
     p.add_argument("--nmap", default="nmap", help="nmap binary path")
     p.add_argument("--scripts-dir", default=None,
                    help="NSE scripts directory (auto-detected when omitted)")
@@ -280,8 +292,7 @@ def _main(argv=None):
     cat = rebuild(nmap_path=args.nmap, scripts_dir=args.scripts_dir,
                   update_db=not args.no_update_db, path=args.out,
                   sudo_prefix=sudo_prefix)
-    print(f"cataloged {cat['count']} vuln/exploit script(s), "
-          f"{len(cat['by_cve'])} cve(s)")
+    print(f"cataloged {cat['count']} script(s), {len(cat['by_cve'])} cve(s)")
     return 0
 
 
