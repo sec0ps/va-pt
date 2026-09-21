@@ -570,6 +570,25 @@ def install_kismet():
     print(f"  kismet: {ver or 'installed (version query returned nothing)'}")
 
 
+def update_kismet():
+    """Update Kismet from its apt repo; install it first if absent. install_kismet()
+    already added the codename-matched repo, so this just refreshes and upgrades."""
+    if subprocess.run("command -v kismet", shell=True,
+                      capture_output=True).returncode != 0:
+        # not present yet - run the full repo-add + install path
+        install_kismet()
+        return
+
+    print("Updating Kismet")
+    run_command("sudo DEBIAN_FRONTEND=noninteractive apt-get update")
+    run_command(
+        "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --only-upgrade kismet")
+
+    ver = subprocess.run("kismet --version 2>/dev/null", shell=True,
+                         capture_output=True, text=True).stdout.strip()
+    print(f"  kismet: {ver or 'version query returned nothing'}")
+
+
 def install_base_dependencies():
     global PIP
     print("Performing system update and upgrade before installing package dependencies...")
@@ -857,6 +876,9 @@ def install_toolkit_packages():
         run_command("sudo ldconfig")
         run_command("cd /vapt/wireless && rm -rf aircrack-ng-1.7.tar.gz")
 
+    # Kismet (idempotent: verifies presence, installs from the matching repo if missing)
+    install_kismet()
+
     # OWASP ZAP
     zap_dir = "/vapt/web/zap"
     if os.path.exists(zap_dir):
@@ -1014,6 +1036,8 @@ def update_toolsets():
     ]
     for tool in wireless_tools:
         run_command(f"cd {tool} && git pull")
+
+    update_kismet()
 
     # Go-based tools: pull each, rebuild only when the pull brought in changes
     print("Updating Go-based tools")
