@@ -494,6 +494,82 @@ def install_firefox_headless():
     print(f"  geckodriver: {gd[0] if gd else 'NOT FOUND'}")
 
 
+def detect_ubuntu_codename():
+    """Resolve the running Ubuntu release codename (e.g. 'jammy', 'noble') for
+    selecting the matching third-party repo. Tries, in order: VERSION_CODENAME
+    from /etc/os-release, `lsb_release -cs`, then a VERSION_ID fallback map for
+    minimal images carrying neither. Returns '' if it cannot be determined."""
+    # 1. /etc/os-release - present on all modern Ubuntu, including minimal/container
+    codename = subprocess.run(
+        ". /etc/os-release 2>/dev/null && echo $VERSION_CODENAME", shell=True,
+        capture_output=True, text=True).stdout.strip()
+    if codename:
+        return codename
+
+    # 2. lsb_release - not always installed on stripped images
+    codename = subprocess.run(
+        "lsb_release -cs 2>/dev/null", shell=True,
+        capture_output=True, text=True).stdout.strip()
+    if codename:
+        return codename
+
+    # 3. Last resort: map VERSION_ID -> codename
+    version_id = subprocess.run(
+        ". /etc/os-release 2>/dev/null && echo $VERSION_ID", shell=True,
+        capture_output=True, text=True).stdout.strip()
+    return {"20.04": "focal", "22.04": "jammy", "24.04": "noble"}.get(version_id, "")
+
+
+def install_kismet():
+    """Install Kismet from the official kismetwireless.net apt repo, matched to
+    the running Ubuntu release. Ubuntu ships no kismet package. Kismet builds
+    per-codename packages (jammy != noble) against each release's libs, so the
+    repo suite MUST match the OS or dependencies break. Installed suid-root
+    non-interactively; NOT started. Idempotent on the kismet binary."""
+    if subprocess.run("command -v kismet", shell=True,
+                      capture_output=True).returncode == 0:
+        print("Kismet already installed, skipping.")
+        return
+
+    # Resolve the running release locally and install the repo that matches this host
+    codename = detect_ubuntu_codename()
+    supported = {"jammy", "noble"}  # kismet release-channel coverage for current Ubuntu
+    if codename not in supported:
+        print(f"  WARNING: no Kismet release repo for Ubuntu '{codename or 'unknown'}'. "
+              "Skipping (check kismetwireless.net/packages for coverage).")
+        FAILED_PACKAGES.append(f"apt: kismet (no repo for {codename or 'unknown'})")
+        return
+
+    print(f"Installing Kismet (official {codename} repo)")
+    run_command("sudo install -d -m 0755 /etc/apt/keyrings")
+    # Kismet's release key is armored; signed-by reads the .asc directly (as with Mozilla's)
+    run_command(
+        "wget -qO- https://www.kismetwireless.net/repos/kismet-release.gpg.key "
+        "| sudo tee /etc/apt/keyrings/kismet-archive-keyring.asc >/dev/null")
+    run_command(
+        f"echo 'deb [signed-by=/etc/apt/keyrings/kismet-archive-keyring.asc] "
+        f"https://www.kismetwireless.net/repos/apt/release/{codename} {codename} main' "
+        "| sudo tee /etc/apt/sources.list.d/kismet.list >/dev/null")
+
+    # Preseed the suid-root debconf prompt so the install never blocks for input
+    run_command(
+        "echo 'kismet-core kismet-core/install-setuid boolean true' "
+        "| sudo debconf-set-selections")
+
+    run_command("sudo DEBIAN_FRONTEND=noninteractive apt-get update")
+    if not run_command(
+            "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y kismet"):
+        FAILED_PACKAGES.append("apt: kismet")
+        return
+
+    # Group membership is required to run kismet unprivileged; installed, not started
+    run_command("sudo usermod -aG kismet $USER")
+
+    ver = subprocess.run("kismet --version 2>/dev/null", shell=True,
+                         capture_output=True, text=True).stdout.strip()
+    print(f"  kismet: {ver or 'installed (version query returned nothing)'}")
+
+
 def install_base_dependencies():
     global PIP
     print("Performing system update and upgrade before installing package dependencies...")
@@ -534,6 +610,8 @@ def install_base_dependencies():
 
     run_command("sudo usermod -aG docker $USER")
     run_command("sudo snap install powershell --classic")
+
+    install_kismet()
 
     print("Installing Python Packages and Dependencies")
     pip_packages = [
