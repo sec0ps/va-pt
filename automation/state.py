@@ -37,6 +37,7 @@ import copy
 import json
 import logging
 import os
+import re
 import threading
 import time
 from collections import deque
@@ -126,15 +127,34 @@ class InvalidTransition(Exception):
     pass
 
 
+_NSE_STATE_RE = re.compile(r"state\s*[:=]\s*([a-z()\s]+)", re.IGNORECASE)
+
+
 def verdict_from_nse(text: str) -> Verdict:
-    """Normalize NSE vuln-script output text to a Verdict. Order matters."""
+    """Normalize NSE vuln-script output text to a Verdict. The nmap vulns library
+    prints an authoritative "State:" line (NOT VULNERABLE, VULNERABLE, VULNERABLE
+    (DoS), LIKELY VULNERABLE, UNKNOWN (unable to test)), so read that first and
+    trust it over any loose "VULNERABLE" token in the title. Scripts that print no
+    State line fall back to the free-text token scan. Order matters in both
+    branches, the more specific state is tested before the substring it contains."""
     t = (text or "").lower()
-    if "vulnerable" in t and "not vulnerable" not in t:
-        return Verdict.VULNERABLE
-    if "likely" in t or "appears" in t:
-        return Verdict.LIKELY
+    m = _NSE_STATE_RE.search(t)
+    if m:
+        state = m.group(1)
+        if "not vulnerable" in state:
+            return Verdict.SAFE
+        if "unknown" in state:
+            return Verdict.UNKNOWN
+        if "likely" in state:
+            return Verdict.LIKELY
+        if "vulnerable" in state:
+            return Verdict.VULNERABLE
     if "not vulnerable" in t:
         return Verdict.SAFE
+    if "likely" in t or "appears" in t:
+        return Verdict.LIKELY
+    if "vulnerable" in t:
+        return Verdict.VULNERABLE
     return Verdict.UNKNOWN
 
 
