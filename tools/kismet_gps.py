@@ -68,7 +68,7 @@ PIP_DEPS = {"simplekml": "simplekml"}  # pip name -> import name
 def _bootstrap_venv():
     """Create the venv if absent, install any missing deps, then re-exec under it.
     Runs under the system interpreter, so it imports nothing from PIP_DEPS itself."""
-    if os.environ.get("WARDRIVE_VENV") == "1":
+    if os.environ.get("KISMET_GPS_VENV") == "1":
         return  # already re-exec'd into the venv
 
     venv_py = VENV_DIR / "bin" / "python3"
@@ -87,7 +87,7 @@ def _bootstrap_venv():
         print(f"[*] Installing deps into venv: {', '.join(missing)}")
         subprocess.run([str(venv_py), "-m", "pip", "install", "-q", *missing], check=True)
 
-    env = {**os.environ, "WARDRIVE_VENV": "1"}
+    env = {**os.environ, "KISMET_GPS_VENV": "1"}
     os.execve(str(venv_py), [str(venv_py), str(Path(__file__).resolve()), *sys.argv[1:]], env)
 
 
@@ -438,12 +438,12 @@ def export(dbpath, out_path, doc_name):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Kismet wardrive capture + KML export")
+    ap = argparse.ArgumentParser(description="Kismet capture + KML export")
     ap.add_argument("--site", help="Site / location name (skips prompt)")
     ap.add_argument("--client", help="Client name (optional, for labeling)")
     ap.add_argument("--interface", help="Wireless interface (skips prompt/detection)")
-    ap.add_argument("--outdir", default=str(APP_DIR / "wardrives"),
-                    help="Base directory for run folders (default: ./wardrives)")
+    ap.add_argument("--outdir",
+                    help="Base directory for capture data (prompted if omitted)")
     ap.add_argument("--fix-timeout", type=int, default=120,
                     help="Seconds to wait for a GPS fix before prompting (default: 120)")
     ap.add_argument("--no-wait-fix", action="store_true",
@@ -467,8 +467,14 @@ def main():
     slug = slugify(f"{client}-{site}" if client else site)
     iface = choose_interface(args.interface)
 
+    outbase = args.outdir
+    if not outbase:
+        default_base = str(Path.home() / "kismet-captures")
+        entered = input(f"[?] Directory to store capture data [{default_base}]: ").strip()
+        outbase = entered or default_base
+
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    rundir = Path(args.outdir) / f"{slug}_{stamp}"
+    rundir = Path(outbase).expanduser() / f"{slug}_{stamp}"
     rundir.mkdir(parents=True, exist_ok=True)
     print(f"[*] Run directory: {rundir}")
 
