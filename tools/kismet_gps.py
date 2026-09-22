@@ -283,6 +283,17 @@ def _maybe_gunzip(blob):
     return blob
 
 
+def _base_view(d):
+    """Return the object holding the kismet.device.base.* fields regardless of log
+    layout. db_version 9+ (kismet 2025.x) flattens them to top-level dotted keys;
+    older logs nest them under a 'kismet.device.base' sub-dict. Either way the
+    caller looks them up by their full dotted name (e.g. kismet.device.base.crypt)."""
+    if not isinstance(d, dict):
+        return {}
+    nested = d.get("kismet.device.base")
+    return nested if isinstance(nested, dict) else d
+
+
 def _norm_coord(v):
     """Kismetdb stores lat/lon as REAL degrees (v6) or fixed-point *1e5 (older).
     Normalize either into degrees; return None if implausible."""
@@ -335,7 +346,7 @@ def read_kismetdb_aps(dbpath):
                 base = json.loads(_maybe_gunzip(r["device"]))
             except (ValueError, TypeError):
                 base = {}
-        b = base.get("kismet.device.base", {}) if isinstance(base, dict) else {}
+        b = _base_view(base)
 
         # Fall back to the JSON geopoint if the columns were empty
         if lat is None or lon is None or (lat == 0.0 and lon == 0.0):
@@ -410,26 +421,29 @@ def _declutter(aps):
 
 
 def generate_kml(aps, out_path, doc_name, declutter=False):
+    """Point KML with two independent filter trees so Google Earth Pro can filter
+    by either attribute via folder checkboxes (GE Pro has no attribute query):
+      * 'Filter: by encryption' (visible) - one folder per encryption class
+      * 'Filter: by SSID' (hidden by default) - one folder per SSID
+    Pins are colored by encryption in both trees. Toggle one tree off and the
+    other on to switch which attribute you're filtering."""
     import simplekml
     if declutter:
         aps = _declutter(aps)
     kml = simplekml.Kml(name=doc_name)
 
-    folders, styles = {}, {}
-    for group, (color_attr, label) in ENC_STYLE.items():
-        folders[group] = kml.newfolder(name=label)
+    styles = {}
+    for group, (color_attr, _label) in ENC_STYLE.items():
         st = simplekml.Style()
         st.iconstyle.color = getattr(simplekml.Color, color_attr)
         st.iconstyle.icon.href = "http://maps.google.com/mapfiles/kml/pushpin/wht-pushpin.png"
         st.labelstyle.scale = 0.8
         styles[group] = st
 
-    counts = {g: 0 for g in ENC_STYLE}
-    for ap in aps:
-        g = ap["group"]
-        counts[g] += 1
-        p = folders[g].newpoint(name=ap["ssid"], coords=[(ap["lon"], ap["lat"])])
-        p.style = styles[g]
+    def add_point(folder, ap):
+        enc, cipher, auth = _enc_auth(ap["crypt"])
+        p = folder.newpoint(name=ap["ssid"] or "(hidden)", coords=[(ap["lon"], ap["lat"])])
+        p.style = styles[ap["group"]]
         p.description = (
             f"BSSID: {ap['mac']}\n"
             f"Encryption: {ap['crypt']}\n"
@@ -440,6 +454,40 @@ def generate_kml(aps, out_path, doc_name, declutter=False):
             f"Last seen:  {_fmt_epoch(ap['last'])}\n"
             f"Position: {ap['lat']:.6f}, {ap['lon']:.6f}"
         )
+        p.extendeddata.newdata("ssid", ap["ssid"] or "(hidden)", "SSID")
+        p.extendeddata.newdata("bssid", ap["mac"], "BSSID")
+        p.extendeddata.newdata("encryption", ap["crypt"], "Encryption")
+        p.extendeddata.newdata("enc", enc, "ENC")
+        p.extendeddata.newdata("cipher", cipher, "Cipher")
+        p.extendeddata.newdata("auth", auth, "Auth")
+        p.extendeddata.newdata("channel", str(ap["channel"] or ""), "Channel")
+        p.extendeddata.newdata(
+            "signal", str(ap["signal"]) if ap["signal"] is not None else "n/a", "Signal dBm")
+        return p
+
+    # Tree 1: by encryption (shown by default)
+    enc_root = kml.newfolder(name="Filter: by encryption")
+    enc_folders = {}
+    for group, (_c, label) in ENC_STYLE.items():
+        enc_folders[group] = enc_root.newfolder(name=label)
+
+    counts = {g: 0 for g in ENC_STYLE}
+    for ap in aps:
+        counts[ap["group"]] += 1
+        add_point(enc_folders[ap["group"]], ap)
+
+    # Tree 2: by SSID (hidden by default; check it and uncheck tree 1 to filter by SSID)
+    ssid_root = kml.newfolder(name="Filter: by SSID")
+    ssid_root.visibility = 0
+    ssid_folders = {}
+    for ap in sorted(aps, key=lambda a: (a["ssid"] or "\uffff").lower()):
+        name = ap["ssid"] or "(hidden)"
+        f = ssid_folders.get(name)
+        if f is None:
+            f = ssid_root.newfolder(name=name)
+            f.visibility = 0
+            ssid_folders[name] = f
+        add_point(f, ap)
 
     kml.save(str(out_path))
     return counts
@@ -478,7 +526,7 @@ def resolve_targets(dbpath, ssids, bssids):
                 base = json.loads(_maybe_gunzip(r["device"]))
             except (ValueError, TypeError):
                 base = {}
-        b = base.get("kismet.device.base", {}) if isinstance(base, dict) else {}
+        b = _base_view(base)
         ssid = _extract_ssid(b, base)
         if mac in bset or (want and ssid and ssid.lower() in want):
             bset.add(mac)
@@ -660,7 +708,7 @@ def read_aps_for_report(dbpath):
                 base = json.loads(_maybe_gunzip(r["device"]))
             except (ValueError, TypeError):
                 base = {}
-        b = base.get("kismet.device.base", {}) if isinstance(base, dict) else {}
+        b = _base_view(base)
         mac = (r.get("devmac") or b.get("kismet.device.base.macaddr") or "").upper()
         sig = r.get("strongest_signal")
         if sig in (None, 0):
@@ -686,11 +734,19 @@ def read_aps_for_report(dbpath):
 
 
 def _enc_auth(crypt):
-    c = crypt or ""
-    if not c or c.upper() in ("OPEN", "NONE"):
-        return ("OPEN", "")
-    parts = c.split("-", 1)
-    return (parts[0].upper(), parts[1].upper() if len(parts) > 1 else "")
+    """Parse a kismet crypt_string like 'WPA3 WPA3-SAE AES-CCMP' into
+    (ENC, CIPHER, AUTH), airodump-style."""
+    c = (crypt or "").upper()
+    if not c or c in ("OPEN", "NONE"):
+        return ("OPEN", "", "")
+    enc = ("WPA3" if "WPA3" in c else "WPA2" if "WPA2" in c else
+           "WPA" if "WPA" in c else "WEP" if "WEP" in c else "OPEN")
+    cipher = ("CCMP" if "CCMP" in c else "GCMP" if "GCMP" in c else
+              "TKIP" if "TKIP" in c else "WEP" if "WEP" in c else "")
+    auth = ("SAE" if "SAE" in c else
+            "MGT" if ("EAP" in c or "MGT" in c or "802.1X" in c or "1X" in c) else
+            "PSK" if "PSK" in c else "")
+    return (enc, cipher, auth)
 
 
 def _rogue_severity(sig, baseline, margin):
@@ -726,14 +782,15 @@ def build_ap_report(dbpath, in_scope, known_bssids, out_txt, doc_name, margin):
     if known:
         L.append(f" Known-good BSSID(s): {', '.join(sorted(known))}")
     L += ["=" * W, "", " AP INVENTORY (sorted by signal)", " " + "-" * (W - 1),
-          f" {'PWR':>4} {'BSSID':<17} {'CH':>3} {'ENC':<6} {'AUTH':<6}"
+          f" {'PWR':>4} {'BSSID':<17} {'CH':>3} {'ENC':<5} {'CIPHER':<6} {'AUTH':<4}"
           f" {'FRAMES':>7} {'SC':<2} ESSID", " " + "-" * (W - 1)]
     for ap in aps:
-        enc, auth = _enc_auth(ap["crypt"])
+        enc, cipher, auth = _enc_auth(ap["crypt"])
         pwr = f"{ap['signal']}" if ap["signal"] is not None else "--"
         sc = "*" if ap["in_scope"] else ""
-        L.append(f" {pwr:>4} {ap['mac']:<17} {str(ap['channel'] or ''):>3} {enc:<6}"
-                 f" {auth:<6} {ap['frames']:>7} {sc:<2} {ap['ssid'] or '(hidden)'}")
+        L.append(f" {pwr:>4} {ap['mac']:<17} {str(ap['channel'] or ''):>3} {enc:<5}"
+                 f" {cipher:<6} {auth:<4} {ap['frames']:>7} {sc:<2}"
+                 f" {ap['ssid'] or '(hidden)'}")
     L.append("")
 
     if scope:
