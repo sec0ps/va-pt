@@ -1142,7 +1142,14 @@ def _payload_prefs(platform, x64):
             "cmd/unix/reverse_bash",
         ]
     elif platform == "java":
-        prefs += ["java/jsp_shell_reverse_tcp"]
+        # java targets deliver a JVM payload, so the generic and native
+        # command shells below never produce a session here; the working java
+        # payloads must rank ahead of them. Command shell first per the
+        # shell-over-meterpreter preference, with java meterpreter (what msf
+        # itself defaults to for these modules) as the java fallback.
+        prefs += ["java/shell/reverse_tcp", "java/shell_reverse_tcp",
+                  "java/jsp_shell_reverse_tcp",
+                  "java/meterpreter/reverse_tcp"]
     elif platform == "php":
         prefs += ["php/reverse_php"]
     elif platform == "python":
