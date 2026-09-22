@@ -118,6 +118,27 @@ def _product_relevant(term, fullname):
         return True
     return t.endswith("d") and len(t) > 4 and t[:-1] in fn
 
+
+def _service_name_term(service):
+    """A single Metasploit search term from the nmap service NAME, or "" when the
+    name is not usable. nmap's service name is often the module family token the
+    product string lacks (java-rmi, whose product is "GNU Classpath grmiregistry",
+    maps to java_rmi_server). The name is trusted only on a real probe, since a bare
+    port-table guess is display-only and never a search key. Generic names are
+    dropped, and nmap's separators are folded to underscore so the whole name
+    searches as one token (java-rmi -> java_rmi) and a short protocol part like rmi
+    is not lost to the product-token length floor."""
+    if (service.method or "").lower() != "probed":
+        return ""
+    raw = (service.name or "").strip().lower()
+    base = re.sub(r"[^a-z0-9]", "", raw)
+    if len(base) < 4 or base in _GENERIC_PRODUCT_TOKENS:
+        return ""
+    parts = [p for p in re.split(r"[^a-z0-9]+", raw) if p]
+    if parts and all(p in _GENERIC_PRODUCT_TOKENS for p in parts):
+        return ""
+    return re.sub(r"[-\s]+", "_", raw)
+
 _MODULE_TYPES = ("exploit", "auxiliary", "post", "payload", "encoder", "nop", "evasion")
 
 _PLATFORMS = (
@@ -542,6 +563,36 @@ class MsfClient:
                     logger.debug("  accept %s rank=%s via product '%s'",
                                  full, entry.get("rank"), term)
                     by_module[full] = (entry, "", 0.0)
+        # Service-name search: the nmap service name is often the exact Metasploit
+        # module family token the product string lacks. nmap reports "java-rmi"
+        # where the product is "GNU Classpath grmiregistry", and "search java_rmi"
+        # lands exploit/multi/misc/java_rmi_server, which neither the CVE path (no
+        # CVE) nor the product tokens (grmiregistry, classpath) reach. Supplemental
+        # to the two searches above and deduped against them; the whole name is one
+        # term with nmap's separators folded to underscore, so a short protocol part
+        # (rmi) is not dropped by the product-token length floor.
+        name_term = _service_name_term(service)
+        if self.cfg.product_search and name_term:
+            self._activity("msf", f"search service {name_term} :{service.port}")
+            hits = self._search_term(name_term)
+            logger.debug("search service '%s' (%s:%s) -> %d msf module(s)",
+                         name_term, label, service.port, len(hits))
+            for entry in hits:
+                full = entry.get("fullname", "")
+                if full in by_module:
+                    continue
+                if not self._acceptable(entry):
+                    continue
+                if not _product_relevant(name_term, full):
+                    logger.debug("  skip irrelevant %s", full)
+                    continue
+                if not self._platform_ok(full, host_os):
+                    logger.debug("  skip %s (platform vs host '%s')",
+                                 full, host_os)
+                    continue
+                logger.debug("  accept %s rank=%s via service '%s'",
+                             full, entry.get("rank"), name_term)
+                by_module[full] = (entry, "", 0.0)
         # Prefer exploits over auxiliary for the same service, always. An auxiliary
         # scanner may merely detect what an exploit module can actually leverage
         # (java_rmi_server is the classic case: the scanner reports class-loader
