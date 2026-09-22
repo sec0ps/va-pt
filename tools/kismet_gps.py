@@ -63,6 +63,7 @@ from pathlib import Path
 APP_DIR = Path(__file__).resolve().parent
 VENV_DIR = APP_DIR / ".kismet-venv"
 PIP_DEPS = {"simplekml": "simplekml"}  # pip name -> import name
+HTTPD_CREDS = Path.home() / ".kismet-gps" / "httpd.creds"  # persistent web-UI login
 
 
 def _bootstrap_venv():
@@ -233,8 +234,31 @@ def ensure_gps(fix_timeout, wait_fix):
 
 
 # ------------------------------------------------------------------ kismet capture
-def write_override(rundir, slug, iface):
-    """Per-run override.conf: last-loaded, wins over all base config, touches nothing global."""
+def ensure_httpd_creds(user, password):
+    """Return (user, password) for the Kismet web UI, persisted so the login is
+    stable across restarts and fully script-controlled. A flag-supplied password
+    is stored; otherwise a strong one is generated once and reused. Kismet skips
+    its first-run web setup when both are set in a loaded config (the override)."""
+    import secrets
+    HTTPD_CREDS.parent.mkdir(parents=True, exist_ok=True)
+    stored_user, stored_pass = None, None
+    if HTTPD_CREDS.exists():
+        txt = HTTPD_CREDS.read_text().strip()
+        if ":" in txt:
+            stored_user, stored_pass = txt.split(":", 1)
+    user = user or stored_user or "kismet"
+    password = password or stored_pass or secrets.token_urlsafe(18)
+    HTTPD_CREDS.write_text(f"{user}:{password}\n")
+    try:
+        HTTPD_CREDS.chmod(0o600)
+    except OSError:
+        pass
+    return user, password
+
+
+def write_override(rundir, slug, iface, httpd_user, httpd_pass):
+    """Per-run override.conf: last-loaded, wins over all base config, touches
+    nothing global. Includes the web-UI login so kismet skips first-run setup."""
     conf = rundir / "kismet_override.conf"
     conf.write_text(
         f"log_title={slug}\n"
@@ -242,6 +266,8 @@ def write_override(rundir, slug, iface):
         "log_types=kismet\n"
         "gps=gpsd:host=localhost,port=2947\n"
         f"source={iface}:name={slug}\n"
+        f"httpd_username={httpd_user}\n"
+        f"httpd_password={httpd_pass}\n"
     )
     return conf
 
@@ -894,6 +920,10 @@ def main():
                     help="Seconds to wait for a GPS fix before prompting (default: 120)")
     ap.add_argument("--no-wait-fix", action="store_true",
                     help="Start capture without waiting for a GPS fix")
+    ap.add_argument("--httpd-user",
+                    help="Kismet web UI username (default: kismet, persisted)")
+    ap.add_argument("--httpd-pass",
+                    help="Kismet web UI password (default: generated once and persisted)")
     ap.add_argument("--kml-only", metavar="FILE.kismet",
                     help="Regenerate KML from an existing .kismet log; no capture")
     ap.add_argument("--ssid", action="append", default=[],
@@ -991,7 +1021,11 @@ def main():
         print("[!] Aborting: no GPS.")
         sys.exit(1)
 
-    override_conf = write_override(rundir, slug, iface)
+    httpd_user, httpd_pass = ensure_httpd_creds(args.httpd_user, args.httpd_pass)
+    print(f"[*] Kismet web UI: http://localhost:2501  "
+          f"(user: {httpd_user}  pass: {httpd_pass})")
+    print(f"[*] Login persisted at {HTTPD_CREDS}")
+    override_conf = write_override(rundir, slug, iface, httpd_user, httpd_pass)
     if not run_kismet(rundir, override_conf):
         sys.exit(1)
 
