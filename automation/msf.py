@@ -717,8 +717,12 @@ class MsfClient:
                 # values. Recompute after filling.
                 fails += self._satisfy_outstanding(exploit, outstanding)
                 supplied = set(payload.runoptions)
+                # Advanced options are filled with the module's own default by MSF
+                # at execute time (msfrpc lists them missing with no readable
+                # default), so do not block on them; execute is the real gate.
+                advanced = self._advanced_options(exploit)
                 outstanding = [o for o in exploit.missing_required
-                               if o not in supplied]
+                               if o not in supplied and o not in advanced]
             if outstanding or fails:
                 parts = []
                 if outstanding:
@@ -791,44 +795,42 @@ class MsfClient:
         only needs a login gets a fair attempt instead of a block. USERNAME-type
         options take cfg.cred_user (the seclists username list top entry, resolved
         once per run) and PASSWORD-type options take cfg.cred_pass, each with a
-        built-in fallback. A required option that carries its own default is set to
-        that default. Anything else is left outstanding. Returns any sets the module
-        rejected."""
+        built-in fallback. Non-credential options are left outstanding. Returns any
+        sets the module rejected."""
         fails = []
-        # Option name -> default from module.options metadata. msfrpc does not
-        # materialize advanced-option defaults into the datastore, so a required
-        # advanced option with a default (e.g. CheckModule ->
-        # auxiliary/scanner/misc/java_rmi_server) shows as missing; its default is
-        # read here and set so the module is not blocked on a value MSF would have
-        # filled. Any lookup failure degrades to filling only credentials.
-        defaults = {}
-        try:
-            mtype = getattr(exploit, "moduletype", "") or "exploit"
-            ref = exploit.modulename or ""
-            if ref.startswith(mtype + "/"):
-                ref = ref[len(mtype) + 1:]
-            raw = self._client.call("module.options", [mtype, ref])
-            if isinstance(raw, dict):
-                for name, meta in raw.items():
-                    if (isinstance(meta, dict)
-                            and meta.get("default") not in (None, "")):
-                        defaults[name] = meta["default"]
-        except Exception as e:
-            logger.debug("option defaults lookup failed for %s: %s",
-                         getattr(exploit, "modulename", "?"), e)
         for opt in outstanding:
             if _is_user_opt(opt):
                 val = self.cfg.cred_user or _BUILTIN_USERS[0]
             elif _is_pass_opt(opt):
                 val = self.cfg.cred_pass or _BUILTIN_PASSWORDS[1]
-            elif opt in defaults:
-                val = defaults[opt]
             else:
                 continue
             logger.debug("filling required %s=%r on %s", opt, val,
                          exploit.modulename)
             fails += _apply_options(exploit, [(opt, val)])
         return fails
+
+    def _advanced_options(self, exploit):
+        """The set of ADVANCED option names for a module, from module.options. msf
+        applies an advanced option's own default at execute time (the console 'run'
+        does this for CheckModule and its kin), but msfrpc lists it in
+        missing_required with no readable default, so the fire path must not block on
+        it. Never raises; returns an empty set on any lookup failure, which degrades
+        to the stricter block."""
+        try:
+            mtype = getattr(exploit, "moduletype", "") or "exploit"
+            ref = exploit.modulename or ""
+            if ref.startswith(mtype + "/"):
+                ref = ref[len(mtype) + 1:]
+            raw = self._client.call("module.options", [mtype, ref])
+        except Exception as e:
+            logger.debug("advanced-option lookup failed for %s: %s",
+                         getattr(exploit, "modulename", "?"), e)
+            return set()
+        if not isinstance(raw, dict):
+            return set()
+        return {name for name, meta in raw.items()
+                if isinstance(meta, dict) and meta.get("advanced")}
 
     def _await_session(self, uuid, timeout, rhost=None, lport=None, before=None,
                        module=None):
