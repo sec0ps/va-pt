@@ -466,6 +466,12 @@ class MsfClient:
             # local priv-esc modules need an existing SESSION; they are not remote
             # entry points and only block with "unset required: SESSION" if fired.
             return False
+        if "browser" in segs or "fileformat" in segs:
+            # client-side exploits stand up a malicious server and wait for a victim
+            # to come to us; fired at a listening service they only time out with no
+            # session (e.g. exploit/multi/browser/java_rmi_connection_impl burning
+            # the attempt before exploit/multi/misc/java_rmi_server).
+            return False
         if mtype == "exploit" and _rank_value(entry.get("rank")) < self.cfg.rank_floor:
             return False
         return True
@@ -785,14 +791,26 @@ class MsfClient:
         only needs a login gets a fair attempt instead of a block. USERNAME-type
         options take cfg.cred_user (the seclists username list top entry, resolved
         once per run) and PASSWORD-type options take cfg.cred_pass, each with a
-        built-in fallback. Non-credential options are left outstanding. Returns any
-        sets the module rejected."""
+        built-in fallback. A required option that carries its own default is set to
+        that default. Anything else is left outstanding. Returns any sets the module
+        rejected."""
         fails = []
+        try:
+            info = exploit.optioninfo or {}
+        except Exception:
+            info = {}
         for opt in outstanding:
+            default = (info.get(opt) or {}).get("default")
             if _is_user_opt(opt):
                 val = self.cfg.cred_user or _BUILTIN_USERS[0]
             elif _is_pass_opt(opt):
                 val = self.cfg.cred_pass or _BUILTIN_PASSWORDS[1]
+            elif default not in (None, ""):
+                # required option carrying a default (typically an advanced option
+                # whose default msfrpc did not materialize, e.g. CheckModule ->
+                # auxiliary/scanner/misc/java_rmi_server); set the module's own
+                # default so it is not blocked on a value MSF would have filled.
+                val = default
             else:
                 continue
             logger.debug("filling required %s=%r on %s", opt, val,
