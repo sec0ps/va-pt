@@ -382,8 +382,37 @@ def _fmt_epoch(ts):
         return "n/a"
 
 
-def generate_kml(aps, out_path, doc_name):
+def _declutter(aps):
+    """Spiral-offset APs that share identical coordinates (a stationary capture
+    stacks every AP on the receiver position) so each pin is individually
+    clickable. Offsets are a few meters - display only, documented as such."""
+    from math import cos, sin, radians, sqrt, pi
+    groups = {}
+    for ap in aps:
+        groups.setdefault((round(ap["lat"], 6), round(ap["lon"], 6)), []).append(ap)
+    golden = pi * (3 - sqrt(5))
+    out = []
+    for (lat0, lon0), members in groups.items():
+        if len(members) == 1:
+            out.append(members[0])
+            continue
+        for i, ap in enumerate(members):
+            if i == 0:
+                out.append(ap)
+                continue
+            r = 3.0 * sqrt(i)  # meters
+            ang = i * golden
+            nap = dict(ap)
+            nap["lat"] = lat0 + (r * cos(ang)) / 111320.0
+            nap["lon"] = lon0 + (r * sin(ang)) / (111320.0 * max(0.1, cos(radians(lat0))))
+            out.append(nap)
+    return out
+
+
+def generate_kml(aps, out_path, doc_name, declutter=False):
     import simplekml
+    if declutter:
+        aps = _declutter(aps)
     kml = simplekml.Kml(name=doc_name)
 
     folders, styles = {}, {}
@@ -604,7 +633,165 @@ def build_heatmap(dbpath, ssids, bssids, out_dir, slug, density_mode, fmt):
     print("[*] Open the .kml in Google Earth Pro; keep the .png beside it.")
 
 
+# ------------------------------------------------------------------ AP detection report
+def read_aps_for_report(dbpath):
+    """Every Wi-Fi AP in the log (GPS optional, unlike the KML reader) with the
+    fields an inventory/rogue report needs, plus per-BSSID frame counts."""
+    con = sqlite3.connect(f"file:{dbpath}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    dcols = {r[1] for r in con.execute("PRAGMA table_info(devices)")}
+    frames = {}
+    pcols = {r[1] for r in con.execute("PRAGMA table_info(packets)")}
+    if "sourcemac" in pcols:
+        for mac, n in con.execute("SELECT sourcemac, COUNT(*) FROM packets GROUP BY sourcemac"):
+            if mac:
+                frames[mac.upper()] = n
+    wanted = [c for c in ("devmac", "type", "avg_lat", "avg_lon", "strongest_signal",
+                          "first_time", "last_time", "device") if c in dcols]
+    q = f"SELECT {', '.join(wanted)} FROM devices"
+    if "type" in dcols:
+        q += " WHERE type LIKE '%AP%'"
+    out = []
+    for row in con.execute(q):
+        r = dict(row)
+        base = {}
+        if r.get("device") is not None:
+            try:
+                base = json.loads(_maybe_gunzip(r["device"]))
+            except (ValueError, TypeError):
+                base = {}
+        b = base.get("kismet.device.base", {}) if isinstance(base, dict) else {}
+        mac = (r.get("devmac") or b.get("kismet.device.base.macaddr") or "").upper()
+        sig = r.get("strongest_signal")
+        if sig in (None, 0):
+            sig = (b.get("kismet.device.base.signal", {})
+                    .get("kismet.common.signal.max_signal"))
+        lat = _norm_coord(r.get("avg_lat"))
+        lon = _norm_coord(r.get("avg_lon"))
+        lat = lat if (lat is not None and -90 <= lat <= 90 and lat != 0.0) else None
+        lon = lon if (lon is not None and -180 <= lon <= 180 and lon != 0.0) else None
+        out.append({
+            "mac": mac,
+            "ssid": _extract_ssid(b, base) or "",
+            "crypt": b.get("kismet.device.base.crypt", "") or "Unknown",
+            "channel": b.get("kismet.device.base.channel", ""),
+            "signal": sig,
+            "frames": frames.get(mac, 0),
+            "first": r.get("first_time") or b.get("kismet.device.base.first_time"),
+            "last": r.get("last_time") or b.get("kismet.device.base.last_time"),
+            "lat": lat, "lon": lon,
+        })
+    con.close()
+    return out
+
+
+def _enc_auth(crypt):
+    c = crypt or ""
+    if not c or c.upper() in ("OPEN", "NONE"):
+        return ("OPEN", "")
+    parts = c.split("-", 1)
+    return (parts[0].upper(), parts[1].upper() if len(parts) > 1 else "")
+
+
+def _rogue_severity(sig, baseline, margin):
+    """HIGH: candidate as strong as/stronger than the legit AP (out-powering it).
+    MEDIUM: within `margin` dB below it. LOW: weaker. INFO: signal unknown."""
+    if sig is None or baseline is None:
+        return "INFO"
+    if sig >= baseline:
+        return "HIGH"
+    if sig >= baseline - margin:
+        return "MEDIUM"
+    return "LOW"
+
+
+def build_ap_report(dbpath, in_scope, known_bssids, out_txt, doc_name, margin):
+    aps = read_aps_for_report(dbpath)
+    if not aps:
+        print("[!] No APs in the log to report.")
+        return
+    scope = {x.lower() for x in in_scope}
+    known = {x.upper() for x in known_bssids}
+    for ap in aps:
+        ap["in_scope"] = bool(scope) and ap["ssid"].lower() in scope
+    aps.sort(key=lambda a: (a["signal"] is None, -(a["signal"] or -999)))
+
+    W = 92
+    L = ["=" * W,
+         f" WIRELESS AP DETECTION REPORT - {doc_name}",
+         f" Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+         f"    APs detected: {len(aps)}"]
+    if in_scope:
+        L.append(f" In-scope SSID(s): {', '.join(in_scope)}")
+    if known:
+        L.append(f" Known-good BSSID(s): {', '.join(sorted(known))}")
+    L += ["=" * W, "", " AP INVENTORY (sorted by signal)", " " + "-" * (W - 1),
+          f" {'PWR':>4} {'BSSID':<17} {'CH':>3} {'ENC':<6} {'AUTH':<6}"
+          f" {'FRAMES':>7} {'SC':<2} ESSID", " " + "-" * (W - 1)]
+    for ap in aps:
+        enc, auth = _enc_auth(ap["crypt"])
+        pwr = f"{ap['signal']}" if ap["signal"] is not None else "--"
+        sc = "*" if ap["in_scope"] else ""
+        L.append(f" {pwr:>4} {ap['mac']:<17} {str(ap['channel'] or ''):>3} {enc:<6}"
+                 f" {auth:<6} {ap['frames']:>7} {sc:<2} {ap['ssid'] or '(hidden)'}")
+    L.append("")
+
+    if scope:
+        L += [" ROGUE / EVIL-TWIN ANALYSIS", " " + "-" * (W - 1)]
+        for ssid in in_scope:
+            adv = [a for a in aps if a["ssid"].lower() == ssid.lower()]
+            if not adv:
+                L.append(f" [{ssid}] not observed in capture.")
+                continue
+            if known:
+                legit = [a for a in adv if a["mac"] in known]
+                baseline = max((a["signal"] for a in legit if a["signal"] is not None),
+                               default=None)
+                candidates = [a for a in adv if a["mac"] not in known]
+                seen = ", ".join(a["mac"] for a in legit) or "none seen"
+                L.append(f" [{ssid}] known-good: {seen}    baseline PWR: "
+                         f"{baseline if baseline is not None else 'n/a'} dBm")
+            else:
+                order = sorted(adv, key=lambda a: (a["signal"] is None,
+                                                   -(a["signal"] or -999)))
+                baseline = order[0]["signal"]
+                candidates = order[1:]
+                L.append(f" [{ssid}] {len(adv)} BSSID(s) advertising this SSID; "
+                         f"strongest {order[0]['mac']} @ {baseline} dBm used as reference "
+                         "(supply --known-bssid for precise detection)")
+            if not candidates:
+                L.append("   No additional BSSIDs advertising this SSID.")
+            for c in candidates:
+                sev = _rogue_severity(c["signal"], baseline, margin)
+                if c["signal"] is not None and baseline is not None:
+                    delta = f"{c['signal'] - baseline:+d} dB vs ref"
+                else:
+                    delta = "signal n/a"
+                pwr = c["signal"] if c["signal"] is not None else "--"
+                L.append(f"   [{sev:<6}] {c['mac']}  PWR {pwr} dBm  ({delta})"
+                         f"  CH {c['channel']}")
+            L.append("")
+
+    L += [" APPENDIX - FIRST/LAST SEEN & POSITION", " " + "-" * (W - 1)]
+    for ap in aps:
+        gps = (f"{ap['lat']:.6f},{ap['lon']:.6f}"
+               if ap["lat"] is not None and ap["lon"] is not None else "no-fix")
+        L.append(f" {ap['mac']:<17} first {_fmt_epoch(ap['first'])}"
+                 f"  last {_fmt_epoch(ap['last'])}  {gps}  {ap['ssid'] or '(hidden)'}")
+    L += ["", "=" * W]
+
+    out_txt.write_text("\n".join(L) + "\n")
+    rogue = sum(1 for ap in aps if ap["in_scope"])
+    print(f"[+] AP report: {out_txt}  ({len(aps)} APs, {rogue} in-scope)")
+
+
 # ------------------------------------------------------------------ orchestration
+def _prompt_list(msg):
+    """Read a comma/space-separated list from the user; empty input -> []."""
+    raw = input(msg).strip()
+    return [x for x in re.split(r"[,\s]+", raw) if x] if raw else []
+
+
 def choose_interface(cli_iface):
     if cli_iface:
         return cli_iface
@@ -624,13 +811,13 @@ def choose_interface(cli_iface):
             return ifaces[int(sel)]
 
 
-def export(dbpath, out_path, doc_name):
+def export(dbpath, out_path, doc_name, declutter=False):
     print(f"[*] Parsing {dbpath}")
     aps = list(read_kismetdb_aps(dbpath))
     if not aps:
         print("[!] No geolocated APs in the log (no fix during capture, or no APs seen).")
         return
-    counts = generate_kml(aps, out_path, doc_name)
+    counts = generate_kml(aps, out_path, doc_name, declutter=declutter)
     print(f"[+] KML written: {out_path}")
     total = sum(counts.values())
     print(f"[+] {total} geolocated APs: " +
@@ -663,11 +850,29 @@ def main():
                     help="Weight the heatmap by detection count instead of signal strength")
     ap.add_argument("--format", choices=["kml", "folium"], default="kml",
                     help="Heatmap output format (folium reserved for a later build)")
+    ap.add_argument("--report-only", metavar="FILE.kismet",
+                    help="Build the AP detection report from an existing log; no capture")
+    ap.add_argument("--known-bssid", action="append", default=[],
+                    help="Known-good BSSID for an in-scope SSID (repeatable); "
+                         "enables precise evil-twin detection")
+    ap.add_argument("--rogue-margin", type=int, default=15,
+                    help="dB below the in-scope AP within which a same-SSID BSSID is "
+                         "flagged MEDIUM (default: 15)")
+    # The full pipeline (point KML + heatmap + report, decluttered) is the DEFAULT
+    # on a bare run; the flags below only opt OUT of pieces.
+    ap.add_argument("--no-heatmap", action="store_true",
+                    help="Skip the per-SSID detection heatmap")
+    ap.add_argument("--no-report", action="store_true",
+                    help="Skip the AP detection / rogue-AP report")
+    ap.add_argument("--no-declutter", action="store_true",
+                    help="Do not spiral-offset APs that share identical coordinates")
     args = ap.parse_args()
 
     ssids = list(args.ssid)
     if args.ssid_file:
         ssids += load_ssid_file(args.ssid_file)
+    known_bssids = list(args.known_bssid)
+    declutter = not args.no_declutter
 
     # Regenerate-only path
     if args.kml_only:
@@ -676,7 +881,7 @@ def main():
             print(f"[!] No such file: {db}")
             sys.exit(1)
         out = db.with_suffix(".kml")
-        export(db, out, db.stem)
+        export(db, out, db.stem, declutter=declutter)
         return
 
     # Heatmap-only path
@@ -692,10 +897,27 @@ def main():
                       args.heatmap_density, args.format)
         return
 
+    # Report-only path
+    if args.report_only:
+        db = Path(args.report_only).resolve()
+        if not db.exists():
+            print(f"[!] No such file: {db}")
+            sys.exit(1)
+        build_ap_report(db, ssids, known_bssids,
+                        db.with_name(db.stem + "_ap_report.txt"), db.stem, args.rogue_margin)
+        return
+
     site = args.site or input("[?] Site / location being assessed: ").strip()
     client = args.client or input("[?] Client name (optional): ").strip()
     slug = slugify(f"{client}-{site}" if client else site)
     iface = choose_interface(args.interface)
+
+    if not ssids:
+        ssids = _prompt_list(
+            "[?] In-scope SSID(s), comma-separated (blank to skip heatmap/scope): ")
+    if ssids and not known_bssids:
+        known_bssids = _prompt_list(
+            "[?] Known-good BSSID(s) for those SSIDs (blank if unknown): ")
 
     outbase = args.outdir
     if not outbase:
@@ -721,11 +943,15 @@ def main():
         print("[!] No .kismet log produced.")
         sys.exit(1)
     doc = f"{client + ' - ' if client else ''}{site} ({stamp})"
-    export(db, rundir / f"{slug}.kml", doc)
+    export(db, rundir / f"{slug}.kml", doc, declutter=declutter)
 
-    if ssids or args.bssid:
+    if (ssids or args.bssid) and not args.no_heatmap:
         build_heatmap(db, ssids, args.bssid, rundir, slug,
                       args.heatmap_density, args.format)
+
+    if not args.no_report:
+        build_ap_report(db, ssids, known_bssids,
+                        rundir / f"{slug}_ap_report.txt", doc, args.rogue_margin)
 
 
 if __name__ == "__main__":
