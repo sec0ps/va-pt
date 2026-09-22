@@ -126,6 +126,20 @@ def detect_wireless_ifaces():
     return ifaces
 
 
+def ensure_deps(mapping):
+    """Lazily pip-install missing packages into the running venv, then leave them
+    importable. Used so the heavy heatmap deps (numpy/matplotlib) are only pulled
+    when a heatmap is actually built, keeping plain capture lightweight."""
+    import importlib
+    for pip_name, import_name in mapping.items():
+        try:
+            importlib.import_module(import_name)
+        except ImportError:
+            print(f"[*] Installing {pip_name} into venv...")
+            subprocess.run([sys.executable, "-m", "pip", "install", "-q", pip_name],
+                           check=True)
+
+
 # ------------------------------------------------------------------ gpsd
 def gpsd_listening():
     try:
@@ -402,6 +416,194 @@ def generate_kml(aps, out_path, doc_name):
     return counts
 
 
+# ------------------------------------------------------------------ SSID detection heatmap
+def _extract_ssid(b, base):
+    """Best-effort SSID: beaconed SSID record, else the device common name."""
+    name = b.get("kismet.device.base.commonname") or b.get("kismet.device.base.name") or ""
+    dot11 = base.get("dot11.device", {}) if isinstance(base, dict) else {}
+    rec = dot11.get("dot11.device.last_beaconed_ssid_record") or {}
+    ssid = rec.get("dot11.advertisedssid.ssid") if isinstance(rec, dict) else None
+    return ssid or name
+
+
+def resolve_targets(dbpath, ssids, bssids):
+    """Map the requested SSID(s) to the set of BSSIDs advertising them (an ESS can
+    span several radios), unioned with any explicitly given BSSIDs. Returns
+    (bssid_set, [(bssid, ssid, lat, lon)] for reference markers)."""
+    want = {x.lower() for x in ssids}
+    bset = {x.upper() for x in bssids}
+    aps = []
+    con = sqlite3.connect(f"file:{dbpath}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    cols = {r[1] for r in con.execute("PRAGMA table_info(devices)")}
+    wanted = [c for c in ("devmac", "type", "avg_lat", "avg_lon", "device") if c in cols]
+    q = f"SELECT {', '.join(wanted)} FROM devices"
+    if "type" in cols:
+        q += " WHERE type LIKE '%AP%'"
+    for row in con.execute(q):
+        r = dict(row)
+        mac = (r.get("devmac") or "").upper()
+        base = {}
+        if r.get("device") is not None:
+            try:
+                base = json.loads(_maybe_gunzip(r["device"]))
+            except (ValueError, TypeError):
+                base = {}
+        b = base.get("kismet.device.base", {}) if isinstance(base, dict) else {}
+        ssid = _extract_ssid(b, base)
+        if mac in bset or (want and ssid and ssid.lower() in want):
+            bset.add(mac)
+            aps.append((mac, ssid or "(hidden)",
+                        _norm_coord(r.get("avg_lat")), _norm_coord(r.get("avg_lon"))))
+    con.close()
+    return bset, aps
+
+
+def _weight(sig, density_mode):
+    """Signal-weighted (default): -90 dBm -> ~0, -30 dBm -> 1, so the hot zone pulls
+    toward the AP. Density mode weights every detection equally."""
+    if density_mode:
+        return 1.0
+    if sig is None:
+        return 0.35
+    return max(0.03, min(1.0, (sig + 90) / 60.0))
+
+
+def collect_detections(dbpath, bssids, density_mode):
+    """Every geolocated packet whose sourcemac is one of the target BSSIDs, as
+    (lat, lon, weight). packets.lat/lon are fixed-point *1e5; _norm_coord rescales."""
+    con = sqlite3.connect(f"file:{dbpath}?mode=ro", uri=True)
+    cols = {r[1] for r in con.execute("PRAGMA table_info(packets)")}
+    if not {"lat", "lon", "sourcemac"} <= cols:
+        con.close()
+        return []
+    have_sig = "signal" in cols
+    macs = sorted(bssids)
+    if not macs:
+        con.close()
+        return []
+    qmarks = ",".join("?" * len(macs))
+    sel = "lat, lon" + (", signal" if have_sig else "")
+    q = (f"SELECT {sel} FROM packets "
+         f"WHERE sourcemac IN ({qmarks}) AND lat != 0 AND lon != 0")
+    samples = []
+    for row in con.execute(q, macs):
+        lat = _norm_coord(row[0])
+        lon = _norm_coord(row[1])
+        if lat is None or lon is None:
+            continue
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            continue
+        sig = row[2] if (have_sig and len(row) > 2) else None
+        samples.append((lat, lon, _weight(sig, density_mode)))
+    con.close()
+    return samples
+
+
+def _render_heat_png(samples, out_png):
+    """KDE the weighted samples onto a grid, colorize with alpha, write an RGBA PNG.
+    Returns (south, north, west, east) bounds for the GroundOverlay LatLonBox."""
+    import numpy as np
+    try:
+        from matplotlib import colormaps
+        cmap = colormaps["turbo"]
+    except Exception:  # older matplotlib
+        import matplotlib.cm as cm
+        cmap = cm.get_cmap("turbo")
+    import matplotlib.pyplot as plt
+
+    lats = np.array([s[0] for s in samples], dtype=float)
+    lons = np.array([s[1] for s in samples], dtype=float)
+    wts = np.array([s[2] for s in samples], dtype=float)
+
+    def bounds(v):
+        lo, hi = float(v.min()), float(v.max())
+        span = hi - lo
+        pad = span * 0.15 if span > 0 else 0.0008  # ~90m fallback for a tight cluster
+        return lo - pad, hi + pad
+
+    south, north = bounds(lats)
+    west, east = bounds(lons)
+
+    GRID = 512
+    H, _, _ = np.histogram2d(lons, lats, bins=GRID,
+                             range=[[west, east], [south, north]], weights=wts)
+    img = np.flipud(H.T)  # rows: north -> south, cols: west -> east
+
+    # separable gaussian blur (numpy only, no scipy)
+    sigma = GRID / 96.0
+    radius = max(1, int(3 * sigma))
+    x = np.arange(-radius, radius + 1)
+    k = np.exp(-(x ** 2) / (2 * sigma ** 2))
+    k /= k.sum()
+    img = np.apply_along_axis(lambda m: np.convolve(m, k, mode="same"), 1, img)
+    img = np.apply_along_axis(lambda m: np.convolve(m, k, mode="same"), 0, img)
+
+    if img.max() > 0:
+        img = img / img.max()
+
+    rgba = cmap(img)
+    rgba[..., 3] = np.clip(img ** 0.55, 0, 1) * 0.78  # transparent where cold
+    plt.imsave(str(out_png), rgba)
+    return south, north, west, east
+
+
+def render_heatmap_kml(samples, aps, out_kml, out_png, doc_name, density_mode):
+    import simplekml
+    south, north, west, east = _render_heat_png(samples, out_png)
+
+    kml = simplekml.Kml(name=doc_name)
+    ground = kml.newgroundoverlay(name=doc_name)
+    ground.icon.href = out_png.name          # relative; PNG must sit beside the KML
+    ground.latlonbox.north = north
+    ground.latlonbox.south = south
+    ground.latlonbox.east = east
+    ground.latlonbox.west = west
+    ground.draworder = 1
+
+    # Reference markers for the averaged AP position(s)
+    fol = kml.newfolder(name="Access points")
+    for mac, ssid, lat, lon in aps:
+        if lat is None or lon is None or (lat == 0.0 and lon == 0.0):
+            continue
+        pt = fol.newpoint(name=ssid, coords=[(lon, lat)])
+        pt.description = f"BSSID: {mac}"
+        pt.style.iconstyle.icon.href = \
+            "http://maps.google.com/mapfiles/kml/shapes/target.png"
+    kml.save(str(out_kml))
+
+
+def load_ssid_file(path):
+    return [ln.strip() for ln in Path(path).read_text().splitlines() if ln.strip()]
+
+
+def build_heatmap(dbpath, ssids, bssids, out_dir, slug, density_mode, fmt):
+    if fmt == "folium":
+        print("[!] Folium HTML output is not implemented yet; use --format kml.")
+        return
+    ensure_deps({"numpy": "numpy", "matplotlib": "matplotlib"})
+    bset, aps = resolve_targets(dbpath, ssids, bssids)
+    if not bset:
+        print("[!] No AP in the log matched the requested SSID/BSSID.")
+        return
+    label = ", ".join(sorted({a[1] for a in aps}) or bset)
+    mode = "detection-density" if density_mode else "signal-weighted"
+    print(f"[*] Heatmap target(s): {label}  ({len(bset)} BSSID(s), {mode})")
+    samples = collect_detections(dbpath, bset, density_mode)
+    if len(samples) < 3:
+        print(f"[!] Only {len(samples)} geolocated detections - not enough for a heatmap "
+              "(GPS may not have had a fix while these frames were seen).")
+        return
+    print(f"[*] {len(samples)} geolocated detections")
+    out_png = out_dir / f"{slug}_heatmap.png"
+    out_kml = out_dir / f"{slug}_heatmap.kml"
+    render_heatmap_kml(samples, aps, out_kml, out_png, f"{label} - detection heatmap",
+                       density_mode)
+    print(f"[+] Heatmap KML: {out_kml}")
+    print(f"[+] Overlay PNG: {out_png}")
+    print("[*] Open the .kml in Google Earth Pro; keep the .png beside it.")
+
+
 # ------------------------------------------------------------------ orchestration
 def choose_interface(cli_iface):
     if cli_iface:
@@ -450,7 +652,22 @@ def main():
                     help="Start capture without waiting for a GPS fix")
     ap.add_argument("--kml-only", metavar="FILE.kismet",
                     help="Regenerate KML from an existing .kismet log; no capture")
+    ap.add_argument("--ssid", action="append", default=[],
+                    help="Target SSID for the detection heatmap (repeatable)")
+    ap.add_argument("--bssid", action="append", default=[],
+                    help="Target BSSID for the heatmap (repeatable; use for hidden SSIDs)")
+    ap.add_argument("--ssid-file", help="File of target SSIDs, one per line")
+    ap.add_argument("--heatmap-only", metavar="FILE.kismet",
+                    help="Build an SSID detection heatmap from an existing log; no capture")
+    ap.add_argument("--heatmap-density", action="store_true",
+                    help="Weight the heatmap by detection count instead of signal strength")
+    ap.add_argument("--format", choices=["kml", "folium"], default="kml",
+                    help="Heatmap output format (folium reserved for a later build)")
     args = ap.parse_args()
+
+    ssids = list(args.ssid)
+    if args.ssid_file:
+        ssids += load_ssid_file(args.ssid_file)
 
     # Regenerate-only path
     if args.kml_only:
@@ -460,6 +677,19 @@ def main():
             sys.exit(1)
         out = db.with_suffix(".kml")
         export(db, out, db.stem)
+        return
+
+    # Heatmap-only path
+    if args.heatmap_only:
+        db = Path(args.heatmap_only).resolve()
+        if not db.exists():
+            print(f"[!] No such file: {db}")
+            sys.exit(1)
+        if not ssids and not args.bssid:
+            print("[!] --heatmap-only needs at least one --ssid or --bssid.")
+            sys.exit(1)
+        build_heatmap(db, ssids, args.bssid, db.parent, db.stem,
+                      args.heatmap_density, args.format)
         return
 
     site = args.site or input("[?] Site / location being assessed: ").strip()
@@ -492,6 +722,10 @@ def main():
         sys.exit(1)
     doc = f"{client + ' - ' if client else ''}{site} ({stamp})"
     export(db, rundir / f"{slug}.kml", doc)
+
+    if ssids or args.bssid:
+        build_heatmap(db, ssids, args.bssid, rundir, slug,
+                      args.heatmap_density, args.format)
 
 
 if __name__ == "__main__":
