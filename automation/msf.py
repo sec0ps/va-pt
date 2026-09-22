@@ -816,7 +816,9 @@ class MsfClient:
         chosen = _choose_target(targets, host_family)
         if chosen is not None:
             try:
-                exploit.target = chosen
+                # set TARGET in the datastore (same path as RHOSTS) so it
+                # rides into execute; the .target attribute does not.
+                exploit["TARGET"] = chosen
                 logger.info("set target %d (%s) on %s for host '%s'",
                             chosen, targets.get(chosen), full_module, host_family)
             except Exception as e:
