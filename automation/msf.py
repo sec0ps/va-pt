@@ -795,22 +795,34 @@ class MsfClient:
         that default. Anything else is left outstanding. Returns any sets the module
         rejected."""
         fails = []
+        # Option name -> default from module.options metadata. msfrpc does not
+        # materialize advanced-option defaults into the datastore, so a required
+        # advanced option with a default (e.g. CheckModule ->
+        # auxiliary/scanner/misc/java_rmi_server) shows as missing; its default is
+        # read here and set so the module is not blocked on a value MSF would have
+        # filled. Any lookup failure degrades to filling only credentials.
+        defaults = {}
         try:
-            info = exploit.optioninfo or {}
-        except Exception:
-            info = {}
+            mtype = getattr(exploit, "moduletype", "") or "exploit"
+            ref = exploit.modulename or ""
+            if ref.startswith(mtype + "/"):
+                ref = ref[len(mtype) + 1:]
+            raw = self._client.call("module.options", [mtype, ref])
+            if isinstance(raw, dict):
+                for name, meta in raw.items():
+                    if (isinstance(meta, dict)
+                            and meta.get("default") not in (None, "")):
+                        defaults[name] = meta["default"]
+        except Exception as e:
+            logger.debug("option defaults lookup failed for %s: %s",
+                         getattr(exploit, "modulename", "?"), e)
         for opt in outstanding:
-            default = (info.get(opt) or {}).get("default")
             if _is_user_opt(opt):
                 val = self.cfg.cred_user or _BUILTIN_USERS[0]
             elif _is_pass_opt(opt):
                 val = self.cfg.cred_pass or _BUILTIN_PASSWORDS[1]
-            elif default not in (None, ""):
-                # required option carrying a default (typically an advanced option
-                # whose default msfrpc did not materialize, e.g. CheckModule ->
-                # auxiliary/scanner/misc/java_rmi_server); set the module's own
-                # default so it is not blocked on a value MSF would have filled.
-                val = default
+            elif opt in defaults:
+                val = defaults[opt]
             else:
                 continue
             logger.debug("filling required %s=%r on %s", opt, val,
