@@ -179,11 +179,31 @@ def _ports_and_services(text):
     return sorted(ports), sorted(services)
 
 
+def _script_entry(path, text, cats, surfaced):
+    """Build the catalog record for a parsed script. surfaced is the category set
+    shown in the entry's categories field; all_categories always carries the full
+    declared set."""
+    script_id = os.path.basename(path)[:-4] if path.endswith(".nse") \
+        else os.path.basename(path)
+    ports, services = _ports_and_services(text)
+    prefix = script_id.split("-", 1)[0]
+    if prefix and prefix not in services:
+        services.insert(0, prefix)
+    return {
+        "id": script_id,
+        "categories": sorted(cats & surfaced),
+        "all_categories": sorted(cats),
+        "cves": sorted(_cves(text)),
+        "ports": ports,
+        "services": services,
+    }
+
+
 def parse_script(path):
-    """Parse one .nse file into a catalog entry, or None when it is not admitted. A
-    script is admitted when it declares a vuln, exploit, discovery, or auth category
-    and declares none of the hard exclusions. Never raises; an unreadable script is
-    skipped."""
+    """Parse one .nse file into a verify-catalog entry, or None when it is not
+    admitted. A script is admitted when it declares a vuln, exploit, discovery, or
+    auth category and declares none of the hard exclusions. Never raises; an
+    unreadable script is skipped."""
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
             text = fh.read()
@@ -194,47 +214,61 @@ def parse_script(path):
         return None
     if cats & set(EXCLUDE_CATEGORIES):
         return None
-    script_id = os.path.basename(path)[:-4] if path.endswith(".nse") \
-        else os.path.basename(path)
-    ports, services = _ports_and_services(text)
-    prefix = script_id.split("-", 1)[0]
-    if prefix and prefix not in services:
-        services.insert(0, prefix)
-    return {
-        "id": script_id,
-        "categories": sorted(cats & set(ADMIT_CATEGORIES)),
-        "all_categories": sorted(cats),
-        "cves": sorted(_cves(text)),
-        "ports": ports,
-        "services": services,
-    }
+    return _script_entry(path, text, cats, set(ADMIT_CATEGORIES))
+
+
+def parse_brute_script(path):
+    """Parse a brute-category script into a brute-index entry, or None. These are the
+    credential-brute scripts (mysql-brute, ssh-brute, smb-brute, and the rest) that
+    rule B drops from the verify catalog to keep the 20k-guess load out of the
+    enumeration pass. They are kept here, in a separate index, so the session-less
+    credential-recovery pass can run a service's brute script only where no payload
+    landed. dos and malware are never included. Never raises."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError:
+        return None
+    cats = _categories(text)
+    if "brute" not in cats:
+        return None
+    if cats & {"dos", "malware"}:
+        return None
+    return _script_entry(path, text, cats, {"brute", "auth", "discovery"})
 
 
 def build_catalog(scripts_dir=None, nmap_path="nmap"):
     """Parse every admitted NSE script in the directory into a catalog dict.
-    Returns {"scripts": [...], "by_cve": {CVE: [ids]}, "count": n, "scripts_dir": d}.
+    Returns scripts (the verify catalog), brute_scripts (the separate brute index),
+    by_cve, count, and scripts_dir.
     """
     scripts_dir = scripts_dir or find_scripts_dir(nmap_path)
     if not scripts_dir or not os.path.isdir(scripts_dir):
         raise FileNotFoundError(
             "could not locate the nmap NSE scripts directory; set it explicitly")
     scripts = []
+    brute_scripts = []
     for name in sorted(os.listdir(scripts_dir)):
         if not name.endswith(".nse"):
             continue
-        entry = parse_script(os.path.join(scripts_dir, name))
+        p = os.path.join(scripts_dir, name)
+        entry = parse_script(p)
         if entry:
             scripts.append(entry)
+        bentry = parse_brute_script(p)
+        if bentry:
+            brute_scripts.append(bentry)
     by_cve = {}
-    for s in scripts:
-        for cve in s["cves"]:
+    for sc in scripts:
+        for cve in sc["cves"]:
             by_cve.setdefault(cve, [])
-            if s["id"] not in by_cve[cve]:
-                by_cve[cve].append(s["id"])
+            if sc["id"] not in by_cve[cve]:
+                by_cve[cve].append(sc["id"])
     return {
         "scripts_dir": scripts_dir,
         "count": len(scripts),
         "scripts": scripts,
+        "brute_scripts": brute_scripts,
         "by_cve": by_cve,
     }
 
@@ -266,8 +300,10 @@ def rebuild(nmap_path="nmap", scripts_dir=None, update_db=True, path=None,
         update_scripts_db(nmap_path, sudo_prefix=sudo_prefix)
     catalog = build_catalog(scripts_dir=scripts_dir, nmap_path=nmap_path)
     out = write_catalog(catalog, path)
-    logger.info("nse catalog rebuilt with %d script(s) and %d cve(s) -> %s",
-                catalog["count"], len(catalog["by_cve"]), out)
+    logger.info("nse catalog rebuilt with %d script(s), %d brute script(s) and "
+                "%d cve(s) -> %s", catalog["count"],
+                len(catalog.get("brute_scripts") or []), len(catalog["by_cve"]),
+                out)
     return catalog
 
 
@@ -292,7 +328,9 @@ def _main(argv=None):
     cat = rebuild(nmap_path=args.nmap, scripts_dir=args.scripts_dir,
                   update_db=not args.no_update_db, path=args.out,
                   sudo_prefix=sudo_prefix)
-    print(f"cataloged {cat['count']} script(s), {len(cat['by_cve'])} cve(s)")
+    print(f"cataloged {cat['count']} script(s), "
+          f"{len(cat.get('brute_scripts') or [])} brute script(s), "
+          f"{len(cat['by_cve'])} cve(s)")
     return 0
 
 
