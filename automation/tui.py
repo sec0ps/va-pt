@@ -73,31 +73,46 @@ _FEED_RATIO = 2
 # Rows lost per pane to the panel border (2) and the table header (1).
 _PANE_CHROME = 3
 
+# Latchkey palette, matched to the console dark-ink theme (crimson accent, amber
+# secondary). Severity ramp and status colors mirror the web UI so the engine TUI
+# and the Latchkey console read as one product.
+_LK_ACCENT = "#be1e2d"   # crimson, primary accent (attack / proven impact)
+_LK_AMBER = "#d98a1e"    # amber, secondary accent (msf activity / credentials)
+_LK_TEXT = "#ece9e8"
+_LK_DIM = "#a5a1a0"
+_LK_FAINT = "#6b6c6e"
+_LK_OK = "#3ecf8e"       # green (compromised / session)
+_LK_INFO = "#4aa8ff"     # blue (scanning / discovery)
+_LK_CRIT = "#f0555f"     # critical / error
+_LK_HIGH = "#f2853a"
+_LK_MED = "#e8c14a"
+
+
 _FEED_STYLE = {
-    "nmap": "cyan",
-    "msf": "yellow",
-    "fire": "bold magenta",
-    "phase": "bold white",
+    "nmap": _LK_INFO,
+    "msf": _LK_AMBER,
+    "fire": f"bold {_LK_ACCENT}",
+    "phase": f"bold {_LK_TEXT}",
 }
 
 _STATE_STYLE = {
-    HostState.QUEUED: "dim",
-    HostState.DISCOVERED: "cyan",
-    HostState.DOWN: "grey42",
-    HostState.SCANNING: "blue",
-    HostState.ANALYZED: "blue",
-    HostState.ATTACKING: "bold yellow",
-    HostState.COMPROMISED: "bold green",
-    HostState.CLEAN: "grey42",
-    HostState.ERROR: "bold red",
+    HostState.QUEUED: _LK_DIM,
+    HostState.DISCOVERED: _LK_INFO,
+    HostState.DOWN: _LK_FAINT,
+    HostState.SCANNING: _LK_INFO,
+    HostState.ANALYZED: _LK_INFO,
+    HostState.ATTACKING: f"bold {_LK_AMBER}",
+    HostState.COMPROMISED: f"bold {_LK_OK}",
+    HostState.CLEAN: _LK_FAINT,
+    HostState.ERROR: f"bold {_LK_CRIT}",
 }
 
 _VERDICT_STYLE = {
-    Verdict.VULNERABLE: "bold red",
-    Verdict.LIKELY: "yellow",
-    Verdict.SAFE: "green",
-    Verdict.UNSUPPORTED: "grey42",
-    Verdict.UNKNOWN: "grey42",
+    Verdict.VULNERABLE: f"bold {_LK_CRIT}",
+    Verdict.LIKELY: _LK_AMBER,
+    Verdict.SAFE: _LK_OK,
+    Verdict.UNSUPPORTED: _LK_FAINT,
+    Verdict.UNKNOWN: _LK_FAINT,
 }
 
 _VERDICT_RANK = {
@@ -211,26 +226,26 @@ class Dashboard:
 
     def _footer(self):
         return Text("run complete   -   press Enter to exit",
-                    style="bold black on green", justify="center")
+                    style=f"bold #0d0b0c on {_LK_OK}", justify="center")
 
     def _feed_panel(self, feed):
         rows = []
         for ev in feed:
             t = Text(no_wrap=True, overflow="ellipsis")
-            t.append(_clock(ev.ts) + " ", style="grey42")
+            t.append(_clock(ev.ts) + " ", style=_LK_FAINT)
             t.append(ev.text, style=_FEED_STYLE.get(ev.source, ""))
             rows.append(t)
-        body = Group(*rows) if rows else Text("(idle)", style="grey42")
+        body = Group(*rows) if rows else Text("(idle)", style=_LK_FAINT)
         return Panel(body, title="commands", title_align="left",
-                     box=box.ROUNDED, border_style="green", padding=(0, 1))
+                     box=box.ROUNDED, border_style=_LK_OK, padding=(0, 1))
 
     def _header(self, stats):
         title = Text.assemble(
             (f"{TOOL} ", "bold"),
-            (VERSION, "dim"),
-            ("   mode ", "dim"), (stats.mode, "bold cyan"),
-            ("   phase ", "dim"), (stats.phase, "bold"),
-            ("   elapsed ", "dim"), (_fmt_elapsed(stats.elapsed), ""))
+            (VERSION, _LK_DIM),
+            ("   mode ", _LK_DIM), (stats.mode, f"bold {_LK_AMBER}"),
+            ("   phase ", _LK_DIM), (stats.phase, "bold"),
+            ("   elapsed ", _LK_DIM), (_fmt_elapsed(stats.elapsed), ""))
         title.no_wrap = True
         title.overflow = "ellipsis"
 
@@ -243,23 +258,23 @@ class Dashboard:
         prog.add_row(bar, Text(f"{stats.completed}/{total} hosts  ({pct:0.0f}%)"))
 
         counts = Text(no_wrap=True, overflow="ellipsis")
-        _seg(counts, "live ", str(stats.live), "green")
-        _seg(counts, "  down ", str(stats.down), "grey42")
-        _seg(counts, "  scan ", str(stats.scanning), "blue")
-        _seg(counts, "  atk ", str(stats.attacking), "bold yellow")
-        _seg(counts, "  pwn ", str(stats.compromised), "bold green")
-        _seg(counts, "  clean ", str(stats.clean), "grey42")
-        _seg(counts, "  err ", str(stats.errored), "bold red")
-        _seg(counts, "  sess ", str(stats.sessions), "cyan")
-        _seg(counts, "  cred ", str(stats.credentials), "bold cyan")
-        _seg(counts, "  acc ", str(stats.access), "bold magenta")
-        _seg(counts, "  cve ", str(stats.cves), "white")
-        counts.append("/", style="dim")
-        counts.append(str(stats.exploit_cves), style="bold white")
-        _seg(counts, "  wkr ", str(stats.active_workers), "white")
+        _seg(counts, "live ", str(stats.live), _LK_OK)
+        _seg(counts, "  down ", str(stats.down), _LK_FAINT)
+        _seg(counts, "  scan ", str(stats.scanning), _LK_INFO)
+        _seg(counts, "  atk ", str(stats.attacking), f"bold {_LK_AMBER}")
+        _seg(counts, "  pwn ", str(stats.compromised), f"bold {_LK_OK}")
+        _seg(counts, "  clean ", str(stats.clean), _LK_FAINT)
+        _seg(counts, "  err ", str(stats.errored), f"bold {_LK_CRIT}")
+        _seg(counts, "  sess ", str(stats.sessions), _LK_INFO)
+        _seg(counts, "  cred ", str(stats.credentials), f"bold {_LK_AMBER}")
+        _seg(counts, "  acc ", str(stats.access), f"bold {_LK_ACCENT}")
+        _seg(counts, "  cve ", str(stats.cves), _LK_TEXT)
+        counts.append("/", style=_LK_DIM)
+        counts.append(str(stats.exploit_cves), style=f"bold {_LK_TEXT}")
+        _seg(counts, "  wkr ", str(stats.active_workers), _LK_TEXT)
 
         return Panel(Group(title, prog, counts), box=box.ROUNDED,
-                     border_style="blue", padding=(0, 1))
+                     border_style=_LK_INFO, padding=(0, 1))
 
     def _active_panel(self, hosts, stats):
         t = Table(box=box.SIMPLE_HEAD, expand=True, pad_edge=False,
@@ -274,7 +289,7 @@ class Dashboard:
         for h in hosts:
             t.add_row(
                 h.ip,
-                Text(h.hostname or "-", style="dim"),
+                Text(h.hostname or "-", style=_LK_DIM),
                 _state_text(h.state),
                 str(h.open_ports),
                 _cve_cell(h),
@@ -282,7 +297,7 @@ class Dashboard:
                 _detail_cell(h))
         title = (f"active   scan {stats.scanning}   attack {stats.attacking}")
         return Panel(t, title=title, title_align="left", box=box.ROUNDED,
-                     border_style="cyan", padding=(0, 1))
+                     border_style=_LK_INFO, padding=(0, 1))
 
     def _results_panel(self, hosts, stats, max_rows):
         t = Table(box=box.SIMPLE_HEAD, expand=True, pad_edge=False,
@@ -302,21 +317,21 @@ class Dashboard:
             entries = []
             for s in h.sessions:
                 entries.append((
-                    Text("session", style="bold green"),
+                    Text("session", style=f"bold {_LK_OK}"),
                     s.module or "-",
-                    Text(f"{s.session_id} {s.payload}".strip(), style="bold green")))
+                    Text(f"{s.session_id} {s.payload}".strip(), style=f"bold {_LK_OK}")))
             for a in h.access:
                 entries.append((
-                    Text("access", style="bold magenta"),
+                    Text("access", style=f"bold {_LK_ACCENT}"),
                     a.module or "-",
-                    Text(a.proof or "-", style="magenta")))
+                    Text(a.proof or "-", style=_LK_ACCENT)))
             for c in h.credentials:
                 if c.session_id:
                     continue
                 entries.append((
-                    Text("cred", style="bold cyan"),
+                    Text("cred", style=f"bold {_LK_AMBER}"),
                     c.module or "-",
-                    Text(f"{c.username}:{c.password or '(blank)'}", style="cyan")))
+                    Text(f"{c.username}:{c.password or '(blank)'}", style=_LK_INFO)))
             if entries:
                 # ip/host/state repeat on every row so each session or credential
                 # is self-contained, even when several land on the same host.
@@ -325,20 +340,20 @@ class Dashboard:
                         break
                     t.add_row(
                         h.ip,
-                        Text(h.hostname or "-", style="dim"),
+                        Text(h.hostname or "-", style=_LK_DIM),
                         _state_text(h.state),
                         kind, module, last)
                     rows += 1
             else:
                 t.add_row(
-                    h.ip, Text(h.hostname or "-", style="dim"),
-                    _state_text(h.state), Text("-", style="dim"), "-",
+                    h.ip, Text(h.hostname or "-", style=_LK_DIM),
+                    _state_text(h.state), Text("-", style=_LK_DIM), "-",
                     _session_cell(h))
                 rows += 1
         title = (f"results   pwn {stats.compromised}   sessions {stats.sessions}"
                  f"   creds {stats.credentials}   access {stats.access}")
         return Panel(t, title=title, title_align="left", box=box.ROUNDED,
-                     border_style="magenta", padding=(0, 1))
+                     border_style=_LK_ACCENT, padding=(0, 1))
 
     # -- teardown summary (printed to the restored screen) --
 
@@ -350,11 +365,11 @@ class Dashboard:
         head = Text.assemble(
             ("run complete   ", "bold"),
             (f"{_fmt_elapsed(stats.elapsed)}   ", ""),
-            (f"{stats.live} live", "green"), ("   ", ""),
-            (f"{stats.compromised} compromised", "bold green"), ("   ", ""),
-            (f"{stats.sessions} session(s)", "cyan"), ("   ", ""),
-            (f"{stats.access} access", "bold magenta"), ("   ", ""),
-            (f"{stats.credentials} credential(s)", "bold cyan"))
+            (f"{stats.live} live", _LK_OK), ("   ", ""),
+            (f"{stats.compromised} compromised", f"bold {_LK_OK}"), ("   ", ""),
+            (f"{stats.sessions} session(s)", _LK_INFO), ("   ", ""),
+            (f"{stats.access} access", f"bold {_LK_ACCENT}"), ("   ", ""),
+            (f"{stats.credentials} credential(s)", f"bold {_LK_AMBER}"))
         self.console.print(head)
 
         # Sessions across every host, so brute-opened shells on hosts that were
@@ -395,7 +410,7 @@ class Dashboard:
 # --- cell + format helpers -------------------------------------------------
 
 def _seg(text, label, value, value_style):
-    text.append(label, style="dim")
+    text.append(label, style=_LK_DIM)
     text.append(value, style=value_style)
 
 
@@ -410,28 +425,28 @@ def _verdict_text(verdict):
 def _cve_cell(host):
     total = host.cve_count
     exploit = host.exploit_cve_count
-    style = "bold white" if exploit else ("white" if total else "dim")
+    style = f"bold {_LK_TEXT}" if exploit else (_LK_TEXT if total else _LK_DIM)
     return Text(f"{total}/{exploit}", style=style)
 
 
 def _detail_cell(host):
     if host.state == HostState.ERROR and host.error:
-        return Text(host.error, style="red")
+        return Text(host.error, style=_LK_CRIT)
     best = _best_candidate(host)
     if best is not None and host.state == HostState.ATTACKING:
         txt = Text(f"{_module_leaf(best.module)} ")
-        txt.append(best.fire_status or "attacking", style="yellow")
+        txt.append(best.fire_status or "attacking", style=_LK_AMBER)
         return txt
     if host.notes:
-        return Text(host.notes, style="dim")
+        return Text(host.notes, style=_LK_DIM)
     return Text("")
 
 
 def _session_cell(host):
     if not host.sessions:
-        return Text("-", style="dim")
+        return Text("-", style=_LK_DIM)
     parts = [f"{s.session_id} {s.payload}".strip() for s in host.sessions]
-    return Text(", ".join(parts), style="bold green")
+    return Text(", ".join(parts), style=f"bold {_LK_OK}")
 
 
 def _best_candidate(host):
