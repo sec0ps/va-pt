@@ -99,8 +99,9 @@ class ScanConfig:
     port_scan_timeout: int = 900        # per-host -p- sweep wall limit
     vulners_timeout: int = 600
     nse_timeout: int = 180
-    brute_nse_timeout: int = 600   # NSE credential-brute run wall
-    brute_time_limit: str = "300s"  # per-script unpwdb time cap (empty = no cap)
+    brute_nse_timeout: int = 300   # NSE credential-brute run wall
+    brute_max_scripts: int = 3     # cap brute scripts run per service
+    brute_time_limit: str = "120s"  # per-script unpwdb time cap (empty = no cap)
     max_retries: int | None = 2         # nmap --max-retries; None keeps nmap default
     host_timeout: str = ""              # nmap --host-timeout; "" derives from the wall
     extra_args: list = field(default_factory=list)
@@ -373,6 +374,15 @@ class Scanner:
         scripts = _match_catalog_scripts(service, catalog, key="brute_scripts")
         if not scripts:
             return []
+        # Prefer brute scripts whose name matches the service and drop scripts that
+        # only matched by port. cics/tso/vtam on telnet:23 and the CMS brutes on
+        # http:80 can never authenticate this service, they only burn the per-script
+        # time cap. Fall back to the port-matched set when nothing name-matches, then
+        # cap the count so one service cannot run a dozen brute scripts.
+        sname = re.sub(r"[^a-z0-9]", "", (service.name or "").lower())
+        named = [sc for sc in scripts if sname
+                 and re.sub(r"[^a-z0-9]", "", sc.split("-", 1)[0]) == sname]
+        scripts = sorted(named or scripts)[:self.cfg.brute_max_scripts]
         args = ["-sV", "-Pn", "-n", self.cfg.timing,
                 "-p", str(service.port),
                 "--script", ",".join(sorted(scripts))]
