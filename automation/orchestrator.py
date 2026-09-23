@@ -505,6 +505,7 @@ class Orchestrator:
             # skip brute.
             if not self._stop.is_set() and not self.seeded:
                 self._brute_phase(display)
+                self._nse_brute_phase(display)
                 self._reconcile_after_brute()
                 self._refire_phase()
             # Verification runs only after all exploitation has settled, and never
@@ -817,6 +818,47 @@ class Orchestrator:
             self._brute_pool.shutdown(wait=True)
             self.run.save_checkpoint()
 
+    def _nse_brute_phase(self, display):
+        """Credential recovery on session-less services via NSE brute scripts, a
+        supplement to the msf brute phase. For every live service with no open
+        session, run the catalog's brute scripts for it (from the brute_scripts
+        index, which the verify pass never touches) and record any recovered login
+        on the host, so the re-fire can reuse it. A service that already holds a
+        session is fenced out, the same hard rule the verify pass uses. Best effort;
+        a tooling problem on one service does not affect the sessions or the rest of
+        the run. Absent brute index (old catalog on the box) makes this a no-op."""
+        catalog = self._verify_catalog
+        if (catalog is None or not catalog.get("brute_scripts")
+                or self._stop.is_set() or self.seeded):
+            return
+        self.run.set_phase("brute")
+        for ip in list(self.run.live_hosts()):
+            if self._stop.is_set():
+                break
+            host = self.run.host_copy(ip)
+            fenced = {s.port for s in host.sessions if s.port}
+            existing = {(c.port, c.username, c.password)
+                        for c in host.credentials}
+            for svc in host.services:
+                if self._stop.is_set():
+                    break
+                if svc.port in fenced:
+                    continue
+                try:
+                    creds = self.scanner.nse_brute(ip, svc, catalog)
+                except Exception as e:
+                    logger.warning("nse brute error %s:%s: %s", ip, svc.port, e)
+                    continue
+                for c in creds:
+                    key = (c.port, c.username, c.password)
+                    if key in existing:
+                        continue
+                    existing.add(key)
+                    self.run.add_credential(ip, c)
+                    self.run.record_activity(
+                        "brute", f"{ip}:{svc.port} {svc.name or ''} nse cred "
+                        f"{c.username}:{c.password or '(blank)'}")
+
     def _refire_phase(self):
         """Second fire pass for credentialed exploits. A recovered credential only
         reaches the fire path after the brute phase runs, so an exploit that needs a
@@ -877,8 +919,11 @@ class Orchestrator:
         for host in self.run.snapshot_hosts():
             if host.state in skip or not host.services:
                 continue
+            sessioned = {s.port for s in host.sessions if s.port}
             seen = set()
             for svc in sorted(host.services, key=lambda s: s.port):
+                if svc.port in sessioned:
+                    continue  # already own a shell here; no point bruting it
                 module = login_module_for(svc.name, svc.port)
                 if not module or module in seen:
                     continue
