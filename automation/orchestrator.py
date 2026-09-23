@@ -836,7 +836,10 @@ class Orchestrator:
             if self._stop.is_set():
                 break
             host = self.run.host_copy(ip)
-            fenced = {s.port for s in host.sessions if s.port}
+            # A port we already own (a session) or already cracked (a
+            # credential) is not attacked again.
+            fenced = ({s.port for s in host.sessions if s.port}
+                      | {c.port for c in host.credentials if c.port})
             existing = {(c.port, c.username, c.password)
                         for c in host.credentials}
             for svc in host.services:
@@ -881,7 +884,12 @@ class Orchestrator:
             # reports it takes no credential, so a non-credentialed module blocks once
             # rather than once per credential.
             for cand in host.candidates:
-                if cand.fire_status not in ("blocked", "no_session", "error"):
+                # Only re-fire candidates that were BLOCKED (never got a fair
+                # attempt, e.g. a credentialed exploit missing a login). A
+                # "no_session"/"error" candidate already fired and failed; a
+                # recovered credential will not fix a non-credential exploit, and
+                # re-running it just burns the exploit timeout.
+                if cand.fire_status != "blocked":
                     continue
                 if not cand.port or cand.port in sessioned:
                     continue
@@ -930,7 +938,10 @@ class Orchestrator:
         for host in self.run.snapshot_hosts():
             if host.state in skip or not host.services:
                 continue
-            sessioned = {s.port for s in host.sessions if s.port}
+            # Skip a port we already own (session) or already cracked
+            # (credential); no reason to brute it again.
+            sessioned = ({s.port for s in host.sessions if s.port}
+                         | {c.port for c in host.credentials if c.port})
             seen = set()
             for svc in sorted(host.services, key=lambda s: s.port):
                 if svc.port in sessioned:
