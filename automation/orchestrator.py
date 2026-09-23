@@ -820,47 +820,69 @@ class Orchestrator:
 
     def _nse_brute_phase(self, display):
         """Credential recovery on session-less services via NSE brute scripts, a
-        supplement to the msf brute phase. For every live service with no open
-        session, run the catalog's brute scripts for it (from the brute_scripts
-        index, which the verify pass never touches) and record any recovered login
-        on the host, so the re-fire can reuse it. A service that already holds a
-        session is fenced out, the same hard rule the verify pass uses. Best effort;
-        a tooling problem on one service does not affect the sessions or the rest of
-        the run. Absent brute index (old catalog on the box) makes this a no-op."""
+        supplement to the msf brute phase, run CONCURRENTLY on a worker pool the same
+        way the msf brute and fire phases are (the brute nmap scans are independent
+        per service, so running them one at a time was the bulk of the phase's wall
+        time). For every live service with no open session and no recovered
+        credential, run the catalog's brute scripts (from the brute_scripts index the
+        verify pass never touches) and record any recovered login on the host, so the
+        re-fire can reuse it. A port already owned (session) or cracked (credential)
+        is fenced out. Best effort; a failure on one service does not affect the
+        rest. Absent brute index (old catalog on the box) makes this a no-op."""
         catalog = self._verify_catalog
         if (catalog is None or not catalog.get("brute_scripts")
                 or self._stop.is_set() or self.seeded):
             return
         self.run.set_phase("brute")
+        targets = []
         for ip in list(self.run.live_hosts()):
-            if self._stop.is_set():
-                break
             host = self.run.host_copy(ip)
-            # A port we already own (a session) or already cracked (a
-            # credential) is not attacked again.
+            # A port already owned (a session) or already cracked (a credential) is
+            # not attacked again.
             fenced = ({s.port for s in host.sessions if s.port}
                       | {c.port for c in host.credentials if c.port})
-            existing = {(c.port, c.username, c.password)
-                        for c in host.credentials}
             for svc in host.services:
-                if self._stop.is_set():
-                    break
-                if svc.port in fenced:
-                    continue
+                if svc.port and svc.port not in fenced:
+                    targets.append((ip, svc))
+        if not targets:
+            return
+        pool = ThreadPoolExecutor(max_workers=self.cfg.brute_workers,
+                                  thread_name_prefix="nsebrute")
+        try:
+            futures = [pool.submit(self._nse_brute_one, ip, svc)
+                       for ip, svc in targets]
+            for f in futures:
                 try:
-                    creds = self.scanner.nse_brute(ip, svc, catalog)
-                except Exception as e:
-                    logger.warning("nse brute error %s:%s: %s", ip, svc.port, e)
-                    continue
-                for c in creds:
-                    key = (c.port, c.username, c.password)
-                    if key in existing:
-                        continue
-                    existing.add(key)
-                    self.run.add_credential(ip, c)
-                    self.run.record_activity(
-                        "brute", f"{ip}:{svc.port} {svc.name or ''} nse cred "
-                        f"{c.username}:{c.password or '(blank)'}")
+                    f.result()
+                except Exception:
+                    logger.exception("nse brute worker failed")
+        finally:
+            pool.shutdown(wait=True)
+
+    def _nse_brute_one(self, ip, svc):
+        """One service's NSE credential brute, run on the pool. Records recovered
+        logins on the host, de-duplicated against what is already known for the port.
+        Never raises out to the pool."""
+        if self._stop.is_set():
+            return
+        try:
+            creds = self.scanner.nse_brute(ip, svc, self._verify_catalog)
+        except Exception as e:
+            logger.warning("nse brute error %s:%s: %s", ip, svc.port, e)
+            return
+        if not creds:
+            return
+        host = self.run.host_copy(ip)
+        existing = {(c.port, c.username, c.password) for c in host.credentials}
+        for c in creds:
+            key = (c.port, c.username, c.password)
+            if key in existing:
+                continue
+            existing.add(key)
+            self.run.add_credential(ip, c)
+            self.run.record_activity(
+                "brute", f"{ip}:{svc.port} {svc.name or ''} nse cred "
+                f"{c.username}:{c.password or '(blank)'}")
 
     def _refire_phase(self):
         """Second fire pass for credentialed exploits. A recovered credential only
