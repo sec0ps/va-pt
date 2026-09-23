@@ -873,14 +873,21 @@ class Orchestrator:
                 continue
             ip = host.ip
             sessioned = {s.port for s in host.sessions if s.port}
-            for cred in host.credentials:
-                for cand in host.candidates:
-                    if cand.fire_status not in ("blocked", "no_session", "error"):
-                        continue
-                    if not cand.port or cand.port != cred.port:
-                        continue
+            creds_by_port = {}
+            for c in host.credentials:
+                creds_by_port.setdefault(c.port, []).append(c)
+            # Candidate-outer: each blocked candidate is re-tried with the credentials
+            # recovered for its port, and we stop the moment it lands a session or
+            # reports it takes no credential, so a non-credentialed module blocks once
+            # rather than once per credential.
+            for cand in host.candidates:
+                if cand.fire_status not in ("blocked", "no_session", "error"):
+                    continue
+                if not cand.port or cand.port in sessioned:
+                    continue
+                for cred in creds_by_port.get(cand.port, []):
                     if cand.port in sessioned:
-                        continue
+                        break
                     self.run.record_activity(
                         "refire", f"{ip}:{cand.port} re-fire {cand.module} with "
                         f"recovered {cred.username or '<user>'} credential")
@@ -892,7 +899,7 @@ class Orchestrator:
                                          cand.module)
                         self.run.record_activity(
                             "refire", f"{ip}:{cand.port} re-fire error: {e}")
-                        continue
+                        break
                     self.run.update_candidate_fire(ip, cand.module, status, detail)
                     if session is not None:
                         self.run.add_session(ip, session)
@@ -900,6 +907,10 @@ class Orchestrator:
                         self.run.record_activity(
                             "refire", f"{ip}:{cand.port} {cand.module} landed with "
                             f"recovered credential")
+                        break
+                    if (status == "blocked"
+                            and "no credential option" in (detail or "")):
+                        break  # module takes no credential; other creds won't help
 
     def _reconcile_after_brute(self):
         """Upgrade any CLEAN host the brute phase gave a credential to COMPROMISED,
