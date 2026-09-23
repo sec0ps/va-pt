@@ -46,7 +46,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
-from state import CVE, Service, Verdict, verdict_from_nse
+from state import CVE, Credential, Service, Verdict, verdict_from_nse
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +99,8 @@ class ScanConfig:
     port_scan_timeout: int = 900        # per-host -p- sweep wall limit
     vulners_timeout: int = 600
     nse_timeout: int = 180
+    brute_nse_timeout: int = 600   # NSE credential-brute run wall
+    brute_time_limit: str = "300s"  # per-script unpwdb time cap (empty = no cap)
     max_retries: int | None = 2         # nmap --max-retries; None keeps nmap default
     host_timeout: str = ""              # nmap --host-timeout; "" derives from the wall
     extra_args: list = field(default_factory=list)
@@ -354,6 +356,54 @@ class Scanner:
             return Verdict.UNKNOWN, ""
         texts = _collect_script_text(host)
         return _strongest_nse_verdict(texts), _summarize_nse(texts)
+
+    def nse_brute(self, ip, service, catalog):
+        """Run the catalog's brute scripts that match a probed service and return the
+        credentials they recover, as Credential objects. Used by the session-less
+        credential-recovery pass to brute a service no payload landed on. Selection
+        is from the brute_scripts index, kept apart from the verify catalog so this
+        never runs during enumeration. The run is bounded by brute_nse_timeout and,
+        per script, by the unpwdb time cap, so a 20k-guess script cannot run open.
+        Only probed services are brute-forced. Never raises; a tooling problem or no
+        recovered login yields no credentials."""
+        if catalog is None:
+            return []
+        if (service.method or "").lower() != "probed" and not service.product:
+            return []
+        scripts = _match_catalog_scripts(service, catalog, key="brute_scripts")
+        if not scripts:
+            return []
+        args = ["-sV", "-Pn", "-n", self.cfg.timing,
+                "-p", str(service.port),
+                "--script", ",".join(sorted(scripts))]
+        if self.cfg.brute_time_limit:
+            args += ["--script-args",
+                     f"unpwdb.timelimit={self.cfg.brute_time_limit}"]
+        args += list(self.cfg.extra_args)
+        args += [ip]
+        try:
+            root = self._run_nmap(args, self.cfg.brute_nse_timeout)
+        except NmapError as e:
+            logger.warning("nse brute failed %s:%s: %s", ip, service.port, e)
+            return []
+        host = root.find("host")
+        if host is None:
+            return []
+        creds = []
+        seen = set()
+        for sid, output in _collect_script_outputs(host).items():
+            for user, pw in _parse_nse_brute_creds(output):
+                key = (user, pw)
+                if key in seen:
+                    continue
+                seen.add(key)
+                creds.append(Credential(
+                    service=service.name or "", port=service.port,
+                    username=user, password=pw, module=sid))
+        if creds:
+            logger.info("nse brute %s:%s -> %d credential(s)", ip,
+                        service.port, len(creds))
+        return creds
 
     # -- nmap exec --
 
@@ -711,7 +761,7 @@ def _cve_ids_in_text(text):
     return {f"CVE-{y}-{n}" for y, n in _DISCOVER_CVE_RE.findall(text or "")}
 
 
-def _match_catalog_scripts(service, catalog):
+def _match_catalog_scripts(service, catalog, key="scripts"):
     """Select catalog scripts whose service or port targets this probed service.
     Matching is on the confirmed service identity (name and product tokens) and the
     open port, not the port alone, so a script only runs where nmap actually saw
@@ -724,7 +774,7 @@ def _match_catalog_scripts(service, catalog):
                 svc_tokens.add(tok)
     port = service.port
     selected = set()
-    for s in catalog.get("scripts", []):
+    for s in catalog.get(key, []):
         if port and port in (s.get("ports") or []):
             selected.add(s["id"])
             continue
@@ -732,6 +782,28 @@ def _match_catalog_scripts(service, catalog):
         if s_services & svc_tokens:
             selected.add(s["id"])
     return selected
+
+
+_NSE_CRED_RE = re.compile(
+    r"^\s*(.+?):(.*?)\s+-\s+Valid credentials\s*$", re.IGNORECASE | re.MULTILINE)
+
+
+def _parse_nse_brute_creds(output):
+    """(username, password) pairs from an NSE brute script's output. nmap's brute
+    scripts print '<user>:<pass> - Valid credentials' per recovered account, with
+    <empty> standing for an empty password. De-duplicated; empty on no match."""
+    out = []
+    seen = set()
+    for m in _NSE_CRED_RE.finditer(output or ""):
+        user = m.group(1).strip()
+        pw = m.group(2).strip()
+        if pw.lower() in ("<empty>", "<blank>", "(empty)", "<no password>"):
+            pw = ""
+        key = (user, pw)
+        if user and user.lower() != "accounts" and key not in seen:
+            seen.add(key)
+            out.append((user, pw))
+    return out
 
 
 def _strongest_nse_verdict(texts):
