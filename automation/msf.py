@@ -139,6 +139,22 @@ def _service_name_term(service):
         return ""
     return re.sub(r"[-\s]+", "_", raw)
 
+
+def _name_relevant(term, fullname):
+    """Stricter relevance for a SERVICE-NAME search term than _product_relevant. The
+    term must match the START of a module path segment (separators stripped), so a
+    normalized service name like "java_rmi" still matches exploit/multi/misc/
+    java_rmi_server, but a short generic service name like "exec" (rexec on 512) no
+    longer matches every *_exec module (escan_password_exec, adb_server_exec,
+    cleanup_exec). A bare substring-anywhere match floods on these short names."""
+    t = re.sub(r"[^a-z0-9]", "", (term or "").lower())
+    if len(t) < 3:
+        return False
+    for seg in (fullname or "").lower().split("/"):
+        if re.sub(r"[^a-z0-9]", "", seg).startswith(t):
+            return True
+    return False
+
 _MODULE_TYPES = ("exploit", "auxiliary", "post", "payload", "encoder", "nop", "evasion")
 
 _PLATFORMS = (
@@ -591,7 +607,7 @@ class MsfClient:
                     continue
                 if not self._acceptable(entry):
                     continue
-                if not _product_relevant(name_term, full):
+                if not _name_relevant(name_term, full):
                     logger.debug("  skip irrelevant %s", full)
                     continue
                 if not self._platform_ok(full, host_os):
