@@ -461,8 +461,25 @@ class MainWindow(QMainWindow):
         self.listener_status.setWordWrap(True)
         layout.addWidget(self.listener_status)
 
+        # Stop halts the receiver so the PortaPack falls silent. It is disabled
+        # until something is actually being listened to, so it never looks live
+        # when there is nothing to stop.
+        self.listener_stop = QPushButton("Stop listening")
+        self.listener_stop.setEnabled(False)
+        self.listener_stop.clicked.connect(self._stop_listening)
+        layout.addWidget(self.listener_stop)
+
         self._refresh_listener_ports()
         return box
+
+    def _stop_listening(self) -> None:
+        """Halt the PortaPack receiver so audio stops."""
+        if not self.listener.connected:
+            return
+        self.listener.stop()
+        self.listener_stop.setEnabled(False)
+        self._show_listener_state(self.listener.state)
+        self.statusBar().showMessage("listener stopped", 3000)
 
     def _refresh_listener_ports(self) -> None:
         self.listener_port.clear()
@@ -481,6 +498,7 @@ class MainWindow(QMainWindow):
             self.listener.disconnect()
             self.listener_status.setText("not connected")
             self.listener_button.setText("Connect")
+            self.listener_stop.setEnabled(False)
             return
 
         device = self.listener_port.currentData()
@@ -492,6 +510,7 @@ class MainWindow(QMainWindow):
             return
 
         self.listener_button.setText("Disconnect")
+        self.listener_stop.setEnabled(False)
         self._show_listener_state(state)
 
     def _show_listener_state(self, state) -> None:
@@ -525,6 +544,7 @@ class MainWindow(QMainWindow):
             self._show_listener_state(self.listener.state)
             return
         self._show_listener_state(self.listener.state)
+        self.listener_stop.setEnabled(True)
         self.statusBar().showMessage(
             "listening {0:.6f} MHz{1}".format(tuned / 1e6,
                                               "  {0}".format(label) if label else ""), 5000)
