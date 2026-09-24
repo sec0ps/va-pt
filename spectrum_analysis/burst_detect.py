@@ -30,45 +30,22 @@
 #   DEALINGS IN THE SOFTWARE.
 #
 # Purpose:
-#   Detects transmission bursts in the spectrum frames produced by dsp_psd, and
-#   maintains the lifecycle of each detected signal from first appearance through
-#   sustained presence to closure.
+#   Detects transmission bursts in spectrum frames and tracks each one from first
+#   appearance to closure.
 #
-#   Detection state is kept per segment rather than globally. Each segment has
-#   its own noise floor because instantaneous bandwidth on a HackRF is wide
-#   enough that one strong emitter inside a segment desenses the entire segment,
-#   and because the planner assigns different sample rates to different bands. A
-#   single global floor across a stitched sweep would read every segment boundary
-#   as a signal edge.
+#   Floor and detection state are per segment, because one strong emitter desenses
+#   a whole segment and the planner assigns different sample rates per band. The
+#   floor is estimated from unoccupied bins only, since any estimator that follows
+#   an occupied bin eventually absorbs a continuous carrier and goes blind to it.
 #
-#   The floor estimator excludes bins that are currently occupied rather than
-#   tracking them slowly. Any estimator that follows an occupied bin at all will
-#   eventually absorb a continuous carrier into the floor and go blind to it, and
-#   an estimator that follows occupied bins asymmetrically settles below the true
-#   noise mean and silently lowers the effective detection threshold. Excluding
-#   occupied bins gives an unbiased estimate of the noise mean from unoccupied
-#   bins only, which is what the threshold offsets are defined against.
-#
-#   The module also classifies each detection by how often it has been present in
-#   its own segment history. With no known target list, presence is not
-#   informative and change is. A cell site is always on and tells the operator
-#   nothing. A handheld that keys up for the first time is the entire point. The
-#   persistent, intermittent, and new classification is what separates the two,
-#   and the same occupancy statistic doubles as the rejection mechanism for
-#   fixed spurs and images.
-#
-# SECURITY NOTICE:
-#   This module is part of an RF spectrum analysis platform intended for
-#   authorized red team engagements and defensive spectrum monitoring conducted
-#   within a documented scope of engagement. Detection here is energy based only.
-#   It establishes that a transmission occurred at a frequency and time. It does
-#   not demodulate, decode, identify a transmitting party, or recover any
-#   communications content.
+#   Detections are classified by how often they recur in their own segment. With no
+#   target list, presence is uninformative and change is not, so this is what
+#   separates a handheld keying up from permanent furniture, and the same statistic
+#   rejects fixed spurs and images.
 #
 # DISCLAIMER:
 #   This software is provided for lawful, authorized use only. The author and Red
-#   Cell Security LLC accept no liability for any use of this software, whether
-#   authorized or otherwise.
+#   Cell Security LLC accept no liability for any use of this software.
 # =============================================================================
 
 """Per segment noise floor tracking, burst event detection, and classification."""
