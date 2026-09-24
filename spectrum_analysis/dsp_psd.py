@@ -30,36 +30,17 @@
 #   DEALINGS IN THE SOFTWARE.
 #
 # Purpose:
-#   Converts complex baseband IQ blocks from one segment dwell into a power
-#   spectral density frame expressed in dBFS, and reduces that frame to display
-#   width for transport to the browser.
+#   Converts one segment dwell of complex baseband into a power spectral density
+#   frame in dBFS.
 #
-#   Two representations leave this module. Full resolution PSD feeds the burst
-#   detector, because detection sensitivity must not be limited by how wide the
-#   operator happens to have sized the browser window. Display reduced PSD feeds
-#   the transport layer as quantized bytes. Reduction uses a maximum over each
-#   group of source bins rather than a mean, since a mean averages a narrow
-#   carrier against its neighbouring noise bins and buries exactly the narrow
-#   signals the analyzer exists to find.
-#
-#   All power figures are dBFS relative to a full scale complex sinusoid. They
-#   are not calibrated to dBm. Absolute level depends on gain distribution,
-#   antenna, feedline, and frontend conversion loss, none of which this module
-#   knows. Levels are comparable within a segment and within a band. They are not
-#   comparable across bands where the antenna changes.
-#
-# SECURITY NOTICE:
-#   This module is part of an RF spectrum analysis platform intended for
-#   authorized red team engagements and defensive spectrum monitoring conducted
-#   within a documented scope of engagement. This module performs energy
-#   detection only. It does not demodulate, decode, or recover the content of any
-#   transmission. Any capability that recovers communications content is governed
-#   separately by the engagement rules of engagement.
+#   Power figures are relative to converter full scale, not calibrated to dBm.
+#   They are comparable within a band and not across bands where the antenna
+#   changes. Frames carry their own frequency metadata so the display never has to
+#   infer it from a configuration that the sweeper has already moved on from.
 #
 # DISCLAIMER:
 #   This software is provided for lawful, authorized use only. The author and Red
-#   Cell Security LLC accept no liability for any use of this software, whether
-#   authorized or otherwise.
+#   Cell Security LLC accept no liability for any use of this software.
 # =============================================================================
 
 """PSD estimation, display bin reduction, and spectrum frame assembly."""
