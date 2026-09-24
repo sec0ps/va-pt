@@ -30,38 +30,18 @@
 #   DEALINGS IN THE SOFTWARE.
 #
 # Purpose:
-#   Defines the frequency band plan for the swept spectrum analyzer. Provides
-#   regional operating presets for US, EU, and South America, converts a set of
-#   bands into an ordered list of tuner segments, selects an appropriate sample
-#   rate per band so that resolution bandwidth suits the channel spacing in that
-#   band, and computes the resulting sweep revisit interval and the shortest
-#   burst that the configured plan can reliably detect.
+#   Frequency band plan, regional presets, and sweep planning. Converts bands into
+#   tuner segments, selects a sample rate per band, and reports the resulting
+#   revisit interval and shortest reliably detectable burst.
 #
-#   The revisit math is the governing constraint of the whole analyzer. A single
-#   SDR observes only one segment at a time, so any emission occurring while the
-#   tuner is parked elsewhere is not merely hard to detect, it is unobservable.
-#   Callers are expected to surface sweep_metrics() output in the operator UI so
-#   that an over-wide span is visibly reported rather than silently missing
-#   traffic.
-#
-# SECURITY NOTICE:
-#   This module is part of an RF spectrum analysis platform intended for
-#   authorized red team engagements and defensive spectrum monitoring conducted
-#   within a documented scope of engagement. Band definitions here describe
-#   spectrum allocations only. They do not constitute authorization to receive,
-#   record, decode, or act upon any transmission. Receive authority, retention
-#   policy, and any demodulation of communications content are governed by the
-#   engagement rules of engagement and by applicable regulation in the operating
-#   jurisdiction.
+#   A single receiver observes one segment at a time, so anything transmitting
+#   while the tuner is parked elsewhere is unobservable. Span traded against
+#   revisit is the governing constraint of the whole analyzer, which is why
+#   sweep_metrics() output is meant to be shown to the operator.
 #
 # DISCLAIMER:
-#   This software is provided for lawful, authorized use only. Spectrum
-#   allocations vary by country and change over time. The allocations encoded in
-#   this module are operator convenience defaults and are not a regulatory
-#   reference. Verify allocations against the current national regulator table
-#   for the operating jurisdiction before relying on them. The author and Red
-#   Cell Security LLC accept no liability for any use of this software, whether
-#   authorized or otherwise.
+#   This software is provided for lawful, authorized use only. The author and Red
+#   Cell Security LLC accept no liability for any use of this software.
 # =============================================================================
 
 """Regional band plan, segment planning, and sweep revisit metrics."""
