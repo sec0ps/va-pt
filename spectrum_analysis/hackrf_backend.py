@@ -30,47 +30,18 @@
 #   DEALINGS IN THE SOFTWARE.
 #
 # Purpose:
-#   Direct ctypes binding to libhackrf. Loads the shared library already present
-#   on the host and calls it, with no compilation step of any kind.
+#   ctypes binding to libhackrf. Loads the shared library already present on the
+#   host and calls it, with no compilation step.
 #
-#   This exists because the compiled bindings available from the package index
-#   declare the entire modern libhackrf API, including Opera Cake control, LED
-#   override, board revision, and M0 core state. Any host whose libhackrf predates
-#   those additions fails to compile the binding, and the failure is a wall of
-#   C++ errors about functions this analyzer never calls. The library header says
-#   as much itself, that an outdated host library leaves the new functions absent
-#   and produces linking errors.
-#
-#   Binding at runtime inverts that. Symbols are resolved individually and only
-#   when first used, so a function absent from an older library costs nothing
-#   unless something actually calls it. The twenty functions bound here have all
-#   existed since the first public libhackrf release, which makes this work
-#   against essentially any version a host might carry, old distribution packages
-#   included.
-#
-#   The transfer structure is defined explicitly rather than inferred. Its layout,
-#   a device pointer followed by a buffer pointer, two integer lengths, and two
-#   context pointers, has been unchanged across every release of the library, and
-#   only the buffer pointer and the valid length are read here.
-#
-#   Callbacks are stored on the instance rather than passed transiently. A ctypes
-#   callback object that is not referenced from Python is eligible for collection
-#   while the library still holds its address, and the resulting call into freed
-#   memory is a hard crash rather than an exception.
-#
-# SECURITY NOTICE:
-#   This module is part of an RF spectrum analysis platform intended for
-#   authorized red team engagements and defensive spectrum monitoring conducted
-#   within a documented scope of engagement. Only receive side functions are
-#   bound. No transmit entry point of the underlying library is declared here, so
-#   transmission cannot be initiated through this module even by mistake. The
-#   antenna port bias tee is bound solely so that it can be explicitly disabled,
-#   since it feeds 3.3 V into whatever is attached to the antenna connector.
+#   Symbols resolve individually and lazily, so a function absent from an older
+#   library costs nothing unless something calls it. Compiled bindings declare the
+#   entire modern API and fail to build against an older libhackrf over functions
+#   this analyzer never uses. Every function bound here has existed since the first
+#   public release.
 #
 # DISCLAIMER:
 #   This software is provided for lawful, authorized use only. The author and Red
-#   Cell Security LLC accept no liability for any use of this software, whether
-#   authorized or otherwise.
+#   Cell Security LLC accept no liability for any use of this software.
 # =============================================================================
 
 """Runtime ctypes binding to libhackrf, receive side only, no build step."""
