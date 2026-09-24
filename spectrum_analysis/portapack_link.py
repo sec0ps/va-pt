@@ -52,7 +52,9 @@
 
 """Serial control of a Mayhem PortaPack used as the listening receiver."""
 
+import getpass
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass, field
@@ -95,6 +97,51 @@ TUNABLE_APPS = ("audio", "capture", "level", "looking glass", "weather")
 
 class PortaPackError(Exception):
     """Raised for any failure of the listener control link."""
+
+
+def _device_group(device: str) -> str:
+    """Group owning a device node, or the usual default when unreadable."""
+    try:
+        import grp
+        return grp.getgrgid(os.stat(device).st_gid).gr_name
+    except Exception:
+        return "dialout"
+
+
+def _in_group(group: str) -> bool:
+    """Whether this process currently holds the named group.
+
+    Checked against the running process rather than the account, because a group
+    added with usermod does not apply to sessions that were already open. An
+    operator who has run the command and not logged back in has an account that
+    looks correct and a process that still cannot open the port.
+    """
+    try:
+        import grp
+        return group in {grp.getgrgid(gid).gr_name for gid in os.getgroups()}
+    except Exception:
+        return False
+
+
+def permission_hint(device: str) -> str:
+    """Actionable remediation for a device node this process cannot open."""
+    if os.name == "nt":
+        return ("{0} is in use or inaccessible. Close any other terminal or "
+                "serial application holding it.".format(device))
+
+    group = _device_group(device)
+    user = getpass.getuser()
+
+    if _in_group(group):
+        return ("no permission for {0} despite membership of {1}. Another "
+                "process may hold the port, or a udev rule may be overriding "
+                "the default ownership.".format(device, group))
+
+    return ("no permission for {0}. It is owned by group {1}, which this "
+            "session is not in.\n"
+            "  sudo usermod -aG {1} {2}\n"
+            "then log out and back in, or start a new session with "
+            "'newgrp {1}' for a one off.".format(device, group, user))
 
 
 @dataclass
@@ -196,7 +243,17 @@ class PortaPackLink:
     def _try_port(self, device: str) -> bool:
         """Open one port and decide whether a Mayhem console is behind it."""
         with self._lock:
-            self._serial = serial.Serial(device, self.baudrate, timeout=self.timeout)
+            try:
+                self._serial = serial.Serial(device, self.baudrate, timeout=self.timeout)
+            except (OSError, serial.SerialException) as exc:
+                # Permission and busy failures are the common case on Linux and
+                # are reported with the command that fixes them, since a bare
+                # errno sends the operator looking for a firmware or cabling
+                # fault that does not exist.
+                errno_value = getattr(exc, "errno", None)
+                if errno_value in (13, 16) or "denied" in str(exc).lower():
+                    raise PortaPackError(permission_hint(device)) from exc
+                raise PortaPackError("{0}: {1}".format(device, exc)) from exc
             # Discard whatever the device emitted before the port was opened, so
             # the first reply read is a reply to a command of ours.
             time.sleep(0.2)
