@@ -366,6 +366,69 @@ def install_go():
               "Go-based tool builds will fail until this is resolved.")
         FAILED_PACKAGES.append("go: toolchain")
 
+def setup_rf_device_access():
+    """Grant the operator serial access to a PortaPack, and install a udev rule.
+
+    The RF spectrum analyzer's primary radio is a HackRF reached through libusb,
+    already covered by the hackrf apt package's own udev rule. The listening
+    radio is a second unit carrying a PortaPack in Mayhem mode, which enumerates
+    as a CDC serial tty owned by group dialout. Membership plus a device rule
+    keeps that from failing with a bare permission-denied at connect time.
+
+    Follows the same pattern as install_kismet(): adds a device group non-root
+    with sudo usermod, and writes a config file with sudo tee. Idempotent.
+    """
+    import grp
+
+    print("Configuring RF device access (HackRF and PortaPack)...")
+
+    # dialout owns serial ttys, which is how a PortaPack in Mayhem mode appears.
+    # plugdev is the group the hackrf package's rule assigns the radio to.
+    for group in ("dialout", "plugdev"):
+        try:
+            grp.getgrnam(group)
+        except KeyError:
+            # plugdev is absent on some minimal images; the udev rule below still
+            # grants access, so this is not a failure.
+            print(f"  group {group} absent on this host, skipping")
+            continue
+
+        already = subprocess.run(f"id -nG $USER | grep -qw {group}",
+                                 shell=True).returncode == 0
+        if already:
+            print(f"  already in {group}")
+            continue
+        if run_command(f"sudo usermod -aG {group} $USER"):
+            print(f"  added $USER to {group} (effective at next login)")
+        else:
+            FAILED_PACKAGES.append(f"rf: usermod -aG {group}")
+
+    # A udev rule so access does not depend on the group change, which only
+    # applies to sessions opened after the next login. Two match lines: the
+    # HackRF under the usb subsystem via libusb, and the PortaPack serial
+    # interface under tty. Both are the same vendor (1d50).
+    rule_path = "/etc/udev/rules.d/99-redcell-rf.rules"
+    rule_text = (
+        "# Red Cell Security RF spectrum analyzer\\n"
+        'SUBSYSTEM=="usb", ATTRS{idVendor}=="1d50", MODE="0660", '
+        'GROUP="dialout", TAG+="uaccess"\\n'
+        'SUBSYSTEM=="tty", ATTRS{idVendor}=="1d50", MODE="0660", '
+        'GROUP="dialout", TAG+="uaccess"\\n'
+    )
+
+    current = subprocess.run(f"cat {rule_path} 2>/dev/null",
+                             shell=True, capture_output=True, text=True).stdout
+    if current == rule_text.replace("\\n", "\n"):
+        print("  udev rule already current")
+    elif run_command(f"printf '{rule_text}' | sudo tee {rule_path} >/dev/null"):
+        run_command("sudo udevadm control --reload-rules")
+        run_command("sudo udevadm trigger --subsystem-match=usb --subsystem-match=tty")
+        print(f"  installed udev rule at {rule_path}")
+    else:
+        FAILED_PACKAGES.append("rf: udev rule")
+
+    print("RF device access configured.")
+
 def install_wordlist_files():
     """Install the Weakpass dictionary for password cracking."""
     weakpass_file = "/vapt/passwords/weakpass_3a"
@@ -605,7 +668,8 @@ def install_base_dependencies():
         "ptunnel-ng", "udptunnel", "pipx", "python3-venv", "ruby-dev", "webhttrack",
         "minicom", "openjdk-21-jre", "gnome-tweaks", "macchanger", "recordmydesktop",
         "postgresql", "hydra-gtk", "hydra", "wine-development",
-        "libcurl4-openssl-dev", "smbclient", "hackrf", "nfs-common", "samba", "gpsd",
+        "libcurl4-openssl-dev", "smbclient", "hackrf", "libhackrf-dev", "libusb-1.0-0-dev",
+        "python3-serial", "python3-pyqt5", "nfs-common", "samba", "gpsd",
         "snmp", "libsnmp-dev", "libsnmp-perl", "snmp-mibs-downloader", "docker.io",
         "docker-compose", "hcxtools", "httrack", "tshark", "git", "python-is-python3",
         "tig", "tftpd-hpa", "libimage-exiftool-perl", "wkhtmltopdf", "libffi-dev",
@@ -631,6 +695,9 @@ def install_base_dependencies():
     run_command("sudo snap install powershell --classic")
 
     install_kismet()
+
+    # RF spectrum analyzer: HackRF plus PortaPack serial access and udev rule
+    setup_rf_device_access()
 
     print("Installing Python Packages and Dependencies")
     pip_packages = [
@@ -859,6 +926,7 @@ def install_toolkit_packages():
     wireless_tools = [
         ("https://github.com/g4ixt/QtTinySA.git", "/vapt/wireless/QtTinySA", [f"{PIP} -r requirements.txt"]),
         ("https://github.com/xmikos/qspectrumanalyzer.git", "/vapt/wireless/qspectrumanalyzer", [f"sudo {PIP} ."]),
+        ("https://github.com/sec0ps/rf-spectrum-analyzer.git", "/vapt/wireless/rf-spectrum-analyzer", None),
     ]
 
     # Aircrack-ng (source build; tarball, not a git repo)
@@ -1032,12 +1100,16 @@ def update_toolsets():
 
     print("Updating Wireless Signal Analysis Tools")
     wireless_tools = [
-        "/vapt/wireless/QtTinySA", "/vapt/wireless/qspectrumanalyzer"
+        "/vapt/wireless/QtTinySA", "/vapt/wireless/qspectrumanalyzer",
+        "/vapt/wireless/rf-spectrum-analyzer"
     ]
     for tool in wireless_tools:
         run_command(f"cd {tool} && git pull")
 
     update_kismet()
+
+    # RF device access is idempotent; re-assert group membership and udev rule
+    setup_rf_device_access()
 
     # Go-based tools: pull each, rebuild only when the pull brought in changes
     print("Updating Go-based tools")
