@@ -30,43 +30,18 @@
 #   DEALINGS IN THE SOFTWARE.
 #
 # Purpose:
-#   Derives the frequency error of the receiver from detections against a known
-#   channel raster, expressed in parts per million.
+#   Estimates receiver frequency error in parts per million from detections against
+#   a known broadcast channel grid.
 #
-#   The HackRF ships without a temperature compensated oscillator. Its error is
-#   commonly tens of parts per million and drifts most in the first minutes after
-#   power on, which at 900 MHz is tens of kilohertz of walk during warm up. A
-#   marker saved cold and a marker saved warm will disagree about the same
-#   emitter, and neither will match a published assignment.
-#
-#   Correction is derived from the broadcast raster rather than from the FM
-#   stereo pilot. The pilot method is more precise but requires demodulating the
-#   multiplex, which belongs to the listening tier and does not exist here. The
-#   raster method uses only what the burst detector already produces. Broadcast
-#   allocations sit on an exact grid, so each detected carrier can be snapped to
-#   its nearest grid slot and the systematic difference across all of them is the
-#   oscillator error. Random measurement error averages out across stations while
-#   oscillator error does not, which is what makes the estimate converge.
-#
-#   Robustness matters more than precision here. A single carrier snapped to the
-#   wrong grid slot would corrupt a least squares fit badly, so the estimate is
-#   the median of the per station errors rather than the mean, and any station
-#   whose offset approaches half the grid spacing is discarded outright as
-#   unassignable rather than being allowed to vote.
-#
-# SECURITY NOTICE:
-#   This module is part of an RF spectrum analysis platform intended for
-#   authorized red team engagements and defensive spectrum monitoring conducted
-#   within a documented scope of engagement. Calibration observes broadcast
-#   carriers that are publicly and continuously transmitted, and performs energy
-#   measurement only with no demodulation or recovery of programme content.
+#   The HackRF has no temperature compensated oscillator and drifts most during warm
+#   up, which at 900 MHz is tens of kilohertz of walk. Snapping detected carriers to
+#   their grid slots isolates the systematic error, using only what the burst
+#   detector already produces and no demodulation. The estimate is a median across
+#   stations, since one misassigned carrier would wreck a mean.
 #
 # DISCLAIMER:
-#   This software is provided for lawful, authorized use only. A correction
-#   derived here is valid for the receiver temperature and session in which it
-#   was measured and should be re-derived after warm up or after any significant
-#   change in operating conditions. The author and Red Cell Security LLC accept
-#   no liability for any use of this software, whether authorized or otherwise.
+#   This software is provided for lawful, authorized use only. The author and Red
+#   Cell Security LLC accept no liability for any use of this software.
 # =============================================================================
 
 """Receiver frequency error estimation from a known broadcast channel raster."""
