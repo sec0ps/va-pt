@@ -30,38 +30,24 @@
 #   DEALINGS IN THE SOFTWARE.
 #
 # Purpose:
-#   Main application window. Hosts the spectrum display, the band plan and gain
-#   controls, the live event list, and the saved marker list, and owns the worker
-#   thread that turns capture blocks into spectrum frames and burst events.
+#   Main application window. Hosts the spectrum display, band plan and gain
+#   controls, the live event list, saved markers, calibration, and the listener
+#   link, and owns the worker thread that turns capture blocks into frames and
+#   burst events.
 #
-#   Threading model. The sweep engine owns the radio on its own plain thread and
-#   publishes capture blocks to a bounded queue. A worker object living in a
-#   QThread drains that queue, runs the PSD estimate and the burst detector, and
-#   publishes results as Qt signals. Qt delivers cross thread signals through the
-#   receiving thread's event loop, so the GUI thread touches widgets and nothing
-#   else touches them. No Qt object is created on or accessed from the sweep
-#   thread.
+#   Threading. The sweep engine owns the radio on a plain thread and publishes to a
+#   bounded queue. A worker in a QThread drains it, runs the PSD estimate and the
+#   detector, and emits Qt signals, which Qt delivers on the receiving thread's
+#   event loop. Only the GUI thread touches widgets, and no Qt object is created on
+#   or accessed from the sweep thread.
 #
-#   Display repaint is driven by a timer rather than by frame arrival. The sweeper
-#   produces frames an order of magnitude faster than a display needs to update,
-#   and repainting per frame would spend the entire budget in the renderer for no
-#   visible gain. Detection is unaffected, since it runs in the worker on every
-#   frame regardless of what the display is doing.
-#
-# SECURITY NOTICE:
-#   This module is part of an RF spectrum analysis platform intended for
-#   authorized red team engagements and defensive spectrum monitoring conducted
-#   within a documented scope of engagement. The interface presents energy
-#   detection results only. It provides no demodulation, decoding, or recovery of
-#   communications content. Operators remain responsible for confirming that the
-#   frequencies swept fall within the authorized scope for the engagement and
-#   jurisdiction.
+#   Repaint is timer driven rather than frame driven. The sweeper produces frames an
+#   order of magnitude faster than a display needs, and detection is unaffected
+#   since it runs in the worker regardless of what the display is doing.
 #
 # DISCLAIMER:
-#   This software is provided for lawful, authorized use only. Displayed and
-#   recorded levels are dBFS relative to converter full scale and are not
-#   calibrated to absolute power. The author and Red Cell Security LLC accept no
-#   liability for any use of this software, whether authorized or otherwise.
+#   This software is provided for lawful, authorized use only. The author and Red
+#   Cell Security LLC accept no liability for any use of this software.
 # =============================================================================
 
 """Main window, processing worker thread, and operator controls."""
@@ -84,6 +70,7 @@ from PySide6.QtWidgets import (
 
 import band_plan
 import calibrate
+import portapack_link
 from burst_detect import BurstDetector
 from dsp_psd import PSDEstimator
 from sdr_capture import GainProfile
@@ -344,6 +331,10 @@ class MainWindow(QMainWindow):
         # separate from active ones so the display can distinguish present
         # activity from past activity.
         self._held_events: Dict[int, Dict] = {}
+        # Control link to the second receiver. Created unconnected; the operator
+        # connects it deliberately, because tuning a listener recovers
+        # communications content rather than merely detecting energy.
+        self.listener = portapack_link.PortaPackLink()
         self._last_hover: Optional[Dict] = None
 
         self._settings = QSettings(SETTINGS_ORG, SETTINGS_APP)
@@ -441,8 +432,102 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._build_detector_box())
         layout.addWidget(self._build_retention_box())
         layout.addWidget(self._build_calibration_box())
+        layout.addWidget(self._build_listener_box())
         layout.addStretch(1)
         return page
+
+    def _build_listener_box(self) -> QGroupBox:
+        box = QGroupBox("Listener")
+        layout = QVBoxLayout(box)
+        layout.setSpacing(6)
+
+        port_row = QHBoxLayout()
+        port_row.setSpacing(6)
+        self.listener_port = QComboBox()
+        self.listener_port.setToolTip(
+            "Serial port of the PortaPack. It must be in normal Mayhem mode, not "
+            "HackRF mode, since the console is unavailable in HackRF mode."
+        )
+        self.listener_button = QPushButton("Connect")
+        self.listener_button.setFixedWidth(72)
+        self.listener_button.clicked.connect(self._toggle_listener)
+        port_row.addWidget(self.listener_port, 1)
+        port_row.addWidget(self.listener_button)
+        layout.addLayout(port_row)
+
+        self.listener_status = QLabel("not connected")
+        self.listener_status.setObjectName("readout")
+        self.listener_status.setFont(self._mono)
+        self.listener_status.setWordWrap(True)
+        layout.addWidget(self.listener_status)
+
+        self._refresh_listener_ports()
+        return box
+
+    def _refresh_listener_ports(self) -> None:
+        self.listener_port.clear()
+        ports = portapack_link.available_ports()
+        if not ports:
+            self.listener_port.addItem("no serial ports", None)
+            return
+        for entry in ports:
+            label = entry["device"]
+            if entry["description"]:
+                label += "  {0}".format(entry["description"][:24])
+            self.listener_port.addItem(label, entry["device"])
+
+    def _toggle_listener(self) -> None:
+        if self.listener.connected:
+            self.listener.disconnect()
+            self.listener_status.setText("not connected")
+            self.listener_button.setText("Connect")
+            return
+
+        device = self.listener_port.currentData()
+        try:
+            state = self.listener.connect(device)
+        except portapack_link.PortaPackError as exc:
+            self.listener_status.setText(str(exc))
+            self.listener_status.setToolTip(str(exc))
+            return
+
+        self.listener_button.setText("Disconnect")
+        self._show_listener_state(state)
+
+    def _show_listener_state(self, state) -> None:
+        if state.missing:
+            self.listener_status.setText("connected, firmware too old")
+            self.listener_status.setToolTip(state.message)
+            return
+        text = "{0}\n{1:.6f} MHz  {2}".format(
+            state.app_name or "no app", state.frequency_hz / 1e6,
+            state.modulation or "mode unknown")
+        self.listener_status.setText(text)
+        self.listener_status.setToolTip(
+            "{0}\nport {1}\n{2}".format(state.firmware, state.port, state.message or ""))
+
+    def _listen_to(self, frequency_hz: float, label: str = "") -> None:
+        """Hand a frequency to the listening receiver.
+
+        The value passed is the true frequency. The sweeper's own oscillator error
+        was removed before the marker existed, and the listener's error is its own
+        and is corrected by its Freq Correct setting on the device.
+        """
+        if not self.listener.connected:
+            QMessageBox.information(
+                self, "Listener",
+                "Connect the listener first, under Config, Listener.")
+            return
+        try:
+            tuned = self.listener.set_frequency(frequency_hz)
+        except portapack_link.PortaPackError as exc:
+            QMessageBox.warning(self, "Listener", str(exc))
+            self._show_listener_state(self.listener.state)
+            return
+        self._show_listener_state(self.listener.state)
+        self.statusBar().showMessage(
+            "listening {0:.6f} MHz{1}".format(tuned / 1e6,
+                                              "  {0}".format(label) if label else ""), 5000)
 
     def _build_plan_box(self) -> QGroupBox:
         box = QGroupBox("Band plan")
@@ -769,7 +854,22 @@ class MainWindow(QMainWindow):
         self.events_table.setToolTip("Double click an event to save it as a marker.")
         self.events_table.itemDoubleClicked.connect(self._on_event_double_click)
         layout.addWidget(self.events_table)
+
+        listen_button = QPushButton("Listen to selected")
+        listen_button.clicked.connect(self._listen_selected_event)
+        layout.addWidget(listen_button)
         return page
+
+    def _listen_selected_event(self) -> None:
+        row = self.events_table.currentRow()
+        if row < 0:
+            return
+        event = self.events_table.item(row, 0).data(Qt.UserRole)
+        if event:
+            # The averaged centre rather than the latest measurement, since a
+            # modulated signal's instantaneous centroid moves with its content.
+            centre = event.get("center_mean_hz") or event["center_hz"]
+            self._listen_to(centre, event.get("band_name", ""))
 
     def _build_markers_tab(self) -> QWidget:
         page = QWidget()
@@ -785,6 +885,10 @@ class MainWindow(QMainWindow):
         self.markers_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         layout.addWidget(self.markers_table)
 
+        listen_button = QPushButton("Listen to selected")
+        listen_button.clicked.connect(self._listen_selected_marker)
+        layout.addWidget(listen_button)
+
         row = QHBoxLayout()
         delete_button = QPushButton("Delete")
         delete_button.clicked.connect(self._delete_marker)
@@ -794,6 +898,16 @@ class MainWindow(QMainWindow):
         row.addWidget(export_button)
         layout.addLayout(row)
         return page
+
+    def _listen_selected_marker(self) -> None:
+        row = self.markers_table.currentRow()
+        if row < 0:
+            return
+        marker_id = self.markers_table.item(row, 0).data(Qt.UserRole)
+        for marker in self.store.list_markers():
+            if marker["id"] == marker_id:
+                self._listen_to(marker["center_hz"], marker["label"])
+                return
 
     def _start_worker(self) -> None:
         """Move the processing worker onto its own QThread and start it."""
@@ -1193,6 +1307,7 @@ class MainWindow(QMainWindow):
         self.worker.stop()
         self.worker_thread.quit()
         self.worker_thread.wait(3000)
+        self.listener.disconnect()
         self.engine.stop()
         if self.engine.recorder is not None:
             self.engine.recorder.stop()
