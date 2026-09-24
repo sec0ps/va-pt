@@ -88,11 +88,21 @@ DEFAULT_TIMEOUT_S = 2.0
 # host controlled tuning and the operator has to flash before the handoff works.
 REQUIRED_COMMANDS = ("setfreq", "appstart", "applist", "radioinfo")
 
-# Receiver applications that accept setfreq, in preference order. The firmware
-# documents setfreq as effective only in a subset of receive applications, so
-# starting one outside that subset produces a link that appears healthy and
-# silently ignores every retune.
-TUNABLE_APPS = ("audio", "capture", "level", "looking glass", "weather")
+# Receiver applications that both accept setfreq and park on a single frequency.
+# This list is deliberately narrow. setfreq is accepted by several apps, but some
+# of them sweep or hop on their own once started, which presents as the listener
+# "randomly" tuning across the band with no command from the operator. Looking
+# Glass sweeps a span, Recon and Scanner step through frequency lists, Level and
+# Weather retune themselves. Only a park-and-listen receiver is wanted here, so
+# the list is Audio RX alone, with a couple of safe single-frequency fallbacks in
+# case a given build names it differently.
+TUNABLE_APPS = ("audio", "nfm", "am audio", "wfm")
+
+# Apps that must never be auto-selected because they scan or hop on their own.
+# Even if one matches a fallback substring, it is rejected here so the listener
+# cannot land on a sweeping app.
+SWEEPING_APPS = ("looking glass", "recon", "scanner", "search", "level",
+                 "weather", "sonde", "adsb", "ert", "acars")
 
 
 class PortaPackError(Exception):
@@ -212,6 +222,8 @@ class PortaPackLink:
         self._serial = None
         self._lock = threading.RLock()
         self.state = ListenerState()
+        # True while the receiver app is running and parked on a frequency.
+        self.listening = False
 
     # -- connection ----------------------------------------------------------
 
@@ -297,7 +309,11 @@ class PortaPackLink:
                 return True
 
             self.state.firmware = self._read_firmware()
-            self._select_app()
+            # The receiver app is deliberately NOT started here. Starting Audio RX
+            # on connect would begin demodulating on whatever stale frequency the
+            # device was last on, which the operator did not choose. The app is
+            # started on the first tune instead, so connecting is silent and the
+            # PortaPack only produces audio once a frequency is selected.
             self.refresh()
             return True
 
@@ -311,6 +327,7 @@ class PortaPackLink:
                     LOG.debug("closing listener port raised: %s", exc)
             self._serial = None
             self.state = ListenerState(port=self.port)
+            self.listening = False
 
     @property
     def connected(self) -> bool:
@@ -427,11 +444,15 @@ class PortaPackLink:
             self.state.message = "device returned no application list"
             return
 
+        def is_sweeper(short, full):
+            haystack = "{0} {1}".format(short, full).lower()
+            return any(bad in haystack for bad in SWEEPING_APPS)
+
         chosen = None
         for wanted in TUNABLE_APPS:
             for short, full in apps.items():
                 haystack = "{0} {1}".format(short, full).lower()
-                if wanted in haystack:
+                if wanted in haystack and not is_sweeper(short, full):
                     chosen = (short, full)
                     break
             if chosen:
@@ -439,7 +460,8 @@ class PortaPackLink:
 
         if chosen is None:
             self.state.message = (
-                "no application accepting setfreq was found on the device")
+                "no single-frequency receiver app was found on the device. The "
+                "listener needs Audio RX; start it on the PortaPack manually.")
             return
 
         short, full = chosen
@@ -480,7 +502,31 @@ class PortaPackLink:
                     "device reports {0:.6f} MHz after being asked for {1:.6f} MHz. "
                     "The running application may not accept setfreq.".format(
                         self.state.frequency_hz / 1e6, target / 1e6))
+            self.listening = True
             return self.state.frequency_hz
+
+    def stop(self) -> bool:
+        """Stop the receiver so the PortaPack falls silent.
+
+        This is the mute/stop control. There is no separate mute, because the
+        audio is produced on the PortaPack's own headphone jack rather than by
+        this host, so silencing it means stopping its receiver app. The device is
+        returned to its main menu, and the next Listen starts the app again.
+        """
+        with self._lock:
+            if not self.connected:
+                return False
+            # appstart with no argument, or starting a benign non-receiver, stops
+            # the running app. The firmware returns to the main menu, which halts
+            # audio. app_short is cleared so the next tune restarts Audio RX.
+            try:
+                self._raw_command("appstart", timeout=3.0)
+            except PortaPackError:
+                pass
+            self.state.app_short = None
+            self.state.app_name = ""
+            self.listening = False
+            return True
 
     def refresh(self) -> ListenerState:
         """Read back the device's current receive settings."""
