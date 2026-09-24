@@ -104,6 +104,14 @@ TUNABLE_APPS = ("audio", "nfm", "am audio", "wfm")
 SWEEPING_APPS = ("looking glass", "recon", "scanner", "search", "level",
                  "weather", "sonde", "adsb", "ert", "acars")
 
+# Apps used only to stop audio. The serial console has no dedicated "stop"
+# command; appstart requires an app name and stops whatever was running when it
+# starts a new one. Switching to a benign non-receiver utility therefore halts
+# Audio RX without producing RF or sound. Tried in order until one is present in
+# the device's applist, since names vary across builds.
+IDLE_APPS = ("notepad", "about", "aboutsimple", "playdead", "freqman",
+             "filemanager", "setup", "handwrite")
+
 
 class PortaPackError(Exception):
     """Raised for any failure of the listener control link."""
@@ -508,21 +516,40 @@ class PortaPackLink:
     def stop(self) -> bool:
         """Stop the receiver so the PortaPack falls silent.
 
-        This is the mute/stop control. There is no separate mute, because the
-        audio is produced on the PortaPack's own headphone jack rather than by
-        this host, so silencing it means stopping its receiver app. The device is
-        returned to its main menu, and the next Listen starts the app again.
+        The serial console has no standalone stop command. appstart requires an
+        app name and, per the firmware, stops any running app when it starts a new
+        one. So the receiver is halted by switching to a benign non-receiver app,
+        which produces no RF and no audio. The idle app is chosen from the device's
+        own applist so the name is one this build actually has. The next Listen
+        restarts Audio RX.
+
+        There is no separate mute because the audio is on the PortaPack's own
+        headphone jack, not this host, so silencing it means stopping its
+        receiver.
         """
         with self._lock:
             if not self.connected:
                 return False
-            # appstart with no argument, or starting a benign non-receiver, stops
-            # the running app. The firmware returns to the main menu, which halts
-            # audio. app_short is cleared so the next tune restarts Audio RX.
-            try:
-                self._raw_command("appstart", timeout=3.0)
-            except PortaPackError:
-                pass
+
+            apps = self.app_list()
+            idle_short = None
+            for wanted in IDLE_APPS:
+                for short, full in apps.items():
+                    if wanted == short.lower() or wanted in full.lower():
+                        idle_short = short
+                        break
+                if idle_short:
+                    break
+
+            if idle_short is not None:
+                self._raw_command("appstart {0}".format(idle_short), timeout=3.0)
+            else:
+                # No known idle app on this build. Fall back to restarting the
+                # receiver app itself, which at least re-parks it, though it does
+                # not silence it. Logged so the operator knows why.
+                LOG.warning("no idle app found to stop audio; device keeps playing")
+                return False
+
             self.state.app_short = None
             self.state.app_name = ""
             self.listening = False
