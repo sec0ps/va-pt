@@ -1126,9 +1126,19 @@ class MainWindow(QMainWindow):
         # Held detections are searched alongside active ones. A retained spike
         # that cannot be clicked is a picture rather than a record, which defeats
         # the point of retaining it.
+        #
+        # The snap tolerance is capped hard. It was previously the event's own
+        # occupied bandwidth, which meant a detection with an absurdly wide
+        # measured bandwidth would match a click hundreds of megahertz away and
+        # save that far-off detection instead of the frequency actually clicked.
+        # A click should only ever bind to a detection it lands within or very
+        # near, so the tolerance never exceeds a small fixed window regardless of
+        # how wide the detection claims to be.
+        SNAP_MAX_HZ = 50_000
         candidates = list(self._active_events.values()) + list(self._held_events.values())
         for event in candidates:
-            tolerance = max(event.get("occupied_bw_hz", 0.0), 5000.0)
+            bw = max(event.get("occupied_bw_hz", 0.0), 5000.0)
+            tolerance = min(bw, SNAP_MAX_HZ)
             distance = abs(event["center_hz"] - hz)
             if distance <= tolerance and (best_distance is None or distance < best_distance):
                 best = event
