@@ -31,64 +31,22 @@
 #
 # Purpose:
 #   Owns the HackRF. Enumerates devices, applies the three stage gain profile,
-#   selects the baseband filter, and runs the sweep loop that walks the segment
-#   plan produced by band_plan, retuning and capturing one IQ block per dwell.
+#   selects the baseband filter, and walks the segment plan from band_plan,
+#   retuning and capturing one IQ block per dwell.
 #
-#   This layer targets libhackrf directly rather than going through a generic
-#   multi vendor abstraction. The platform is HackRF only, so an abstraction over
-#   hardware that is never attached costs a dependency with nothing bought in
-#   return, and it hides the firmware sweep mode that only the native library
-#   exposes.
+#   libhackrf is callback driven. A bounded queue and a condition variable bridge
+#   its transfer thread to the sweep loop's blocking reads, dropping the oldest
+#   transfer under backpressure, because a stale block has no value to a live
+#   display and an unbounded queue turns a stall into permanent latency.
 #
-#   libhackrf is reached through hackrf_backend, a ctypes binding written against
-#   the library directly. A compiled binding would have to declare the whole
-#   modern API and would fail to build on any host carrying an older libhackrf,
-#   over functions this analyzer never calls.
-#
-#   libhackrf is callback driven. A USB transfer thread inside the library hands
-#   up buffers of interleaved signed 8 bit samples whenever they arrive, which
-#   does not match the blocking read the sweep loop wants. The gap is bridged with
-#   a bounded queue of raw transfers and a condition variable, so the sweep loop
-#   keeps its simple sequential shape while the library keeps its callback. Sample
-#   conversion is deliberately deferred out of the callback, because that callback
-#   runs on the USB transfer thread and any time spent there is time not spent
-#   servicing the next transfer, which shows up as dropped samples.
-#
-#   The queue drops the oldest transfer under backpressure rather than growing.
-#   For a live monitoring display a stale sample block has no value, and an
-#   unbounded queue converts a transient stall into permanent latency and
-#   eventually exhausts memory.
-#
-#   Hardware faults are expected rather than exceptional. A USB disconnect mid
-#   engagement, a stalled transfer thread, and a read timeout are all handled
-#   without terminating the sweep. Lost samples are counted and passed downstream
-#   so the detector knows a frame is time discontinuous and does not treat it as a
-#   clean consecutive observation.
-#
-#   A synthetic source implementing the same interface is provided so that the
-#   DSP, detector, and UI layers can be exercised with no radio attached and with
-#   signals of known frequency and level.
-#
-#   Frequency correction is applied here, at the point of tuning. The commanded
-#   frequency is scaled by the measured oscillator error so the local oscillator
-#   lands where it was asked to, while frame metadata continues to report the
-#   intended frequency. Correcting at the tuner keeps the correction invisible to
-#   the DSP, the detector, the display, and saved markers.
-#
-# SECURITY NOTICE:
-#   This module is part of an RF spectrum analysis platform intended for
-#   authorized red team engagements and defensive spectrum monitoring conducted
-#   within a documented scope of engagement. This module is receive only. It never
-#   calls any transmit function of the underlying library, never enables the
-#   transmit amplifier, and never enables the antenna port bias tee. It does not
-#   demodulate or record communications content. Operators remain responsible for
-#   confirming that the frequencies swept fall inside the authorized scope for the
-#   engagement and jurisdiction.
+#   Hardware faults are expected rather than exceptional. Disconnects, stalls, and
+#   timeouts are handled without terminating the sweep, and lost samples are counted
+#   so the detector knows a frame is time discontinuous. Oscillator correction is
+#   applied at the tuner, leaving everything downstream in true frequency.
 #
 # DISCLAIMER:
 #   This software is provided for lawful, authorized use only. The author and Red
-#   Cell Security LLC accept no liability for any use of this software, whether
-#   authorized or otherwise.
+#   Cell Security LLC accept no liability for any use of this software.
 # =============================================================================
 
 """HackRF device management, swept capture engine, and synthetic test source."""
