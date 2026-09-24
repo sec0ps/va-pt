@@ -461,14 +461,6 @@ class MainWindow(QMainWindow):
         self.listener_status.setWordWrap(True)
         layout.addWidget(self.listener_status)
 
-        # Stop halts the receiver so the PortaPack falls silent. It is disabled
-        # until something is actually being listened to, so it never looks live
-        # when there is nothing to stop.
-        self.listener_stop = QPushButton("Stop listening")
-        self.listener_stop.setEnabled(False)
-        self.listener_stop.clicked.connect(self._stop_listening)
-        layout.addWidget(self.listener_stop)
-
         self._refresh_listener_ports()
         return box
 
@@ -905,9 +897,19 @@ class MainWindow(QMainWindow):
         self.markers_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         layout.addWidget(self.markers_table)
 
+        # Listen and Stop together, since tuning and silencing happen from the
+        # same place. Stop is disabled until something is actually being heard.
+        listen_row = QHBoxLayout()
+        listen_row.setSpacing(6)
         listen_button = QPushButton("Listen to selected")
         listen_button.clicked.connect(self._listen_selected_marker)
-        layout.addWidget(listen_button)
+        self.listener_stop = QPushButton("Stop")
+        self.listener_stop.setFixedWidth(72)
+        self.listener_stop.setEnabled(False)
+        self.listener_stop.clicked.connect(self._stop_listening)
+        listen_row.addWidget(listen_button, 1)
+        listen_row.addWidget(self.listener_stop)
+        layout.addLayout(listen_row)
 
         row = QHBoxLayout()
         delete_button = QPushButton("Delete")
