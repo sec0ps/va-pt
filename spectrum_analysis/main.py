@@ -30,41 +30,18 @@
 #   DEALINGS IN THE SOFTWARE.
 #
 # Purpose:
-#   Application entry point. Provisions and enters the virtual environment, parses
-#   arguments, selects a capture source, opens the engagement session store, wires
-#   the sweep engine to the detector and the user interface, and runs the Qt event
-#   loop.
+#   Application entry point. Bootstraps the environment, selects a capture source,
+#   opens the session store, wires the sweep engine to the detector and interface,
+#   and runs the Qt event loop.
 #
-#   Import order in this file is deliberate and load bearing. The bootstrap runs
-#   before any third party import, because a missing dependency would otherwise
-#   raise on import and terminate the process before the code able to install that
-#   dependency had run. Everything below the bootstrap call is safe to import
-#   because the bootstrap either satisfied it or replaced the process with an
-#   interpreter where it is satisfied.
-#
-#   Three capture sources are selectable. The radio is the operational path. The
-#   synthetic source generates tones of known frequency for validating the chain
-#   with no hardware present. The replay source serves previously recorded IQ, so
-#   a detector change can be measured against the real RF environment of a site
-#   rather than against generated signals.
-#
-# SECURITY NOTICE:
-#   This module is part of an RF spectrum analysis platform intended for
-#   authorized red team engagements and defensive spectrum monitoring conducted
-#   within a documented scope of engagement. The application is receive only and
-#   performs energy detection without demodulation or recovery of communications
-#   content. Raw IQ recording is available but disabled by default, and a
-#   recording preserves the full modulated content of every transmission in the
-#   captured span, which is materially more sensitive than the detection metadata
-#   the platform otherwise produces. Whether recording falls within scope is
-#   governed by the engagement rules of engagement. Session records and recordings
-#   are written unencrypted and inherit the protection of the filesystem holding
-#   them.
+#   Import order here is load bearing. The bootstrap runs before any third party
+#   import, because a missing dependency would otherwise raise before the code able
+#   to install it had run. Three capture sources are selectable: the radio, a
+#   synthetic source with tones of known frequency, and replay of recorded IQ.
 #
 # DISCLAIMER:
 #   This software is provided for lawful, authorized use only. The author and Red
-#   Cell Security LLC accept no liability for any use of this software, whether
-#   authorized or otherwise.
+#   Cell Security LLC accept no liability for any use of this software.
 # =============================================================================
 
 """Entry point. Bootstraps the environment, then wires capture, DSP, and the UI."""
