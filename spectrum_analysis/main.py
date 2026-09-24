@@ -170,6 +170,8 @@ def parse_args() -> argparse.Namespace:
                                  "membership, and udev rule. Needs root.")
     info_group.add_argument("--provision-check", action="store_true",
                             help="report host provisioning state and exit")
+    info_group.add_argument("--no-provision", action="store_true",
+                            help="skip the startup device-access check entirely")
 
     # Declared for help output only. These are stripped from argv before argparse
     # runs, because the bootstrap they control must execute before any third party
@@ -235,12 +237,32 @@ def build_source(args: argparse.Namespace, gain: GainProfile):
     return HackRFSource(serial=args.serial, gain=gain), None, "hardware"
 
 
+def _ensure_ready(auto: bool) -> None:
+    """Check and, unless disabled, provision device access on startup.
+
+    Delegates to provision.ensure_ready, which is silent on a host that is
+    already set up and otherwise escalates once through sudo to configure it.
+    A host where the operator declines still runs on the synthetic and replay
+    sources, so nothing here is fatal.
+    """
+    try:
+        import provision
+    except Exception:
+        return
+    try:
+        provision.ensure_ready(auto=auto)
+    except Exception as exc:
+        LOG.warning("device readiness check failed: %s", exc)
+
+
 def main() -> int:
     args = parse_args()
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)-7s %(name)s  %(message)s",
     )
+
+    _ensure_ready(auto=not args.no_provision)
 
     if args.list_presets:
         print_presets()
