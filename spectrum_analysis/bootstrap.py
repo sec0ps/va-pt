@@ -31,58 +31,18 @@
 #
 # Purpose:
 #   Brings the host from nothing to a running analyzer. Creates the virtual
-#   environment, installs the Python dependencies, resolves the system libraries
-#   the HackRF driver builds against, and re-enters the environment. Every launch
-#   after the first is a fast no operation.
+#   environment, installs Python dependencies, and re-enters it. Every launch after
+#   the first is a fast no operation.
 #
-#   This module imports nothing outside the standard library and must be imported
-#   before any third party package anywhere in the application. If numpy or Qt
-#   were imported first, the process would fail on a missing dependency before any
-#   code capable of installing that dependency had run.
-#
-#   The environment is fully isolated from the host site packages. Every Python
-#   dependency, the HackRF driver included, installs from pip, so nothing is
-#   gained by exposing the system packages and a great deal can be lost. A host
-#   whose distribution numpy has moved ahead of its distribution scipy will import
-#   an incompatible pair and abort inside a compiled extension, and because those
-#   packages appear importable the environment would never install working copies
-#   over them. Isolation makes the environment reproducible regardless of what
-#   state the host Python is in.
-#
-#   Only C libraries are taken from the system, and those are linked against at
-#   build time rather than imported, so they are unaffected by this.
-#
-#   Two layers of dependency are handled, and neither needs elevation.
-#
-#   Core Python packages are mandatory and install from pip. Without numpy or Qt
-#   there is no application, so a failure here aborts.
-#
-#   Radio support needs no installation at all. libhackrf is reached through a
-#   ctypes binding that loads whatever shared library the host already carries, so
-#   the only requirement is the HackRF host software an operator would have
-#   installed to use the radio in the first place. Its absence degrades the
-#   application to the synthetic and replay sources rather than stopping it.
-#
-#   Nothing here requires root. An earlier revision installed distribution
-#   development packages so that a compiled binding could be built against the
-#   system headers, which meant every launch on an unprovisioned host performed a
-#   privileged package transaction. Binding at runtime removed the build entirely
-#   and the privileged path with it.
-#
-# SECURITY NOTICE:
-#   This module installs packages from the configured Python package index at
-#   first launch, which pulls and executes third party code. On an engagement host
-#   with restricted or monitored egress, provision the environment ahead of
-#   deployment and launch with bootstrapping disabled rather than allowing an
-#   unplanned outbound connection during an operation. Dependencies are version
-#   floored rather than pinned to an exact hash, so an upstream supply chain
-#   compromise is not detected here. No part of this module requires or requests
-#   elevated privileges, and no system package is installed or modified.
+#   Imports only the standard library and must run before any third party import,
+#   or the process dies on a missing dependency before the code that installs it
+#   has run. The environment is isolated from host site packages. Radio access is a
+#   ctypes binding over an existing shared library, so nothing here needs root or a
+#   compiler.
 #
 # DISCLAIMER:
 #   This software is provided for lawful, authorized use only. The author and Red
-#   Cell Security LLC accept no liability for any use of this software, whether
-#   authorized or otherwise.
+#   Cell Security LLC accept no liability for any use of this software.
 # =============================================================================
 
 """Environment creation, dependency provisioning, and application re-entry."""
@@ -110,6 +70,12 @@ REQUIREMENTS = {
     "scipy": "scipy>=1.10",
     "PySide6": "PySide6>=6.5",
     "pyqtgraph": "pyqtgraph>=0.13",
+}
+
+# Optional. Absence disables the listener control link and nothing else, so a
+# failure here degrades one feature rather than preventing startup.
+OPTIONAL_REQUIREMENTS = {
+    "serial": "pyserial>=3.5",
 }
 
 # Refreshed inside the environment before anything else is installed. The pip
@@ -203,6 +169,16 @@ def install_requirements(python: Path, requirements: list, fatal: bool = True) -
         for line in tail:
             print("[bootstrap]   {0}".format(line))
     return False
+
+
+def _install_optional(python: Path, verbose: bool = True) -> None:
+    """Install optional packages, reporting rather than failing when they resist."""
+    for name, requirement in OPTIONAL_REQUIREMENTS.items():
+        if module_present(name):
+            continue
+        if not install_requirements(python, [requirement], fatal=False) and verbose:
+            print("[bootstrap] {0} unavailable, the listener link is disabled".format(
+                requirement))
 
 
 def check_hardware_support(verbose: bool = True) -> bool:
@@ -316,6 +292,7 @@ def ensure_environment(skip: bool = False, verbose: bool = True) -> None:
         if verbose:
             print("[bootstrap] disabled, using the current interpreter")
         check_hardware_support(verbose=verbose)
+        _install_optional(Path(sys.executable), verbose)
         return
 
     already_reentered = os.environ.get(GUARD_ENV) == "1"
@@ -335,6 +312,7 @@ def ensure_environment(skip: bool = False, verbose: bool = True) -> None:
                 print("[bootstrap] delete {0} and retry".format(venv_path()))
                 sys.exit(1)
         check_hardware_support(verbose=verbose)
+        _install_optional(Path(sys.executable), verbose)
         return
 
     target = venv_path()
@@ -380,5 +358,18 @@ def ensure_environment(skip: bool = False, verbose: bool = True) -> None:
 
     if needed and not install_requirements(python, needed):
         sys.exit(1)
+
+    # Optional packages are installed without being allowed to block startup.
+    probe_optional = subprocess.run(
+        [str(python), "-c",
+         "import importlib.util as u,sys;"
+         "print(','.join(n for n in sys.argv[1:] if u.find_spec(n) is None))"] +
+        list(OPTIONAL_REQUIREMENTS),
+        capture_output=True, text=True, check=False,
+    )
+    missing_optional = [n for n in probe_optional.stdout.strip().split(",") if n]
+    if missing_optional:
+        install_requirements(
+            python, [OPTIONAL_REQUIREMENTS[n] for n in missing_optional], fatal=False)
 
     reenter(python)
