@@ -292,6 +292,105 @@ def install_hackrf_tools() -> Tuple[bool, str]:
     return True, "installed HackRF host tools"
 
 
+def _reexec_under_sudo(reason: str) -> None:
+    """Re-run this program's provisioning under sudo, once.
+
+    Escalation happens only when a change is genuinely required, so a fully
+    provisioned host never prompts. The marker prevents a loop if the sudo
+    attempt fails to satisfy the checks.
+    """
+    if os.environ.get("RCS_PROVISION_ELEVATED"):
+        return
+    if shutil.which("sudo") is None:
+        return
+
+    script = os.path.abspath(sys.argv[0])
+    print("[provision] {0}".format(reason))
+    print("[provision] elevating once to configure device access")
+    env = dict(os.environ)
+    env["RCS_PROVISION_ELEVATED"] = "1"
+    # -E preserves the marker; the invoking user is passed so groups land on the
+    # operator rather than root.
+    account = target_user()
+    cmd = ["sudo", "-E", sys.executable, script, "--provision", "--user", account]
+    try:
+        subprocess.run(cmd, check=False, env=env)
+    except OSError as exc:
+        print("[provision] could not elevate: {0}".format(exc))
+
+
+def ensure_ready(user: Optional[str] = None, auto: bool = True,
+                 verbose: bool = True) -> Result:
+    """Check device access on startup and fix what is missing.
+
+    This is the entry point the analyzer calls on every launch. It first checks
+    the host unprivileged. If everything is in place it returns immediately and
+    silently. If something is missing and auto is set, it escalates once through
+    sudo to install libhackrf, add the operator to the device groups, and write
+    the udev rule, then re-checks.
+
+    Escalation is confined to the case where a change is actually needed, so a
+    provisioned host has no sudo prompt in its launch path. The synthetic and
+    replay sources work without any of this, so a host where the operator
+    declines the sudo prompt still runs, just without hardware.
+    """
+    state = readiness(user)
+    if not state.failures:
+        return state
+
+    if not auto:
+        if verbose:
+            print("[provision] device access incomplete: {0}".format(
+                "; ".join(state.failures)))
+            print("[provision] run 'sudo python {0} --provision' to configure".format(
+                os.path.basename(sys.argv[0])))
+        return state
+
+    if is_root():
+        # Already privileged (the sudo re-exec path lands here): do the work.
+        return provision(user)
+
+    # Unprivileged with work to do: escalate once, then re-check in this process
+    # so the returned state reflects what the elevated run accomplished.
+    _reexec_under_sudo("device access incomplete: {0}".format("; ".join(state.failures)))
+    return readiness(user)
+
+
+def readiness(user: Optional[str] = None) -> Result:
+    """Report the host's device-access state without changing anything.
+
+    Runs unprivileged on every launch. It never installs or escalates, it only
+    reports, because a normal start must not put a sudo prompt in its path. What
+    it finds is turned into a single actionable line pointing at --provision when
+    something is missing, so the operator is told the fix rather than left to
+    decode a permission-denied later.
+    """
+    result = Result()
+    account = user or target_user()
+
+    if hackrf_tools_present():
+        result.skipped.append("libhackrf present")
+    else:
+        result.failures.append("libhackrf not found")
+
+    for group in REQUIRED_GROUPS:
+        if not group_exists(group):
+            continue
+        if user_in_group(account, group):
+            # In the account. Whether the running session has it is a separate
+            # question the analyzer's own permission error already answers.
+            result.skipped.append("{0} in {1} (account)".format(account, group))
+        else:
+            result.failures.append("{0} not in {1}".format(account, group))
+
+    if os.path.exists(UDEV_RULE_PATH):
+        result.skipped.append("udev rule present")
+    else:
+        result.failures.append("udev rule not installed")
+
+    return result
+
+
 def provision(user: Optional[str] = None, groups: Tuple[str, ...] = REQUIRED_GROUPS,
               install_tools: bool = True, install_rule: bool = True) -> Result:
     """Provision this host. Requires root.
