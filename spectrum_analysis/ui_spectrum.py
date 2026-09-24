@@ -30,42 +30,22 @@
 #   DEALINGS IN THE SOFTWARE.
 #
 # Purpose:
-#   Spectrum trace and waterfall display built on pyqtgraph, plus the composite
-#   model that stitches per segment frames into one continuous display surface.
+#   Spectrum trace and waterfall on pyqtgraph, plus the composite that stitches per
+#   segment frames into one continuous display surface.
 #
-#   The display axis is a composite across the enabled bands rather than a linear
-#   frequency axis. A band plan is deliberately non contiguous, so a linear axis
-#   would spend nearly all of its width drawing empty spectrum between widely
-#   separated bands. Each band is allotted screen width proportional to its own
-#   span, separators are drawn at the joins, and the axis ticks are labelled in
-#   true frequency. Every position on screen maps back to a real frequency
-#   through the segment table, so the hover readout and any saved marker carry
-#   actual Hz and never a screen coordinate.
+#   The axis is a composite across enabled bands rather than linear frequency,
+#   because a band plan is deliberately non contiguous and a linear axis would spend
+#   its width on empty spectrum. Every screen position still maps back to a real
+#   frequency through the segment table, so readouts and markers carry true Hz.
 #
-#   The waterfall advances one row per completed sweep rather than one row per
-#   segment visit. A row is a picture of the whole selected spectrum at one
-#   moment, which is what an operator reads. Pushing a row per segment visit
-#   would produce a waterfall that alternates between disjoint bands on
-#   successive rows and is unreadable.
-#
-#   The waterfall buffer is a double height ring. Rows are written twice, once at
-#   the write index and once one buffer height later, so the visible window is a
-#   plain slice view rather than a scroll copy. This removes a full buffer memcpy
-#   from every display update.
-#
-# SECURITY NOTICE:
-#   This module is part of an RF spectrum analysis platform intended for
-#   authorized red team engagements and defensive spectrum monitoring conducted
-#   within a documented scope of engagement. This module renders energy
-#   measurements only. It does not demodulate, decode, or display the content of
-#   any transmission.
+#   The waterfall advances one row per completed sweep, since a row is a picture of
+#   the whole selected spectrum at one moment. Persistence accumulates how often the
+#   trace passed through each frequency and level cell, which is what separates a
+#   frequency keyed repeatedly from one that fired once.
 #
 # DISCLAIMER:
-#   This software is provided for lawful, authorized use only. Displayed levels
-#   are dBFS relative to converter full scale and are not calibrated to absolute
-#   power. Levels are comparable within a band and are not comparable across
-#   bands where the antenna differs. The author and Red Cell Security LLC accept
-#   no liability for any use of this software, whether authorized or otherwise.
+#   This software is provided for lawful, authorized use only. The author and Red
+#   Cell Security LLC accept no liability for any use of this software.
 # =============================================================================
 
 """Sweep composite model, spectrum trace, and waterfall display widgets."""
