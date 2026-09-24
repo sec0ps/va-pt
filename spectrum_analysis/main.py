@@ -66,6 +66,18 @@ def _take_flag(flag: str) -> bool:
 
 _SKIP_BOOTSTRAP = _take_flag("--no-bootstrap")
 
+# Provisioning is handled before the bootstrap, not after, and exits when done.
+# It is run under sudo, and letting the bootstrap execute first would create the
+# virtual environment owned by root, leaving every later unprivileged launch
+# unable to write to it. It also has to work on a bare machine where the
+# dependencies the rest of this file imports are not installed yet.
+if "--provision" in sys.argv or "--provision-check" in sys.argv:
+    import provision
+    _check = _take_flag("--provision-check")
+    _take_flag("--provision")
+    sys.argv = [sys.argv[0]] + (["--check"] if _check else [])
+    sys.exit(provision.main())
+
 bootstrap.ensure_environment(skip=_SKIP_BOOTSTRAP)
 
 # Safe from here. Everything below either was importable already or was installed
@@ -151,6 +163,13 @@ def parse_args() -> argparse.Namespace:
     info_group.add_argument("--describe", metavar="FILE", default=None,
                             help="summarize an IQ recording and exit")
     info_group.add_argument("--verbose", action="store_true", help="debug level logging")
+    # Declared for help output only. Both are consumed and acted on before the
+    # bootstrap runs, so argparse never sees them.
+    info_group.add_argument("--provision", action="store_true",
+                            help="one time host setup: HackRF tools, device group "
+                                 "membership, and udev rule. Needs root.")
+    info_group.add_argument("--provision-check", action="store_true",
+                            help="report host provisioning state and exit")
 
     # Declared for help output only. These are stripped from argv before argparse
     # runs, because the bootstrap they control must execute before any third party
