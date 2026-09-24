@@ -32,35 +32,16 @@
 # Purpose:
 #   Persists engagement sessions and operator saved markers to SQLite.
 #
-#   One engagement is one session row, and every marker is bound to a session.
-#   Markers are never shared across sessions, which keeps observations from one
-#   engagement out of the working set of another. The same constraint becomes the
-#   tenant isolation boundary if this store is later moved to a server grade
-#   database for multi node deployment.
-#
-#   A marker records the detected event rather than the pixel the operator
-#   clicked. Center frequency, occupied bandwidth, level, floor, and the first and
-#   last time the signal was seen are all measured values from the detector. The
-#   antenna in use is recorded alongside them, because a level reading without the
-#   antenna context is not interpretable weeks later when the capture is reviewed.
-#
-#   Write ahead logging is enabled so that a reader compiling a report does not
-#   block the sweep thread writing new markers, and so that an ungraceful exit
-#   mid engagement leaves a recoverable database rather than a truncated one.
-#
-# SECURITY NOTICE:
-#   This module is part of an RF spectrum analysis platform intended for
-#   authorized red team engagements and defensive spectrum monitoring conducted
-#   within a documented scope of engagement. This store holds observation
-#   metadata only. It does not store IQ, audio, or any demodulated communications
-#   content. The database file is unencrypted, so it inherits the protection of
-#   the filesystem it sits on and should be handled at the classification of the
-#   engagement it documents.
+#   One engagement is one session and every marker is bound to one, which keeps
+#   observations from separate engagements apart and becomes the tenant boundary if
+#   this moves to a server grade database. A marker records the detector's
+#   measurement rather than the pixel that was clicked, along with the antenna in
+#   use, without which a level reading is uninterpretable later. WAL is enabled so
+#   a reader never blocks the sweep thread.
 #
 # DISCLAIMER:
 #   This software is provided for lawful, authorized use only. The author and Red
-#   Cell Security LLC accept no liability for any use of this software, whether
-#   authorized or otherwise.
+#   Cell Security LLC accept no liability for any use of this software.
 # =============================================================================
 
 """SQLite persistence for engagement sessions and operator saved markers."""
