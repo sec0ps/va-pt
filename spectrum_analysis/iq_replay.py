@@ -30,46 +30,18 @@
 #   DEALINGS IN THE SOFTWARE.
 #
 # Purpose:
-#   Records raw IQ from a live sweep and replays it later through the same
-#   interface the radio presents, so that a detector change can be evaluated
-#   against real spectrum rather than against synthetic tones.
+#   Records raw IQ and replays it through the same interface the radio presents, so
+#   a detector change can be evaluated against the real RF environment of a site
+#   rather than against synthetic tones.
 #
-#   This closes the loop that synthetic testing cannot. Synthetic IQ proves the
-#   detector behaves correctly against noise and clean carriers of known
-#   frequency. It says nothing about how the detector behaves against the actual
-#   RF environment of a site, where the interference, the multipath, the adjacent
-#   channel splatter, and the intermittent emitters are what generate false
-#   positives. A recording taken once on site becomes a fixed regression case
-#   that every subsequent threshold change is measured against.
-#
-#   Raw IQ is expensive. A two segment plan at the default settings produces
-#   roughly 28 MB per second, so a minute of capture is about 1.7 GB. The recorder
-#   therefore enforces a size ceiling and stops cleanly on reaching it, rather
-#   than filling the disk underneath a running engagement.
-#
-#   The container is a JSON header followed by length prefixed blocks. It is
-#   deliberately plain rather than a standard interchange format, because the
-#   segment plan, sample rate per segment, and overrun flags all have to survive
-#   the round trip for a replay to reproduce the original detector input exactly,
-#   and a generic single rate IQ container cannot carry them.
-#
-# SECURITY NOTICE:
-#   This module is part of an RF spectrum analysis platform intended for
-#   authorized red team engagements and defensive spectrum monitoring conducted
-#   within a documented scope of engagement. A raw IQ recording preserves the
-#   complete received signal across the recorded span, including the modulated
-#   content of every transmission present, and is therefore materially more
-#   sensitive than the energy detection metadata the rest of this platform
-#   produces. Recording is off by default and must be requested explicitly.
-#   Whether recording falls inside the authorized scope is governed by the
-#   engagement rules of engagement and by applicable regulation. Recordings are
-#   unencrypted and must be handled, stored, and destroyed at the classification
-#   of the engagement that produced them.
+#   Synthetic IQ proves the detector behaves against noise and clean carriers. It
+#   says nothing about the interference, multipath, and intermittent emitters that
+#   actually generate false positives. Raw IQ runs about 28 MB/s, so the recorder
+#   enforces a size ceiling rather than filling the disk mid engagement.
 #
 # DISCLAIMER:
 #   This software is provided for lawful, authorized use only. The author and Red
-#   Cell Security LLC accept no liability for any use of this software, whether
-#   authorized or otherwise.
+#   Cell Security LLC accept no liability for any use of this software.
 # =============================================================================
 
 """Raw IQ recording and replay through the standard capture source interface."""
