@@ -264,8 +264,14 @@ class PortaPackLink:
                 raise PortaPackError("{0}: no response to help".format(device))
 
             commands = self._parse_commands(reply)
-            if "setfreq" not in commands and "reboot" not in commands:
-                raise PortaPackError("{0}: not a Mayhem console".format(device))
+            # A Mayhem console is identified by commands present since the console
+            # itself shipped, not by setfreq, which is a much later addition. An
+            # older firmware is a Mayhem console that cannot be host-tuned, which
+            # is a different and more useful diagnosis than "not a Mayhem console".
+            mayhem_markers = {"reboot", "hackrf", "dfu", "flash", "screenframe"}
+            if not (commands & mayhem_markers):
+                raise PortaPackError(
+                    "{0}: responds but is not a Mayhem console".format(device))
 
             self.port = device
             self.state = ListenerState(
@@ -276,11 +282,15 @@ class PortaPackLink:
             )
 
             if self.state.missing:
-                # Connected but not useful. Reported plainly rather than left to
-                # surface as a silent failure on the first retune.
+                # Connected, confirmed Mayhem, but too old to be host-tuned. This
+                # is the common real-world case on a PortaPack that has not been
+                # updated: the console works but setfreq and the app-control
+                # commands postdate the build. Reported concretely so the operator
+                # knows the fix is a firmware update, not a cable or mode problem.
                 self.state.message = (
-                    "firmware predates host tuning, missing: {0}. "
-                    "Update Mayhem to use the listener.".format(
+                    "PortaPack is running an older Mayhem build without host "
+                    "tuning support (missing: {0}). Update to current Mayhem "
+                    "firmware from hackrf.app to use the listener.".format(
                         ", ".join(self.state.missing))
                 )
                 LOG.warning("%s", self.state.message)
@@ -353,14 +363,27 @@ class PortaPackLink:
     def _parse_commands(reply: List[str]) -> set:
         """Extract command names from the help listing.
 
-        The listing has changed format across releases, appearing as a single
-        space separated line in some and one entry per line in others, so both are
-        accepted rather than matching an exact shape.
+        The listing format varies across releases. Newer builds emit one
+        "name: description" entry per line, while older builds emit a single line
+        of the form "Commands: a b c ...". An earlier version split each line on
+        the first colon and kept the left side, which is correct for the per-line
+        format but discards the entire command set for the single-line format,
+        keeping only the word "Commands". This strips a known leading label and
+        then treats every remaining whitespace or comma separated token as a
+        command name, which handles both shapes.
         """
+        labels = ("commands", "command")
         commands = set()
         for line in reply:
-            body = line.split(":", 1)[0]
-            for token in body.replace(",", " ").split():
+            text = line.strip()
+            head, sep, tail = text.partition(":")
+            if sep and head.strip().lower() in labels:
+                # "Commands: a b c" -> take the tail, which is the actual list.
+                text = tail
+            elif sep and " " not in head.strip():
+                # "name: description" -> the single left token is the command.
+                text = head
+            for token in text.replace(",", " ").split():
                 token = token.strip("-*[]()")
                 if token and all(c.isalnum() or c == "_" for c in token):
                     commands.add(token.lower())
