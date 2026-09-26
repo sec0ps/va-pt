@@ -79,6 +79,16 @@ _GENERIC_PRODUCT_TOKENS = frozenset({
     "daemon", "linux", "unix", "windows",
 })
 
+# Vendor prefixes that name MANY unrelated products, so the bare vendor token
+# substring-matches every one of that vendor's module paths (apache ->
+# apache_airflow / apache_couchdb / apache_druid / ...). Never used as a standalone
+# product-search term when a more specific product token is present; the specific
+# product still searches by its own token and by CVE.
+_VENDOR_PREFIX_TOKENS = frozenset({
+    "apache", "oracle", "cisco", "adobe", "vmware", "redhat", "juniper",
+    "fortinet", "citrix", "atlassian", "sap",
+})
+
 
 def _product_search_terms(service):
     """Distinctive lowercase alphanumeric tokens (>=4 chars, non-generic) from the
@@ -97,6 +107,11 @@ def _product_search_terms(service):
     source = source or ""
     toks = [t for t in re.findall(r"[a-z0-9]+", source.lower())
             if len(t) >= 4 and t not in _GENERIC_PRODUCT_TOKENS]
+    # A bare vendor prefix matches every unrelated product of that vendor, so use it
+    # only when no more specific product token is present ("Apache httpd" searches
+    # httpd, not apache; "Apache" alone still searches apache as a last resort).
+    specific = [t for t in toks if t not in _VENDOR_PREFIX_TOKENS]
+    toks = specific or toks
     out = []
     for t in sorted(toks, key=len, reverse=True):
         if t not in out:
@@ -116,7 +131,13 @@ def _product_relevant(term, fullname):
         return False
     if t in fn:
         return True
-    return t.endswith("d") and len(t) > 4 and t[:-1] in fn
+    # Daemon-stripped match (distccd -> distcc) only when the stripped form is itself
+    # a distinctive token, never a generic one: "httpd" must not strip to "http" and
+    # then match every module under an /http/ path (apache_airflow, apache_couchdb...).
+    if t.endswith("d") and len(t) > 4:
+        stripped = t[:-1]
+        return stripped not in _GENERIC_PRODUCT_TOKENS and stripped in fn
+    return False
 
 
 def _service_name_term(service):
@@ -524,6 +545,16 @@ class MsfClient:
         linux host while a unix module is kept."""
         if not host_os:
             return True
+        # Path-OS hard constraint: when the module path names a concrete OS family
+        # (exploit/solaris/..., /windows/, /bsd/, /aix/, /osx/), that family must
+        # itself be host-compatible, regardless of a co-declared generic unix/multi
+        # platform in metadata. This drops exploit/solaris/telnet/fuser on a linux
+        # host even though the module also lists unix, which the metadata gate below
+        # would otherwise accept. Agnostic path segments (multi) and compatible ones
+        # (unix, linux) pass through _family_compatible unchanged.
+        for pp in _platform_from_path(fullname):
+            if not _family_compatible(pp, host_os):
+                return False
         plats = self._module_platforms(fullname)
         if not plats:
             return True
