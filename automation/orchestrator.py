@@ -401,16 +401,24 @@ class Orchestrator:
     # -- lifecycle --
 
     def _load_verify_catalog(self):
-        """Load the script catalog used by the post-exploitation verification pass.
-        Absent or unbuilt catalog disables that pass silently; exploitation is
-        unaffected either way."""
+        """Rebuild the NSE catalog from the installed scripts, then load it. Rebuilding
+        on start keeps the catalog current with the script corpus on every run, with no
+        separate refresh step and no stale-catalog lapse. Best effort: a rebuild problem
+        falls back to whatever catalog is already on disk, and an absent catalog disables
+        the verify pass silently without affecting exploitation. The script-database
+        update is skipped because the catalog is built by parsing the scripts directly."""
         try:
             import nse_catalog
         except ImportError:
             return None
+        path = getattr(self.cfg, "verify_catalog_path", "") or None
         try:
-            return nse_catalog.load_catalog(
-                getattr(self.cfg, "verify_catalog_path", "") or None)
+            nse_catalog.rebuild(update_db=False, path=path)
+        except Exception:
+            logger.warning("nse catalog rebuild on start failed; "
+                           "using the existing catalog if present")
+        try:
+            return nse_catalog.load_catalog(path)
         except Exception:
             return None
 
