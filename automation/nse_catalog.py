@@ -95,11 +95,16 @@ _CREDARG_RE = re.compile(r"@args\s+\S*(?:user|pass|login|cred)", re.IGNORECASE)
 # nmap.registry.args is the script-args accessor, not a shared-state feed edge.
 _REG_BUILTINS = frozenset({"args"})
 
-# Product vocabulary is nmap's own. Each match/softmatch line in nmap-service-probes
-# carries a p<delim>product<delim> field; the delimiter is the first character after
-# the p and never occurs inside the product string, so this captures it verbatim
-# whichever delimiter the line uses.
-_PROBE_PRODUCT_RE = re.compile(r"(?:^|\s)p([/|%@#=~!$^&*+.:])(.*?)\1")
+# Product vocabulary is nmap's own, taken from the structured cpe:/ fields of
+# nmap-service-probes rather than the free-text product string. CPE is a controlled
+# vendor/product vocabulary, so it never contains the action words (dir, exec,
+# traversal) that free text does. A token is admitted only when it spans fewer than
+# _PRODUCT_VENDOR_SPAN distinct vendors: a real product term belongs to one or a few
+# vendors (weblogic, novell, microsoft), a generic infrastructure word (server,
+# service, manager) spans many, and frequency cannot tell them apart because real
+# vendors are common too.
+_CPE_RE = re.compile(r"cpe:/[aoh]:([^:\s/]+):([^:\s/]+)")
+_PRODUCT_VENDOR_SPAN = 3
 
 
 def default_catalog_path(scripts_dir=None):
@@ -287,48 +292,49 @@ def find_service_probes(scripts_dir=None, nmap_path="nmap"):
 
 
 def _build_product_vocab(probes_path, prefixes, function_words):
-    """Parse the product field of every match/softmatch line in nmap-service-probes
-    into a set of distinctive product words. Generic words (appearing across a large
-    share of product strings, like server or service), protocol prefixes, and NSE
-    function words are removed, leaving the tokens that name a product (novell,
-    drupal, wordpress, weblogic). nmap's own vocabulary, so new products enter on a
+    """Parse the cpe:/ vendor and product fields of every match/softmatch line in
+    nmap-service-probes into a set of product terms. A token is kept only when it
+    appears under fewer than _PRODUCT_VENDOR_SPAN distinct vendors, which admits real
+    product names (novell, weblogic, huawei) and rejects generic infrastructure words
+    (server, service, manager) that span many vendors. Protocol prefixes and NSE
+    function words are also removed. nmap's own vocabulary, so new products enter on a
     rebuild. Empty set when the file is absent, which disables product scoping and
     leaves selection unchanged."""
     if not probes_path or not os.path.isfile(probes_path):
         return set()
-    df = {}
-    total = 0
+    span = {}
     try:
         with open(probes_path, encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 if not (line.startswith("match ")
                         or line.startswith("softmatch ")):
                     continue
-                m = _PROBE_PRODUCT_RE.search(line)
-                if not m:
-                    continue
-                total += 1
-                for w in set(re.split(r"[^a-z0-9]+", m.group(2).lower())):
-                    if len(w) >= 3:
-                        df[w] = df.get(w, 0) + 1
+                for vendor, _product in _CPE_RE.findall(line):
+                    vl = vendor.lower()
+                    for t in re.split(r"[^a-z0-9]+", vl):
+                        if len(t) >= 3:
+                            span.setdefault(t, set()).add(vl)
     except OSError:
         return set()
-    if not total:
+    if not span:
         return set()
-    generic = max(20, int(0.005 * total))
-    vocab = {t for t, c in df.items() if c < generic}
-    return vocab - prefixes - function_words
+    vocab = {t for t, vs in span.items() if len(vs) < _PRODUCT_VENDOR_SPAN}
+    return vocab - function_words
 
 
 def _derive_product(script_id, product_vocab, prefixes):
-    """The product tokens a script id claims: its id words, minus the leading service
-    prefix, intersected with the product vocabulary. Empty when the script names no
-    product (generic and CVE scripts), which the scanner never product-drops."""
+    """The product tokens a script id claims. When the id's own prefix is a vendor
+    (citrix-*, mikrotik-*) the product is that vendor. Otherwise it is the id words
+    after the leading service prefix, intersected with the product vocabulary. Empty
+    when the script names no product (generic, CVE, and app-layer web scripts), which
+    the scanner never product-drops."""
     if not product_vocab:
         return []
     toks = [t for t in re.split(r"[^a-z0-9]+", script_id.lower()) if len(t) >= 3]
     if not toks:
         return []
+    if toks[0] in product_vocab:
+        return [toks[0]]
     body = toks[1:] if toks[0] in prefixes else toks
     return sorted({t for t in body if t in product_vocab})
 
