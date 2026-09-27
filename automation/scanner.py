@@ -101,6 +101,7 @@ class ScanConfig:
     nse_timeout: int = 180
     brute_nse_timeout: int = 300   # NSE credential-brute run wall
     brute_max_scripts: int = 3     # cap brute scripts run per service
+    nse_discover_max: int = 12     # cap verify scripts run per service (0 = uncapped)
     brute_time_limit: str = "120s"  # per-script unpwdb time cap (empty = no cap)
     max_retries: int | None = 2         # nmap --max-retries; None keeps nmap default
     host_timeout: str = ""              # nmap --host-timeout; "" derives from the wall
@@ -295,7 +296,8 @@ class Scanner:
             return []
         if (service.method or "").lower() != "probed" and not service.product:
             return []
-        scripts = _match_catalog_scripts(service, catalog)
+        scripts = _match_catalog_scripts(service, catalog,
+                                         cap=self.cfg.nse_discover_max)
         if not scripts:
             return []
         args = ["-sV", "-Pn", "-n", self.cfg.timing,
@@ -771,12 +773,96 @@ def _cve_ids_in_text(text):
     return {f"CVE-{y}-{n}" for y, n in _DISCOVER_CVE_RE.findall(text or "")}
 
 
-def _match_catalog_scripts(service, catalog, key="scripts"):
-    """Select catalog scripts whose service or port targets this probed service.
-    Matching is on the confirmed service identity (name and product tokens) and the
-    open port, not the port alone, so a script only runs where nmap actually saw
-    the service it targets. nmap re-applies each script's real portrule at run time,
-    so a loose match here is filtered there, never a false run."""
+_WEB_PORTS = frozenset({80, 443, 591, 981, 1311, 3000, 5000, 7080, 7443, 8000,
+                        8008, 8080, 8081, 8181, 8443, 8888})
+_ALWAYS_KEEP_CATS = frozenset({"vuln", "exploit", "auth"})
+
+
+def _service_identity(service):
+    """The distinctive tokens of a probed service's fingerprint (name, product,
+    version, and CPE), used to decide whether a script's claimed product is what this
+    service actually is. The CPE carries the canonical vendor, so a novell-claiming
+    script tested against a cpe:/o:microsoft service finds no overlap."""
+    toks = set()
+    for val in (service.name, service.product, service.version, service.cpe):
+        for t in re.findall(r"[a-z0-9]+", (val or "").lower()):
+            if len(t) >= 3:
+                toks.add(t)
+    return toks
+
+
+def _is_web_service(service):
+    """True when the service is HTTP/web. Product scripts that ride on top of a web
+    server (a CMS, a repo, an interpreter) name a product nmap fingerprints as the
+    server, not the app, so their product claim is never treated as a hard mismatch
+    on a web service, only a soft demotion."""
+    n = (service.name or "").lower()
+    if "http" in n or n in ("www", "https", "http-proxy", "http-alt", "web"):
+        return True
+    return service.port in _WEB_PORTS
+
+
+def _score_verify_scripts(service, catalog, matched, cap):
+    """Rank the matched verify scripts by fit and take the strongest set, rather than
+    running every match. Product that matches the fingerprint boosts; product that
+    contradicts it drops the script on a non-web service (the sound case: a
+    service-identifying script for a product this service is not) and only demotes it
+    on a web service (app-layer, cannot be confirmed from the server fingerprint).
+    Actionable tier, a vuln or exploit category, a CVE, and a tool-feeding dependency
+    or credential edge all boost. vuln, exploit, and auth scripts are always kept, the
+    cap only bounds the discretionary tail. cap <= 0 disables the cap. A matched id
+    with no catalog record is kept neutrally."""
+    meta = {s["id"]: s for s in catalog.get("scripts", [])}
+    ident = _service_identity(service)
+    web = _is_web_service(service)
+    survivors = []
+    for sid in matched:
+        s = meta.get(sid)
+        if s is None:
+            survivors.append((0, sid, set()))
+            continue
+        cats = set(s.get("all_categories") or s.get("categories") or [])
+        claimed = set(s.get("product") or [])
+        score = 0
+        if claimed:
+            if claimed & ident:
+                score += 6
+            elif not web:
+                continue
+            else:
+                score -= 3
+        score += -3 if s.get("tier") == "informational" else 3
+        if cats & {"vuln", "exploit"}:
+            score += 4
+        elif "auth" in cats:
+            score += 3
+        if s.get("cves"):
+            score += 2
+        if (s.get("dependencies") or s.get("feeds")
+                or "credentials" in (s.get("consumes") or [])):
+            score += 1
+        survivors.append((score, sid, cats))
+    if not cap or cap <= 0:
+        return {sid for _sc, sid, _cats in survivors}
+    must = [sid for _sc, sid, cats in survivors if cats & _ALWAYS_KEEP_CATS]
+    rest = sorted(((sc, sid) for sc, sid, cats in survivors
+                   if not (cats & _ALWAYS_KEEP_CATS)),
+                  key=lambda x: (-x[0], x[1]))
+    keep = list(dict.fromkeys(must))
+    for _sc, sid in rest:
+        if len(keep) >= cap:
+            break
+        keep.append(sid)
+    return set(keep)
+
+
+def _match_catalog_scripts(service, catalog, key="scripts", cap=0):
+    """Select catalog scripts whose service or port targets this probed service, then
+    on the verify path rank them by fit and take the strongest capped set. Matching is
+    on the confirmed service identity (name and product tokens) and the open port, not
+    the port alone, so a script only runs where nmap actually saw the service it
+    targets. The brute path returns the raw match unchanged; its own selection logic
+    in nse_brute handles brute scripts."""
     svc_tokens = set()
     for field_val in (service.name, service.product):
         for tok in re.findall(r"[a-z0-9]+", (field_val or "").lower()):
@@ -791,6 +877,8 @@ def _match_catalog_scripts(service, catalog, key="scripts"):
         s_services = {t.lower() for t in (s.get("services") or [])}
         if s_services & svc_tokens:
             selected.add(s["id"])
+    if key == "scripts":
+        return _score_verify_scripts(service, catalog, selected, cap)
     return selected
 
 
