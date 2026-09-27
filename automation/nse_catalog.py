@@ -18,6 +18,10 @@
 #             hand-kept CVE to NSE map with a generated index covering every
 #             applicable script on the box, rebuilt on demand so a nightly script
 #             refresh plus a rebuild keeps coverage current with no manual upkeep.
+#             Each record is tagged from the script's own declared metadata: the
+#             product it targets (matched against nmap's service-probes vocabulary),
+#             an actionability tier, its dependency chain, and the nmap.registry feed
+#             edges it produces and consumes, all derived so no per-script list is kept.
 #
 # SECURITY NOTICE
 #             This software is intended for authorized security assessment and
@@ -78,6 +82,24 @@ _PORTRULE_PORTS_RE = re.compile(r"port(?:number)?\s*(?:==|,)\s*(\d{1,5})")
 _SHORTPORT_PORTS_RE = re.compile(r"shortport\.[a-z_]+\s*\(([^)]*)\)",
                                  re.IGNORECASE)
 _SERVICE_TOKEN_RE = re.compile(r'"([a-z0-9][a-z0-9+._-]{1,30})"')
+
+# Machine-readable capability signals parsed from each script's own body. NSE
+# scripts declare their dependency chain, share state through nmap.registry, and
+# document credential arguments; these decide actionability and the feed graph with
+# no hand-maintained per-script list.
+_DEPS_RE = re.compile(r"dependencies\s*=\s*\{(.*?)\}", re.DOTALL)
+_REG_WRITE_RE = re.compile(
+    r"nmap\.registry\.([A-Za-z_]\w*)\s*(?:\[[^\]]*\])?\s*=(?!=)")
+_REG_ANY_RE = re.compile(r"nmap\.registry\.([A-Za-z_]\w*)")
+_CREDARG_RE = re.compile(r"@args\s+\S*(?:user|pass|login|cred)", re.IGNORECASE)
+# nmap.registry.args is the script-args accessor, not a shared-state feed edge.
+_REG_BUILTINS = frozenset({"args"})
+
+# Product vocabulary is nmap's own. Each match/softmatch line in nmap-service-probes
+# carries a p<delim>product<delim> field; the delimiter is the first character after
+# the p and never occurs inside the product string, so this captures it verbatim
+# whichever delimiter the line uses.
+_PROBE_PRODUCT_RE = re.compile(r"(?:^|\s)p([/|%@#=~!$^&*+.:])(.*?)\1")
 
 
 def default_catalog_path(scripts_dir=None):
@@ -179,6 +201,138 @@ def _ports_and_services(text):
     return sorted(ports), sorted(services)
 
 
+def _dependencies(text):
+    """The script ids this script declares as dependencies, lowercased; empty when
+    none. A dependency chain marks a script as part of an actionable flow (a
+    discovery script that runs after a brute or auth script)."""
+    m = _DEPS_RE.search(text)
+    if not m:
+        return set()
+    return {d.strip().strip("\"'").lower()
+            for d in m.group(1).split(",") if d.strip()}
+
+
+def _registry_edges(text):
+    """Best-effort (writes, reads) of nmap.registry.<name> shared-state keys the
+    script produces and consumes, the builtin args accessor excluded. A write feeds
+    later scripts, a read consumes an earlier script's output. Heuristic over the Lua
+    source; over- or under-capture is not load-bearing, it only annotates the
+    catalog, nmap re-runs the real logic."""
+    writes = {m.lower() for m in _REG_WRITE_RE.findall(text)} - _REG_BUILTINS
+    names = {m.lower() for m in _REG_ANY_RE.findall(text)} - _REG_BUILTINS
+    return writes, (names - writes)
+
+
+def _wants_creds(text, deps):
+    """True when the script consumes credentials, by a documented user/pass/login
+    argument or by depending on a brute, empty-password, or creds script."""
+    if _CREDARG_RE.search(text):
+        return True
+    for d in deps:
+        if d.endswith("-brute") or "empty-password" in d or d.endswith("-creds"):
+            return True
+    return False
+
+
+def _tier(cats, deps, touches_registry, wants_creds):
+    """Classify a script actionable or informational for the assessment pass, wholly
+    from declared metadata. Actionable when it carries a finding or credential
+    category (vuln, exploit, auth, brute), declares intrusive, sits on a dependency
+    chain, touches shared registry state, or consumes credentials. Only a standalone
+    safe/default discovery script with none of those is informational, so recon that
+    feeds a tool or a finding is never demoted."""
+    if cats & {"vuln", "exploit", "auth", "brute"}:
+        return "actionable"
+    if "intrusive" in cats:
+        return "actionable"
+    if deps or touches_registry or wants_creds:
+        return "actionable"
+    return "informational"
+
+
+def _id_token_profile(names):
+    """From the script filenames, the leading service/protocol tokens and the
+    high-frequency id-body tokens (the NSE function words: enum, users, vuln, info,
+    login). Both corpus-derived, subtracted from the product vocabulary so a protocol
+    or a function word is never mistaken for a product a script targets."""
+    prefixes = set()
+    body = {}
+    for name in names:
+        sid = name[:-4] if name.endswith(".nse") else name
+        toks = [t for t in re.split(r"[^a-z0-9]+", sid.lower()) if t]
+        if not toks:
+            continue
+        prefixes.add(toks[0])
+        for t in toks[1:]:
+            if len(t) >= 3:
+                body[t] = body.get(t, 0) + 1
+    cutoff = max(8, int(0.01 * len(names)))
+    function_words = {t for t, df in body.items() if df >= cutoff}
+    return prefixes, function_words
+
+
+def find_service_probes(scripts_dir=None, nmap_path="nmap"):
+    """Locate nmap-service-probes, nmap's own product fingerprint database, beside
+    the scripts directory in the nmap datadir. Returns the path or None."""
+    cands = []
+    if scripts_dir:
+        cands.append(os.path.join(
+            os.path.dirname(scripts_dir.rstrip("/")), "nmap-service-probes"))
+    for d in _SCRIPT_DIRS:
+        cands.append(os.path.join(os.path.dirname(d), "nmap-service-probes"))
+    for c in cands:
+        if os.path.isfile(c):
+            return c
+    return None
+
+
+def _build_product_vocab(probes_path, prefixes, function_words):
+    """Parse the product field of every match/softmatch line in nmap-service-probes
+    into a set of distinctive product words. Generic words (appearing across a large
+    share of product strings, like server or service), protocol prefixes, and NSE
+    function words are removed, leaving the tokens that name a product (novell,
+    drupal, wordpress, weblogic). nmap's own vocabulary, so new products enter on a
+    rebuild. Empty set when the file is absent, which disables product scoping and
+    leaves selection unchanged."""
+    if not probes_path or not os.path.isfile(probes_path):
+        return set()
+    df = {}
+    total = 0
+    try:
+        with open(probes_path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if not (line.startswith("match ")
+                        or line.startswith("softmatch ")):
+                    continue
+                m = _PROBE_PRODUCT_RE.search(line)
+                if not m:
+                    continue
+                total += 1
+                for w in set(re.split(r"[^a-z0-9]+", m.group(2).lower())):
+                    if len(w) >= 3:
+                        df[w] = df.get(w, 0) + 1
+    except OSError:
+        return set()
+    if not total:
+        return set()
+    generic = max(20, int(0.005 * total))
+    vocab = {t for t, c in df.items() if c < generic}
+    return vocab - prefixes - function_words
+
+
+def _derive_product(script_id, product_vocab, prefixes):
+    """The product tokens a script id claims: its id words, minus the leading service
+    prefix, intersected with the product vocabulary. Empty when the script names no
+    product (generic and CVE scripts), which the scanner never product-drops."""
+    if not product_vocab:
+        return []
+    toks = [t for t in re.split(r"[^a-z0-9]+", script_id.lower()) if len(t) >= 3]
+    if not toks:
+        return []
+    body = toks[1:] if toks[0] in prefixes else toks
+    return sorted({t for t in body if t in product_vocab})
+
+
 def _script_entry(path, text, cats, surfaced):
     """Build the catalog record for a parsed script. surfaced is the category set
     shown in the entry's categories field; all_categories always carries the full
@@ -189,6 +343,10 @@ def _script_entry(path, text, cats, surfaced):
     prefix = script_id.split("-", 1)[0]
     if prefix and prefix not in services:
         services.insert(0, prefix)
+    deps = _dependencies(text)
+    writes, reads = _registry_edges(text)
+    wants_creds = _wants_creds(text, deps)
+    consumes = sorted(reads | ({"credentials"} if wants_creds else set()))
     return {
         "id": script_id,
         "categories": sorted(cats & surfaced),
@@ -196,6 +354,11 @@ def _script_entry(path, text, cats, surfaced):
         "cves": sorted(_cves(text)),
         "ports": ports,
         "services": services,
+        "product": [],
+        "tier": _tier(cats, deps, bool(writes or reads), wants_creds),
+        "dependencies": sorted(deps),
+        "feeds": sorted(writes),
+        "consumes": consumes,
     }
 
 
@@ -240,23 +403,29 @@ def parse_brute_script(path):
 def build_catalog(scripts_dir=None, nmap_path="nmap"):
     """Parse every admitted NSE script in the directory into a catalog dict.
     Returns scripts (the verify catalog), brute_scripts (the separate brute index),
-    by_cve, count, and scripts_dir.
+    by_cve, count, scripts_dir, and product_vocab (the derived term count).
     """
     scripts_dir = scripts_dir or find_scripts_dir(nmap_path)
     if not scripts_dir or not os.path.isdir(scripts_dir):
         raise FileNotFoundError(
             "could not locate the nmap NSE scripts directory; set it explicitly")
+    names = [n for n in sorted(os.listdir(scripts_dir)) if n.endswith(".nse")]
+    prefixes, function_words = _id_token_profile(names)
+    probes_path = find_service_probes(scripts_dir, nmap_path)
+    product_vocab = _build_product_vocab(probes_path, prefixes, function_words)
     scripts = []
     brute_scripts = []
-    for name in sorted(os.listdir(scripts_dir)):
-        if not name.endswith(".nse"):
-            continue
+    for name in names:
         p = os.path.join(scripts_dir, name)
         entry = parse_script(p)
         if entry:
+            entry["product"] = _derive_product(entry["id"], product_vocab,
+                                                prefixes)
             scripts.append(entry)
         bentry = parse_brute_script(p)
         if bentry:
+            bentry["product"] = _derive_product(bentry["id"], product_vocab,
+                                                 prefixes)
             brute_scripts.append(bentry)
     by_cve = {}
     for sc in scripts:
@@ -270,6 +439,7 @@ def build_catalog(scripts_dir=None, nmap_path="nmap"):
         "scripts": scripts,
         "brute_scripts": brute_scripts,
         "by_cve": by_cve,
+        "product_vocab": len(product_vocab),
     }
 
 
@@ -300,10 +470,10 @@ def rebuild(nmap_path="nmap", scripts_dir=None, update_db=True, path=None,
         update_scripts_db(nmap_path, sudo_prefix=sudo_prefix)
     catalog = build_catalog(scripts_dir=scripts_dir, nmap_path=nmap_path)
     out = write_catalog(catalog, path)
-    logger.info("nse catalog rebuilt with %d script(s), %d brute script(s) and "
-                "%d cve(s) -> %s", catalog["count"],
+    logger.info("nse catalog rebuilt with %d script(s), %d brute script(s), "
+                "%d cve(s), %d product term(s) -> %s", catalog["count"],
                 len(catalog.get("brute_scripts") or []), len(catalog["by_cve"]),
-                out)
+                catalog.get("product_vocab", 0), out)
     return catalog
 
 
@@ -330,7 +500,8 @@ def _main(argv=None):
                   sudo_prefix=sudo_prefix)
     print(f"cataloged {cat['count']} script(s), "
           f"{len(cat.get('brute_scripts') or [])} brute script(s), "
-          f"{len(cat['by_cve'])} cve(s)")
+          f"{len(cat['by_cve'])} cve(s), "
+          f"{cat.get('product_vocab', 0)} product term(s)")
     return 0
 
 
