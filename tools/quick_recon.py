@@ -5669,12 +5669,15 @@ class ReconAutomation:
                 self.print_success(f"Found {len(web_emails)} emails from web scraping")
 
                 # Method 3: Google dorking
-                self.print_info("Searching search engines for emails...")
-                google_emails = self._google_dork_emails()
-                for email in google_emails:
-                    emails.add(email)
-                    email_sources[email] = email_sources.get(email, []) + ['google_dork']
-                self.print_success(f"Found {len(google_emails)} emails from Google dorking")
+                if getattr(self.args, 'skip_google_dork', False):
+                    self.print_info("Skipping Google dorking (--skip-google-dork)")
+                else:
+                    self.print_info("Searching search engines for emails...")
+                    google_emails = self._google_dork_emails()
+                    for email in google_emails:
+                        emails.add(email)
+                        email_sources[email] = email_sources.get(email, []) + ['google_dork']
+                    self.print_success(f"Found {len(google_emails)} emails from Google dorking")
 
                 # Method 4: PGP key servers
                 self.print_info("Searching PGP key servers...")
@@ -9738,6 +9741,7 @@ Examples:
     parser.add_argument('--skip-m365-enrich', action='store_true', help='Skip M365/Azure AD enrichment (domain enum, tenant config, legacy-auth surface, hybrid signal)')
     parser.add_argument('--skip-techstack', action='store_true', help='Skip technology stack identification')
     parser.add_argument('--skip-email-security', action='store_true', help='Skip email security posture check (SPF/DKIM/DMARC)')
+    parser.add_argument('--skip-google-dork', action='store_true', help='Skip the Google dorking source in email harvesting; theHarvester, web scraping, and PGP still run')
     parser.add_argument('--resolvers', default=None, help='Comma-separated DNS resolvers for SPF/DKIM/DMARC lookups (default: 1.1.1.1,8.8.8.8,9.9.9.9)')
     parser.add_argument('--skip-osint', action='store_true', help='Skip all OSINT modules (GitHub, LinkedIn)')
     parser.add_argument('--linkedin-max-results', type=int, default=100, help='Maximum LinkedIn employee results to fetch (default: 100)')
