@@ -80,11 +80,31 @@ import threading
 import http.server
 import socketserver
 import shutil
+import termios
 from collections import deque
 from pathlib import Path
 from datetime import datetime
 from urllib.parse import parse_qs
 from bs4 import BeautifulSoup
+
+# =============================================================================
+# Terminal helpers
+# =============================================================================
+
+def reset_terminal():
+    """Return the controlling terminal to sane, cooked line-mode.
+
+    Wireless tools launched as subprocesses (airodump-ng, airbase-ng) and sudo
+    itself can leave the tty with output post-processing disabled - NL no longer
+    mapped to CR-NL - which staircases every subsequent line across the screen
+    and makes the target table unreadable. Reasserting a sane line discipline
+    before drawing the interactive table keeps it aligned regardless of what a
+    child process did to the terminal, and canonical + echo is exactly what the
+    number-entry prompts want.
+    """
+    if sys.stdin.isatty():
+        subprocess.run(['stty', 'sane'], stderr=subprocess.DEVNULL)
+
 
 # =============================================================================
 # ProcessRegistry - Centralized subprocess tracking
@@ -545,11 +565,19 @@ class ScanEngine:
             '--write-interval', '1',
             self.monitor_interface,
         ]
+        # start_new_session=True (setsid) detaches airodump-ng from the
+        # controlling terminal. airodump-ng opens /dev/tty and switches it into
+        # raw, no-echo mode to read its own single-key commands - even when
+        # stdin/stdout/stderr are redirected to DEVNULL - which wedges our own
+        # interactive prompts running on the same terminal (Enter is never seen
+        # as end-of-line, so input() blocks forever). With no controlling tty it
+        # cannot touch the operator's terminal.
         self._airodump_proc = subprocess.Popen(
             cmd,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            start_new_session=True,
         )
 
     def _stop_airodump(self):
@@ -702,12 +730,30 @@ class ScanEngine:
 
 
     def run_display(self) -> list[dict]:
-        """Timed scan then number-entry selection."""
+        """Timed scan then number-entry selection.
+
+        Snapshots terminal attributes on entry and restores them on exit, so a
+        capture tool that mangles the tty can never leave the operator's
+        terminal in raw / no-echo mode.
+        """
+        saved_termios = None
+        if sys.stdin.isatty():
+            try:
+                saved_termios = termios.tcgetattr(sys.stdin.fileno())
+            except Exception:
+                saved_termios = None
+
         self._start_airodump()
         try:
             return self._run_number_select()
         finally:
             self._stop_airodump()
+            if saved_termios is not None:
+                try:
+                    termios.tcsetattr(sys.stdin.fileno(),
+                                      termios.TCSADRAIN, saved_termios)
+                except Exception:
+                    pass
 
     def _timed_scan(self, duration: int):
         """
@@ -758,6 +804,10 @@ class ScanEngine:
                 essid = net["essid"][:19]
                 if net["essid"] == "[Hidden]":
                     essid = "<hidden>"
+                # Strip non-printable characters: a rogue AP can broadcast an
+                # SSID containing raw terminal escape sequences, which would
+                # otherwise corrupt this table when printed.
+                essid = ''.join(c if c.isprintable() else '?' for c in essid)
                 ch    = net["channel"].strip()[:3]
                 enc   = net["privacy"][:5]
                 cli   = len(clients.get(net["bssid"], []))
@@ -812,6 +862,11 @@ class ScanEngine:
 
         # Selection loop - no background threads, no async, just input()
         while True:
+            # Reassert sane terminal output mode before drawing. A backgrounded
+            # capture tool (or sudo) may have knocked ONLCR off the tty during
+            # the scan, which would otherwise staircase the table below.
+            reset_terminal()
+
             nets, clis = self.get_snapshot()
             self.networks         = nets
             self.clients_by_bssid = clis
@@ -1443,7 +1498,8 @@ class WirelessAttackFramework:
                 # Capture and deauth truly concurrent - no interruption
                 print("\nStarting capture + deauth concurrently...")
                 proc = subprocess.Popen(
-                    cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    start_new_session=True,
                 )
                 self.registry.register('handshake_capture', proc)
                 time.sleep(3)
@@ -1469,7 +1525,8 @@ class WirelessAttackFramework:
                 # Single interface: start capture, pause briefly to deauth
                 print("\nStarting capture, deauth in 5s...")
                 proc = subprocess.Popen(
-                    cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    start_new_session=True,
                 )
                 self.registry.register('handshake_capture', proc)
                 time.sleep(5)
@@ -1588,6 +1645,7 @@ class WirelessAttackFramework:
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                start_new_session=True,
             )
             self.registry.register('combo_capture', cap_proc)
             time.sleep(3)
@@ -1975,7 +2033,11 @@ class WirelessAttackFramework:
                 '-c', target.get('channel', '6').strip(),
                 mon
             ]
-            ab_proc = subprocess.Popen(ab_cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # Detached from the tty: airbase-ng, like airodump-ng, puts the
+            # controlling terminal into raw mode, and it runs backgrounded here
+            # while the captive-portal web server owns the foreground.
+            ab_proc = subprocess.Popen(ab_cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                       start_new_session=True)
             self.registry.register('rogue_ap', ab_proc)
             processes.append(('airbase-ng', ab_proc))
             time.sleep(3)
@@ -1987,7 +2049,8 @@ class WirelessAttackFramework:
             # Start dnsmasq
             print("Starting DHCP/DNS server...")
             dm_cmd = ['sudo', dnsmasq, '-C', str(dnsmasq_conf), '--no-daemon']
-            dm_proc = subprocess.Popen(dm_cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            dm_proc = subprocess.Popen(dm_cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                       start_new_session=True)
             self.registry.register('dnsmasq', dm_proc)
             processes.append(('dnsmasq', dm_proc))
             time.sleep(1)
@@ -2165,6 +2228,11 @@ class WirelessAttackFramework:
         # individually), so it is not restarted here - restarting it would
         # bounce the operator's own link.
         subprocess.run(['sudo', 'systemctl', 'start', 'systemd-resolved'], capture_output=True)
+
+        # Backstop: if a foreground tool (airbase-ng, aireplay-ng) left the tty
+        # in raw / no-echo mode on interrupt, hand the operator back a sane
+        # shell rather than a dead terminal.
+        reset_terminal()
 
         print("Cleanup complete.")
 
