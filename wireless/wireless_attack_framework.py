@@ -42,6 +42,12 @@ aireplay-ng / airbase-ng / mdk4 (or mdk3) / hostapd / dnsmasq through a
 menu-driven scan-then-queue workflow: scan the air, select target BSSIDs by
 number, build a queue of attacks, and execute it sequentially.
 
+Invocation
+    Run as root. Flags: --output-dir DIR (where the timestamped loot dir is
+    created; default cwd), --no-5ghz (force 2.4GHz-only even on 5GHz-capable
+    adapters), --version, --help. All operational control past launch is via
+    the interactive menu.
+
 Interface model
     Prefers two adapters. The PRIMARY interface is dedicated to passive
     capture/scan; the SECONDARY (when present) transmits attack frames - deauth
@@ -75,9 +81,9 @@ Teardown
 Loot
     Captured artifacts - WPA handshakes, PMKID captures, and captive-portal
     credentials - are written to a persistent, timestamped loot directory
-    (waf_loot_<stamp>/ under the launch cwd), created 0700 with credential
-    files forced to 0600. This directory is NOT removed on teardown; only the
-    throwaway scratch temp dir is.
+    (waf_loot_<stamp>/ under --output-dir or the launch cwd), created 0700 with
+    credential files forced to 0600. This directory is NOT removed on teardown;
+    only the throwaway scratch temp dir is.
 """
 
 import subprocess
@@ -89,6 +95,7 @@ import time
 import glob
 import atexit
 import signal
+import argparse
 import tempfile
 import threading
 import http.server
@@ -99,6 +106,8 @@ from collections import deque
 from pathlib import Path
 from datetime import datetime
 from urllib.parse import parse_qs
+
+__version__ = "1.0.0"
 
 # =============================================================================
 # Terminal helpers
@@ -183,6 +192,10 @@ class InterfaceManager:
         self.physical_interface_2 = None   # e.g. wlan1
         self.monitor_interface_2  = None   # e.g. wlan1mon
         self.supports_5ghz_2      = False
+
+        # When True, 5GHz capability probing always reports False, forcing
+        # 2.4GHz-only operation (set by the --no-5ghz flag).
+        self.force_no_5ghz        = False
 
         # Adapters we set unmanaged for this run, to hand back on teardown
         self._released: set = set()
@@ -298,16 +311,41 @@ class InterfaceManager:
 
         return available
 
+    def _resolve_phy(self, interface: str) -> str | None:
+        """
+        Resolve the phy (wiphy) name backing an interface, or None.
+
+        Reads /sys/class/net/<if>/phy80211/name first, then falls back to
+        parsing 'wiphy N' out of 'iw dev <if> info'. Never guesses phy0 - with
+        more than one adapter that can point at the wrong radio and mis-detect
+        band support, which then mis-sets airodump's --band.
+        """
+        phy_path = Path(f'/sys/class/net/{interface}/phy80211/name')
+        if phy_path.exists():
+            try:
+                return phy_path.read_text().strip()
+            except OSError:
+                pass
+        try:
+            r = subprocess.run(['iw', 'dev', interface, 'info'],
+                               capture_output=True, text=True)
+            m = re.search(r'wiphy\s+(\d+)', r.stdout)
+            if m:
+                return f'phy{m.group(1)}'
+        except Exception:
+            pass
+        return None
+
     def probe_5ghz_support(self, interface: str) -> bool:
         """Check whether the physical adapter supports 5GHz bands."""
+        if self.force_no_5ghz:
+            return False
+        phy = self._resolve_phy(interface)
+        if not phy:
+            # Can't positively identify the radio - assume 2.4GHz only rather
+            # than probe the wrong phy and mis-set --band.
+            return False
         try:
-            # Get phy name for this interface
-            phy_path = Path(f'/sys/class/net/{interface}/phy80211/name')
-            if phy_path.exists():
-                phy = phy_path.read_text().strip()
-            else:
-                phy = 'phy0'
-
             result = subprocess.run(
                 ['sudo', 'iw', phy, 'info'],
                 capture_output=True, text=True
@@ -573,11 +611,10 @@ class InterfaceManager:
 
 
 # =============================================================================
-# ScanEngine - Live airodump scanning with curses display
-# Single-threaded select()-based event loop. No threads, no locks, no GIL
-# contention. Input is handled every SELECT_TIMEOUT seconds regardless of
-# whether a CSV parse is happening. Parsing only fires when airodump has
-# actually written new data (mtime changed), so CPU usage is minimal.
+# ScanEngine - Live airodump scanning with number-entry selection
+# Single-threaded loop. No threads, no locks, no GIL contention. The CSV is
+# re-parsed only when airodump has actually written new data (mtime changed),
+# so CPU usage is minimal, and the selection prompt is plain line-mode input().
 # =============================================================================
 
 class ScanEngine:
@@ -773,9 +810,9 @@ class ScanEngine:
 
     # ------------------------------------------------------------------
     # Live display - plain terminal, number-entry selection
-    # No curses. No arrow keys. No escape sequences.
-    # Background thread refreshes the table every DISPLAY_INTERVAL seconds.
-    # Main thread blocks on input() waiting for the user to type a selection.
+    # No curses. No arrow keys. No escape sequences. A timed scan runs first,
+    # then the table is drawn and the operator types a selection at a plain
+    # line-mode input() prompt.
     # ------------------------------------------------------------------
 
 
@@ -1024,9 +1061,10 @@ class AttackQueue:
 
 class WirelessAttackFramework:
 
-    def __init__(self, output_dir: Path | None = None):
+    def __init__(self, output_dir: Path | None = None, no_5ghz: bool = False):
         self.registry    = ProcessRegistry()
         self.iface_mgr   = InterfaceManager()
+        self.iface_mgr.force_no_5ghz = no_5ghz
         self.scan_engine: ScanEngine | None = None
         self.attack_queue = AttackQueue()
 
@@ -1039,7 +1077,7 @@ class WirelessAttackFramework:
         # Persistent loot: handshakes, PMKIDs, captured credentials. Created
         # 0700 on first write and NEVER deleted on teardown. Timestamped so
         # back-to-back runs don't collide. Defaults under the launch cwd;
-        # override with output_dir (--output-dir once argparse lands).
+        # override with output_dir (--output-dir).
         run_stamp     = datetime.now().strftime('%Y%m%d_%H%M%S')
         base          = Path(output_dir) if output_dir else Path.cwd()
         self.loot_dir: Path = base / f'waf_loot_{run_stamp}'
@@ -2319,7 +2357,20 @@ class WirelessAttackFramework:
                                        start_new_session=True)
             self.registry.register('rogue_ap', ab_proc)
             processes.append(('airbase-ng', ab_proc))
-            time.sleep(3)
+
+            # Wait for airbase-ng to create the at0 tap rather than trusting a
+            # fixed sleep - a slow adapter can take several seconds, and
+            # 'ip addr add' on a missing at0 would abort the whole portal.
+            at0_ready = False
+            for _ in range(20):  # up to ~10s
+                if Path('/sys/class/net/at0').exists():
+                    at0_ready = True
+                    break
+                time.sleep(0.5)
+            if not at0_ready:
+                print("at0 did not appear - airbase-ng may have failed to "
+                      "start. Aborting portal.")
+                return
 
             # Configure at0
             subprocess.run(['sudo', 'ip', 'link', 'set', 'at0', 'up'], check=True)
@@ -2557,10 +2608,11 @@ class WirelessAttackFramework:
                 )
 
                 print(f"\nStarting live scan on {mon}...")
-                print("Use SPACE to select targets, ENTER to confirm, Q to quit.")
+                print("Type target numbers to select (e.g. 1,3 or 1-4); "
+                      "D=done, R=rescan, Q=quit.")
                 time.sleep(1)
 
-                # Run curses scan display
+                # Run scan + number-entry target selection
                 self.selected_targets = self.scan_engine.run_display()
 
                 if not self.selected_targets:
@@ -2592,13 +2644,41 @@ class WirelessAttackFramework:
 # Entry point
 # =============================================================================
 
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        prog='wireless_attack_framework.py',
+        description='Interactive dual-interface wireless attack framework for '
+                    'authorized wireless assessments.',
+    )
+    parser.add_argument(
+        '-o', '--output-dir', metavar='DIR', default=None,
+        help='Directory under which the timestamped loot dir (handshakes, '
+             'PMKIDs, captured credentials) is created. Default: current '
+             'directory.',
+    )
+    parser.add_argument(
+        '--no-5ghz', action='store_true',
+        help='Force 2.4GHz-only operation even on 5GHz-capable adapters '
+             '(sets airodump --band bg).',
+    )
+    parser.add_argument(
+        '--version', action='version',
+        version=f'%(prog)s {__version__}',
+    )
+    return parser.parse_args(argv)
+
+
 def main():
+    args = parse_args()
+
     if os.geteuid() != 0:
         print("This tool requires root privileges.")
         print("Run with: sudo python3 wireless_attack_framework.py")
         sys.exit(1)
 
-    framework = WirelessAttackFramework()
+    output_dir = Path(args.output_dir) if args.output_dir else None
+    framework = WirelessAttackFramework(output_dir=output_dir,
+                                        no_5ghz=args.no_5ghz)
     framework.run()
 
 
