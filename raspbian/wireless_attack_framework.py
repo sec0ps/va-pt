@@ -1,5 +1,6 @@
+#!/usr/bin/env python3
 # =============================================================================
-# VAPT Toolkit - Wireless Attack Framework
+# VAPT Toolkit - Vulnerability Assessment and Penetration Testing Toolkit
 # =============================================================================
 #
 # Author: Keith Pachulski
@@ -10,14 +11,62 @@
 # Copyright (c) 2026 Keith Pachulski. All rights reserved.
 #
 # License: This software is licensed under the MIT License.
+#          You are free to use, modify, and distribute this software
+#          in accordance with the terms of the license.
 #
-# DISCLAIMER: This software is provided "as-is," without warranty of any kind.
+# Purpose: Interactive dual-interface wireless attack framework - monitor-mode
+#          management, live airodump scanning, and a queued set of deauth/DoS,
+#          evil-twin, captive-portal, handshake/PMKID capture, and WEP attacks
+#          for authorized wireless assessments.
+#
+# DISCLAIMER: This software is provided "as-is," without warranty of any kind,
+#             express or implied, including but not limited to the warranties
+#             of merchantability, fitness for a particular purpose, and non-infringement.
+#             In no event shall the authors or copyright holders be liable for any claim,
+#             damages, or other liability, whether in an action of contract, tort, or otherwise,
+#             arising from, out of, or in connection with the software or the use or other dealings
+#             in the software.
 #
 # NOTICE: This toolkit is intended for authorized security testing only.
-#         Users are responsible for ensuring compliance with all applicable
-#         laws and regulations.
+#         Users are responsible for ensuring compliance with all applicable laws
+#         and regulations. Unauthorized use of these tools may violate local,
+#         state, federal, and international laws.
 #
 # =============================================================================
+
+"""
+Wireless attack framework for authorized wireless assessments.
+
+Single-operator, root-required tool. Drives airmon-ng / airodump-ng /
+aireplay-ng / airbase-ng / mdk3 / hostapd / dnsmasq through a menu-driven
+scan-then-queue workflow: scan the air, select target BSSIDs by number, build a
+queue of attacks, and execute it sequentially.
+
+Interface model
+    Prefers two adapters. The PRIMARY interface is dedicated to passive
+    capture/scan; the SECONDARY (when present) transmits attack frames, so
+    deauth bursts never interrupt an in-flight handshake capture. With a single
+    adapter it degrades to shared mode and the concurrent combos fall back to
+    sequential capture-then-deauth.
+
+Self-protection
+    The operator's own connectivity is never touched. get_protected_interfaces()
+    resolves the default-route egress interface plus any wireless interface
+    holding an active IPv4 address; those are excluded from selection and never
+    handed to airmon-ng. Monitor mode is entered by releasing ONLY the chosen
+    adapter from NetworkManager ('nmcli device set <if> managed no') - never by
+    'airmon-ng check kill', which tears NetworkManager down globally and drops
+    the box off the network.
+
+Teardown
+    Host state is reversible. Released adapters are re-managed, monitor
+    interfaces returned to managed mode, virtual interfaces (at0) and the nat/
+    FORWARD iptables chains flushed, and the temp dir removed. NetworkManager is
+    left running throughout, so cleanup never bounces the operator's link.
+
+Captured credentials from the captive-portal path are written to a timestamped
+file under the run's temp dir.
+"""
 
 import subprocess
 import sys
@@ -102,6 +151,9 @@ class InterfaceManager:
         self.monitor_interface_2  = None   # e.g. wlan1mon
         self.supports_5ghz_2      = False
 
+        # Adapters we set unmanaged for this run, to hand back on teardown
+        self._released: set = set()
+
     @property
     def dual_interface(self) -> bool:
         """True when both monitor interfaces are ready."""
@@ -131,10 +183,65 @@ class InterfaceManager:
                     interfaces.append(iface_dir.name)
         return sorted(set(interfaces))
 
+    def get_protected_interfaces(self) -> set:
+        """
+        Interfaces carrying the operator's own connectivity: the default
+        route's egress interface plus any wireless interface holding an
+        active IPv4 address. These are never offered for selection and never
+        handed to airmon-ng, so entering monitor mode cannot blackhole the
+        operator's own management path.
+        """
+        protected = set()
+        try:
+            result = subprocess.run(
+                ['ip', '-o', 'route', 'show', 'default'],
+                capture_output=True, text=True
+            )
+            for line in result.stdout.splitlines():
+                m = re.search(r'\bdev\s+(\S+)', line)
+                if m:
+                    protected.add(m.group(1))
+        except Exception:
+            pass
+
+        for iface in self.get_all_wireless_interfaces():
+            try:
+                r = subprocess.run(
+                    ['ip', '-4', 'addr', 'show', 'dev', iface],
+                    capture_output=True, text=True
+                )
+                if 'inet ' in r.stdout:
+                    protected.add(iface)
+            except Exception:
+                pass
+        return protected
+
+    def _release_interface(self, interface: str):
+        """
+        Hand a single adapter to monitor mode without disturbing anything
+        else: unmanage it in NetworkManager and flush its addressing. Does
+        NOT kill NetworkManager, so the operator's connection is untouched.
+        """
+        subprocess.run(['sudo', 'nmcli', 'device', 'set', interface, 'managed', 'no'],
+                       capture_output=True)
+        subprocess.run(['sudo', 'ip', 'addr', 'flush', 'dev', interface],
+                       capture_output=True)
+        self._released.add(interface)
+        time.sleep(1)
+
+    def _restore_interface(self, interface: str):
+        """Re-hand a previously released adapter back to NetworkManager."""
+        subprocess.run(['sudo', 'nmcli', 'device', 'set', interface, 'managed', 'yes'],
+                       capture_output=True)
+
     def get_available_interfaces(self) -> list:
-        """Return wireless interfaces not currently in active use."""
+        """Return wireless interfaces not currently in active use and not
+        carrying the operator's own connectivity."""
+        protected = self.get_protected_interfaces()
         available = []
         for iface in self.get_all_wireless_interfaces():
+            if iface in protected:
+                continue
             try:
                 result = subprocess.run(
                     ['sudo', 'iwconfig', iface],
@@ -184,11 +291,15 @@ class InterfaceManager:
         Put interface into monitor mode using airmon-ng.
         Returns the resulting monitor interface name, or None on failure.
         """
-        # Kill interfering processes first
-        print(f"\nKilling interfering processes...")
-        subprocess.run(['sudo', 'airmon-ng', 'check', 'kill'],
-                       capture_output=True)
-        time.sleep(1)
+        if interface in self.get_protected_interfaces():
+            print(f"Refusing to monitor {interface}: it carries the operator's "
+                  f"connectivity (default route / active IP).")
+            return None
+
+        # Release ONLY this adapter from NetworkManager instead of running
+        # 'airmon-ng check kill', which would tear down the operator's own
+        # wireless management interface and drop the box off the network.
+        self._release_interface(interface)
 
         # Snapshot interfaces before to detect the new monitor iface
         before = set(self.get_all_wireless_interfaces())
@@ -247,8 +358,19 @@ class InterfaceManager:
     def enable_monitor_mode_2(self, interface: str) -> str | None:
         """
         Put the second interface into monitor mode.
-        Does NOT run airmon-ng check kill — the primary is already running.
+        Releases only this adapter from NetworkManager; does NOT run
+        'airmon-ng check kill' (the primary is already running and the
+        operator's link must stay up).
         """
+        if interface in self.get_protected_interfaces():
+            print(f"Refusing to monitor {interface}: it carries the operator's "
+                  f"connectivity (default route / active IP).")
+            return None
+
+        # Unmanage this adapter so airmon-ng doesn't lose the race against a
+        # still-alive NetworkManager.
+        self._release_interface(interface)
+
         before = set(self.get_all_wireless_interfaces())
 
         print(f"Enabling monitor mode on {interface} (attack interface)...")
@@ -298,7 +420,8 @@ class InterfaceManager:
         return None
 
     def disable_monitor_mode(self):
-        """Restore both interfaces to managed mode."""
+        """Restore monitor interfaces to managed mode without disturbing the
+        operator's connectivity interface."""
         for mon, phys in [
             (self.monitor_interface,   self.physical_interface),
             (self.monitor_interface_2, self.physical_interface_2),
@@ -322,12 +445,18 @@ class InterfaceManager:
                 subprocess.run(['sudo', 'ip', 'link', 'set', target, 'up'],
                                capture_output=True)
 
+        # Hand back every adapter we unmanaged for this run.
+        for iface in list(self._released):
+            self._restore_interface(iface)
+        self._released.clear()
+
         self.monitor_interface   = None
         self.monitor_interface_2 = None
 
+        # systemd-resolved may have been stopped by the captive-portal path.
+        # Do NOT restart NetworkManager - it was never killed, and restarting
+        # it bounces the operator's own link.
         subprocess.run(['sudo', 'systemctl', 'start', 'systemd-resolved'],
-                       capture_output=True)
-        subprocess.run(['sudo', 'systemctl', 'restart', 'NetworkManager'],
                        capture_output=True)
 
     def set_channel(self, interface: str, channel: str):
@@ -2022,7 +2151,8 @@ class WirelessAttackFramework:
         subprocess.run(['sudo', 'iptables', '-t', 'nat', '-F'], capture_output=True)
         subprocess.run(['sudo', 'iptables', '-F', 'FORWARD'], capture_output=True)
 
-        # Restore interface
+        # Restore interface (re-manages released adapters, returns monitor
+        # interfaces to managed mode).
         self.iface_mgr.disable_monitor_mode()
 
         # Remove temp directory
@@ -2031,9 +2161,10 @@ class WirelessAttackFramework:
         except Exception:
             pass
 
-        # Restore DNS
+        # Restore DNS. NetworkManager was never killed (adapters are released
+        # individually), so it is not restarted here - restarting it would
+        # bounce the operator's own link.
         subprocess.run(['sudo', 'systemctl', 'start', 'systemd-resolved'], capture_output=True)
-        subprocess.run(['sudo', 'systemctl', 'restart', 'NetworkManager'], capture_output=True)
 
         print("Cleanup complete.")
 
