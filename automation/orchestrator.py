@@ -1410,6 +1410,14 @@ def _parse_args(argv):
                    help="search Metasploit by CVE only, not by service/product "
                         "name (skips name-keyed modules like distcc_exec)")
     p.add_argument("--lhost", default="", help="pin LHOST (else derived per target)")
+    p.add_argument("--retest", default="",
+                   help="retest one module instead of scanning: the module to "
+                        "re-fire, e.g. exploit/unix/ftp/vsftpd_234_backdoor. "
+                        "Requires --retest-host, --retest-port, --retest-payload.")
+    p.add_argument("--retest-host", default="", help="retest target host")
+    p.add_argument("--retest-port", type=int, default=0, help="retest target port")
+    p.add_argument("--retest-payload", default="",
+                   help="the payload the original session used, re-fired as-is")
     p.add_argument("--max-hosts", type=int, default=65536)
     p.add_argument("--confirm-threshold", type=int, default=4096)
     p.add_argument("--yes", action="store_true", help="skip scope confirmation")
@@ -1488,9 +1496,38 @@ def _startup_error(args, msg):
         print(f"error: {msg}", file=sys.stderr)
 
 
+def _run_retest(args):
+    """Scoped single-module re-fire to confirm one finding on demand. Attaches to the
+    already-running msfrpcd (never autostarts), re-fires the one module with the
+    payload the run recorded, prints one RETEST line, and exits. No discovery, scan,
+    analyze, brute, or teardown phase runs; the normal pipeline is untouched."""
+    if not (args.retest_host and args.retest_port and args.retest_payload):
+        print("RETEST error --retest needs --retest-host, --retest-port, and "
+              "--retest-payload", flush=True)
+        return 2
+    mcfg = MsfConfig.from_env(host=args.msf_host, port=args.msf_port,
+                              password=args.msf_pass, ssl=args.msf_ssl,
+                              lhost=args.lhost or None)
+    if not mcfg.password:
+        mcfg.password = OrchestrationConfig(args.config_file).read_password()
+    client = MsfClient(mcfg)
+    try:
+        client.connect()
+    except Exception as e:
+        print(f"RETEST error msfrpcd: {e}", flush=True)
+        return 1
+    status, detail = client.retest_fire(args.retest, args.retest_host,
+                                        int(args.retest_port), args.retest_payload)
+    print(f"RETEST {status} {detail}", flush=True)
+    return 0
+
+
 def main(argv=None):
     args = _parse_args(argv)
     _setup_logging(args)
+
+    if args.retest:
+        return _run_retest(args)
 
     specs = list(args.targets)
     if args.target_file:
