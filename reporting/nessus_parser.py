@@ -556,22 +556,125 @@ def display_test_finding(organized_findings):
     print("[!] No findings found to display")
 
 
+# -----------------------------------------------------------------------------
+# Red Cell Security report styling
+# Mirrors the Red Cell technical report template so generated findings can be
+# pasted straight into a report: Calibri throughout, Heading 2 for severity
+# sections, Heading 3 for individual findings, brand red headings, and the
+# template's light-gray fill for evidence blocks. Formatting lives on the
+# document styles rather than on individual runs, so pasting with
+# "Use Destination Styles" adopts the template cleanly.
+# -----------------------------------------------------------------------------
+RCS_FONT = 'Calibri'
+RCS_CODE_FONT = 'Consolas'
+RCS_BODY_SIZE = Pt(12)
+RCS_CODE_SIZE = Pt(10)
+RCS_RED = RGBColor(0xBF, 0x1E, 0x2E)           # brand red (accent 1)
+RCS_RED_DARK = RGBColor(0x8F, 0x16, 0x22)      # heading red (accent 1, 75% shade)
+RCS_GRAY = RGBColor(0x6D, 0x6E, 0x71)          # brand gray (accent 2)
+RCS_EVIDENCE_FILL = 'F2F2F2'
+
+# Elements that must follow w:shd inside w:pPr (OOXML schema order)
+_PPR_AFTER_SHD = (
+    'w:tabs', 'w:suppressAutoHyphens', 'w:kinsoku', 'w:wordWrap',
+    'w:overflowPunct', 'w:topLinePunct', 'w:autoSpaceDE', 'w:autoSpaceDN',
+    'w:bidi', 'w:adjustRightInd', 'w:snapToGrid', 'w:spacing', 'w:ind',
+    'w:contextualSpacing', 'w:mirrorIndents', 'w:suppressOverlap', 'w:jc',
+    'w:textDirection', 'w:textAlignment', 'w:textboxTightWrap',
+    'w:outlineLvl', 'w:divId', 'w:cnfStyle', 'w:rPr', 'w:sectPr',
+    'w:pPrChange',
+)
+
+
+def _set_rfonts(rpr, name):
+    """Force a font on every script slot and drop theme-font overrides,
+    which otherwise take precedence over an explicit font name."""
+    rfonts = rpr.find(qn('w:rFonts'))
+    if rfonts is None:
+        rfonts = OxmlElement('w:rFonts')
+        rpr.insert(0, rfonts)
+    for attr in ('w:asciiTheme', 'w:hAnsiTheme', 'w:eastAsiaTheme', 'w:cstheme'):
+        rfonts.attrib.pop(qn(attr), None)
+    for attr in ('w:ascii', 'w:hAnsi', 'w:eastAsia', 'w:cs'):
+        rfonts.set(qn(attr), name)
+
+
+def _style_font(style, name=RCS_FONT, size=None, bold=None, italic=None,
+                color=None, small_caps=None):
+    font = style.font
+    font.name = name
+    _set_rfonts(style.element.get_or_add_rPr(), name)
+    if size is not None:
+        font.size = size
+    if bold is not None:
+        font.bold = bold
+    if italic is not None:
+        font.italic = italic
+    if small_caps is not None:
+        font.small_caps = small_caps
+    if color is not None:
+        font.color.rgb = color
+
+
+def apply_report_styles(doc):
+    """Apply the Red Cell template's fonts, colors, spacing and margins."""
+    # Document defaults: remove the default template's theme-font mapping
+    defaults = doc.styles.element.find(qn('w:docDefaults'))
+    if defaults is not None:
+        rpr = defaults.find(qn('w:rPrDefault') + '/' + qn('w:rPr'))
+        if rpr is not None:
+            _set_rfonts(rpr, RCS_FONT)
+
+    styles = doc.styles
+
+    normal = styles['Normal']
+    _style_font(normal, size=RCS_BODY_SIZE)
+    normal.paragraph_format.space_after = Pt(8)
+    normal.paragraph_format.line_spacing = 1.16
+
+    # Severity section headings, e.g. "High Severity Findings"
+    h2 = styles['Heading 2']
+    _style_font(h2, size=Pt(16), bold=True, italic=False,
+                color=RCS_RED_DARK, small_caps=True)
+    h2.paragraph_format.space_before = Pt(8)
+    h2.paragraph_format.space_after = Pt(4)
+    h2.paragraph_format.keep_with_next = True
+
+    # Individual finding titles
+    h3 = styles['Heading 3']
+    _style_font(h3, size=Pt(14), bold=False, italic=False,
+                color=RCS_RED_DARK, small_caps=True)
+    h3.paragraph_format.space_before = Pt(8)
+    h3.paragraph_format.space_after = Pt(4)
+    h3.paragraph_format.keep_with_next = True
+
+    _style_font(styles['List Bullet'])
+
+    for section in doc.sections:
+        section.top_margin = section.bottom_margin = Inches(1)
+        section.left_margin = section.right_margin = Inches(1)
+
+    # python-docx's stock template omits the required zoom percent attribute
+    zoom = doc.settings.element.find(qn('w:zoom'))
+    if zoom is not None and zoom.get(qn('w:percent')) is None:
+        zoom.set(qn('w:percent'), '100')
+
+    return doc
+
+
+def new_report_document():
+    return apply_report_styles(Document())
+
+
 def add_heading(doc, text, level=1):
-    heading = doc.add_heading(text, level=level)
-    for run in heading.runs:
-        run.font.name = 'Calibri (Headings)'
-        if level == 2:
-            run.font.size = Pt(13)
-        elif level == 3:
-            run.font.size = Pt(11)
-    return heading
+    """Add a heading; formatting comes from the styled Heading styles."""
+    return doc.add_heading(text, level=level)
 
 
 def add_paragraph(doc, text, bold=False, italic=False):
+    """Add a body paragraph in the template's Normal style."""
     para = doc.add_paragraph()
     run = para.add_run(text)
-    run.font.name = 'Arial'
-    run.font.size = Pt(11)
     if bold:
         run.bold = True
     if italic:
@@ -580,51 +683,56 @@ def add_paragraph(doc, text, bold=False, italic=False):
 
 
 def add_bullet(doc, text, level=0):
+    """Add a bulleted item"""
     para = doc.add_paragraph(text, style='List Bullet')
     if level > 0:
         para.paragraph_format.left_indent = Inches(0.5 * level)
-    for run in para.runs:
-        run.font.name = 'Arial'
-        run.font.size = Pt(11)
     return para
 
 
 def add_label(doc, text):
-    para = doc.add_paragraph()
-    run = para.add_run(text)
-    run.bold = True
-    run.font.name = 'Arial'
-    run.font.size = Pt(11)
-    return para
+    """Bold field label, e.g. 'Description:'"""
+    return add_paragraph(doc, text, bold=True)
 
 
 def add_kv(doc, key, value):
+    """Bold key followed by a plain value on one line"""
     para = doc.add_paragraph()
-    k = para.add_run(key)
-    k.bold = True
-    k.font.name = 'Arial'
-    k.font.size = Pt(11)
-    v = para.add_run(value)
-    v.font.name = 'Arial'
-    v.font.size = Pt(11)
+    para.add_run(key).bold = True
+    para.add_run(value)
     return para
 
 
 def add_na(doc, text='N/A'):
-    para = add_paragraph(doc, text)
-    para.runs[0].italic = True
-    para.runs[0].font.color.rgb = RGBColor(128, 128, 128)
+    """Placeholder for an empty field, in brand gray italics"""
+    para = add_paragraph(doc, text, italic=True)
+    para.runs[0].font.color.rgb = RCS_GRAY
     return para
 
 
 def add_evidence_block(doc, text):
-    para = doc.add_paragraph(text)
-    for run in para.runs:
-        run.font.name = 'Consolas'
-        run.font.size = Pt(10)
+    """Monospaced tool output on the template's light-gray fill"""
+    para = doc.add_paragraph()
+    run = para.add_run(text)
+    run.font.name = RCS_CODE_FONT
+    _set_rfonts(run._r.get_or_add_rPr(), RCS_CODE_FONT)
+    run.font.size = RCS_CODE_SIZE
+
+    ppr = para._p.get_or_add_pPr()
     shading = OxmlElement('w:shd')
-    shading.set(qn('w:fill'), 'D9D9D9')
-    para._p.get_or_add_pPr().append(shading)
+    shading.set(qn('w:val'), 'clear')
+    shading.set(qn('w:color'), 'auto')
+    shading.set(qn('w:fill'), RCS_EVIDENCE_FILL)
+    successor = next((ppr.find(qn(tag)) for tag in _PPR_AFTER_SHD
+                      if ppr.find(qn(tag)) is not None), None)
+    if successor is not None:
+        successor.addprevious(shading)
+    else:
+        ppr.append(shading)
+
+    fmt = para.paragraph_format
+    fmt.space_after = Pt(8)
+    fmt.line_spacing = 1.0
     return para
 
 
@@ -645,7 +753,7 @@ def render_evidence(doc, finding):
 def generate_report(organized_findings, output_file):
     print(f"[*] Generating DOCX report...")
     try:
-        doc = Document()
+        doc = new_report_document()
 
         for severity in SEVERITY_ORDER:
             findings = organized_findings.get(severity, [])
@@ -690,10 +798,7 @@ def generate_report(organized_findings, output_file):
                         add_paragraph(doc, ", ".join(cve_ids))
                     else:
                         for ref in finding.references:
-                            para = doc.add_paragraph(ref)
-                            for run in para.runs:
-                                run.font.name = 'Arial'
-                                run.font.size = Pt(11)
+                            add_paragraph(doc, ref)
                 else:
                     add_na(doc, 'None')
 
