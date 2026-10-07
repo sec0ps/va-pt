@@ -14,7 +14,9 @@ The VAPT Toolkit installs, configures, and maintains a complete penetration test
 | `darkweb-recon/` | Tor-based dark web recon with a multi-user web console |
 | `tools/` | Custom recon, enumeration, exploitation, and utility scripts |
 | `reporting/` | Scan-output parsers and report generators for client deliverables |
-| `raspbian/` | Wireless attack framework and portable deployment scripts |
+| `wireless/` | Wireless attack framework (scan, deauth/DoS, evil-twin, captive portal, handshake/PMKID, WPA3 downgrade, WEP) and interface management |
+| `spectrum_analysis/` | SDR spectrum capture and analysis (HackRF / PortaPack) |
+| `raspbian/` | Portable/dropbox deployment scripts |
 | `misc/` | Lab support tooling |
 
 ## Installation
@@ -131,16 +133,15 @@ Because this tool fetches hostile content from onion services, run it inside a d
 - **vapt_report_parser.py** - Unified parser converting Nessus, Burp, and ZAP XML plus manual report DOCX into DOCX deliverables and DefectDojo JSON
 - **zap_cleanup.py** - ZAP output normalization and noise reduction
 
-## Wireless Attack Framework (`raspbian/`)
+## Wireless Attack Framework (`wireless/`)
 
-- **wireless_attack_framework.py** - Custom Python framework integrating the aircrack-ng suite, with automated WPA/WPA2 handshake capture using mdk3 deauth
-- **wireless-connect.py** and **wireless-mgmt.py** - Interface and connection management for portable deployment
-- **installer.py** - Standalone installer for portable wireless deployments
+- **wireless_attack_framework.py** - Dual-interface monitor-mode framework over the aircrack-ng suite: security-classified live scanning (OPEN / WEP / WPA-PSK / WPA2-PSK / WPA3-SAE / WPA3-MIX / WPA-ENT / OWE), a queued set of deauth/DoS (mdk4), evil-twin and captive-portal, WPA/WPA2 handshake and PMKID capture, a WPA3 WPA2-downgrade rogue, and WEP attacks - with host-state snapshot/restore and persistent 0600 loot
+- **eap_rogue.py** - EAP / WPA-Enterprise credential-capture rogue AP (eaphammer front end) with optional hostile-portal AD credential capture, for 802.1X networks that expose no PSK to capture via a 4-way handshake
+- **wireless-connect.py** and **wireless-mgmt.py** - Wireless interface and connection management
 
 ## Lab and Misc (`misc/`)
 
 - **deploy_metasploitable.py** - Deploy and tear down Metasploitable2 on a Docker macvlan for lab targets
-- **if2cidr.py** - Interface-to-CIDR helper for lab scoping
 
 ## Installed Tool Categories
 
@@ -157,6 +158,7 @@ The installer provisions a broad third-party tool set across the following categ
 | Credentials | John the Ripper, Hashcat, SecLists |
 | OSINT | theHarvester, Recon-ng, SpiderFoot |
 | MITM and Capture | bettercap, Responder |
+| Wireless | aircrack-ng suite, Kismet, mdk4, eaphammer, hcxtools |
 
 ## Professional Services
 
