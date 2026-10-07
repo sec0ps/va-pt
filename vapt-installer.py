@@ -614,7 +614,15 @@ def install_base_dependencies():
         "pkg-config", "libnl-3-dev", "libnl-genl-3-dev", "ethtool", "shtool", "rfkill",
         "libpcre3-dev", "libhwloc-dev", "libcmocka-dev", "hostapd", "wpasupplicant",
         "tcpdump", "iw", "usbutils", "python3-dnspython", "python3-aiofiles",
-        "python3-watchdog", "python3-pandas"
+        "python3-watchdog", "python3-pandas",
+        # wireless/wireless_attack_framework.py deps: DoS (mdk4), captive-portal
+        # DHCP/DNS (dnsmasq-base = binary only, no port-53 service to fight
+        # systemd-resolved), portal-clone form rewrite (python3-bs4) and fetch
+        # (wget), adapter management (network-manager/nmcli), and host-firewall
+        # snapshot/restore + portal DNAT (iptables). iw / hcxtools / hostapd /
+        # aircrack-ng are already provisioned above and via the source build.
+        "mdk4", "dnsmasq-base", "python3-bs4", "wget", "network-manager",
+        "iptables"
     ]
 
     missing_apt = filter_uninstalled_apt(apt_packages)
@@ -859,6 +867,12 @@ def install_toolkit_packages():
     wireless_tools = [
         ("https://github.com/g4ixt/QtTinySA.git", "/vapt/wireless/QtTinySA", [f"{PIP} -r requirements.txt"]),
         ("https://github.com/xmikos/qspectrumanalyzer.git", "/vapt/wireless/qspectrumanalyzer", [f"sudo {PIP} ."]),
+        # eaphammer: EAP/WPA-Enterprise rogue AP, front-ended by tools/eap_rogue.py.
+        # Its ubuntu-unattended-setup pulls its own apt deps and builds a local
+        # OpenSSL + patched hostapd; --bootstrap generates the one-time self-signed
+        # RADIUS cert non-interactively.
+        ("https://github.com/s0lst1c3/eaphammer.git", "/vapt/wireless/eaphammer",
+         ["sudo ./ubuntu-unattended-setup", "sudo ./eaphammer --bootstrap"]),
     ]
 
     # Aircrack-ng (source build; tarball, not a git repo)
@@ -1030,9 +1044,10 @@ def update_toolsets():
     for tool in osint_tools:
         run_command(f"cd {tool} && git pull")
 
-    print("Updating Wireless Signal Analysis Tools")
+    print("Updating Wireless Tools")
     wireless_tools = [
-        "/vapt/wireless/QtTinySA", "/vapt/wireless/qspectrumanalyzer"
+        "/vapt/wireless/QtTinySA", "/vapt/wireless/qspectrumanalyzer",
+        "/vapt/wireless/eaphammer"
     ]
     for tool in wireless_tools:
         run_command(f"cd {tool} && git pull")
