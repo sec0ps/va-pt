@@ -802,6 +802,23 @@ def configure_time_sync():
     print(f"  {status or 'timedatectl status unavailable'}")
 
 
+def finalize_pipx_path():
+    """Make pipx-installed console scripts (netexec/nxc, impacket, dnsrecon, etc.)
+    reachable. `pipx ensurepath` adds ~/.local/bin to the login PATH by editing the
+    shell rc, but that only affects FUTURE shells - this installer's own process and
+    the operator's current shell won't see it until a re-login. So: run ensurepath to
+    persist it, prepend ~/.local/bin to THIS process's PATH so any later step in the
+    same run can find pipx tools, and tell the operator to open a new shell / source
+    their rc. A running process cannot alter its parent shell, so `source ~/.bashrc`
+    is an instruction to the operator, not something the installer can do for them."""
+    run_command("pipx ensurepath")
+    local_bin = os.path.expanduser("~/.local/bin")
+    if os.path.isdir(local_bin) and local_bin not in os.environ.get("PATH", "").split(":"):
+        os.environ["PATH"] = f"{local_bin}:{os.environ['PATH']}"
+    print(f"pipx tools are in {local_bin} (added to PATH for future shells).")
+    print("  -> For your CURRENT shell, run:  source ~/.bashrc   (or open a new terminal)")
+
+
 def install_base_dependencies():
     global PIP
     print("Performing system update and upgrade before installing package dependencies...")
@@ -921,7 +938,6 @@ def install_base_dependencies():
         print("NetExec already installed, skipping.")
     else:
         print("Installing NetExec...")
-        run_command("pipx ensurepath")
         py = ensure_modern_python()
         if py:
             install_one("pipx",
@@ -930,6 +946,10 @@ def install_base_dependencies():
         else:
             print("  Skipping NetExec: no interpreter meeting its Python floor is available.")
             FAILED_PACKAGES.append("pipx: netexec (no Python >= 3.11 interpreter)")
+
+    # All base-deps pipx installs are done; persist ~/.local/bin on PATH and make it
+    # usable for the rest of this run.
+    finalize_pipx_path()
 
     # Ruby via rbenv (self-contained and idempotent)
     install_ruby()
@@ -1375,6 +1395,10 @@ def install_selected_categories(selected):
     # is in scope (the categories whose workflows drive it).
     if selected & {"exploitation", "wireless"}:
         install_bettercap()
+
+    # Some categories install pipx tools (pacu, ldapdomaindump); make sure their
+    # console scripts are on PATH and the operator knows to refresh their shell.
+    finalize_pipx_path()
 
     write_manifest(selected)
     print("\nToolkit packages install pass complete.")
