@@ -21,8 +21,8 @@
 """
 scanner.py - all nmap interaction and result parsing.
 
-Two-phase by design. discover() runs a single fast SYN pass over the whole scope
-to find live hosts and open ports. vulners_scan() then runs version detection plus
+Two-phase by design. discover() runs a single fast TCP connect pass over the whole
+scope to find live hosts and open ports. vulners_scan() then runs version detection plus
 the vulners script per host against only the confirmed open ports, which keeps the
 expensive pass narrow. nse_verify() runs a curated set of NSE vuln scripts during
 the check phase to corroborate vulners hits.
@@ -95,7 +95,7 @@ class ScanConfig:
     timing: str = "-T4"
     mincvss: float = 7.0
     discovery_timeout: int | None = None  # bulk pass; None means no wall limit
-    full_ports: bool = True             # phase 2: full SYN sweep of every port
+    full_ports: bool = True             # phase 2: full connect sweep of every port
     port_scan_timeout: int = 900        # per-host -p- sweep wall limit
     vulners_timeout: int = 600
     nse_timeout: int = 180
@@ -188,8 +188,8 @@ class Scanner:
     # -- discovery (bulk) --
 
     def discover(self, targets):
-        """Single SYN pass over all targets. Returns {ip: DiscoveryResult}. Hosts
-        with no open ports come back up=False. Caller should chunk very large
+        """Single TCP connect pass over all targets. Returns {ip: DiscoveryResult}.
+        Hosts with no open ports come back up=False. Caller should chunk very large
         scopes across multiple discover() calls to bound memory."""
         if not targets:
             return {}
@@ -198,7 +198,7 @@ class Scanner:
             for t in targets:
                 f.write(f"{t}\n")
         try:
-            args = ["-sS", "-Pn", "-n", self.cfg.timing]
+            args = ["-sT", "-Pn", "-n", self.cfg.timing]
             if self.cfg.discovery_ports:
                 args += ["-p", self.cfg.discovery_ports]
             else:
@@ -222,11 +222,11 @@ class Scanner:
     # -- vulners (per host) --
 
     def _discover_open_ports(self, ip, timeout):
-        """Fast SYN-only sweep of all 65535 ports. No -sV, -O, or scripts, so it
+        """Fast TCP connect sweep of all 65535 ports. No -sV, -O, or scripts, so it
         stays well under the wall even on a host with many services. Returns the
         open port numbers; if nmap times out, the ports found before the cutoff are
         still returned from the partial XML."""
-        args = ["-sS", "-Pn", "-n", self.cfg.timing, "-p-"]
+        args = ["-sT", "-Pn", "-n", self.cfg.timing, "-p-"]
         args += list(self.cfg.extra_args)
         args += [ip]
         root = self._run_nmap(args, timeout)
@@ -246,10 +246,10 @@ class Scanner:
 
     def vulners_scan(self, ip, ports=None):
         """Version detection plus vulners, in two stages when sweeping all ports.
-        A single -sS -sV -O --script vulners pass over -p- times out on hosts with
+        A single -sT -sV -O --script vulners pass over -p- times out on hosts with
         many services (nmap marks the host timedout and emits no port data), so with
-        full_ports set this first runs a fast SYN-only sweep to find the open ports,
-        then runs the heavy -sV/-O/vulners pass only against those. When explicit
+        full_ports set this first runs a fast TCP connect sweep to find the open
+        ports, then runs the heavy -sV/-O/vulners pass only against those. When explicit
         ports are given, it scans just those in one pass. Returns (hostname,
         os_family, [Service]) with CVEs attached. os_family prefers nmap -O stack
         fingerprinting (gated by an accuracy floor and kept distinct for BSD
@@ -263,7 +263,7 @@ class Scanner:
             return "", "", []
         port_args = ["-p", ",".join(str(p) for p in ports)]
         timeout = self.cfg.vulners_timeout
-        args = ["-sS", "-sV", "-O", "-Pn", self.cfg.timing,
+        args = ["-sT", "-sV", "-O", "-Pn", self.cfg.timing,
                 "--script", "vulners",
                 "--script-args", f"mincvss={self.cfg.mincvss}"]
         args += port_args
