@@ -636,7 +636,7 @@ def install_base_dependencies():
 
     apt_packages = [
         "vim", "subversion", "landscape-common", "ufw", "openssh-server", "net-tools",
-        "mlocate", "ntpdate", "screen", "whois", "libtool-bin", "make", "gcc", "ncftp",
+        "plocate", "ntpdate", "screen", "whois", "libtool-bin", "make", "gcc", "ncftp",
         "rar", "p7zip-full", "curl", "libpcap-dev", "libssl-dev", "hping3", "libssh-dev",
         "g++", "arp-scan", "wifite", "ruby-bundler", "freerdp2-dev", "libsqlite3-dev",
         "nbtscan", "dsniff", "apache2", "secure-delete", "autoconf", "libpq-dev",
