@@ -580,28 +580,44 @@ def ensure_modern_python():
     Prefers the system python3 when it is already new enough; otherwise co-installs
     python3.11 from the deadsnakes PPA (leaving the system default untouched). Returns
     the interpreter name/path to hand pipx via --python, or '' if none is available."""
+    def _ensure_dev(dev_pkg):
+        """Install the interpreter's dev headers if missing. NetExec's netifaces (and
+        other C extensions) compile against Python.h; without the matching -dev package
+        the wheel build fails. Idempotent - filter_uninstalled_apt skips it if present."""
+        if filter_uninstalled_apt([dev_pkg]):
+            install_one("apt",
+                        f"sudo DEBIAN_FRONTEND=noninteractive apt-get install -y {dev_pkg}",
+                        dev_pkg)
+
     sys_ver = _py_version("python3")
     if sys_ver and sys_ver >= MIN_PIPX_PY:
         print(f"System python3 is {sys_ver[0]}.{sys_ver[1]} (>= {MIN_PIPX_PY[0]}.{MIN_PIPX_PY[1]}); "
               "no separate interpreter needed.")
+        _ensure_dev("python3-dev")
         return "python3"
 
-    # Already co-installed from a previous run?
+    # Already co-installed from a previous run? Still make sure its -dev headers exist
+    # (an earlier run may have installed the interpreter without them).
     want = f"python{MIN_PIPX_PY[0]}.{MIN_PIPX_PY[1]}"
     if subprocess.run(f"command -v {want}", shell=True,
                       capture_output=True).returncode == 0:
         print(f"{want} already present for pipx tools that need it.")
+        _ensure_dev(f"{want}-dev")
         return want
 
     print(f"System python3 is {sys_ver[0]}.{sys_ver[1] if sys_ver else '?'}; "
           f"installing {want} alongside it (system default unchanged).")
     # deadsnakes carries current Python builds for LTS releases; add it, then install
-    # only the interpreter + venv module. No update-alternatives, no symlink swap.
+    # the interpreter, its venv module, AND its dev headers. The headers ({want}-dev)
+    # are required: NetExec pulls C-extension deps (netifaces) that compile against
+    # Python.h, and without the matching 3.11 headers the wheel build fails. No
+    # update-alternatives, no symlink swap - the system default stays put.
     run_command("sudo add-apt-repository -y ppa:deadsnakes/ppa")
     run_command("sudo DEBIAN_FRONTEND=noninteractive apt-get update")
     if not run_command(
-            f"sudo DEBIAN_FRONTEND=noninteractive apt-get install -y {want} {want}-venv"):
-        print(f"  WARNING: could not install {want}. Tools requiring "
+            f"sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "
+            f"{want} {want}-venv {want}-dev"):
+        print(f"  WARNING: could not install {want} (+ venv/dev). Tools requiring "
               f">= {MIN_PIPX_PY[0]}.{MIN_PIPX_PY[1]} (e.g. NetExec) will not install.")
         FAILED_PACKAGES.append(f"apt: {want} (needed for NetExec and other modern pipx tools)")
         return ""
@@ -756,6 +772,36 @@ def manage_boot_services():
         print(f"  {name}: {states}")
 
 
+def configure_time_sync():
+    """Ensure the clock is NTP-synced via systemd-timesyncd, the modern Ubuntu time
+    source. Replaces the old one-shot `ntpdate`, which on 22.04+ is transitional and
+    can drag in the full `ntp` (ntpd) server - and ntpd's postinst fails whenever
+    timesyncd (or any other daemon) already holds UDP/123, breaking the whole apt run.
+    timesyncd ships with systemd and is mutually exclusive with ntpd, so this never
+    fights for the port. Idempotent."""
+    print("Configuring time synchronization (systemd-timesyncd)...")
+
+    # On minimal/container images timesyncd may be a split-out package; install only
+    # if its unit is absent. On a normal desktop/server image it is already present.
+    have_unit = subprocess.run(
+        "systemctl list-unit-files systemd-timesyncd.service 2>/dev/null",
+        shell=True, capture_output=True, text=True).stdout
+    if "systemd-timesyncd" not in have_unit:
+        install_one("apt",
+                    "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y systemd-timesyncd",
+                    "systemd-timesyncd")
+
+    # Enable NTP (this is what activates timesyncd) and start it. timedatectl is the
+    # supported control surface; it refuses if a conflicting daemon like ntpd is active,
+    # so a clean host with no ntpd just works.
+    run_command("sudo systemctl enable --now systemd-timesyncd >/dev/null 2>&1")
+    run_command("sudo timedatectl set-ntp true")
+
+    status = subprocess.run("timedatectl show -p NTP -p NTPSynchronized 2>/dev/null",
+                            shell=True, capture_output=True, text=True).stdout.strip()
+    print(f"  {status or 'timedatectl status unavailable'}")
+
+
 def install_base_dependencies():
     global PIP
     print("Performing system update and upgrade before installing package dependencies...")
@@ -769,7 +815,7 @@ def install_base_dependencies():
     # tshark/tcpdump) stay in base deliberately.
     apt_packages = [
         "vim", "subversion", "landscape-common", "ufw", "openssh-server", "net-tools",
-        "plocate", "ntpdate", "screen", "whois", "libtool-bin", "make", "gcc", "ncftp",
+        "plocate", "screen", "whois", "libtool-bin", "make", "gcc", "ncftp",
         "rar", "p7zip-full", "curl", "libpcap-dev", "libssl-dev", "hping3", "libssh-dev",
         "g++", "arp-scan", "ruby-bundler", "freerdp2-dev", "libsqlite3-dev",
         "nbtscan", "dsniff", "apache2", "secure-delete", "autoconf", "libpq-dev",
@@ -801,6 +847,10 @@ def install_base_dependencies():
 
     # refresh PEP 668 flag detection now that pip may have just been installed/upgraded
     PIP = "pip3 install" + pip_flags()
+
+    # Clock sync via systemd-timesyncd (replaces ntpdate, which could pull ntpd and
+    # fail on the already-bound NTP port).
+    configure_time_sync()
 
     run_command("sudo usermod -aG docker $USER")
     run_command("sudo snap install powershell --classic")
