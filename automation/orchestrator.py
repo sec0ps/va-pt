@@ -1380,7 +1380,7 @@ def _setup_logging(args):
 
 def _parse_args(argv):
     p = argparse.ArgumentParser(
-        prog="vapt-orchestrator",
+        prog="Latchkey-Engine",
         description="nmap + vulners + metasploit orchestration (authorized use)")
     p.add_argument("targets", nargs="*", help="IPs, CIDRs, ranges, or hostnames")
     p.add_argument("-iL", "--target-file", help="file of targets, one per line")
@@ -1401,6 +1401,17 @@ def _parse_args(argv):
     p.add_argument("--no-full-ports", action="store_true",
                    help="phase 2: scan only discovered ports instead of all 65535")
     p.add_argument("--mincvss", type=float, default=7.0)
+    # Port-scan technique. TCP connect (-sT) is the default: it completes the
+    # handshake, so it sees ports that raw SYN reports "filtered" on paths that drop
+    # crafted packets (virtual switches, L2 filtering) - the common failure where
+    # discovery finds 0 live hosts against a host that is plainly up. --syn-scan opts
+    # back into raw SYN (-sS, needs root), which is faster and stealthier where the
+    # path passes it.
+    scan = p.add_mutually_exclusive_group()
+    scan.add_argument("--syn-scan", dest="syn_scan", action="store_true",
+                      default=False, help="use raw SYN (-sS) instead of TCP connect")
+    scan.add_argument("--connect-scan", dest="syn_scan", action="store_false",
+                      help="use TCP connect (-sT); this is the default")
     p.add_argument("--timing", default="-T4")
     p.add_argument("--candidates-per-service", type=int, default=5)
     p.add_argument("--min-rank", default="good",
@@ -1583,6 +1594,7 @@ def main(argv=None):
 
     scfg = ScanConfig(nmap_path=args.nmap_path, discovery_top_ports=args.top_ports,
                       discovery_ports=args.ports or "", timing=args.timing,
+                      scan_flag=("-sS" if args.syn_scan else "-sT"),
                       mincvss=args.mincvss, full_ports=not args.no_full_ports,
                       nmap_out_dir=args.nmap_out_dir or "")
     scanner = Scanner(scfg, on_activity=run.record_activity)
