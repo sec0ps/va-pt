@@ -560,6 +560,59 @@ def detect_ubuntu_codename():
     return {"20.04": "focal", "22.04": "jammy", "24.04": "noble"}.get(version_id, "")
 
 
+# Minimum Python for the newest pipx tools (NetExec requires >=3.11). On 22.04 the
+# system python3 is 3.10, so these tools need a co-installed newer interpreter - NOT
+# a change to the system default, which would break apt/netplan/ufw built against 3.10.
+MIN_PIPX_PY = (3, 11)
+
+def _py_version(binary):
+    """Return (major, minor) for a python binary, or None if it won't run."""
+    out = subprocess.run(
+        f"{binary} -c 'import sys; print(f\"{{sys.version_info.major}}.{{sys.version_info.minor}}\")'",
+        shell=True, capture_output=True, text=True)
+    if out.returncode != 0:
+        return None
+    m = re.match(r"(\d+)\.(\d+)", out.stdout.strip())
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+def ensure_modern_python():
+    """Resolve an interpreter that meets MIN_PIPX_PY for pipx tools that require it.
+    Prefers the system python3 when it is already new enough; otherwise co-installs
+    python3.11 from the deadsnakes PPA (leaving the system default untouched). Returns
+    the interpreter name/path to hand pipx via --python, or '' if none is available."""
+    sys_ver = _py_version("python3")
+    if sys_ver and sys_ver >= MIN_PIPX_PY:
+        print(f"System python3 is {sys_ver[0]}.{sys_ver[1]} (>= {MIN_PIPX_PY[0]}.{MIN_PIPX_PY[1]}); "
+              "no separate interpreter needed.")
+        return "python3"
+
+    # Already co-installed from a previous run?
+    want = f"python{MIN_PIPX_PY[0]}.{MIN_PIPX_PY[1]}"
+    if subprocess.run(f"command -v {want}", shell=True,
+                      capture_output=True).returncode == 0:
+        print(f"{want} already present for pipx tools that need it.")
+        return want
+
+    print(f"System python3 is {sys_ver[0]}.{sys_ver[1] if sys_ver else '?'}; "
+          f"installing {want} alongside it (system default unchanged).")
+    # deadsnakes carries current Python builds for LTS releases; add it, then install
+    # only the interpreter + venv module. No update-alternatives, no symlink swap.
+    run_command("sudo add-apt-repository -y ppa:deadsnakes/ppa")
+    run_command("sudo DEBIAN_FRONTEND=noninteractive apt-get update")
+    if not run_command(
+            f"sudo DEBIAN_FRONTEND=noninteractive apt-get install -y {want} {want}-venv"):
+        print(f"  WARNING: could not install {want}. Tools requiring "
+              f">= {MIN_PIPX_PY[0]}.{MIN_PIPX_PY[1]} (e.g. NetExec) will not install.")
+        FAILED_PACKAGES.append(f"apt: {want} (needed for NetExec and other modern pipx tools)")
+        return ""
+
+    if subprocess.run(f"command -v {want}", shell=True,
+                      capture_output=True).returncode == 0:
+        print(f"  {want}: installed.")
+        return want
+    return ""
+
+
 def install_kismet():
     """Install Kismet from the official kismetwireless.net apt repo, matched to
     the running Ubuntu release. Ubuntu ships no kismet package. Kismet builds
@@ -809,14 +862,23 @@ def install_base_dependencies():
     if os.path.isdir(cargo_path) and cargo_path not in os.environ.get('PATH', ''):
         os.environ['PATH'] = f"{cargo_path}:{os.environ['PATH']}"
 
-    # Install NetExec (skip if already present)
+    # Install NetExec (skip if already present). NetExec requires Python >= 3.11,
+    # which 22.04's system 3.10 does not meet - pin its venv to a modern interpreter
+    # rather than the pipx default.
     netexec_check = subprocess.run("pipx list", shell=True, capture_output=True, text=True)
     if "netexec" in netexec_check.stdout.lower():
         print("NetExec already installed, skipping.")
     else:
         print("Installing NetExec...")
         run_command("pipx ensurepath")
-        install_one("pipx", "pipx install git+https://github.com/Pennyw0rth/NetExec", "netexec")
+        py = ensure_modern_python()
+        if py:
+            install_one("pipx",
+                        f"pipx install --python {py} git+https://github.com/Pennyw0rth/NetExec",
+                        "netexec")
+        else:
+            print("  Skipping NetExec: no interpreter meeting its Python floor is available.")
+            FAILED_PACKAGES.append("pipx: netexec (no Python >= 3.11 interpreter)")
 
     # Ruby via rbenv (self-contained and idempotent)
     install_ruby()
