@@ -40,9 +40,11 @@ import subprocess
 import sys
 import re
 import glob
+import json
 import datetime
 
 LOG_PATH = "/vapt/install_failures.log"
+MANIFEST_PATH = "/vapt/.install_manifest.json"
 
 FAILED_PACKAGES = []
 
@@ -103,6 +105,44 @@ def print_failure_summary():
         print("=" * 60)
     else:
         print("\nAll attempted packages installed successfully.")
+
+# ---------------------------------------------------------------------------
+# Install manifest: persistent record of which tool categories are installed on
+# THIS host, so `update_toolsets()` only touches what was actually installed. A
+# WSL host that skipped the wireless category must not try to git-pull or rebuild
+# wireless tools that were never cloned. Shape: {"categories": [<slug>, ...],
+# "updated": "<iso8601>"}. Writes union into the existing set so re-running the
+# installer with a different subset adds categories rather than replacing them.
+# ---------------------------------------------------------------------------
+
+def read_manifest():
+    """Return the set of installed category slugs, or None if no manifest exists.
+    None is meaningful: it marks a pre-manifest install, which update_toolsets()
+    treats as 'update everything' for backward compatibility."""
+    if not os.path.exists(MANIFEST_PATH):
+        return None
+    try:
+        with open(MANIFEST_PATH) as f:
+            data = json.load(f)
+        return set(data.get("categories", []))
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"  WARNING: manifest at {MANIFEST_PATH} is unreadable ({e}); "
+              "treating host as un-tracked (update will cover all categories).")
+        return None
+
+def write_manifest(categories):
+    """Union `categories` into the manifest and persist it. Never shrinks the
+    tracked set on its own - a category is only removed by an explicit rebuild."""
+    existing = read_manifest() or set()
+    merged = sorted(existing | set(categories))
+    data = {"categories": merged, "updated": datetime.datetime.now().isoformat()}
+    try:
+        with open(MANIFEST_PATH, "w") as f:
+            json.dump(data, f, indent=2)
+        print(f"Install manifest updated: {', '.join(merged)}")
+    except OSError as e:
+        print(f"  WARNING: could not write manifest to {MANIFEST_PATH} ({e}). "
+              "Update runs will fall back to covering all categories.")
 
 def git_pull_changed(path):
     result = subprocess.run(f"cd {path} && git pull", shell=True,
@@ -755,8 +795,10 @@ def install_base_dependencies():
     print("Base toolkit dependency install pass complete.")
     print_failure_summary()
 
-def install_toolkit_packages():
-    # rbenv shims first so Metasploit's bundle resolves the 3.3.9 Ruby, not system Ruby
+def _toolkit_path_env():
+    """Put rbenv shims, Go, and GOPATH bin on PATH for this process. rbenv shims
+    first so Metasploit's bundle resolves the 3.3.9 Ruby, not system Ruby. Shared
+    by the install and update passes so both build against the same toolchain."""
     os.environ['GOROOT'] = '/usr/local/go'
     os.environ.setdefault('GOPATH', os.path.expanduser('~/go'))
     os.environ['PATH'] = (
@@ -765,181 +807,381 @@ def install_toolkit_packages():
         f"/usr/local/go/bin:{os.path.expanduser('~/go/bin')}:"
         f"{os.environ.get('PATH', '')}"
     )
-    print("Installing toolkit packages...")
 
-    exploitation_tools = [
-        ("https://github.com/trustedsec/social-engineer-toolkit.git", "/vapt/exploits/social-engineer-toolkit", [f"{PIP} -r requirements.txt"]),
-        ("https://gitlab.com/exploit-database/exploitdb.git", "/vapt/exploits/exploitdb", None),
-        ("https://github.com/Tantalum-Labs/Responder-NG.git", "/vapt/exploits/Responder-NG", None),
-        ("https://github.com/beefproject/beef.git", "/vapt/exploits/beef", None),
-        ("https://github.com/xFreed0m/ADFSpray.git", "/vapt/exploits/ADFSpray", [f"{PIP} -r requirements.txt"]),
-        ("https://github.com/gentilkiwi/mimikatz.git", "/vapt/exploits/mimikatz", None),
-        ("https://github.com/byt3bl33d3r/DeathStar.git", "/vapt/exploits/DeathStar", [f"{PIP} -r requirements.txt"]),
-        ("https://github.com/cobbr/Covenant.git", "/vapt/exploits/Covenant", None),
-        ("https://github.com/Ne0nd0g/merlin.git", "/vapt/exploits/merlin", ["sed -i '/^toolchain/d' go.mod", "PATH=/usr/local/go/bin:$PATH /usr/local/go/bin/go mod tidy", "PATH=/usr/local/go/bin:$PATH make"]),
-        ("https://github.com/byt3bl33d3r/SILENTTRINITY.git", "/vapt/exploits/SILENTTRINITY", [f"{PIP} -r requirements.txt"]),
-        ("https://github.com/assetnote/kiterunner.git", "/vapt/web/kiterunner", ["make build"]),
-        ("https://github.com/projectdiscovery/httpx.git", "/vapt/web/httpx", ["/usr/local/go/bin/go install ./cmd/httpx"]),
-        ("https://github.com/ffuf/ffuf.git", "/vapt/web/ffuf", ["/usr/local/go/bin/go build"]),
-        ("https://github.com/maurosoria/dirsearch.git", "/vapt/web/dirsearch", None),
-        ("https://github.com/MatheuZSecurity/D3m0n1z3dShell.git", "/vapt/exploits/D3m0n1z3dShell", ["chmod +x demonizedshell.sh"])
-    ]
-
-    # Metasploit Framework (vendored bundle install to avoid system gem path / sudo)
+def build_metasploit():
+    """Metasploit Framework (vendored bundle install to avoid system gem path / sudo)."""
     msf_dir = "/vapt/exploits/metasploit-framework"
     if os.path.exists(msf_dir):
         print("Metasploit Framework already installed, skipping.")
-    else:
-        print("Installing Metasploit Framework")
-        run_command(f"git clone https://github.com/rapid7/metasploit-framework.git {msf_dir}")
-        # pin MSF to the rbenv Ruby this installer provides (3.3.9), not the upstream .ruby-version
-        run_command(f"echo '3.3.9' > {msf_dir}/.ruby-version")
-        run_command(f"cd {msf_dir} && bundle config set --local path vendor/bundle")
-        run_command(f"cd {msf_dir} && bundle install")
+        return
+    print("Installing Metasploit Framework")
+    run_command(f"git clone https://github.com/rapid7/metasploit-framework.git {msf_dir}")
+    # pin MSF to the rbenv Ruby this installer provides (3.3.9), not the upstream .ruby-version
+    run_command(f"echo '3.3.9' > {msf_dir}/.ruby-version")
+    run_command(f"cd {msf_dir} && bundle config set --local path vendor/bundle")
+    run_command(f"cd {msf_dir} && bundle install")
 
-    container_cloud_tools = [
-        ("https://github.com/aquasecurity/trivy.git", "/vapt/cloud/trivy", None),
-        ("https://github.com/RhinoSecurityLabs/pacu.git", "/vapt/cloud/pacu", ["pipx install /vapt/cloud/pacu"]),
-    ]
-
-    web_tools = [
-        ("https://github.com/sullo/nikto.git", "/vapt/web/nikto", None),
-        ("https://github.com/JohnTroony/php-webshells.git", "/vapt/web/php-webshells", None),
-        ("https://github.com/wireghoul/htshells.git", "/vapt/web/htshells", None),
-        ("https://github.com/urbanadventurer/WhatWeb.git", "/vapt/web/WhatWeb", None),
-        ("https://github.com/siberas/watobo.git", "/vapt/web/watobo", None),
-        ("https://github.com/projectdiscovery/nuclei.git", "/vapt/web/nuclei", ["/usr/local/go/bin/go build -o nuclei ./cmd/nuclei", "sudo install -m 755 nuclei /usr/local/bin/nuclei"]),
-        ("https://github.com/projectdiscovery/katana.git", "/vapt/web/katana", ["/usr/local/go/bin/go build -o katana ./cmd/katana", "sudo install -m 755 katana /usr/local/bin/katana"]),
-        ("https://github.com/rezasp/joomscan.git", "/vapt/web/joomscan", None),
-        ("https://github.com/s0md3v/XSStrike.git", "/vapt/web/XSStrike", [f"{PIP} -r requirements.txt"]),
-        ("https://github.com/wapiti-scanner/wapiti.git", "/vapt/web/wapiti", [f"sudo {PIP} ."]),
-        ("https://github.com/com-puter-tips/Links-Extractor.git", "/vapt/web/Links-Extractor", [f"{PIP} -r requirements.txt"]),
-    ]
-
-    ad_windows_tools = [
-       ("https://github.com/BloodHoundAD/BloodHound.git", "/vapt/ad_windows/BloodHound", None),
-       ("https://github.com/mattifestation/PowerSploit.git", "/vapt/ad_windows/PowerSploit", None),
-       ("https://github.com/CroweCybersecurity/ps1encode.git", "/vapt/ad_windows/ps1encode", None),
-       ("https://github.com/Kevin-Robertson/Invoke-TheHash.git", "/vapt/ad_windows/Invoke-TheHash", None),
-       ("https://github.com/p3nt4/PowerShdll.git", "/vapt/ad_windows/PowerShdll", None),
-       ("https://github.com/GhostPack/Rubeus.git", "/vapt/ad_windows/Rubeus", None),
-       ("https://github.com/dirkjanm/ldapdomaindump.git", "/vapt/ad_windows/ldapdomaindump", ["pipx install /vapt/ad_windows/ldapdomaindump"]),
-       ("https://github.com/adityatelange/evil-winrm-py.git", "/vapt/ad_windows/evil-winrm-py", [f"sudo {PIP} ."]),
-    ]
-
-    mobile_tools = [
-        ("https://github.com/MobSF/Mobile-Security-Framework-MobSF.git", "/vapt/mobile/MobSF", [f"{PIP} -r requirements.txt"]),
-        ("https://github.com/sensepost/objection.git", "/vapt/mobile/objection", [f"{PIP} objection"]),
-    ]
-
-    network_tools = [
-        ("https://github.com/robertdavidgraham/masscan.git", "/vapt/network/masscan", ["make"]),
-        ("https://github.com/OWASP/Amass.git", "/vapt/network/Amass", ["/usr/local/go/bin/go install -v ./cmd/amass/..."]),
-    ]
-
-    # JohnTheRipper (source build)
+def build_johntheripper():
+    """JohnTheRipper (source build)."""
     jtr_dir = "/vapt/passwords/JohnTheRipper"
     if os.path.exists(jtr_dir):
         print("JohnTheRipper already installed, skipping.")
-    else:
-        print("Installing JohnTheRipper")
-        run_command("cd /vapt/passwords && git clone https://github.com/magnumripper/JohnTheRipper.git")
-        run_command("cd /vapt/passwords/JohnTheRipper/src && ./configure")
-        run_command("cd /vapt/passwords/JohnTheRipper/src && make -s clean && make -sj4")
-        run_command("cd /vapt/passwords/JohnTheRipper/src && make install")
+        return
+    print("Installing JohnTheRipper")
+    run_command("cd /vapt/passwords && git clone https://github.com/magnumripper/JohnTheRipper.git")
+    run_command("cd /vapt/passwords/JohnTheRipper/src && ./configure")
+    run_command("cd /vapt/passwords/JohnTheRipper/src && make -s clean && make -sj4")
+    run_command("cd /vapt/passwords/JohnTheRipper/src && make install")
 
-    password_tools = [
-        ("https://github.com/hashcat/hashcat.git", "/vapt/passwords/hashcat", None),
-        ("https://github.com/digininja/CeWL.git", "/vapt/passwords/CeWL", None),
-        ("https://github.com/danielmiessler/SecLists.git", "/vapt/passwords/SecLists", None)
-    ]
-
-    fuzzer_tools = [
-        ("https://github.com/jtpereyda/boofuzz.git", "/vapt/fuzzers/boofuzz", None)
-    ]
-
-    audit_tools = [
-        ("https://github.com/hausec/PowerZure.git", "/vapt/audit/PowerZure", None),
-        ("https://github.com/PlumHound/PlumHound.git", "/vapt/audit/PlumHound", [f"{PIP} -r requirements.txt"]),
-        ("https://github.com/wireghoul/graudit.git", "/vapt/audit/graudit", None),
-    ]
-
-    wireless_tools = [
-        ("https://github.com/g4ixt/QtTinySA.git", "/vapt/wireless/QtTinySA", [f"{PIP} -r requirements.txt"]),
-        ("https://github.com/xmikos/qspectrumanalyzer.git", "/vapt/wireless/qspectrumanalyzer", [f"sudo {PIP} ."]),
-        # eaphammer: EAP/WPA-Enterprise rogue AP, front-ended by tools/eap_rogue.py.
-        # Its ubuntu-unattended-setup pulls its own apt deps and builds a local
-        # OpenSSL + patched hostapd; --bootstrap generates the one-time self-signed
-        # RADIUS cert non-interactively.
-        ("https://github.com/s0lst1c3/eaphammer.git", "/vapt/wireless/eaphammer",
-         ["sudo ./ubuntu-unattended-setup", "sudo ./eaphammer --bootstrap"]),
-    ]
-
-    # Aircrack-ng (source build; tarball, not a git repo)
+def build_aircrack():
+    """Aircrack-ng (source build; tarball, not a git repo)."""
     aircrack_dir = "/vapt/wireless/aircrack-ng-1.7"
     if os.path.exists(aircrack_dir):
         print("Aircrack-ng already installed, skipping.")
-    else:
-        print("Installing Aircrack-ng")
-        run_command("cd /vapt/wireless && wget https://download.aircrack-ng.org/aircrack-ng-1.7.tar.gz")
-        run_command("cd /vapt/wireless && tar -zxvf aircrack-ng-1.7.tar.gz")
-        run_command(f"cd {aircrack_dir} && autoreconf -i")
-        run_command(f"cd {aircrack_dir} && ./configure --with-experimental")
-        run_command(f"cd {aircrack_dir} && make")
-        run_command(f"cd {aircrack_dir} && sudo make install")
-        run_command("sudo ldconfig")
-        run_command("cd /vapt/wireless && rm -rf aircrack-ng-1.7.tar.gz")
+        return
+    print("Installing Aircrack-ng")
+    run_command("cd /vapt/wireless && wget https://download.aircrack-ng.org/aircrack-ng-1.7.tar.gz")
+    run_command("cd /vapt/wireless && tar -zxvf aircrack-ng-1.7.tar.gz")
+    run_command(f"cd {aircrack_dir} && autoreconf -i")
+    run_command(f"cd {aircrack_dir} && ./configure --with-experimental")
+    run_command(f"cd {aircrack_dir} && make")
+    run_command(f"cd {aircrack_dir} && sudo make install")
+    run_command("sudo ldconfig")
+    run_command("cd /vapt/wireless && rm -rf aircrack-ng-1.7.tar.gz")
 
-    # Kismet (idempotent: verifies presence, installs from the matching repo if missing)
-    install_kismet()
-
-    # OWASP ZAP
+def build_zap():
+    """OWASP ZAP (release tarball)."""
     zap_dir = "/vapt/web/zap"
     if os.path.exists(zap_dir):
         print("OWASP ZAP already installed, skipping.")
-    else:
-        print("Installing OWASP ZAP")
-        run_command("cd /vapt/web && wget https://github.com/zaproxy/zaproxy/releases/download/v2.17.0/ZAP_2.17.0_Linux.tar.gz")
-        run_command("cd /vapt/web && tar xvf ZAP_2.17.0_Linux.tar.gz")
-        run_command("cd /vapt/web && rm -rf ZAP_2.17.0_Linux.tar.gz")
-        run_command("cd /vapt/web && mv ZAP_2.17.0/ zap/")
+        return
+    print("Installing OWASP ZAP")
+    run_command("cd /vapt/web && wget https://github.com/zaproxy/zaproxy/releases/download/v2.17.0/ZAP_2.17.0_Linux.tar.gz")
+    run_command("cd /vapt/web && tar xvf ZAP_2.17.0_Linux.tar.gz")
+    run_command("cd /vapt/web && rm -rf ZAP_2.17.0_Linux.tar.gz")
+    run_command("cd /vapt/web && mv ZAP_2.17.0/ zap/")
 
-    install_firefox_headless()
+def install_bettercap():
+    """bettercap precompiled release binary; runs as root, so placed in /usr/local/bin.
+    Used for both first install and update (pull-latest-over-existing is the same op)."""
+    print("Installing/updating bettercap")
+    run_command("cd /tmp && curl -sL -o bettercap.zip https://github.com/bettercap/bettercap/releases/latest/download/bettercap_linux_amd64.zip")
+    run_command("cd /tmp && 7z x bettercap.zip -y")
+    run_command("cd /tmp && sudo install -m 755 bettercap /usr/local/bin/bettercap")
+    run_command("cd /tmp && rm -f bettercap.zip bettercap bettercap_linux_amd64.sha256")
 
-    vulnerability_scanners = [
-        ("https://github.com/sqlmapproject/sqlmap.git", "/vapt/scanners/sqlmap", None),
-        ("https://github.com/nmap/nmap.git", "/vapt/scanners/nmap", ["./configure --without-zenmap --without-ndiff", "make", "sudo make install"]),
-        ("https://github.com/makefu/dnsmap.git", "/vapt/scanners/dnsmap", ["gcc -o dnsmap dnsmap.c"]),
-        ("https://github.com/fwaeytens/dnsenum.git", "/vapt/scanners/dnsenum", None),
-        ("https://github.com/nccgroup/cisco-SNMP-enumeration.git", "/vapt/scanners/cisco-SNMP-enumeration", None),
-        ("https://github.com/aas-n/spraykatz.git", "/vapt/scanners/spraykatz", [f"{PIP} -r requirements.txt"]),
-        ("https://github.com/p0dalirius/pyFindUncommonShares.git", "/vapt/scanners/pyFindUncommonShares", [f"{PIP} -r requirements.txt"]),
-        ("https://github.com/CiscoCXSecurity/enum4linux.git", "/vapt/scanners/enum4linux", None)
-    ]
+def tool_categories():
+    """Single source of truth for tool categories, consumed by both the install
+    and update passes so they can never drift. Built inside a function (not at
+    module level) because the clone setup commands bake in {PIP}, which is only
+    finalized after install_base_dependencies() runs its PEP 668 detection.
 
-    osint_tools = [
-        ("https://github.com/lanmaster53/recon-ng.git", "/vapt/intel/recon-ng", [f"{PIP} -r REQUIREMENTS"]),
-        ("https://github.com/smicallef/spiderfoot.git", "/vapt/intel/spiderfoot", [f"{PIP} -r requirements.txt"]),
-        ("https://github.com/laramies/theHarvester.git", "/vapt/intel/theHarvester", [f"{PIP} -r requirements.txt"]),
-        ("https://github.com/nccgroup/scrying.git", "/vapt/intel/scrying", None),
-        ("https://github.com/FortyNorthSecurity/EyeWitness.git", "/vapt/intel/EyeWitness", None),
-        ("https://github.com/l4rm4nd/LinkedInDumper.git", "/vapt/intel/LinkedInDumper", [f"{PIP} -r requirements.txt"]),
-        ("https://github.com/OsmanKandemir/indicator-intelligence.git", "/vapt/intel/indicator-intelligence", [f"{PIP} -r requirements.txt", f"sudo {PIP} ."])
-    ]
+    Each category carries:
+      label        - human name for menus and progress output
+      clone_tools  - (repo_url, install_dir, setup_commands) for check_and_install()
+      builders     - callables run on install for source-builds / release binaries
+      update_paths - git-pull dirs on update (the clone_tools dirs that are plain pulls)
+      go_tools     - (name, path, build_cmd) rebuilt on update only when the pull changed
+      post         - callables run after this category's install/update (kismet upgrade,
+                     searchsploit-rc fix)
+    """
+    return {
+        "exploitation": {
+            "label": "Exploitation / C2",
+            "clone_tools": [
+                ("https://github.com/trustedsec/social-engineer-toolkit.git", "/vapt/exploits/social-engineer-toolkit", [f"{PIP} -r requirements.txt"]),
+                ("https://gitlab.com/exploit-database/exploitdb.git", "/vapt/exploits/exploitdb", None),
+                ("https://github.com/Tantalum-Labs/Responder-NG.git", "/vapt/exploits/Responder-NG", None),
+                ("https://github.com/beefproject/beef.git", "/vapt/exploits/beef", None),
+                ("https://github.com/xFreed0m/ADFSpray.git", "/vapt/exploits/ADFSpray", [f"{PIP} -r requirements.txt"]),
+                ("https://github.com/gentilkiwi/mimikatz.git", "/vapt/exploits/mimikatz", None),
+                ("https://github.com/byt3bl33d3r/DeathStar.git", "/vapt/exploits/DeathStar", [f"{PIP} -r requirements.txt"]),
+                ("https://github.com/cobbr/Covenant.git", "/vapt/exploits/Covenant", None),
+                ("https://github.com/Ne0nd0g/merlin.git", "/vapt/exploits/merlin", ["sed -i '/^toolchain/d' go.mod", "PATH=/usr/local/go/bin:$PATH /usr/local/go/bin/go mod tidy", "PATH=/usr/local/go/bin:$PATH make"]),
+                ("https://github.com/byt3bl33d3r/SILENTTRINITY.git", "/vapt/exploits/SILENTTRINITY", [f"{PIP} -r requirements.txt"]),
+                ("https://github.com/MatheuZSecurity/D3m0n1z3dShell.git", "/vapt/exploits/D3m0n1z3dShell", ["chmod +x demonizedshell.sh"]),
+            ],
+            "builders": [build_metasploit],
+            "update_paths": [
+                "/vapt/exploits/social-engineer-toolkit", "/vapt/exploits/metasploit-framework",
+                "/vapt/exploits/ADFSpray", "/vapt/exploits/beef", "/vapt/exploits/DeathStar",
+                "/vapt/exploits/mimikatz", "/vapt/exploits/Responder-NG",
+                "/vapt/exploits/exploitdb", "/vapt/exploits/Covenant",
+                "/vapt/exploits/SILENTTRINITY", "/vapt/exploits/D3m0n1z3dShell",
+            ],
+            "go_tools": [
+                ("merlin", "/vapt/exploits/merlin",
+                 "sed -i '/^toolchain/d' go.mod && PATH=/usr/local/go/bin:$PATH /usr/local/go/bin/go mod tidy && PATH=/usr/local/go/bin:$PATH make"),
+            ],
+            # exploitdb's upstream .searchsploit_rc points at /opt/exploitdb; a pull can
+            # restore it, so the correction re-applies on both install and update.
+            "post": [fix_searchsploit_rc],
+        },
+        "web": {
+            "label": "Web application",
+            "clone_tools": [
+                ("https://github.com/assetnote/kiterunner.git", "/vapt/web/kiterunner", ["make build"]),
+                ("https://github.com/projectdiscovery/httpx.git", "/vapt/web/httpx", ["/usr/local/go/bin/go install ./cmd/httpx"]),
+                ("https://github.com/ffuf/ffuf.git", "/vapt/web/ffuf", ["/usr/local/go/bin/go build"]),
+                ("https://github.com/maurosoria/dirsearch.git", "/vapt/web/dirsearch", None),
+                ("https://github.com/sullo/nikto.git", "/vapt/web/nikto", None),
+                ("https://github.com/JohnTroony/php-webshells.git", "/vapt/web/php-webshells", None),
+                ("https://github.com/wireghoul/htshells.git", "/vapt/web/htshells", None),
+                ("https://github.com/urbanadventurer/WhatWeb.git", "/vapt/web/WhatWeb", None),
+                ("https://github.com/siberas/watobo.git", "/vapt/web/watobo", None),
+                ("https://github.com/projectdiscovery/nuclei.git", "/vapt/web/nuclei", ["/usr/local/go/bin/go build -o nuclei ./cmd/nuclei", "sudo install -m 755 nuclei /usr/local/bin/nuclei"]),
+                ("https://github.com/projectdiscovery/katana.git", "/vapt/web/katana", ["/usr/local/go/bin/go build -o katana ./cmd/katana", "sudo install -m 755 katana /usr/local/bin/katana"]),
+                ("https://github.com/rezasp/joomscan.git", "/vapt/web/joomscan", None),
+                ("https://github.com/s0md3v/XSStrike.git", "/vapt/web/XSStrike", [f"{PIP} -r requirements.txt"]),
+                ("https://github.com/wapiti-scanner/wapiti.git", "/vapt/web/wapiti", [f"sudo {PIP} ."]),
+                ("https://github.com/com-puter-tips/Links-Extractor.git", "/vapt/web/Links-Extractor", [f"{PIP} -r requirements.txt"]),
+            ],
+            # ZAP's AJAX spider needs a real .deb Firefox + geckodriver, installed here.
+            "builders": [build_zap, install_firefox_headless],
+            "update_paths": [
+                "/vapt/web/htshells", "/vapt/web/joomscan", "/vapt/web/nikto",
+                "/vapt/web/php-webshells", "/vapt/web/watobo", "/vapt/web/WhatWeb",
+                "/vapt/web/XSStrike", "/vapt/web/wapiti", "/vapt/web/Links-Extractor",
+                "/vapt/web/kiterunner", "/vapt/web/dirsearch",
+            ],
+            "go_tools": [
+                ("httpx",  "/vapt/web/httpx", "/usr/local/go/bin/go install ./cmd/httpx"),
+                ("ffuf",   "/vapt/web/ffuf",  "/usr/local/go/bin/go build"),
+                ("nuclei", "/vapt/web/nuclei",
+                 "/usr/local/go/bin/go build -o nuclei ./cmd/nuclei && sudo install -m 755 nuclei /usr/local/bin/nuclei"),
+                ("katana", "/vapt/web/katana",
+                 "/usr/local/go/bin/go build -o katana ./cmd/katana && sudo install -m 755 katana /usr/local/bin/katana"),
+            ],
+            "post": [],
+        },
+        "container_cloud": {
+            "label": "Container & cloud",
+            "clone_tools": [
+                ("https://github.com/aquasecurity/trivy.git", "/vapt/cloud/trivy", None),
+                ("https://github.com/RhinoSecurityLabs/pacu.git", "/vapt/cloud/pacu", ["pipx install /vapt/cloud/pacu"]),
+            ],
+            "builders": [],
+            "update_paths": ["/vapt/cloud/trivy", "/vapt/cloud/pacu"],
+            "go_tools": [],
+            "post": [],
+        },
+        "ad_windows": {
+            "label": "Active Directory / Windows",
+            "clone_tools": [
+                ("https://github.com/BloodHoundAD/BloodHound.git", "/vapt/ad_windows/BloodHound", None),
+                ("https://github.com/mattifestation/PowerSploit.git", "/vapt/ad_windows/PowerSploit", None),
+                ("https://github.com/CroweCybersecurity/ps1encode.git", "/vapt/ad_windows/ps1encode", None),
+                ("https://github.com/Kevin-Robertson/Invoke-TheHash.git", "/vapt/ad_windows/Invoke-TheHash", None),
+                ("https://github.com/p3nt4/PowerShdll.git", "/vapt/ad_windows/PowerShdll", None),
+                ("https://github.com/GhostPack/Rubeus.git", "/vapt/ad_windows/Rubeus", None),
+                ("https://github.com/dirkjanm/ldapdomaindump.git", "/vapt/ad_windows/ldapdomaindump", ["pipx install /vapt/ad_windows/ldapdomaindump"]),
+                ("https://github.com/adityatelange/evil-winrm-py.git", "/vapt/ad_windows/evil-winrm-py", [f"sudo {PIP} ."]),
+            ],
+            "builders": [],
+            "update_paths": [
+                "/vapt/ad_windows/BloodHound", "/vapt/ad_windows/PowerSploit", "/vapt/ad_windows/ps1encode",
+                "/vapt/ad_windows/Invoke-TheHash", "/vapt/ad_windows/PowerShdll",
+                "/vapt/ad_windows/Rubeus", "/vapt/ad_windows/ldapdomaindump", "/vapt/ad_windows/evil-winrm-py",
+            ],
+            "go_tools": [],
+            "post": [],
+        },
+        "mobile": {
+            "label": "Mobile security",
+            "clone_tools": [
+                ("https://github.com/MobSF/Mobile-Security-Framework-MobSF.git", "/vapt/mobile/MobSF", [f"{PIP} -r requirements.txt"]),
+                ("https://github.com/sensepost/objection.git", "/vapt/mobile/objection", [f"{PIP} objection"]),
+            ],
+            "builders": [],
+            "update_paths": ["/vapt/mobile/MobSF", "/vapt/mobile/objection"],
+            "go_tools": [],
+            "post": [],
+        },
+        "network": {
+            "label": "Network & infrastructure",
+            "clone_tools": [
+                ("https://github.com/robertdavidgraham/masscan.git", "/vapt/network/masscan", ["make"]),
+                ("https://github.com/OWASP/Amass.git", "/vapt/network/Amass", ["/usr/local/go/bin/go install -v ./cmd/amass/..."]),
+            ],
+            "builders": [],
+            "update_paths": ["/vapt/network/masscan"],
+            "go_tools": [
+                ("amass", "/vapt/network/Amass", "/usr/local/go/bin/go install -v ./cmd/amass/..."),
+            ],
+            "post": [],
+        },
+        "password": {
+            "label": "Password cracking",
+            "clone_tools": [
+                ("https://github.com/hashcat/hashcat.git", "/vapt/passwords/hashcat", None),
+                ("https://github.com/digininja/CeWL.git", "/vapt/passwords/CeWL", None),
+                ("https://github.com/danielmiessler/SecLists.git", "/vapt/passwords/SecLists", None),
+            ],
+            "builders": [build_johntheripper],
+            "update_paths": [
+                "/vapt/passwords/JohnTheRipper", "/vapt/passwords/hashcat",
+                "/vapt/passwords/CeWL", "/vapt/passwords/SecLists",
+            ],
+            "go_tools": [],
+            "post": [],
+        },
+        "fuzzers": {
+            "label": "Fuzzers",
+            "clone_tools": [
+                ("https://github.com/jtpereyda/boofuzz.git", "/vapt/fuzzers/boofuzz", None),
+            ],
+            "builders": [],
+            "update_paths": ["/vapt/fuzzers/boofuzz"],
+            "go_tools": [],
+            "post": [],
+        },
+        "audit": {
+            "label": "Audit / posture",
+            "clone_tools": [
+                ("https://github.com/hausec/PowerZure.git", "/vapt/audit/PowerZure", None),
+                ("https://github.com/PlumHound/PlumHound.git", "/vapt/audit/PlumHound", [f"{PIP} -r requirements.txt"]),
+                ("https://github.com/wireghoul/graudit.git", "/vapt/audit/graudit", None),
+            ],
+            "builders": [],
+            "update_paths": ["/vapt/audit/PowerZure", "/vapt/audit/PlumHound", "/vapt/audit/graudit"],
+            "go_tools": [],
+            "post": [],
+        },
+        "vulnerability_scanners": {
+            "label": "Vulnerability scanners",
+            "clone_tools": [
+                ("https://github.com/sqlmapproject/sqlmap.git", "/vapt/scanners/sqlmap", None),
+                ("https://github.com/nmap/nmap.git", "/vapt/scanners/nmap", ["./configure --without-zenmap --without-ndiff", "make", "sudo make install"]),
+                ("https://github.com/makefu/dnsmap.git", "/vapt/scanners/dnsmap", ["gcc -o dnsmap dnsmap.c"]),
+                ("https://github.com/fwaeytens/dnsenum.git", "/vapt/scanners/dnsenum", None),
+                ("https://github.com/nccgroup/cisco-SNMP-enumeration.git", "/vapt/scanners/cisco-SNMP-enumeration", None),
+                ("https://github.com/aas-n/spraykatz.git", "/vapt/scanners/spraykatz", [f"{PIP} -r requirements.txt"]),
+                ("https://github.com/p0dalirius/pyFindUncommonShares.git", "/vapt/scanners/pyFindUncommonShares", [f"{PIP} -r requirements.txt"]),
+                ("https://github.com/CiscoCXSecurity/enum4linux.git", "/vapt/scanners/enum4linux", None),
+            ],
+            "builders": [],
+            # fierce is a pip package, not a cloned repo, so it is not pulled here.
+            "update_paths": [
+                "/vapt/scanners/sqlmap", "/vapt/scanners/nmap",
+                "/vapt/scanners/dnsmap", "/vapt/scanners/dnsenum",
+                "/vapt/scanners/cisco-SNMP-enumeration", "/vapt/scanners/spraykatz",
+                "/vapt/scanners/pyFindUncommonShares", "/vapt/scanners/enum4linux",
+            ],
+            "go_tools": [],
+            "post": [],
+        },
+        "osint": {
+            "label": "OSINT / intel",
+            "clone_tools": [
+                ("https://github.com/lanmaster53/recon-ng.git", "/vapt/intel/recon-ng", [f"{PIP} -r REQUIREMENTS"]),
+                ("https://github.com/smicallef/spiderfoot.git", "/vapt/intel/spiderfoot", [f"{PIP} -r requirements.txt"]),
+                ("https://github.com/laramies/theHarvester.git", "/vapt/intel/theHarvester", [f"{PIP} -r requirements.txt"]),
+                ("https://github.com/nccgroup/scrying.git", "/vapt/intel/scrying", None),
+                ("https://github.com/FortyNorthSecurity/EyeWitness.git", "/vapt/intel/EyeWitness", None),
+                ("https://github.com/l4rm4nd/LinkedInDumper.git", "/vapt/intel/LinkedInDumper", [f"{PIP} -r requirements.txt"]),
+                ("https://github.com/OsmanKandemir/indicator-intelligence.git", "/vapt/intel/indicator-intelligence", [f"{PIP} -r requirements.txt", f"sudo {PIP} ."]),
+            ],
+            "builders": [],
+            "update_paths": [
+                "/vapt/intel/recon-ng", "/vapt/intel/spiderfoot", "/vapt/intel/theHarvester",
+                "/vapt/intel/scrying", "/vapt/intel/EyeWitness", "/vapt/intel/LinkedInDumper",
+                "/vapt/intel/indicator-intelligence",
+            ],
+            "go_tools": [],
+            "post": [],
+        },
+        "wireless": {
+            # One combined category spanning 802.11 attack tooling and SDR/RF. Skip
+            # the whole category on WSL and other hosts with no real radio access.
+            "label": "Wireless (802.11 + SDR/RF)",
+            "clone_tools": [
+                ("https://github.com/g4ixt/QtTinySA.git", "/vapt/wireless/QtTinySA", [f"{PIP} -r requirements.txt"]),
+                ("https://github.com/xmikos/qspectrumanalyzer.git", "/vapt/wireless/qspectrumanalyzer", [f"sudo {PIP} ."]),
+                # eaphammer: EAP/WPA-Enterprise rogue AP, front-ended by tools/eap_rogue.py.
+                # Its ubuntu-unattended-setup pulls its own apt deps and builds a local
+                # OpenSSL + patched hostapd; --bootstrap generates the one-time self-signed
+                # RADIUS cert non-interactively.
+                ("https://github.com/s0lst1c3/eaphammer.git", "/vapt/wireless/eaphammer",
+                 ["sudo ./ubuntu-unattended-setup", "sudo ./eaphammer --bootstrap"]),
+            ],
+            "builders": [build_aircrack, install_kismet],
+            "update_paths": [
+                "/vapt/wireless/QtTinySA", "/vapt/wireless/qspectrumanalyzer",
+                "/vapt/wireless/eaphammer",
+            ],
+            "go_tools": [],
+            "post": [update_kismet],
+        },
+    }
 
-    for tool in (exploitation_tools + web_tools + container_cloud_tools + ad_windows_tools +
-                mobile_tools + network_tools + password_tools + fuzzer_tools +
-                audit_tools + vulnerability_scanners + osint_tools + wireless_tools):
-        check_and_install(*tool)
+# Categories whose tools run as root (L2/MITM, rogue AP, raw sockets). Informational
+# for now - selection is host-driven, not privilege-gated - but kept explicit so a
+# future WSL/unprivileged profile can default these off.
+ROOT_CATEGORIES = {"wireless"}
 
-    # correct the exploitdb .searchsploit_rc (upstream points it at /opt/exploitdb)
-    fix_searchsploit_rc()
+def install_selected_categories(selected):
+    """Install only the named categories, then record them in the manifest. Each
+    category installs its clone_tools (fail-soft via check_and_install), runs its
+    builders (source-builds / release binaries), then its post hooks. bettercap is
+    installed once if any L2/MITM-adjacent category is selected."""
+    _toolkit_path_env()
+    cats = tool_categories()
+    print(f"Installing toolkit packages for: {', '.join(sorted(selected))}")
 
-    print("Toolkit packages install pass complete.")
+    for slug in sorted(selected):
+        spec = cats.get(slug)
+        if not spec:
+            print(f"  WARNING: unknown category '{slug}', skipping.")
+            continue
+        print(f"\n=== {spec['label']} ===")
+        for tool in spec["clone_tools"]:
+            check_and_install(*tool)
+        for builder in spec["builders"]:
+            builder()
+        for hook in spec["post"]:
+            hook()
+
+    # bettercap is shared L2/MITM tooling; install it when exploitation or wireless
+    # is in scope (the categories whose workflows drive it).
+    if selected & {"exploitation", "wireless"}:
+        install_bettercap()
+
+    write_manifest(selected)
+    print("\nToolkit packages install pass complete.")
     print_failure_summary()
 
+def install_toolkit_packages():
+    """Menu entry point: let the operator install all categories or a chosen subset,
+    then hand off to install_selected_categories()."""
+    selected = choose_categories(action="install")
+    if not selected:
+        print("No categories selected, returning to menu.")
+        return
+    install_selected_categories(selected)
+
 def update_toolsets():
-    """Update all toolsets by performing a git pull in each directory."""
+    """Update only the tool categories recorded in the install manifest, so a host
+    that skipped (e.g.) wireless never tries to pull or rebuild tools it never cloned.
+    With no manifest (a pre-manifest install), fall back to updating every category -
+    the old behavior - and record the full set so later runs are scoped."""
+    _toolkit_path_env()
+    cats = tool_categories()
+
+    installed = read_manifest()
+    if installed is None:
+        print("No install manifest found; updating all categories (legacy host).")
+        installed = set(cats.keys())
+        write_manifest(installed)
+    else:
+        unknown = installed - set(cats.keys())
+        installed = installed & set(cats.keys())
+        if unknown:
+            print(f"  NOTE: manifest lists unknown categories (ignored): {', '.join(sorted(unknown))}")
+        if not installed:
+            print("Manifest records no known categories; nothing to update.")
+            return
+        print(f"Updating installed categories: {', '.join(sorted(installed))}")
+
     # Refresh the managed Go toolchain first so Go-based rebuilds use current Go.
     install_go()
     os.environ['GOROOT'] = '/usr/local/go'
@@ -948,138 +1190,28 @@ def update_toolsets():
     if go_paths not in os.environ.get('PATH', ''):
         os.environ['PATH'] = f"{go_paths}:{os.environ['PATH']}"
 
-    print("Updating Exploit Tools")
-    exploit_tools = [
-        "/vapt/exploits/social-engineer-toolkit", "/vapt/exploits/metasploit-framework",
-        "/vapt/exploits/ADFSpray", "/vapt/exploits/beef", "/vapt/exploits/DeathStar",
-        "/vapt/exploits/mimikatz", "/vapt/exploits/Responder-NG",
-        "/vapt/exploits/exploitdb", "/vapt/exploits/Covenant",
-        "/vapt/exploits/SILENTTRINITY", "/vapt/exploits/D3m0n1z3dShell"
-    ]
-    for tool in exploit_tools:
-        run_command(f"cd {tool} && git pull")
+    for slug in sorted(installed):
+        spec = cats[slug]
+        print(f"\n=== Updating {spec['label']} ===")
+        for path in spec["update_paths"]:
+            if os.path.exists(path):
+                run_command(f"cd {path} && git pull")
+        # Go-based tools: pull each, rebuild only when the pull brought in changes.
+        for name, path, build in spec["go_tools"]:
+            if not os.path.exists(path):
+                continue
+            if git_pull_changed(path):
+                run_command(f"cd {path} && {build}")
+        # post hooks (searchsploit-rc fix, kismet upgrade) run per-category on update too.
+        for hook in spec["post"]:
+            hook()
 
-    # a git pull can restore upstream .searchsploit_rc, so re-apply the correction
-    fix_searchsploit_rc()
+    # bettercap ships as a precompiled release binary; refresh if a category that
+    # uses it is installed. Same gate as install_selected_categories().
+    if installed & {"exploitation", "wireless"}:
+        install_bettercap()
 
-    print("Updating Web Tools")
-    web_tools = [
-        "/vapt/web/htshells", "/vapt/web/joomscan", "/vapt/web/nikto",
-        "/vapt/web/php-webshells", "/vapt/web/watobo", "/vapt/web/WhatWeb",
-        "/vapt/web/XSStrike", "/vapt/web/wapiti", "/vapt/web/Links-Extractor",
-        "/vapt/web/kiterunner", "/vapt/web/dirsearch"
-    ]
-    for tool in web_tools:
-        run_command(f"cd {tool} && git pull")
-
-    print("Updating Container & Cloud Security Tools")
-    container_cloud_tools = [
-        "/vapt/cloud/trivy", "/vapt/cloud/pacu"
-    ]
-    for tool in container_cloud_tools:
-        run_command(f"cd {tool} && git pull")
-
-    print("Updating Active Directory & Windows Tools")
-    ad_windows_tools = [
-        "/vapt/ad_windows/BloodHound", "/vapt/ad_windows/PowerSploit", "/vapt/ad_windows/ps1encode",
-        "/vapt/ad_windows/Invoke-TheHash", "/vapt/ad_windows/PowerShdll",
-        "/vapt/ad_windows/Rubeus", "/vapt/ad_windows/ldapdomaindump", "/vapt/ad_windows/evil-winrm-py"
-    ]
-    for tool in ad_windows_tools:
-        run_command(f"cd {tool} && git pull")
-
-    print("Updating Mobile Security Tools")
-    mobile_tools = [
-        "/vapt/mobile/MobSF", "/vapt/mobile/objection"
-    ]
-    for tool in mobile_tools:
-        run_command(f"cd {tool} && git pull")
-
-    print("Updating Network & Infrastructure Tools")
-    network_tools = [
-        "/vapt/network/masscan"
-    ]
-    for tool in network_tools:
-        run_command(f"cd {tool} && git pull")
-
-    print("Updating Password Tools")
-    password_tools = [
-        "/vapt/passwords/JohnTheRipper", "/vapt/passwords/hashcat",
-        "/vapt/passwords/CeWL", "/vapt/passwords/SecLists"
-    ]
-    for tool in password_tools:
-        run_command(f"cd {tool} && git pull")
-
-    print("Updating Fuzzer Tools")
-    fuzzer_tools = [
-        "/vapt/fuzzers/boofuzz"
-    ]
-    for tool in fuzzer_tools:
-        run_command(f"cd {tool} && git pull")
-
-    print("Updating Audit Tools")
-    audit_tools = [
-        "/vapt/audit/PowerZure", "/vapt/audit/PlumHound", "/vapt/audit/graudit"
-    ]
-    for tool in audit_tools:
-        run_command(f"cd {tool} && git pull")
-
-    print("Updating Vulnerability Scanners")
-    # fierce is a pip package, not a cloned repo, so it is not pulled here.
-    vulnerability_scanners = [
-        "/vapt/scanners/sqlmap", "/vapt/scanners/nmap",
-        "/vapt/scanners/dnsmap", "/vapt/scanners/dnsenum",
-        "/vapt/scanners/cisco-SNMP-enumeration", "/vapt/scanners/spraykatz",
-        "/vapt/scanners/pyFindUncommonShares", "/vapt/scanners/enum4linux"
-    ]
-    for tool in vulnerability_scanners:
-        run_command(f"cd {tool} && git pull")
-
-    print("Updating OSINT/Intel Tools")
-    osint_tools = [
-        "/vapt/intel/recon-ng", "/vapt/intel/spiderfoot", "/vapt/intel/theHarvester",
-        "/vapt/intel/scrying", "/vapt/intel/EyeWitness", "/vapt/intel/LinkedInDumper",
-        "/vapt/intel/indicator-intelligence"
-    ]
-    for tool in osint_tools:
-        run_command(f"cd {tool} && git pull")
-
-    print("Updating Wireless Tools")
-    wireless_tools = [
-        "/vapt/wireless/QtTinySA", "/vapt/wireless/qspectrumanalyzer",
-        "/vapt/wireless/eaphammer"
-    ]
-    for tool in wireless_tools:
-        run_command(f"cd {tool} && git pull")
-
-    update_kismet()
-
-    # Go-based tools: pull each, rebuild only when the pull brought in changes
-    print("Updating Go-based tools")
-    go_tools = [
-        ("httpx",  "/vapt/web/httpx",      "/usr/local/go/bin/go install ./cmd/httpx"),
-        ("ffuf",   "/vapt/web/ffuf",       "/usr/local/go/bin/go build"),
-        ("amass",  "/vapt/network/Amass",  "/usr/local/go/bin/go install -v ./cmd/amass/..."),
-        ("merlin", "/vapt/exploits/merlin",
-         "sed -i '/^toolchain/d' go.mod && PATH=/usr/local/go/bin:$PATH /usr/local/go/bin/go mod tidy && PATH=/usr/local/go/bin:$PATH make"),
-        ("nuclei", "/vapt/web/nuclei",
-         "/usr/local/go/bin/go build -o nuclei ./cmd/nuclei && sudo install -m 755 nuclei /usr/local/bin/nuclei"),
-        ("katana", "/vapt/web/katana",
-         "/usr/local/go/bin/go build -o katana ./cmd/katana && sudo install -m 755 katana /usr/local/bin/katana"),
-    ]
-    for name, path, build in go_tools:
-        if not os.path.exists(path):
-            continue
-        if git_pull_changed(path):
-            run_command(f"cd {path} && {build}")
-
-    # bettercap ships as a precompiled release binary; pull latest over existing
-    run_command("cd /tmp && curl -sL -o bettercap.zip https://github.com/bettercap/bettercap/releases/latest/download/bettercap_linux_amd64.zip")
-    run_command("cd /tmp && 7z x bettercap.zip -y")
-    run_command("cd /tmp && sudo install -m 755 bettercap /usr/local/bin/bettercap")
-    run_command("cd /tmp && rm -f bettercap.zip bettercap bettercap_linux_amd64.sha256")
-
-    print("Updating all pipx installed tool")
+    print("\nUpdating all pipx installed tools")
     run_command("pipx upgrade-all")
 
     print("Updating VA-PT")
@@ -1087,13 +1219,63 @@ def update_toolsets():
 
     print("Toolsets update complete.")
 
+def choose_categories(action="install"):
+    """Interactive toggle checklist. Returns the set of selected category slugs,
+    or an empty set if the operator backs out. Pre-seeds current state from the
+    manifest so re-running shows what is already installed. 'A' = all, numbers
+    toggle, Enter/blank confirms, 'q' cancels."""
+    cats = tool_categories()
+    order = list(cats.keys())
+    already = read_manifest() or set()
+    # Default selection: everything already installed stays checked; a fresh host
+    # starts with nothing checked so the operator opts in explicitly.
+    selected = set(already)
+
+    while True:
+        print(f"\n\033[91mSelect tool categories to {action}:\033[0m")
+        for i, slug in enumerate(order, 1):
+            mark = "x" if slug in selected else " "
+            tag = "  (installed)" if slug in already else ""
+            print(f"  [{mark}] {i:>2} - {cats[slug]['label']}{tag}")
+        print("   A - select all")
+        print("   N - select none")
+        print("   Enter - confirm selection")
+        print("   q - cancel, back to menu")
+
+        raw = input("Toggle # / A / N / Enter / q: ").strip().lower()
+
+        if raw == "q":
+            return set()
+        if raw == "":
+            return selected
+        if raw == "a":
+            selected = set(order)
+            continue
+        if raw == "n":
+            selected = set()
+            continue
+
+        # Accept space- or comma-separated numbers to toggle several at once.
+        toggled_any = False
+        for tok in re.split(r"[,\s]+", raw):
+            if not tok:
+                continue
+            if tok.isdigit() and 1 <= int(tok) <= len(order):
+                slug = order[int(tok) - 1]
+                selected ^= {slug}
+                toggled_any = True
+            else:
+                print(f"  Ignoring invalid entry: {tok}")
+        if not toggled_any:
+            print("  Nothing toggled.")
+
 def main_menu():
     check_directory_structure()
     cleanup_old_directories()
 
     while True:
         print("\033[91m1 - Install Base Toolkit Dependencies\033[0m")
-        print("\033[91m2 - Install Toolkit Packages\033[0m")
+        print("\033[91m2 - Install Toolkit Packages (all or selected categories)\033[0m")
         print("\033[91m3 - Install Weakpass Dictionary for Password Cracking (30G)\033[0m")
         print("\033[91m4 - Update Toolsets\033[0m")
         print("\033[91m0 - Exit\033[0m")
