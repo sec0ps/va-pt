@@ -38,6 +38,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import threading
 import time
 from collections import deque
@@ -49,7 +50,35 @@ from typing import Iterable
 logger = logging.getLogger(__name__)
 
 TOOL = "Latchkey-Engine"
-VERSION = "0.3.0"
+
+# Fallback version, bumped at release time. Used verbatim when git tags cannot be
+# read at runtime - an exported/copied tree with no .git, no git binary on PATH, or
+# a repo with no tags yet. _resolve_version() overrides it with `git describe` when
+# this file lives in a tagged git checkout.
+_VERSION_FALLBACK = "0.3.0"
+
+def _resolve_version():
+    """Derive the version from git tags of the checkout this file lives in, so the
+    stamp in findings JSON and the TUI tracks releases instead of a stale literal.
+    Runs `git describe --tags` against state.py's own directory (not the cwd, which
+    the orchestrator changes on re-exec): a tagged commit yields e.g. 'v0.3.0', a
+    commit past the tag 'v0.3.0-4-gabc1234', a modified tree a '-dirty' suffix.
+    Any failure - no git, no .git, no tags, timeout - falls back to the literal.
+    Resolved once at import; version does not change within a run."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    try:
+        out = subprocess.run(
+            ["git", "-C", here, "describe", "--tags", "--dirty", "--always"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, timeout=5, text=True)
+    except (OSError, subprocess.SubprocessError):
+        return _VERSION_FALLBACK
+    tag = out.stdout.strip()
+    if out.returncode != 0 or not tag:
+        return _VERSION_FALLBACK
+    return tag
+
+VERSION = _resolve_version()
 
 
 def _now() -> float:
