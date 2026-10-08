@@ -106,6 +106,70 @@ _REG_BUILTINS = frozenset({"args"})
 _CPE_RE = re.compile(r"cpe:/[aoh]:([^:\s/]+):([^:\s/]+)")
 _PRODUCT_VENDOR_SPAN = 3
 
+# Content classifier. The metadata tier (categories, deps, registry, creds) is
+# reliable at the extremes but NSE's own categories conflate the ambiguous middle:
+# hygiene and banner scripts wear vuln/intrusive tags, real recon enumeration wears
+# only discovery/safe. Rather than a hand-kept per-id override list, the ambiguous
+# middle is classified from the script's own description and body, with a confidence
+# band. A script is only committed to informational (dropped from the verify phase)
+# when the classifier is confident; everything it is unsure about defaults to
+# actionable and is surfaced in the build report, so a real finding is never silently
+# discarded and new scripts self-classify on a rebuild with no manual upkeep.
+_DESC_RE = re.compile(r"description\s*=\s*\[(=*)\[(.*?)\]\1\]", re.S)
+# code tells: a script that records a vuln/cred table or requires those libraries
+# is producing a finding, not a banner.
+_CODE_ACT = re.compile(
+    r'vulns\.|creds\.|require\s*\(?\s*["\'](?:vulns|creds|exploit)["\']')
+# description phrases that name a concrete flaw or exposure.
+_PHRASE_ACT = re.compile(
+    r'remote code execution|arbitrary (?:code|command|file)|command execution|'
+    r'(?:sql|code|command|ldap|xpath|template|nosql) injection|'
+    r'(?:directory|path) traversal|authentication bypass|auth bypass|backdoor|'
+    r'unauthenticated|unauthorized access|default (?:credential|account|password)|'
+    r'empty password|anonymous (?:log|access|bind|ftp)|open relay|'
+    r'file (?:disclosure|read|upload|inclusion)|source code disclosure|\.git\b|'
+    r'svn repositor|information leak|\bleak(?:s|ed|ing)?\b|'
+    r'dump.*(?:hash|password|credential)|zone transfer|world.readable|'
+    r'weak password|guessable|server-status page|backup (?:file|cop)|'
+    r'directory listing')
+# target nouns an enumeration verb must act on for the script to count as recon.
+_TGT = (r'users?|usernames?|accounts?|shares?|exports?|mounts?|databases?|'
+        r'collections?|tables?|schemas?|programs?|applications?|services?|'
+        r'servers?|hosts?|files?|folders?|directories|logins?|credentials?|'
+        r'passwords?|hashes?|sessions?|groups?|domains?|pipes?|processes|'
+        r'repositories|registry|modules?|interfaces?|software|principals?|'
+        r'mailboxes?|subdomains?|hostnames?|channels?|rootdse')
+# an enumeration verb within three words of a target noun. Proximity keeps banner
+# prose ("returns the server version") from reading as enumeration.
+_ENUM_OF = re.compile(
+    r'\b(?:enumerat\w*|lists?|list of|retriev\w*|fetch\w*|dump\w*|extract\w*|'
+    r'obtain\w*|show\w*)\b(?:\W+\w+){0,3}\W+(?:' + _TGT + r')\b')
+_ACCESS = re.compile(
+    r'\b(?:vulnerab\w*|misconfigur\w*|weak\b|exposed|exposure|disclosure|'
+    r'without authentication|access without|insecure|world.readable|'
+    r'default install|debug mode)')
+# identity/recon leak families (AD domain, NTLM, NetBIOS, realm, FQDN) are
+# actionable recon and must never land in the confident-noise band.
+_LEAK_RE = re.compile(
+    r'\bntlm\b|netbios|\bdomain\b|\brealm\b|forest|kerberos|\bsid\b|'
+    r'fully.qualified|\bfqdn\b|dns.?suffix|computer name|machine name|'
+    r'active directory')
+# pure hygiene/banner/version prose: no finding, no enumerated asset.
+_NOISE_PH = re.compile(
+    r'banner|grabber|\bthe title\b|displays the result|version of (?:the|this)|'
+    r'(?:server|service).?s version|geolocation|\bwhois\b|crt\.sh|'
+    r'reports any .*flag|session cookies|current (?:date|time)|greeting|'
+    r'returns? .*(?:methods|algorithms|capabilities)|obtain.*version|'
+    r'retriev.*certificate|(?:security|response|http) headers|server information|'
+    r'shows? .{0,20}information|favicon|\btraceroute\b|robots\.txt')
+
+
+def _desc_text(text):
+    """The script's description block, lowercased; empty when none is declared.
+    Handles nmap's long-bracket levels ([[...]], [=[...]=], and deeper)."""
+    m = _DESC_RE.search(text or "")
+    return (m.group(2) if m else "").lower()
+
 
 def default_catalog_path(scripts_dir=None):
     """Where the generated catalog lives, beside this module, so the engine reads
@@ -239,20 +303,49 @@ def _wants_creds(text, deps):
     return False
 
 
-def _tier(cats, deps, touches_registry, wants_creds):
-    """Classify a script actionable or informational for the assessment pass, wholly
-    from declared metadata. Actionable when it carries a finding or credential
-    category (vuln, exploit, auth, brute), declares intrusive, sits on a dependency
-    chain, touches shared registry state, or consumes credentials. Only a standalone
-    safe/default discovery script with none of those is informational, so recon that
-    feeds a tool or a finding is never demoted."""
-    if cats & {"vuln", "exploit", "auth", "brute"}:
-        return "actionable"
-    if "intrusive" in cats:
-        return "actionable"
+def _content_tier(script_id, text, cats, deps, touches_registry, wants_creds):
+    """Classify a script actionable or informational with a confidence flag, from its
+    declared metadata and its own description and body. Returns (tier, confident).
+
+    Confident actionable: a credential-brute script; a script on a dependency chain,
+    touching shared registry state, or consuming credentials (it participates in an
+    actionable flow); a code tell (a vulns/creds table, a vulns/creds/exploit
+    require), a referenced CVE, the exploit category, or a description phrase naming a
+    concrete flaw. Confident informational: a broadcast script, or pure
+    hygiene/banner/version prose with no enumerated asset, no exposure language, and
+    no identity-leak family. The ambiguous middle returns (actionable, False): it runs
+    the verify phase so no finding is dropped, and is surfaced in the build report and
+    the per-entry confidence flag for later refinement."""
+    cats = set(cats or [])
+    if "brute" in cats:
+        return ("actionable", True)
+    # structural metadata: part of a tool chain or a credential flow.
     if deps or touches_registry or wants_creds:
-        return "actionable"
-    return "informational"
+        return ("actionable", True)
+    code = (text or "").lower()
+    d = _desc_text(text)
+    if (_CODE_ACT.search(code) or _CVE_RE.search(text or "")
+            or "exploit" in cats or _PHRASE_ACT.search(d)):
+        return ("actionable", True)
+    if "broadcast" in cats:
+        return ("informational", True)
+    sid = script_id.lower()
+    suffix_info = sid.endswith(("-info", "-serverinfo", "-version", "-ver"))
+    enum = bool(_ENUM_OF.search(d))
+    access = bool(_ACCESS.search(d))
+    noise = bool(_NOISE_PH.search(d))
+    # identity-leak and vuln-tagged scripts are never confident-noise.
+    leak = bool(_LEAK_RE.search(d)) or "ntlm" in sid or "vuln" in cats
+    if enum and not noise:
+        return ("actionable", True)
+    if access and not noise and not suffix_info:
+        return ("actionable", True)
+    # confident-noise is a HIGH bar: an explicit noise phrase, no positive signal of
+    # any kind, and not a leak/vuln family. Anything short of that drops through to
+    # the uncertain band, which defaults actionable.
+    if noise and not enum and not access and not leak:
+        return ("informational", True)
+    return ("actionable", False)
 
 
 def _id_token_profile(names):
@@ -353,6 +446,8 @@ def _script_entry(path, text, cats, surfaced):
     writes, reads = _registry_edges(text)
     wants_creds = _wants_creds(text, deps)
     consumes = sorted(reads | ({"credentials"} if wants_creds else set()))
+    tier, confident = _content_tier(script_id, text, cats, deps,
+                                    bool(writes or reads), wants_creds)
     return {
         "id": script_id,
         "categories": sorted(cats & surfaced),
@@ -361,7 +456,8 @@ def _script_entry(path, text, cats, surfaced):
         "ports": ports,
         "services": services,
         "product": [],
-        "tier": _tier(cats, deps, bool(writes or reads), wants_creds),
+        "tier": tier,
+        "tier_confident": confident,
         "dependencies": sorted(deps),
         "feeds": sorted(writes),
         "consumes": consumes,
@@ -439,9 +535,14 @@ def build_catalog(scripts_dir=None, nmap_path="nmap"):
             by_cve.setdefault(cve, [])
             if sc["id"] not in by_cve[cve]:
                 by_cve[cve].append(sc["id"])
+    uncertain = sorted(e["id"] for e in scripts if not e.get("tier_confident"))
+    actionable = sum(1 for e in scripts if e["tier"] == "actionable")
     return {
         "scripts_dir": scripts_dir,
         "count": len(scripts),
+        "actionable": actionable,
+        "informational": len(scripts) - actionable,
+        "uncertain": uncertain,
         "scripts": scripts,
         "brute_scripts": brute_scripts,
         "by_cve": by_cve,
@@ -476,8 +577,11 @@ def rebuild(nmap_path="nmap", scripts_dir=None, update_db=True, path=None,
         update_scripts_db(nmap_path, sudo_prefix=sudo_prefix)
     catalog = build_catalog(scripts_dir=scripts_dir, nmap_path=nmap_path)
     out = write_catalog(catalog, path)
-    logger.info("nse catalog rebuilt with %d script(s), %d brute script(s), "
-                "%d cve(s), %d product term(s) -> %s", catalog["count"],
+    logger.info("nse catalog rebuilt with %d script(s) (%d actionable, %d "
+                "informational, %d uncertain), %d brute script(s), %d cve(s), "
+                "%d product term(s) -> %s", catalog["count"],
+                catalog.get("actionable", 0), catalog.get("informational", 0),
+                len(catalog.get("uncertain") or []),
                 len(catalog.get("brute_scripts") or []), len(catalog["by_cve"]),
                 catalog.get("product_vocab", 0), out)
     return catalog
@@ -504,10 +608,19 @@ def _main(argv=None):
     cat = rebuild(nmap_path=args.nmap, scripts_dir=args.scripts_dir,
                   update_db=not args.no_update_db, path=args.out,
                   sudo_prefix=sudo_prefix)
-    print(f"cataloged {cat['count']} script(s), "
+    print(f"cataloged {cat['count']} script(s) "
+          f"({cat.get('actionable', 0)} actionable, "
+          f"{cat.get('informational', 0)} informational, "
+          f"{len(cat.get('uncertain') or [])} uncertain), "
           f"{len(cat.get('brute_scripts') or [])} brute script(s), "
           f"{len(cat['by_cve'])} cve(s), "
           f"{cat.get('product_vocab', 0)} product term(s)")
+    unc = cat.get("uncertain") or []
+    if unc:
+        print(f"\n{len(unc)} script(s) the classifier was unsure about (kept "
+              f"actionable, review or refine):")
+        for sid in unc:
+            print(f"  {sid}")
     return 0
 
 
