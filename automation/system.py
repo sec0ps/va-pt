@@ -48,6 +48,7 @@ import atexit
 import logging
 import os
 import pwd
+import re
 import shutil
 import socket
 import subprocess
@@ -274,8 +275,13 @@ class MsfdManager:
 
     def __init__(self, host, port, password, ssl=True, username="msf",
                  msfrpcd_path="msfrpcd", autostart=True, boot_timeout=60,
-                 run_as=None):
+                 run_as=None, bind_host=None):
         self.host = host
+        # Address msfrpcd binds its listener to (-a). Defaults to the connect host,
+        # preserving the old single-address behavior. Set it separately (e.g. from
+        # --msf-iface) when the client must connect on a different address than the
+        # daemon binds - typically binding a routable NIC while 127.0.0.1 is unusable.
+        self.bind_host = bind_host or host
         self.port = port
         self.password = password
         self.ssl = ssl
@@ -314,8 +320,12 @@ class MsfdManager:
             self._spawn()
             self._wait_ready()
             self._started = True
-            logger.info("msfrpcd started (pid %d) on %s:%d",
-                        self._proc.pid, self.host, self.port)
+            if self.bind_host != self.host:
+                logger.info("msfrpcd started (pid %d), bound %s:%d, client connects %s:%d",
+                            self._proc.pid, self.bind_host, self.port, self.host, self.port)
+            else:
+                logger.info("msfrpcd started (pid %d) on %s:%d",
+                            self._proc.pid, self.host, self.port)
 
     def stop(self):
         """Stop msfrpcd only if we started it. Idempotent. Note: this drops any
@@ -346,7 +356,7 @@ class MsfdManager:
 
     def status(self):
         running = self._proc is not None and self._proc.poll() is None
-        return {"host": self.host, "port": self.port,
+        return {"host": self.host, "bind_host": self.bind_host, "port": self.port,
                 "started_by_us": self._started, "running": running}
 
     # -- internals --
@@ -379,7 +389,7 @@ class MsfdManager:
         os.close(fd)
         os.chmod(path, 0o600)
         self._logfile = path
-        cmd = [self.path, "-f", "-a", self.host, "-p", str(self.port),
+        cmd = [self.path, "-f", "-a", self.bind_host, "-p", str(self.port),
                "-U", self.username, "-P", self.password]
         if not self.ssl:
             cmd.append("-S")            # msfrpcd: -S disables SSL (on by default)
@@ -547,6 +557,31 @@ def resolve_run_as(name=None):
     return None
 
 
+def resolve_iface_ip(iface):
+    """Resolve a network interface name (e.g. 'eth0') to a single IPv4 address for
+    msfrpcd's bind. Used when loopback cannot serve the RPC listener and the daemon
+    must bind a specific NIC. Parses `ip -o -4 addr show dev <iface>`. Fails fast
+    (PreflightError) rather than guessing when the interface is unknown, has no IPv4,
+    or carries several - the operator picks the address explicitly in that case by
+    passing --msf-host with the exact IP instead. Returns the address string."""
+    rc, out, err = _run(["ip", "-o", "-4", "addr", "show", "dev", iface])
+    if rc != 0:
+        raise PreflightError(
+            f"--msf-iface '{iface}': interface not found or unreadable "
+            f"({err.strip() or 'ip addr failed'})")
+    addrs = re.findall(r"\binet\s+([0-9.]+)/", out)
+    # Drop link-local (169.254/16); it is never a useful RPC bind target.
+    addrs = [a for a in addrs if not a.startswith("169.254.")]
+    if not addrs:
+        raise PreflightError(
+            f"--msf-iface '{iface}': no usable IPv4 address on that interface")
+    if len(set(addrs)) > 1:
+        raise PreflightError(
+            f"--msf-iface '{iface}' has multiple IPv4 addresses ({', '.join(addrs)}); "
+            "pass the exact one with --msf-host instead")
+    return addrs[0]
+
+
 def _child_env(name, home):
     """Environment for a dropped msfrpcd: the parent env with HOME/USER/LOGNAME
     pointed at the target user and any root-inherited gem/bundler overrides
@@ -606,4 +641,4 @@ def _has_iptables_rules(out):
 
 
 __all__ = ["PreflightError", "preflight", "FirewallBackend", "FirewallManager",
-           "MsfdManager", "find_msfrpcd", "resolve_run_as"]
+           "MsfdManager", "find_msfrpcd", "resolve_run_as", "resolve_iface_ip"]
