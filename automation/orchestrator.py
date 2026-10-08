@@ -190,7 +190,7 @@ from msf import (MsfClient, MsfConfig, RANK_VALUES, BRUTE_USER_SEED,
                  BRUTE_PASS_SEED, login_module_for, locate_wordlist,
                  write_builtin_wordlists)
 from system import (preflight, PreflightError, FirewallManager, MsfdManager,
-                    find_msfrpcd, resolve_run_as)
+                    find_msfrpcd, resolve_run_as, resolve_iface_ip)
 
 logger = logging.getLogger(__name__)
 
@@ -1436,7 +1436,12 @@ def _parse_args(argv):
                    help="resume from --checkpoint")
     p.add_argument("--no-tui", action="store_true", help="headless")
     p.add_argument("--nmap-path", default="nmap")
-    p.add_argument("--msf-host", default=None)
+    p.add_argument("--msf-host", default=None,
+                   help="address the client connects to (default 127.0.0.1)")
+    p.add_argument("--msf-iface", default=None,
+                   help="bind autostarted msfrpcd to this interface's IP instead of "
+                        "the connect host; use when 127.0.0.1 cannot serve the RPC "
+                        "listener (resolves the NIC's IPv4)")
     p.add_argument("--msf-port", type=int, default=None)
     p.add_argument("--msf-pass", default=None, help="else MSF_RPC_PASS env")
     ssl = p.add_mutually_exclusive_group()
@@ -1590,17 +1595,29 @@ def main(argv=None):
     cfgfile = OrchestrationConfig(args.config_file)
     msfrpcd_path = args.msfrpcd_path
     run_as = None
+    bind_host = None
     try:
         # Password: --msf-pass or MSF_RPC_PASS, else the persisted credential,
         # generating one only when we will start msfrpcd ourselves.
         if not mcfg.password:
             mcfg.password = (cfgfile.read_password() if args.no_msf_autostart
                              else cfgfile.ensure_password())
-        # Binary and run-as user: only needed when we start it. The user we drop
-        # to keeps msfrpcd in its own gem and ~/.msf4 environment.
+        # Binary, run-as user, and bind address: only needed when we start it. The
+        # user we drop to keeps msfrpcd in its own gem and ~/.msf4 environment.
         if not args.no_msf_autostart:
             msfrpcd_path = _resolve_msfrpcd_path(args, cfgfile)
             run_as = resolve_run_as(args.msf_user)
+            # --msf-iface pins the daemon's bind address to a NIC's IP. If the
+            # operator did not also pin --msf-host, point the client at that same IP,
+            # since a daemon bound only to the NIC will not answer on loopback - the
+            # usual reason for using --msf-iface in the first place. An explicit
+            # --msf-host always wins (bind one address, connect another).
+            if args.msf_iface:
+                bind_host = resolve_iface_ip(args.msf_iface)
+                if args.msf_host is None:
+                    mcfg.host = bind_host
+                logger.info("msfrpcd will bind %s (iface %s); client connects %s",
+                            bind_host, args.msf_iface, mcfg.host)
     except PreflightError as e:
         _startup_error(args, f"preflight failed: {e}")
         return 1
@@ -1610,7 +1627,8 @@ def main(argv=None):
     msfd = MsfdManager(host=mcfg.host, port=mcfg.port, password=mcfg.password,
                        ssl=mcfg.ssl, username=mcfg.username,
                        msfrpcd_path=msfrpcd_path,
-                       autostart=not args.no_msf_autostart, run_as=run_as)
+                       autostart=not args.no_msf_autostart, run_as=run_as,
+                       bind_host=bind_host)
 
     try:
         warnings = preflight(args.nmap_path, msf_client, msfd)
