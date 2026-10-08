@@ -48,7 +48,7 @@ from typing import Iterable
 
 logger = logging.getLogger(__name__)
 
-TOOL = "vapt-orchestrator"
+TOOL = "Latchkey-Engine"
 VERSION = "0.3.0"
 
 
