@@ -629,6 +629,80 @@ def update_kismet():
     print(f"  kismet: {ver or 'version query returned nothing'}")
 
 
+# Services the base install pulls in that default to start-on-boot but are only
+# needed on demand during an engagement. Each maps to the systemd unit(s) that
+# actually ship. openssh-server is deliberately absent: disabling its boot-start
+# can lock the operator out of a remote box. The firewall (ufw) is managed
+# separately and left alone here.
+MANAGED_SERVICES = {
+    "apache2":    ["apache2"],
+    "postgresql": ["postgresql"],
+    "docker":     ["docker", "docker.socket"],
+    "samba":      ["smbd", "nmbd"],
+    "tftpd-hpa":  ["tftpd-hpa"],
+    "gpsd":       ["gpsd", "gpsd.socket"],
+}
+
+def _unit_exists(unit):
+    """True if systemd knows this unit (installed), regardless of run state."""
+    out = subprocess.run(
+        f"systemctl list-unit-files {unit}.service {unit} 2>/dev/null",
+        shell=True, capture_output=True, text=True).stdout
+    return unit in out
+
+def _unit_is_enabled(unit):
+    return subprocess.run(f"systemctl is-enabled {unit} 2>/dev/null",
+                          shell=True, capture_output=True,
+                          text=True).stdout.strip() == "enabled"
+
+def manage_boot_services():
+    """Stop and disable the on-demand services the toolkit installs, then prompt
+    per service whether to re-enable boot-start. Default posture is disabled: these
+    are engagement-time daemons, not things that should listen on every reboot. Only
+    units that actually exist on this host are touched; ssh and ufw are never managed
+    here. Idempotent - safe to re-run; a service already disabled just stays that way
+    unless the operator opts to enable it."""
+    print("\nReviewing boot-start for toolkit support services...")
+
+    # Collect the (friendly_name, [present units]) actually installed on this host.
+    present = []
+    for name, units in MANAGED_SERVICES.items():
+        live = [u for u in units if _unit_exists(u)]
+        if live:
+            present.append((name, live))
+
+    if not present:
+        print("None of the managed support services are installed; nothing to do.")
+        return
+
+    # Default action: stop + disable boot-start for each present unit.
+    for name, units in present:
+        for u in units:
+            run_command(f"sudo systemctl disable {u} >/dev/null 2>&1")
+            run_command(f"sudo systemctl stop {u} >/dev/null 2>&1")
+    print(f"Disabled boot-start for: {', '.join(n for n, _ in present)}")
+
+    # Per-service prompt to re-enable. Blank / anything but 'y' keeps it disabled.
+    print("\nFor each service, enter 'y' to enable boot-start (and start it now), "
+          "anything else to leave it disabled:")
+    for name, units in present:
+        ans = input(f"  Enable {name} on boot? (y/N): ").strip().lower()
+        if ans == "y":
+            for u in units:
+                run_command(f"sudo systemctl enable {u} >/dev/null 2>&1")
+                run_command(f"sudo systemctl start {u} >/dev/null 2>&1")
+            print(f"    {name}: enabled and started.")
+        else:
+            print(f"    {name}: left disabled.")
+
+    # Report final state so the operator has a clear record.
+    print("\nSupport service boot-start summary:")
+    for name, units in present:
+        states = ", ".join(
+            f"{u}={'enabled' if _unit_is_enabled(u) else 'disabled'}" for u in units)
+        print(f"  {name}: {states}")
+
+
 def install_base_dependencies():
     global PIP
     print("Performing system update and upgrade before installing package dependencies...")
@@ -791,6 +865,10 @@ def install_base_dependencies():
         run_command("sudo ufw default allow outgoing")
         run_command("sudo ufw allow 22/tcp")
         run_command("sudo ufw --force enable")
+
+    # Toolkit support services (apache2/postgresql/docker/samba/tftpd/gpsd) default
+    # to start-on-boot; disable them and let the operator opt any back in.
+    manage_boot_services()
 
     print("Base toolkit dependency install pass complete.")
     print_failure_summary()
@@ -1011,17 +1089,32 @@ def tool_categories():
             "post": [],
         },
         "password": {
+            # Crackers and wordlist-generators only - no bulk dictionaries, so this
+            # stays light enough for a thin/WSL install. SecLists lives in its own
+            # 'dictionaries' category because it is multiple GB of static data.
             "label": "Password cracking",
             "clone_tools": [
                 ("https://github.com/hashcat/hashcat.git", "/vapt/passwords/hashcat", None),
                 ("https://github.com/digininja/CeWL.git", "/vapt/passwords/CeWL", None),
-                ("https://github.com/danielmiessler/SecLists.git", "/vapt/passwords/SecLists", None),
             ],
             "builders": [build_johntheripper],
             "update_paths": [
                 "/vapt/passwords/JohnTheRipper", "/vapt/passwords/hashcat",
-                "/vapt/passwords/CeWL", "/vapt/passwords/SecLists",
+                "/vapt/passwords/CeWL",
             ],
+            "go_tools": [],
+            "post": [],
+        },
+        "dictionaries": {
+            # Bulk wordlists / dictionaries - large on disk, split out so password
+            # cracking can be installed without pulling multiple GB. The Weakpass
+            # dictionary (menu option 3) is separate again; this is the git-cloned set.
+            "label": "Dictionaries / wordlists (large)",
+            "clone_tools": [
+                ("https://github.com/danielmiessler/SecLists.git", "/vapt/passwords/SecLists", None),
+            ],
+            "builders": [],
+            "update_paths": ["/vapt/passwords/SecLists"],
             "go_tools": [],
             "post": [],
         },
