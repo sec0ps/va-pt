@@ -769,6 +769,14 @@ class MsfClient:
                 fails += _apply_options(exploit, cred_sets)
             fails += _apply_options(payload, [("LHOST", lhost),
                                               ("LPORT", int(lport))])
+            # Meterpreter payloads carry AutoLoadExtensions as an advanced option
+            # whose default serializes as a list on some MSF builds; this msfrpcd
+            # rejects a list there ("must be a scalar") and the whole execute fails
+            # with no uuid / invalid option. Force it to a scalar when the payload
+            # declares it, so meterpreter payloads (java/meterpreter for java_rmi,
+            # the tomcat upload modules) are not dead on arrival. No-op for payloads
+            # that do not declare it (_apply_options skips undeclared keys).
+            _force_scalar_advanced(payload)
             # Required exploit options with no default that are still unset, minus
             # whatever the payload merge will supply. Anything outstanding is
             # module-specific (creds, a target URI with no default, and so on) we
@@ -876,6 +884,9 @@ class MsfClient:
                 fails += _apply_options(exploit, [("RPORT", int(port))])
             fails += _apply_options(payload, [("LHOST", lhost),
                                               ("LPORT", int(lport))])
+            # Same AutoLoadExtensions scalar workaround as fire(); retest fires the
+            # recorded payload, which may be a meterpreter one.
+            _force_scalar_advanced(payload)
             supplied = set(payload.runoptions)
             outstanding = [o for o in exploit.missing_required
                            if o not in supplied]
@@ -1485,6 +1496,23 @@ def _is_pass_opt(name):
     """Option name that takes a password (PASSWORD, SMBPass, HttpPassword, ...)."""
     n = name.lower()
     return n == "pass" or n.endswith("pass") or n.endswith("password")
+
+
+def _force_scalar_advanced(payload):
+    """Work around an msfrpcd/pymetasploit3 serialization mismatch: meterpreter
+    payloads expose AutoLoadExtensions as an advanced option whose default comes
+    across as a list, and some msfrpcd builds reject a list for it at execute
+    ("Invalid module option value for AutoLoadExtensions: must be a scalar"),
+    killing the whole fire with no uuid. Setting it to a single scalar string the
+    validator accepts clears the rejection. Only applied when the payload declares
+    the option, so it is a no-op for non-meterpreter payloads. Failures are
+    swallowed: this is a best-effort unblock, and a payload that will not take the
+    scalar still falls through to the normal execute path."""
+    try:
+        if "AutoLoadExtensions" in set(payload.options):
+            payload["AutoLoadExtensions"] = "stdapi"
+    except Exception as e:
+        logger.debug("could not force AutoLoadExtensions scalar: %s", e)
 
 
 def _apply_options(mod, pairs):
