@@ -761,35 +761,35 @@ def install_base_dependencies():
     print("Performing system update and upgrade before installing package dependencies...")
     run_command("sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq -o Dpkg::Options::=--force-confold")
 
+    # Base apt set: everything NOT specific to radios. Wireless-only apt packages
+    # (radios, monitor-mode/AP, SDR, captive-portal) live in WIRELESS_APT and install
+    # with the 'wireless' category instead, so a WSL/no-radio host never pulls them.
+    # Dual-use packages that happen to be used by the wireless framework but also by
+    # other tooling (wget, iptables, network-manager, python3-bs4, ethtool, usbutils,
+    # tshark/tcpdump) stay in base deliberately.
     apt_packages = [
         "vim", "subversion", "landscape-common", "ufw", "openssh-server", "net-tools",
         "plocate", "ntpdate", "screen", "whois", "libtool-bin", "make", "gcc", "ncftp",
         "rar", "p7zip-full", "curl", "libpcap-dev", "libssl-dev", "hping3", "libssh-dev",
-        "g++", "arp-scan", "wifite", "ruby-bundler", "freerdp2-dev", "libsqlite3-dev",
+        "g++", "arp-scan", "ruby-bundler", "freerdp2-dev", "libsqlite3-dev",
         "nbtscan", "dsniff", "apache2", "secure-delete", "autoconf", "libpq-dev",
         "libmysqlclient-dev", "libsvn-dev", "libsmbclient-dev", "libgcrypt20-dev",
         "libbson-dev", "libmongoc-dev", "python3-pip", "netsniff-ng", "httptunnel",
         "ptunnel-ng", "udptunnel", "pipx", "python3-venv", "ruby-dev", "webhttrack",
-        "minicom", "openjdk-21-jre", "gnome-tweaks", "macchanger", "recordmydesktop",
+        "minicom", "openjdk-21-jre", "gnome-tweaks", "recordmydesktop",
         "postgresql", "hydra-gtk", "hydra", "wine-development",
-        "libcurl4-openssl-dev", "smbclient", "hackrf", "nfs-common", "samba", "gpsd",
+        "libcurl4-openssl-dev", "smbclient", "nfs-common", "samba",
         "snmp", "libsnmp-dev", "libsnmp-perl", "snmp-mibs-downloader", "docker.io",
-        "docker-compose", "hcxtools", "httrack", "tshark", "git", "python-is-python3",
+        "docker-compose", "httrack", "tshark", "git", "python-is-python3",
         "tig", "tftpd-hpa", "libimage-exiftool-perl", "wkhtmltopdf", "libffi-dev",
         "libyaml-dev", "libreadline-dev", "libncurses5-dev", "libgdbm-dev", "zlib1g-dev",
         "build-essential", "bison", "libedit-dev", "libxml2-utils", "automake", "libtool",
-        "pkg-config", "libnl-3-dev", "libnl-genl-3-dev", "ethtool", "shtool", "rfkill",
-        "libpcre3-dev", "libhwloc-dev", "libcmocka-dev", "hostapd", "wpasupplicant",
-        "tcpdump", "iw", "usbutils", "python3-dnspython", "python3-aiofiles",
+        "pkg-config", "ethtool", "shtool",
+        "libpcre3-dev", "libhwloc-dev", "libcmocka-dev",
+        "tcpdump", "usbutils", "python3-dnspython", "python3-aiofiles",
         "python3-watchdog", "python3-pandas",
-        # wireless/wireless_attack_framework.py deps: DoS (mdk4), captive-portal
-        # DHCP/DNS (dnsmasq-base = binary only, no port-53 service to fight
-        # systemd-resolved), portal-clone form rewrite (python3-bs4) and fetch
-        # (wget), adapter management (network-manager/nmcli), and host-firewall
-        # snapshot/restore + portal DNAT (iptables). iw / hcxtools / hostapd /
-        # aircrack-ng are already provisioned above and via the source build.
-        "mdk4", "dnsmasq-base", "python3-bs4", "wget", "network-manager",
-        "iptables"
+        # dual-use (wireless framework + general): kept in base on purpose.
+        "python3-bs4", "wget", "network-manager", "iptables"
     ]
 
     missing_apt = filter_uninstalled_apt(apt_packages)
@@ -805,7 +805,8 @@ def install_base_dependencies():
     run_command("sudo usermod -aG docker $USER")
     run_command("sudo snap install powershell --classic")
 
-    install_kismet()
+    # Kismet is a wireless tool; it installs with the 'wireless' category, not in
+    # base deps - a WSL/no-radio host should never pull it just for base setup.
 
     print("Installing Python Packages and Dependencies")
     pip_packages = [
@@ -972,6 +973,30 @@ def build_johntheripper():
     run_command("cd /vapt/passwords/JohnTheRipper/src && ./configure")
     run_command("cd /vapt/passwords/JohnTheRipper/src && make -s clean && make -sj4")
     run_command("cd /vapt/passwords/JohnTheRipper/src && make install")
+
+# Wireless-only apt packages: radios/SDR (hackrf), 802.11 capture/attack
+# (hcxtools, wifite, mdk4), monitor-mode/AP (hostapd, wpasupplicant, iw, rfkill),
+# MAC spoofing (macchanger), aircrack-ng nl80211 build deps (libnl-3-dev,
+# libnl-genl-3-dev), captive-portal DHCP/DNS (dnsmasq-base), and GPS (gpsd). These
+# install with the 'wireless' category, never in base deps, so a no-radio host
+# (WSL, VM without USB passthrough) skips them. Dual-use packages the wireless
+# framework also touches (wget, iptables, network-manager, python3-bs4) stay in base.
+WIRELESS_APT = [
+    "wifite", "hackrf", "hcxtools", "macchanger", "rfkill", "hostapd",
+    "wpasupplicant", "iw", "mdk4", "dnsmasq-base", "gpsd",
+    "libnl-3-dev", "libnl-genl-3-dev",
+]
+
+def install_wireless_apt():
+    """Install the radio-specific apt packages for the wireless category, fail-soft,
+    skipping any already present. Runs before the wireless source-builds (aircrack-ng
+    needs libnl-*-dev) and clones, so its deps are in place first."""
+    missing = filter_uninstalled_apt(WIRELESS_APT)
+    if not missing:
+        print("All wireless apt packages already installed, skipping.")
+        return
+    print(f"Installing {len(missing)} wireless apt packages...")
+    apt_install(missing)
 
 def build_aircrack():
     """Aircrack-ng (source build; tarball, not a git repo)."""
@@ -1259,7 +1284,7 @@ def tool_categories():
                 ("https://github.com/s0lst1c3/eaphammer.git", "/vapt/wireless/eaphammer",
                  ["sudo ./ubuntu-unattended-setup", "sudo ./eaphammer --bootstrap"]),
             ],
-            "builders": [build_aircrack, install_kismet],
+            "builders": [install_wireless_apt, build_aircrack, install_kismet],
             "update_paths": [
                 "/vapt/wireless/QtTinySA", "/vapt/wireless/qspectrumanalyzer",
                 "/vapt/wireless/eaphammer",
