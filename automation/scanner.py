@@ -92,11 +92,6 @@ class ScanConfig:
     nmap_path: str = "nmap"
     discovery_top_ports: int = 1000
     discovery_ports: str = ""           # explicit -p override; takes priority
-    # Port-scan technique for the discovery and full-port sweeps. Default "-sS"
-    # (raw SYN, needs root). Some paths drop crafted SYN packets while established
-    # connects pass (virtual switches, L2 filtering), so "-sT" (TCP connect) is the
-    # escape hatch - slower and noisier, but it sees ports that -sS reports filtered.
-    scan_flag: str = "-sS"
     timing: str = "-T4"
     mincvss: float = 7.0
     discovery_timeout: int | None = None  # bulk pass; None means no wall limit
@@ -203,7 +198,7 @@ class Scanner:
             for t in targets:
                 f.write(f"{t}\n")
         try:
-            args = [self.cfg.scan_flag, "-Pn", "-n", self.cfg.timing]
+            args = ["-sS", "-Pn", "-n", self.cfg.timing]
             if self.cfg.discovery_ports:
                 args += ["-p", self.cfg.discovery_ports]
             else:
@@ -231,7 +226,7 @@ class Scanner:
         stays well under the wall even on a host with many services. Returns the
         open port numbers; if nmap times out, the ports found before the cutoff are
         still returned from the partial XML."""
-        args = [self.cfg.scan_flag, "-Pn", "-n", self.cfg.timing, "-p-"]
+        args = ["-sS", "-Pn", "-n", self.cfg.timing, "-p-"]
         args += list(self.cfg.extra_args)
         args += [ip]
         root = self._run_nmap(args, timeout)
@@ -268,7 +263,7 @@ class Scanner:
             return "", "", []
         port_args = ["-p", ",".join(str(p) for p in ports)]
         timeout = self.cfg.vulners_timeout
-        args = [self.cfg.scan_flag, "-sV", "-O", "-Pn", self.cfg.timing,
+        args = ["-sS", "-sV", "-O", "-Pn", self.cfg.timing,
                 "--script", "vulners",
                 "--script-args", f"mincvss={self.cfg.mincvss}"]
         args += port_args
@@ -825,6 +820,14 @@ def _score_verify_scripts(service, catalog, matched, cap):
         s = meta.get(sid)
         if s is None:
             survivors.append((0, sid, set()))
+            continue
+        # Informational scripts (banners, headers, version/host-identity, broadcast
+        # discovery) are the catalog's confident-noise band; they are dropped from the
+        # verify phase outright, not just demoted, so they never consume a
+        # discretionary slot or reach the always-keep split even when they still carry
+        # a vuln/exploit/auth category. Scripts the classifier was unsure about keep an
+        # actionable tier and pass through here.
+        if s.get("tier") == "informational":
             continue
         cats = set(s.get("all_categories") or s.get("categories") or [])
         claimed = set(s.get("product") or [])
