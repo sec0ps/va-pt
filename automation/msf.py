@@ -514,6 +514,71 @@ class MsfClient:
             self._client.call("session.stop", [str(key)])
         return True
 
+    def capture_proof(self, sid, os_family="", timeout=10, cap=4096):
+        """Run read-only proof-of-execution commands in a session and return their
+        combined output, so the evidence of access is recorded before the session
+        is killed. Command set is by session type and, for a plain shell, the host
+        os family: meterpreter gets getuid and sysinfo; a Windows shell gets whoami,
+        hostname, and ver; any other shell gets id, hostname, and uname -a. Each
+        command is capped at `timeout` seconds and the whole proof at `cap` bytes.
+        A non-interactive session type (for example smb) yields a note, not output.
+        Best effort: a failed command is recorded inline rather than raised."""
+        handle, stype = self.session_handle(sid)
+        stype = (stype or "").lower()
+        if handle is None:
+            return (f"session type '{stype or 'unknown'}' is not an interactive "
+                    "console; no proof command run") if stype else ""
+        if stype == "meterpreter":
+            cmds = ["getuid", "sysinfo"]
+        elif "win" in (os_family or "").lower():
+            cmds = ["whoami", "hostname", "ver"]
+        else:
+            cmds = ["id", "hostname", "uname -a"]
+        parts = []
+        for cmd in cmds:
+            out = self._proof_cmd(handle, stype, cmd, timeout)
+            parts.append(f"$ {cmd}\n{out.strip()}")
+            if sum(len(p) for p in parts) >= cap:
+                break
+        return "\n".join(parts)[:cap]
+
+    def _proof_cmd(self, handle, stype, cmd, timeout):
+        """One proof command with a hard time cap, run on a worker thread so a
+        session that never returns cannot hang teardown. Returns the output text or
+        a bracketed note. Shell output is read in short polls until it goes quiet or
+        the cap is reached; meterpreter uses run_with_output."""
+        result = {}
+
+        def _work():
+            try:
+                if stype == "meterpreter":
+                    result["out"] = handle.run_with_output(cmd + "\n", ["\n"])
+                    return
+                handle.write(cmd + "\n")
+                buf = []
+                quiet = 0
+                deadline = time.time() + timeout
+                while time.time() < deadline:
+                    time.sleep(0.3)
+                    chunk = _shell_read(handle)
+                    if chunk:
+                        buf.append(chunk)
+                        quiet = 0
+                    else:
+                        quiet += 1
+                        if buf and quiet >= 2:
+                            break
+                result["out"] = "".join(buf)
+            except Exception as e:
+                result["out"] = f"[proof error: {e}]"
+
+        t = threading.Thread(target=_work, name="proof", daemon=True)
+        t.start()
+        t.join(timeout + 1)
+        if t.is_alive():
+            return "[proof timed out]"
+        return result.get("out", "")
+
     def db_status(self):
         """Raw msfrpcd database status dict, or None if the call fails."""
         try:
