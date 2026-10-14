@@ -265,13 +265,17 @@ class Session:
     info: str = ""
     port: int = 0                  # rhost service port this session sits on
     opened_at: float = field(default_factory=_now)
+    proof: str = ""                # read-only proof-of-execution output, if captured
+    released_at: float = 0.0       # when the session was proved and killed; 0 if still open
 
     @classmethod
     def from_dict(cls, d):
         return cls(session_id=str(d["session_id"]), module=d.get("module", ""),
                    payload=d.get("payload", ""), info=d.get("info", ""),
                    port=int(d.get("port", 0)),
-                   opened_at=float(d.get("opened_at", _now())))
+                   opened_at=float(d.get("opened_at", _now())),
+                   proof=d.get("proof", ""),
+                   released_at=float(d.get("released_at", 0.0) or 0.0))
 
 
 @dataclass
@@ -527,6 +531,22 @@ class RunState:
             h = self._hosts[ip]
             h.sessions.append(session)
             h.updated_at = _now()
+
+    def set_session_proof(self, ip, session_id, proof, released_at):
+        """Record proof-of-execution output and the release timestamp on a session,
+        matched by id. Written at teardown when sessions are proved and killed
+        rather than kept, so the finding carries the evidence the live session no
+        longer can. No-op when the host or session id is unknown."""
+        with self._lock:
+            h = self._hosts.get(ip)
+            if h is None:
+                return
+            for s in h.sessions:
+                if str(s.session_id) == str(session_id):
+                    s.proof = proof or ""
+                    s.released_at = released_at or 0.0
+                    h.updated_at = _now()
+                    return
 
     def add_credential(self, ip, cred: Credential):
         with self._lock:
@@ -806,6 +826,8 @@ def _session_row(host, s):
         "port": s.port or None,
         "session_id": s.session_id,
         "info": s.info or None,
+        "proof": s.proof or None,
+        "released_at": s.released_at or None,
         "exploited": True,
     }
 
