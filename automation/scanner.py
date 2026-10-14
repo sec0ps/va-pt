@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # =============================================================================
-# Location    scanner.py
+# Location    automation/scanner.py
 # Author      Keith Pachulski
 # Company     Red Cell Security LLC
 # Email       keith@redcellsecurity.org
@@ -12,6 +12,14 @@
 #             Bulk discovery, per-host version/vulners scanning, and NSE
 #             verification, parsed in-process from nmap XML. With nmap_out_dir
 #             set, the per-host vulners pass also archives its XML for reuse.
+#             The bulk discovery pass reports nmap's own progress (percent done,
+#             hosts complete, ETC) to the log and activity feed on an interval,
+#             so a long sweep is visible while it runs.
+#
+# SECURITY NOTICE
+#             This software is intended for authorized security assessment and
+#             defensive operations only. Use it exclusively on systems you own or
+#             are explicitly permitted to test. Unauthorized use may violate law.
 #
 # DISCLAIMER
 #             This software is provided "as is" without warranty of any kind. The
@@ -43,6 +51,7 @@ import signal
 import subprocess
 import time
 import tempfile
+import threading
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
@@ -105,6 +114,7 @@ class ScanConfig:
     brute_time_limit: str = "120s"  # per-script unpwdb time cap (empty = no cap)
     max_retries: int | None = 2         # nmap --max-retries; None keeps nmap default
     host_timeout: str = ""              # nmap --host-timeout; "" derives from the wall
+    stats_every: str = "60s"            # discovery progress interval; "" turns it off
     extra_args: list = field(default_factory=list)
     nmap_out_dir: str = ""              # if set, vulners_scan archives per-host XML here
 
@@ -205,7 +215,8 @@ class Scanner:
                 args += ["--top-ports", str(self.cfg.discovery_top_ports)]
             args += list(self.cfg.extra_args)
             args += ["-iL", tfile]
-            root = self._run_nmap(args, self.cfg.discovery_timeout)
+            root = self._run_nmap(args, self.cfg.discovery_timeout,
+                                  progress="discovery")
         finally:
             _unlink(tfile)
         results = {}
@@ -419,10 +430,17 @@ class Scanner:
 
     # -- nmap exec --
 
-    def _run_nmap(self, args, timeout, save_to=None):
+    def _run_nmap(self, args, timeout, save_to=None, progress=None):
+        """Run nmap to an XML temp file and return the parsed root. progress, when
+        set to a phase label, adds --stats-every and reports nmap's periodic
+        progress through _progress while the scan runs. stdout and stderr are
+        drained on reader threads so a chatty scan can never fill a pipe and stall,
+        and the wait loop polls the stop event and the wall."""
         fd, xml_path = tempfile.mkstemp(suffix=".xml")
         os.close(fd)
         eff = self._with_limits(args, timeout)
+        if progress and self.cfg.stats_every and "--stats-every" not in eff:
+            eff += ["--stats-every", self.cfg.stats_every]
         self._activity(eff)
         cmd = [self.cfg.nmap_path] + [a for a in eff if a] + ["-oX", xml_path]
         # nmap runs in its own process group so a cancel can kill it and any NSE
@@ -436,14 +454,22 @@ class Scanner:
         except FileNotFoundError:
             _unlink(xml_path)
             raise NmapError(f"nmap not found at '{self.cfg.nmap_path}'")
+        err_chunks = []
+        readers = [
+            threading.Thread(target=self._drain_stdout, args=(proc.stdout, progress),
+                             daemon=True),
+            threading.Thread(target=lambda: err_chunks.append(proc.stderr.read()),
+                             daemon=True),
+        ]
+        for t in readers:
+            t.start()
         stop = self._stop_event
         # timeout is None for phases that run without a hard wall (discovery); poll
         # for cancel forever in that case, but never impose a deadline.
         deadline = None if timeout is None else time.monotonic() + timeout
-        stderr_b = b""
         while True:
             try:
-                _out, stderr_b = proc.communicate(timeout=1.0)
+                proc.wait(timeout=1.0)
                 break
             except subprocess.TimeoutExpired:
                 if stop is not None and stop.is_set():
@@ -454,6 +480,9 @@ class Scanner:
                     _kill_proc_tree(proc)
                     _unlink(xml_path)
                     raise NmapError(f"nmap timed out after {timeout}s")
+        for t in readers:
+            t.join(timeout=5)
+        stderr_b = b"".join(c for c in err_chunks if c)
         try:
             if proc.returncode != 0 and os.path.getsize(xml_path) == 0:
                 err = (stderr_b or b"").decode(errors="replace").strip()
@@ -471,6 +500,50 @@ class Scanner:
             raise NmapError(f"could not parse nmap XML: {e}; stderr: {err}")
         finally:
             _unlink(xml_path)
+
+    _STATS_RE = re.compile(
+        r"Stats:\s*(?P<elapsed>[\d:]+) elapsed;\s*(?P<done>\d+) hosts? completed"
+        r"\s*\((?P<up>\d+) up\)")
+    _TIMING_RE = re.compile(
+        r"(?P<phase>[A-Za-z ]+?) Timing: About (?P<pct>[\d.]+)% done"
+        r"(?:; ETC: (?P<etc>[\d:]+) \((?P<left>[\d:]+) remaining\))?")
+
+    def _drain_stdout(self, stream, progress):
+        """Read nmap's normal output to EOF. When progress is set, fold each
+        --stats-every block (a Stats line then a Timing line) into one report."""
+        stats = None
+        try:
+            for raw in iter(stream.readline, b""):
+                if not progress:
+                    continue
+                line = raw.decode(errors="replace").strip()
+                m = self._STATS_RE.search(line)
+                if m:
+                    stats = m.groupdict()
+                    continue
+                m = self._TIMING_RE.search(line)
+                if m:
+                    self._progress(progress, stats, m.groupdict())
+        except (OSError, ValueError):
+            pass
+
+    def _progress(self, label, stats, timing):
+        """Log and feed one progress report, for example
+        'discovery progress: 42.1% done, 96 host(s) complete (12 up), elapsed
+        0:20:11, ETC 12:31 (0:27:40 remaining)'."""
+        parts = [f"{label} progress: {float(timing['pct']):.1f}% done"]
+        if stats:
+            parts.append(f"{stats['done']} host(s) complete ({stats['up']} up)")
+            parts.append(f"elapsed {stats['elapsed']}")
+        if timing.get("etc"):
+            parts.append(f"ETC {timing['etc']} ({timing['left']} remaining)")
+        line = ", ".join(parts)
+        logger.info("%s", line)
+        if self._on_activity:
+            try:
+                self._on_activity("nmap", line)
+            except Exception:
+                pass
 
     def _with_limits(self, args, timeout):
         """Add per-host time and retry bounds unless the caller already set them.
