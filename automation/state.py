@@ -11,6 +11,14 @@
 # Purpose     Shared run state, host lifecycle, stats, and checkpoint/findings
 #             persistence for the orchestrator. Single source of truth read by
 #             the TUI and written by the pipeline workers under one lock.
+#             Checkpoint and findings writes are serialized and use a unique temp
+#             file per write, so concurrent savers never collide.
+#
+# SECURITY NOTICE
+#             This software is intended for authorized security assessment and
+#             defensive operations only. Use it exclusively on systems you own or
+#             are explicitly permitted to test. Unauthorized use may violate law.
+#
 # DISCLAIMER
 #             This software is provided "as is" without warranty of any kind. The
 #             author and Red Cell Security LLC accept no liability for damage or
@@ -39,6 +47,7 @@ import logging
 import os
 import re
 import subprocess
+import tempfile
 import threading
 import time
 from collections import deque
@@ -214,6 +223,9 @@ class Service:
     method: str = ""               # nmap service detection method: probed | table
     conf: int = 0                  # nmap confidence 0-10 for the identification
     cves: list[CVE] = field(default_factory=list)
+    # every CVE id vulners attributes to the detected version, before the mincvss
+    # floor; the exploit selector checks a module's own CVEs against this
+    vuln_ids: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, d):
@@ -222,6 +234,7 @@ class Service:
                 version=d.get("version", ""), cpe=d.get("cpe", ""),
                 method=d.get("method", ""), conf=int(d.get("conf", 0) or 0))
         s.cves = [CVE.from_dict(x) for x in d.get("cves", [])]
+        s.vuln_ids = [str(x) for x in d.get("vuln_ids", []) or []]
         return s
 
 
@@ -232,7 +245,7 @@ class Candidate:
     rank: str = ""                 # msf rank name (display + findings)
     port: int = 0
     source: str = "msf"            # msf | product | auxiliary | unauth | nse
-    fire_status: str = ""          # "" until fired: session|no_session|blocked|error
+    fire_status: str = ""          # "" until fired: session|no_session|blocked|error|skipped
     fire_detail: str = ""          # reason a fire blocked/failed, for review
 
     @classmethod
@@ -405,6 +418,9 @@ class Activity:
 class RunState:
     def __init__(self, mode="autopwn", checkpoint_path=None, findings_path=None):
         self._lock = threading.RLock()
+        # serializes checkpoint and findings writes; discovery, the main loop, and
+        # workers can all save at once
+        self._write_lock = threading.Lock()
         self._hosts: dict[str, Host] = {}
         self.mode = mode or "autopwn"
         self.phase = "init"
@@ -703,7 +719,8 @@ class RunState:
         if not path:
             return
         data = self._serialize()
-        _atomic_write_json(path, data)
+        with self._write_lock:
+            _atomic_write_json(path, data)
 
     @classmethod
     def load_checkpoint(cls, path, mode=None, findings_path=None):
@@ -725,7 +742,8 @@ class RunState:
         if not path:
             return None
         data = self._build_findings()
-        _atomic_write_json(path, data)
+        with self._write_lock:
+            _atomic_write_json(path, data)
         return path
 
     def write_nse_detections(self, detections, path=None):
@@ -745,7 +763,8 @@ class RunState:
                     "finished_at": _now()},
             "detections": detections,
         }
-        _atomic_write_json(path, data)
+        with self._write_lock:
+            _atomic_write_json(path, data)
         return path
 
     def _build_findings(self) -> dict:
@@ -824,14 +843,25 @@ def _access_row(host, acc):
 
 
 def _atomic_write_json(path, data):
+    """Write JSON to path atomically. The temp file is unique per call (mkstemp in
+    the target dir), so concurrent writers from different threads can never share
+    or remove each other's temp file; the last rename wins."""
     d = os.path.dirname(os.path.abspath(path))
     os.makedirs(d, exist_ok=True)
-    tmp = f"{path}.tmp.{os.getpid()}"
-    with open(tmp, "w") as f:
-        json.dump(data, f, indent=2, sort_keys=False)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, path)
+    fd, tmp = tempfile.mkstemp(prefix=os.path.basename(path) + ".", suffix=".tmp",
+                               dir=d)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2, sort_keys=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 __all__ = [
