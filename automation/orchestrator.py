@@ -15,6 +15,8 @@
 #             Discovery runs in small batches on its own thread and hands each
 #             batch's live hosts to the scan pool as soon as the batch finishes,
 #             so per-host testing starts while the rest of the scope is swept.
+#             Attack phases stop at the first proven path per host, and each
+#             module fires once per daemon rather than once per port.
 #
 # SECURITY NOTICE
 #             This software is intended for authorized security assessment and
@@ -638,7 +640,12 @@ class Orchestrator:
                     else:
                         self.run.transition(ip, HostState.DOWN)
                 swept += len(chunk)
-                self.run.save_checkpoint()
+                try:
+                    self.run.save_checkpoint()
+                except OSError as e:
+                    # a failed save is retried by the main loop's periodic save;
+                    # it must never stop the sweep
+                    logger.warning("checkpoint save failed during discovery: %s", e)
                 if len(batches) > 1:
                     logger.info("discovery batch %d/%d: %d live of %d, %d of %d "
                                 "host(s) swept", n, len(batches), found, len(chunk),
@@ -730,8 +737,17 @@ class Orchestrator:
         for svc in host.services:
             port_service[svc.port] = svc.product or f"port-{svc.port}"
         groups = {}
+        seen = {}
         for cand in _fireable(host):
             key = port_service.get(cand.port, f"port-{cand.port}")
+            # One attempt per module per daemon. The same daemon on two ports
+            # (Samba 139/445) yields the same module once per port; firing it on the
+            # second port re-tests the identical code path and doubles the phase.
+            # The first (lowest-ranked-order) port is kept.
+            mods = seen.setdefault(key, set())
+            if cand.module in mods:
+                continue
+            mods.add(cand.module)
             groups.setdefault(key, []).append(cand)
         return groups
 
@@ -751,14 +767,32 @@ class Orchestrator:
         session. Runs concurrently with the host's other services on the fire
         pool."""
         host = self.run.host_copy(ip)
-        for cand in cands:
+        for i, cand in enumerate(cands):
             if self._stop.is_set():
                 break
+            # One proven path per host. Once any service on the host holds a
+            # session, the remaining exploits on every service are skipped rather
+            # than re-compromising a system we already own. Fires already in flight
+            # on sibling services finish; nothing new starts.
+            if self._host_compromised(ip):
+                for rest in cands[i:]:
+                    self.run.update_candidate_fire(
+                        ip, rest.module, "skipped",
+                        "host already compromised by another module")
+                logger.info("fire %s: host already compromised, skipping %d "
+                            "remaining module(s) on this service", ip,
+                            len(cands) - i)
+                return
             session, status, detail = self.msf.fire(cand, host, ip, cand.port)
             self.run.update_candidate_fire(ip, cand.module, status, detail)
             if session is not None:
                 self.run.add_session(ip, session)
                 return
+
+    def _host_compromised(self, ip):
+        """True once the host holds an exploit or brute session. The attack phases
+        stop at the first proven path per host."""
+        return bool(self.run.host_copy(ip).sessions)
 
     def _aux_wrapper(self, ip, cand):
         if self._stop.is_set():
@@ -925,6 +959,8 @@ class Orchestrator:
         targets = []
         for ip in list(self.run.live_hosts()):
             host = self.run.host_copy(ip)
+            if host.sessions:
+                continue  # already compromised; one proven path per host
             # A port already owned (a session) or already cracked (a credential) is
             # not attacked again.
             fenced = ({s.port for s in host.sessions if s.port}
@@ -984,6 +1020,8 @@ class Orchestrator:
         for host in self.run.snapshot_hosts():
             if not host.credentials or not host.candidates:
                 continue
+            if host.sessions:
+                continue  # already compromised; one proven path per host
             ip = host.ip
             sessioned = {s.port for s in host.sessions if s.port}
             creds_by_port = {}
@@ -1048,6 +1086,8 @@ class Orchestrator:
         for host in self.run.snapshot_hosts():
             if host.state in skip or not host.services:
                 continue
+            if host.sessions:
+                continue  # already compromised; one proven path per host
             # Skip a port we already own (session) or already cracked
             # (credential); no reason to brute it again.
             sessioned = ({s.port for s in host.sessions if s.port}
