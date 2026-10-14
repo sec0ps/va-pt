@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # =============================================================================
-# Location    orchestrator.py
+# Location    automation/orchestrator.py
 # Author      Keith Pachulski
 # Company     Red Cell Security LLC
 # Email       keith@redcellsecurity.org
@@ -12,6 +12,14 @@
 #             resolution, preflight, discovery, per-host scan/analyze/check, the
 #             fire and brute phases, and sequenced teardown. Passes an optional
 #             nmap output directory through to the scanner for archival.
+#             Discovery runs in small batches on its own thread and hands each
+#             batch's live hosts to the scan pool as soon as the batch finishes,
+#             so per-host testing starts while the rest of the scope is swept.
+#
+# SECURITY NOTICE
+#             This software is intended for authorized security assessment and
+#             defensive operations only. Use it exclusively on systems you own or
+#             are explicitly permitted to test. Unauthorized use may violate law.
 #
 # DISCLAIMER
 #             This software is provided "as is" without warranty of any kind. The
@@ -23,9 +31,10 @@ orchestrator.py - entry point and pipeline coordination.
 
 Resolves scope (single IPs, CIDRs, ranges, hostnames) with dedup, excludes, and a
 size guard, runs preflight and the firewall disable, then drives the per-host
-pipeline. Discovery is one bulk SYN pass (chunked for large scope). Everything
-after is per-host parallel on a bounded pool: vulners scan, candidate assembly,
-and check. Detonation runs on a separate, smaller pool so blocked fires never
+pipeline. Discovery is the same connect pass run in small batches on its own
+thread, each batch's live hosts fed straight into the per-host pool, so discovery
+and per-host work overlap. Everything after is per-host parallel on a bounded
+pool: vulners scan, candidate assembly, and check. Detonation runs on a separate, smaller pool so blocked fires never
 starve the scan workers.
 
 The run is done when no host remains in a non-terminal state, with one nuance:
@@ -206,6 +215,10 @@ class OrchestratorConfig:
     fire_workers: int = 16           # concurrent (host, service) fires; LPORT pool is the ceiling
     brute_workers: int = 16          # concurrent (host, service) login scanners
     chunk_size: int = 2048
+    # hosts per discovery batch; each batch's live hosts start per-host testing as
+    # soon as it finishes. 0 restores the single bulk pass that blocks until the
+    # whole scope is swept. Never larger than chunk_size.
+    discovery_batch: int = 32
     checkpoint_interval: float = 15.0
     poll_interval: float = 0.25
     headless_status_interval: float = 5.0
@@ -489,24 +502,42 @@ class Orchestrator:
 
     def run_pipeline(self, display=None):
         self._install_signal_handlers()
+        discovery = None
         try:
             self.fw.disable()
             if not self.seeded:
-                self._discover_phase()
-                # Resolve wordlists once, before firing, so credentialed exploits
-                # can draw a default USERNAME/PASSWORD from the seclists top
-                # entries, and so the brute phase reuses the same resolution.
+                # Resolve wordlists once, before any host can reach firing, so
+                # credentialed exploits can draw a default USERNAME/PASSWORD from the
+                # seclists top entries, and so the brute phase reuses the same
+                # resolution. It no longer waits on discovery, which now overlaps
+                # with per-host work.
                 self._prime_credentials()
-            self.run.set_phase("scan")
             self._scan_pool = ThreadPoolExecutor(
                 max_workers=self.cfg.workers, thread_name_prefix="scan")
             self._fire_pool = ThreadPoolExecutor(
                 max_workers=self.cfg.fire_workers, thread_name_prefix="fire")
+            if self.seeded or self.cfg.discovery_batch <= 0:
+                # Seeded pass, or batching turned off: discovery (if any) runs to
+                # completion first, as before.
+                if not self.seeded:
+                    self._discover_phase()
+                self.run.set_phase("scan")
+            else:
+                # Resumed hosts already past discovery start now; discovery feeds the
+                # rest in as each batch completes. Unswept hosts stay QUEUED, which
+                # keeps them pending, so the main loop cannot finish early.
+                discovery = threading.Thread(
+                    target=self._discover_phase, kwargs={"on_live": self._submit_host},
+                    name="discovery", daemon=True)
             for ip in self._resumable_hosts():
                 if self._stop.is_set():
                     break
-                self._scan_pool.submit(self._process_host, ip)
+                self._submit_host(ip)
+            if discovery is not None:
+                discovery.start()
             self._main_loop(display)
+            if discovery is not None:
+                discovery.join()
             # The brute phase runs once the attack pipeline has drained, on a clean
             # completion only (a signal skips it). Credentials it finds upgrade any
             # host the per-host attack left clean. Seeded passes are targeted and
@@ -523,7 +554,22 @@ class Orchestrator:
             # Normal completion means we ended on _is_done, not a signal.
             self._completed = not self._stop.is_set()
         finally:
+            # a cancel kills the discovery nmap through the stop event; wait for the
+            # thread so teardown never restores the firewall under a live sweep
+            if discovery is not None and discovery.is_alive():
+                discovery.join(timeout=30)
             self._teardown(display)
+
+    def _submit_host(self, ip):
+        """Hand one host to the per-host scan pool. Called by the main thread for
+        resumed hosts and by the discovery thread as each batch completes."""
+        if self._stop.is_set() or self._scan_pool is None:
+            return
+        try:
+            self._scan_pool.submit(self._process_host, ip)
+        except RuntimeError:
+            # pool already shut down by a cancel racing the discovery thread
+            logger.debug("scan pool closed; %s not submitted", ip)
 
     def _install_signal_handlers(self):
         try:
@@ -543,38 +589,72 @@ class Orchestrator:
 
     # -- discovery --
 
-    def _discover_phase(self):
+    def _discover_phase(self, on_live=None):
+        """Sweep the QUEUED hosts with the discovery pass, batch by batch. Each
+        host's result is applied as its batch finishes; with on_live set, every live
+        host is handed to it immediately so per-host testing starts while later
+        batches are still being swept. Never raises: an unexpected failure marks
+        the hosts not yet swept as errored, so they cannot stay pending and hold
+        the main loop open."""
         self.run.set_phase("discovery")
         # Flush immediately so the status poller shows the discovery phase before
-        # the first chunk finishes, rather than staying blank during a long sweep.
+        # the first batch finishes, rather than staying blank during a long sweep.
         self.run.save_checkpoint()
         queued = [ip for ip in self.run.pending_hosts()
                   if self.run.get_state(ip) == HostState.QUEUED]
-        for chunk in _chunks(queued, self.cfg.chunk_size):
-            if self._stop.is_set():
-                break
-            try:
-                results = self.scanner.discover(chunk)
-            except NmapError as e:
-                logger.error("discovery failed for a chunk of %d: %s",
-                             len(chunk), e)
+        size = self.cfg.chunk_size
+        if on_live is not None and self.cfg.discovery_batch > 0:
+            size = min(size, self.cfg.discovery_batch)
+        batches = list(_chunks(queued, size))
+        if len(batches) > 1:
+            logger.info("discovery: %d host(s) in %d batch(es) of up to %d",
+                        len(queued), len(batches), size)
+        swept = 0
+        try:
+            for n, chunk in enumerate(batches, 1):
+                if self._stop.is_set():
+                    break
+                try:
+                    results = self.scanner.discover(chunk)
+                except NmapError as e:
+                    logger.error("discovery failed for a batch of %d: %s",
+                                 len(chunk), e)
+                    for ip in chunk:
+                        self.run.set_error(ip, f"discovery failed: {e}")
+                    swept += len(chunk)
+                    continue
+                found = 0
                 for ip in chunk:
-                    self.run.set_error(ip, f"discovery failed: {e}")
-                continue
-            for ip in chunk:
-                dr = results.get(ip)
-                if dr is not None and dr.up:
-                    if dr.hostname:
-                        self.run.set_hostname(ip, dr.hostname)
-                    self.run.set_services(ip, dr.services)
-                    self._discovered_ports[ip] = [s.port for s in dr.services]
-                    self.run.transition(ip, HostState.DISCOVERED)
-                else:
-                    self.run.transition(ip, HostState.DOWN)
-            self.run.save_checkpoint()
+                    dr = results.get(ip)
+                    if dr is not None and dr.up:
+                        if dr.hostname:
+                            self.run.set_hostname(ip, dr.hostname)
+                        self.run.set_services(ip, dr.services)
+                        self._discovered_ports[ip] = [s.port for s in dr.services]
+                        self.run.transition(ip, HostState.DISCOVERED)
+                        found += 1
+                        if on_live is not None:
+                            on_live(ip)
+                    else:
+                        self.run.transition(ip, HostState.DOWN)
+                swept += len(chunk)
+                self.run.save_checkpoint()
+                if len(batches) > 1:
+                    logger.info("discovery batch %d/%d: %d live of %d, %d of %d "
+                                "host(s) swept", n, len(batches), found, len(chunk),
+                                swept, len(queued))
+        except Exception as e:
+            logger.exception("discovery aborted")
+            for ip in queued:
+                if self.run.get_state(ip) == HostState.QUEUED:
+                    self.run.set_error(ip, f"discovery aborted: {e}")
+        if self._stop.is_set():
+            return
         live = self.run.stats().live
         self.run.record_activity("phase", f"discovered {live} live host(s)")
         logger.info("discovery complete: %d live host(s)", live)
+        if on_live is not None:
+            self.run.set_phase("scan")
 
     def _resumable_hosts(self):
         # after discovery: hosts in any non-terminal, non-queued state
@@ -1394,6 +1474,9 @@ def _parse_args(argv):
     p.add_argument("--workers", type=int, default=10)
     p.add_argument("--fire-workers", type=int, default=16)
     p.add_argument("--chunk-size", type=int, default=2048)
+    p.add_argument("--discovery-batch", type=int, default=32,
+                   help="hosts per discovery batch; live hosts from each batch start "
+                        "per-host testing immediately (0 = one bulk pass first)")
     p.add_argument("--checkpoint-interval", type=float, default=15.0)
     p.add_argument("--top-ports", type=int, default=1000,
                    help="phase 1 discovery: top N ports for liveness")
@@ -1645,6 +1728,7 @@ def main(argv=None):
     ocfg = OrchestratorConfig(
         workers=args.workers, fire_workers=args.fire_workers,
         chunk_size=args.chunk_size, checkpoint_interval=args.checkpoint_interval,
+        discovery_batch=args.discovery_batch,
         verify_catalog_path=args.nse_catalog or "",
         keep_msfrpcd=args.keep_msfrpcd)
     orch = Orchestrator(run, scanner, msf_client, fw, msfd, ocfg, cfgfile)
