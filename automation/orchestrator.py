@@ -15,8 +15,10 @@
 #             Discovery runs in small batches on its own thread and hands each
 #             batch's live hosts to the scan pool as soon as the batch finishes,
 #             so per-host testing starts while the rest of the scope is swept.
-#             Attack phases stop at the first proven path per host, and each
-#             module fires once per daemon rather than once per port.
+#             Every service on a host is exploited, each stopping at its own
+#             first session, and each module fires once per daemon rather than
+#             once per port. --stop-at-first-session narrows exploit fires to
+#             one proven path per host; brute and access checks are unaffected.
 #
 # SECURITY NOTICE
 #             This software is intended for authorized security assessment and
@@ -227,6 +229,9 @@ class OrchestratorConfig:
     status_keepalive_interval: float = 60.0   # heartbeat when stats unchanged
     verify_catalog_path: str = ""    # scripted-verify catalog; empty uses engine default
     keep_msfrpcd: bool = False       # force-keep even with no open sessions
+    # Exploit fires (first pass and credentialed re-fire) stop for a host once it
+    # holds an exploit session. Off fires every service. Brute and aux unaffected.
+    stop_at_first_session: bool = False
 
 
 DEFAULT_CONFIG_FILE = ".orchestration_config"
@@ -698,9 +703,10 @@ class Orchestrator:
     def _submit_attack(self, ip):
         """Attack the host on every avenue at once: exploit candidates fire (grouped
         by service, first session wins the group), and auxiliary/unauth candidates
-        run to prove unauthenticated access. The host finalizes when the last task
-        completes, COMPROMISED if it has any session, credential, or access, else
-        CLEAN."""
+        run to prove unauthenticated access. With stop_at_first_session the first
+        exploit session on any service ends exploit fires for the whole host. The
+        host finalizes when the last task completes, COMPROMISED if it has any
+        session, credential, or access, else CLEAN."""
         if self._stop.is_set():
             return
         host = self.run.host_copy(ip)
@@ -765,34 +771,41 @@ class Orchestrator:
     def _do_fire_service(self, ip, cands):
         """Fire one service's candidates in rank order, stopping at the first
         session. Runs concurrently with the host's other services on the fire
-        pool."""
+        pool. With stop_at_first_session, the host is checked before every fire,
+        the first one included, so a session on any sibling service ends this
+        service too; only fires already in flight overlap."""
         host = self.run.host_copy(ip)
+        stop_host = self.cfg.stop_at_first_session
+        abort = (lambda: self._host_exploited(ip)) if stop_host else None
         for i, cand in enumerate(cands):
             if self._stop.is_set():
                 break
-            # One proven path per host. Once any service on the host holds a
-            # session, the remaining exploits on every service are skipped rather
-            # than re-compromising a system we already own. Fires already in flight
-            # on sibling services finish; nothing new starts.
-            if self._host_compromised(ip):
-                for rest in cands[i:]:
-                    self.run.update_candidate_fire(
-                        ip, rest.module, "skipped",
-                        "host already compromised by another module")
-                logger.info("fire %s: host already compromised, skipping %d "
-                            "remaining module(s) on this service", ip,
-                            len(cands) - i)
+            if stop_host and self._host_exploited(ip):
+                self._skip_rest(ip, cands[i:])
                 return
-            session, status, detail = self.msf.fire(cand, host, ip, cand.port)
+            session, status, detail = self.msf.fire(cand, host, ip, cand.port,
+                                                    abort=abort)
             self.run.update_candidate_fire(ip, cand.module, status, detail)
             if session is not None:
                 self.run.add_session(ip, session)
                 return
 
-    def _host_compromised(self, ip):
-        """True once the host holds an exploit or brute session. The attack phases
-        stop at the first proven path per host."""
-        return bool(self.run.host_copy(ip).sessions)
+    def _skip_rest(self, ip, cands):
+        """Mark a service's unfired exploit candidates skipped because the host
+        already holds an exploit session (stop_at_first_session)."""
+        for rest in cands:
+            self.run.update_candidate_fire(
+                ip, rest.module, "skipped",
+                "host already exploited; stop at first session")
+        logger.info("fire %s: host already exploited, skipping %d remaining "
+                    "module(s) on this service", ip, len(cands))
+
+    def _host_exploited(self, ip):
+        """True once the host holds a session opened by an exploit module. Brute
+        login sessions (auxiliary scanners) do not count."""
+        host = self.run.host_copy(ip)
+        return bool(host) and any(
+            not (s.module or "").startswith("auxiliary/") for s in host.sessions)
 
     def _aux_wrapper(self, ip, cand):
         if self._stop.is_set():
@@ -959,8 +972,6 @@ class Orchestrator:
         targets = []
         for ip in list(self.run.live_hosts()):
             host = self.run.host_copy(ip)
-            if host.sessions:
-                continue  # already compromised; one proven path per host
             # A port already owned (a session) or already cracked (a credential) is
             # not attacked again.
             fenced = ({s.port for s in host.sessions if s.port}
@@ -1016,13 +1027,19 @@ class Orchestrator:
         that credential's host that blocked or failed on its port, skipping any port
         that already holds a session. Fires with the exact recovered credential, so
         nothing is guessed; a candidate whose module declares no credential option
-        is rejected by the fire path rather than re-attempted blindly."""
+        is rejected by the fire path rather than re-attempted blindly. With
+        stop_at_first_session, a host that holds an exploit session is skipped and
+        a re-fire that lands one ends the host's remaining re-fires; a blocked
+        candidate keeps its first-pass status so the tooling gap stays visible."""
+        stop_host = self.cfg.stop_at_first_session
         for host in self.run.snapshot_hosts():
             if not host.credentials or not host.candidates:
                 continue
-            if host.sessions:
-                continue  # already compromised; one proven path per host
             ip = host.ip
+            if stop_host and self._host_exploited(ip):
+                continue
+            abort = ((lambda _ip=ip: self._host_exploited(_ip)) if stop_host
+                     else None)
             sessioned = {s.port for s in host.sessions if s.port}
             creds_by_port = {}
             for c in host.credentials:
@@ -1041,6 +1058,8 @@ class Orchestrator:
                     continue
                 if not cand.port or cand.port in sessioned:
                     continue
+                if stop_host and self._host_exploited(ip):
+                    break
                 for cred in creds_by_port.get(cand.port, []):
                     if cand.port in sessioned:
                         break
@@ -1049,7 +1068,8 @@ class Orchestrator:
                         f"recovered {cred.username or '<user>'} credential")
                     try:
                         session, status, detail = self.msf.fire(
-                            cand, host, ip, cand.port, credential=cred)
+                            cand, host, ip, cand.port, credential=cred,
+                            abort=abort)
                     except Exception as e:
                         logger.exception("re-fire failed for %s %s", ip,
                                          cand.module)
@@ -1086,8 +1106,6 @@ class Orchestrator:
         for host in self.run.snapshot_hosts():
             if host.state in skip or not host.services:
                 continue
-            if host.sessions:
-                continue  # already compromised; one proven path per host
             # Skip a port we already own (session) or already cracked
             # (credential); no reason to brute it again.
             sessioned = ({s.port for s in host.sessions if s.port}
@@ -1530,6 +1548,9 @@ def _parse_args(argv):
     # live hosts against a host that is plainly up.
     p.add_argument("--timing", default="-T4")
     p.add_argument("--candidates-per-service", type=int, default=5)
+    p.add_argument("--stop-at-first-session", action="store_true",
+                   help="stop exploit fires against a host once it holds an "
+                        "exploit session (brute and access checks still run)")
     p.add_argument("--min-rank", default="good",
                    choices=sorted(RANK_VALUES, key=RANK_VALUES.get),
                    help="minimum Metasploit exploit rank to consider (default good)")
@@ -1770,7 +1791,8 @@ def main(argv=None):
         chunk_size=args.chunk_size, checkpoint_interval=args.checkpoint_interval,
         discovery_batch=args.discovery_batch,
         verify_catalog_path=args.nse_catalog or "",
-        keep_msfrpcd=args.keep_msfrpcd)
+        keep_msfrpcd=args.keep_msfrpcd,
+        stop_at_first_session=args.stop_at_first_session)
     orch = Orchestrator(run, scanner, msf_client, fw, msfd, ocfg, cfgfile)
     orch.seeded = bool(args.seed_file)
 
