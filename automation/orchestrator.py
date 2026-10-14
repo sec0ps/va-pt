@@ -232,6 +232,11 @@ class OrchestratorConfig:
     # Exploit fires (first pass and credentialed re-fire) stop for a host once it
     # holds an exploit session. Off fires every service. Brute and aux unaffected.
     stop_at_first_session: bool = False
+    # Prove and release: at teardown, capture read-only proof of execution in every
+    # open session, record it on the finding, kill the session, and stop a daemon we
+    # started even with sessions open. Access does not persist; the proof is the
+    # evidence. Off keeps today's behavior (sessions preserved, daemon detached).
+    release_msfrpcd: bool = False
 
 
 DEFAULT_CONFIG_FILE = ".orchestration_config"
@@ -1208,6 +1213,13 @@ class Orchestrator:
             self._scan_pool.shutdown(wait=True, cancel_futures=True)
         if self._fire_pool is not None:
             self._fire_pool.shutdown(wait=True, cancel_futures=True)
+        # Prove and release before the firewall is restored, so a session's reverse
+        # channel is still open when its proof command runs. Records proof on each
+        # finding and kills the session; the daemon disposition below then stops a
+        # daemon we started rather than detaching it.
+        if self.cfg.release_msfrpcd:
+            self.run.set_phase("release")
+            self._release_sessions()
         if self._wordlists is not None:
             for p in self._wordlists[2]:
                 try:
@@ -1245,12 +1257,16 @@ class Orchestrator:
         # the daemon alive when it holds open sessions, so the access gained
         # survives the run. --keep-msfrpcd forces keep even with none. We only
         # ever stop a daemon we started; a pre-existing one is always left alone.
-        keep = self.cfg.keep_msfrpcd
-        if not keep:
-            try:
-                keep = len(self.msf.session_list()) > 0
-            except Exception:
-                keep = self.run.stats().sessions > 0
+        if self.cfg.release_msfrpcd:
+            # Sessions were proved and killed above; stop a daemon we started.
+            keep = False
+        else:
+            keep = self.cfg.keep_msfrpcd
+            if not keep:
+                try:
+                    keep = len(self.msf.session_list()) > 0
+                except Exception:
+                    keep = self.run.stats().sessions > 0
         try:
             self.msf.close()
         except Exception:
@@ -1265,6 +1281,31 @@ class Orchestrator:
                 self.msfd.stop()
         except Exception:
             logger.exception("msfrpcd disposition in teardown failed")
+
+    def _release_sessions(self):
+        """Prove and release every open session (release_msfrpcd). For each session
+        the run recorded, run read-only proof-of-execution commands, store the output
+        and a released-at timestamp on the session so the finding carries the
+        evidence, then kill the session. Access is not preserved in this mode; the
+        recorded proof is the deliverable. Best effort per session so one unreachable
+        session never blocks teardown. A session already gone from the daemon still
+        gets a released-at stamp with whatever proof (if any) was captured."""
+        for host in self.run.snapshot_hosts():
+            for s in host.sessions:
+                sid = s.session_id
+                proof = ""
+                try:
+                    proof = self.msf.capture_proof(sid, host.os_match)
+                except Exception as e:
+                    logger.warning("proof capture failed for session %s on %s: %s",
+                                   sid, host.ip, e)
+                self.run.set_session_proof(host.ip, sid, proof, time.time())
+                try:
+                    self.msf.session_stop(sid)
+                except Exception:
+                    logger.warning("could not stop session %s on %s", sid, host.ip)
+                else:
+                    logger.info("session %s on %s proved and released", sid, host.ip)
 
     def _log_blocked_fires(self):
         """Surface every candidate that never got a fair attempt: an option we
@@ -1551,6 +1592,10 @@ def _parse_args(argv):
     p.add_argument("--stop-at-first-session", action="store_true",
                    help="stop exploit fires against a host once it holds an "
                         "exploit session (brute and access checks still run)")
+    p.add_argument("--release-msfrpcd", action="store_true",
+                   help="at teardown, capture read-only proof of execution in each "
+                        "open session, record it, kill the session, and stop a "
+                        "daemon we started even with sessions open")
     p.add_argument("--min-rank", default="good",
                    choices=sorted(RANK_VALUES, key=RANK_VALUES.get),
                    help="minimum Metasploit exploit rank to consider (default good)")
@@ -1792,7 +1837,8 @@ def main(argv=None):
         discovery_batch=args.discovery_batch,
         verify_catalog_path=args.nse_catalog or "",
         keep_msfrpcd=args.keep_msfrpcd,
-        stop_at_first_session=args.stop_at_first_session)
+        stop_at_first_session=args.stop_at_first_session,
+        release_msfrpcd=args.release_msfrpcd)
     orch = Orchestrator(run, scanner, msf_client, fw, msfd, ocfg, cfgfile)
     orch.seeded = bool(args.seed_file)
 
