@@ -12,6 +12,14 @@
 #             CVE, product, auxiliary, and curated unauthenticated tiers; the fire
 #             path; the credential brute; and the auxiliary run path that records
 #             proven unauthenticated access.
+#             Product-name matches are on whole module-name keys, gated by
+#             protocol and by the detected version's CVE list.
+#
+# SECURITY NOTICE
+#             This software is intended for authorized security assessment and
+#             defensive operations only. Use it exclusively on systems you own or
+#             are explicitly permitted to test. Unauthorized use may violate law.
+#
 # DISCLAIMER
 #             This software is provided "as is" without warranty of any kind. The
 #             author and Red Cell Security LLC accept no liability for damage or
@@ -76,8 +84,36 @@ _GENERIC_PRODUCT_TOKENS = frozenset({
     "imap", "imaps", "pop3", "pop3s", "dns", "domain", "tcp", "udp", "ftp",
     "ftps", "telnet", "ident", "ntp", "snmp", "rpc", "rpcbind", "msrpc",
     "netbios", "microsoft", "generic", "unknown", "service", "server",
-    "daemon", "linux", "unix", "windows",
+    "daemon", "linux", "unix", "windows", "engine",
 })
+
+# Protocol families named by Metasploit module path segments, mapped to the nmap
+# service names that speak them. A product-matched module whose path names one of
+# these protocols is dropped when the service is identified as a different one, so
+# an FTP exploit (exploit/windows/ftp/httpdx_tolog_format) is never fired at an
+# HTTP port because both products share a token. Services nmap names outside
+# this table, and modules whose path names no protocol, are not constrained.
+_PROTOCOL_SERVICES = {
+    "ftp": {"ftp", "ftps", "ftp-proxy"},
+    "http": {"http", "https", "http-proxy", "http-alt", "https-alt", "http-mgmt",
+             "https-mgmt", "ajp13", "webcache", "upnp"},
+    "smtp": {"smtp", "smtps", "submission"},
+    "imap": {"imap", "imaps"},
+    "pop3": {"pop3", "pop3s"},
+    "ssh": {"ssh"},
+    "telnet": {"telnet"},
+    "smb": {"microsoft-ds", "netbios-ssn", "smb"},
+    "samba": {"microsoft-ds", "netbios-ssn", "smb"},
+    "mysql": {"mysql"},
+    "postgres": {"postgresql"},
+    "mssql": {"ms-sql-s", "mssql"},
+    "irc": {"irc", "ircs-u"},
+    "vnc": {"vnc"},
+    "rdp": {"ms-wbt-server", "rdp"},
+    "snmp": {"snmp"},
+    "ldap": {"ldap", "ldaps"},
+    "dns": {"domain", "dns"},
+}
 
 # Vendor prefixes that name MANY unrelated products, so the bare vendor token
 # substring-matches every one of that vendor's module paths (apache ->
@@ -125,18 +161,51 @@ def _product_relevant(term, fullname):
     (unrealircd, from nmap's product field) matches a module path that splits the
     same words (unreal_ircd_3281_backdoor), while the daemon-stripped form still
     matches (distccd -> distcc_exec)."""
-    fn = re.sub(r"[^a-z0-9]", "", (fullname or "").lower())
     t = re.sub(r"[^a-z0-9]", "", (term or "").lower())
     if not t:
         return False
-    if t in fn:
+    keys = _module_name_keys(fullname)
+    if t in keys:
         return True
     # Daemon-stripped match (distccd -> distcc) only when the stripped form is itself
     # a distinctive token, never a generic one: "httpd" must not strip to "http" and
     # then match every module under an /http/ path (apache_airflow, apache_couchdb...).
     if t.endswith("d") and len(t) > 4:
         stripped = t[:-1]
-        return stripped not in _GENERIC_PRODUCT_TOKENS and stripped in fn
+        return stripped not in _GENERIC_PRODUCT_TOKENS and stripped in keys
+    return False
+
+
+def _module_name_keys(fullname):
+    """The names a product term may match in a module path: every directory
+    segment whole (samba, mysql, tomcat), and the module leaf's leading words
+    joined (unreal, unrealircd, unrealircd3281, ...), separators dropped. Matching
+    is on these whole keys, not substrings, so httpd no longer matches httpdx or
+    httpdasm, smtpd no longer matches opensmtpd, and postfix no longer matches the
+    second word of gld_postfix."""
+    segs = [s for s in (fullname or "").lower().split("/") if s]
+    if not segs:
+        return set()
+    keys = {re.sub(r"[^a-z0-9]", "", s) for s in segs[:-1]}
+    words = [w for w in re.split(r"[^a-z0-9]+", segs[-1]) if w]
+    for i in range(1, len(words) + 1):
+        keys.add("".join(words[:i]))
+    keys.discard("")
+    return keys
+
+
+def _protocol_conflict(fullname, service):
+    """True when the module path names a protocol the service is identified as not
+    speaking. Only applies when the service name is one this table knows."""
+    name = (service.name or "").lower()
+    if name.startswith("ssl/"):
+        name = name[4:]
+    if not name or not any(name in v for v in _PROTOCOL_SERVICES.values()):
+        return False
+    for seg in (fullname or "").lower().split("/")[:-1]:
+        allowed = _PROTOCOL_SERVICES.get(seg)
+        if allowed is not None and name not in allowed:
+            return True
     return False
 
 
@@ -335,6 +404,7 @@ class MsfClient:
             self._lport_pool.put(p)
         # module fullname -> declared platform token set, cached per run
         self._platform_cache = {}
+        self._info_cache = {}
 
     def _activity(self, source, text):
         if not self._on_activity:
@@ -501,6 +571,10 @@ class MsfClient:
         segs = full.split("/")
         if "dos" in segs:
             return False
+        if mtype == "auxiliary" and len(segs) > 1 and segs[1] in ("server", "spoof"):
+            # auxiliary/server/* stands up a listener on our side (credential
+            # capture, rogue services); it never tests the target.
+            return False
         if "local" in segs:
             # local priv-esc modules need an existing SESSION; they are not remote
             # entry points and only block with "unset required: SESSION" if fired.
@@ -522,20 +596,56 @@ class MsfClient:
         cached = self._platform_cache.get(fullname)
         if cached is not None:
             return cached
-        plats = frozenset()
-        mtype, _, ref = (fullname or "").partition("/")
-        if mtype and ref:
-            try:
-                info = self._client.call("module.info", [mtype, ref])
-            except Exception as e:
-                logger.debug("module.info failed for %s: %s", fullname, e)
-                info = None
-            if isinstance(info, dict):
-                plats = _normalize_platforms(info.get("platform"))
+        info = self._module_info(fullname)
+        plats = _normalize_platforms(info.get("platform")) if info else frozenset()
         if not plats:
             plats = _platform_from_path(fullname)
         self._platform_cache[fullname] = plats
         return plats
+
+    def _module_info(self, fullname):
+        """module.info for a module, cached for the run. {} when unavailable."""
+        if fullname in self._info_cache:
+            return self._info_cache[fullname]
+        info = {}
+        mtype, _, ref = (fullname or "").partition("/")
+        if mtype and ref:
+            try:
+                res = self._client.call("module.info", [mtype, ref])
+                if isinstance(res, dict):
+                    info = res
+            except Exception as e:
+                logger.debug("module.info failed for %s: %s", fullname, e)
+        self._info_cache[fullname] = info
+        return info
+
+    def _module_cves(self, fullname):
+        """The CVE ids a module declares in its references, uppercased."""
+        out = set()
+        for ref in self._module_info(fullname).get("references") or []:
+            try:
+                kind, val = ref[0], ref[1]
+            except (TypeError, IndexError, KeyError):
+                continue
+            if str(kind).upper() == "CVE" and val:
+                out.add(f"CVE-{val}".upper() if not str(val).upper().startswith("CVE-")
+                        else str(val).upper())
+        return out
+
+    def _version_mismatch(self, fullname, service):
+        """True when a product-matched module targets CVEs the detected version is
+        not affected by. Applies only when nmap identified a version, vulners
+        returned that version's CVE list, and the module declares CVEs; otherwise
+        nothing is known and the module is kept (backdoors, no-CVE modules, and
+        unversioned services still fire). The comparison uses the unfiltered vulners
+        list, so a module CVE below the mincvss floor is not mistaken for a miss."""
+        if not (service.version or "").strip():
+            return False
+        known = {c.upper() for c in (getattr(service, "vuln_ids", None) or [])}
+        if not known:
+            return False
+        mod = self._module_cves(fullname)
+        return bool(mod) and not (mod & known)
 
     def _platform_ok(self, fullname, host_os):
         """True if the module may fire at a host of the given OS family. Unknown host
@@ -611,6 +721,14 @@ class MsfClient:
                     if not _product_relevant(term, full):
                         logger.debug("  skip irrelevant %s", full)
                         continue
+                    if _protocol_conflict(full, service):
+                        logger.debug("  skip %s (protocol vs service '%s')",
+                                     full, service.name)
+                        continue
+                    if self._version_mismatch(full, service):
+                        logger.debug("  skip %s (module CVEs not in %s %s)",
+                                     full, service.product, service.version)
+                        continue
                     if not self._platform_ok(full, host_os):
                         logger.debug("  skip %s (platform vs host '%s')",
                                      full, host_os)
@@ -640,6 +758,14 @@ class MsfClient:
                     continue
                 if not _name_relevant(name_term, full):
                     logger.debug("  skip irrelevant %s", full)
+                    continue
+                if _protocol_conflict(full, service):
+                    logger.debug("  skip %s (protocol vs service '%s')",
+                                 full, service.name)
+                    continue
+                if self._version_mismatch(full, service):
+                    logger.debug("  skip %s (module CVEs not in %s %s)",
+                                 full, service.product, service.version)
                     continue
                 if not self._platform_ok(full, host_os):
                     logger.debug("  skip %s (platform vs host '%s')",
