@@ -14,7 +14,8 @@
 #             set, the per-host vulners pass also archives its XML for reuse.
 #             The bulk discovery pass reports nmap's own progress (percent done,
 #             hosts complete, ETC) to the log and activity feed on an interval,
-#             so a long sweep is visible while it runs.
+#             so a long sweep is visible while it runs. vulners runs unfiltered so
+#             each service also carries its full CVE id list for version gating.
 #
 # SECURITY NOTICE
 #             This software is intended for authorized security assessment and
@@ -274,9 +275,13 @@ class Scanner:
             return "", "", []
         port_args = ["-p", ",".join(str(p) for p in ports)]
         timeout = self.cfg.vulners_timeout
+        # vulners runs unfiltered (mincvss=0) so the service carries every CVE that
+        # applies to its detected version, which the exploit selector uses to drop a
+        # module whose CVEs do not apply. The mincvss floor is applied in parsing to
+        # the list that drives the exploit search, exactly as before.
         args = ["-sT", "-sV", "-O", "-Pn", self.cfg.timing,
                 "--script", "vulners",
-                "--script-args", f"mincvss={self.cfg.mincvss}"]
+                "--script-args", "mincvss=0"]
         args += port_args
         args += list(self.cfg.extra_args)
         args += [ip]
@@ -760,6 +765,8 @@ def _parse_open_services(host, with_vulners=False, mincvss=0.0):
                 for sc in port.findall("script"):
                     if sc.get("id") == "vulners":
                         svc.cves = _parse_vulners(sc, mincvss)
+                        svc.vuln_ids = sorted(
+                            c.cve_id for c in _parse_vulners(sc, 0.0))
                         break
         services.append(svc)
     return services
