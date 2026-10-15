@@ -82,3 +82,35 @@ access survives the run; `--release-msfrpcd` proves and closes them instead.
 - `system.py` preflight, firewall save/restore, msfrpcd lifecycle
 - `nse_catalog.py` builds the NSE script catalog the verify pass selects from
 - `tui.py` rich live dashboard
+
+## Professional Services
+
+### Red Cell Security, LLC
+
+For enterprise deployments, custom integrations, or professional security assessments:
+
+- **Email**: <operations@redcellsecurity.org>
+- **Website**: [www.redcellsecurity.org](http://www.redcellsecurity.org)
+- **Services**: Custom RF security solutions, threat hunting, defensive countermeasures
+
+## Authorization and Disclaimer
+
+This toolkit is intended for authorized security testing only. Users are responsible for ensuring compliance with all applicable laws and regulations. Unauthorized use of these tools may violate local, state, federal, and international laws.
+
+This software is provided "as-is," without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement. In no event shall the authors or copyright holders be liable for any claim, damages, or other liability, whether in an action of contract, tort, or otherwise, arising from, out of, or in connection with the software or the use or other dealings in the software.
+
+## License and Copyright
+
+**Company**: Red Cell Security, LLC
+**Email**: <operations@redcellsecurity.org>
+**Website**: [www.redcellsecurity.org](http://www.redcellsecurity.org)
+
+© 2026 Red Cell Security, LLC. All rights reserved.
+
+**License**: MIT License. You are free to use, modify, and distribute this software in accordance with the terms of the license.
+
+## Support Development
+
+If you find this project valuable for your security operations:
+
+[![Donate](https://img.shields.io/badge/Donate-PayPal-blue.svg)](https://paypal.me/sec0ps)
