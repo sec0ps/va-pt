@@ -1,4 +1,4 @@
-# va-pt orchestrator
+# Latchkey Engine Community
 
 Automated network exploitation pipeline. It sweeps a scope for live hosts,
 fingerprints their services with nmap and vulners, matches CVEs and products to
