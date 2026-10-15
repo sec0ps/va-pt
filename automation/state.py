@@ -946,10 +946,41 @@ def _access_row(host, acc):
     }
 
 
+def _hand_to_invoker(path):
+    """Give a run artifact to the user who invoked sudo.
+
+    The engine runs as root, and tempfile.mkstemp creates its temp file mode 0600
+    owned by root no matter what the umask is. os.replace preserves that, so every
+    JSON artifact lands readable only by root while run.log, written through a
+    plain FileHandler, stays world-readable. The non-root console or operator that
+    launched the run can then read the log but not the findings, which silently
+    costs the run every session, credential and access it proved.
+
+    Ownership moves to the invoking user; the mode stays 0600 because findings
+    carry recovered credentials in clear text. No-op when not root or not under
+    sudo, where the file already belongs to whoever is running."""
+    try:
+        if os.geteuid() != 0:
+            return
+    except AttributeError:
+        return                              # non-POSIX; nothing to hand over
+    uid = os.environ.get("SUDO_UID")
+    if not uid:
+        return                              # root login, not sudo: leave it alone
+    gid = os.environ.get("SUDO_GID")
+    try:
+        os.chown(path, int(uid), int(gid) if gid else -1)
+    except (OSError, ValueError) as e:
+        logger.warning("could not hand %s to the invoking user (uid %s): %s; "
+                       "a non-root console will not be able to read it",
+                       path, uid, e)
+
+
 def _atomic_write_json(path, data):
-    """Write JSON to path atomically. The temp file is unique per call (mkstemp in
-    the target dir), so concurrent writers from different threads can never share
-    or remove each other's temp file; the last rename wins."""
+    """Write JSON to path atomically, then hand it to the sudo invoker so a non-root
+    reader can use it. The temp file is unique per call (mkstemp in the target dir),
+    so concurrent writers from different threads can never share or remove each
+    other's temp file; the last rename wins."""
     d = os.path.dirname(os.path.abspath(path))
     os.makedirs(d, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=os.path.basename(path) + ".", suffix=".tmp",
@@ -960,6 +991,7 @@ def _atomic_write_json(path, data):
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, path)
+        _hand_to_invoker(path)
     except BaseException:
         try:
             os.unlink(tmp)
