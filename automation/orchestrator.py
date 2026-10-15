@@ -1646,7 +1646,7 @@ def _setup_logging(args):
 
 def _parse_args(argv):
     p = argparse.ArgumentParser(
-        prog="Latchkey-Engine",
+        prog="Latchkey Engine Community",
         description="nmap + vulners + metasploit orchestration (authorized use)")
     p.add_argument("targets", nargs="*", help="IPs, CIDRs, ranges, or hostnames")
     p.add_argument("-iL", "--target-file", help="file of targets, one per line")
