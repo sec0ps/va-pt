@@ -1,5 +1,9 @@
 # Latchkey Engine Community
 
+The free, MIT-licensed community edition of the Latchkey engine. The commercial
+Latchkey platform builds on this same engine, adding a web console, multi-user
+workspaces, scheduling, web application scanning, data retention, and reporting.
+
 Automated network exploitation pipeline. It sweeps a scope for live hosts,
 fingerprints their services with nmap and vulners, matches CVEs and products to
 Metasploit modules, fires them, brute-forces credentials, and reports only proven
