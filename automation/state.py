@@ -105,6 +105,7 @@ class HostState(str, Enum):
     ATTACKING = "attacking"       # exploit fire, login brute, and unauth run
     COMPROMISED = "compromised"   # proven: session, credential, or access
     CLEAN = "clean"               # alive, fully attacked, nothing proven
+    UNREACHABLE = "unreachable"   # was live, then stopped answering mid-run
     ERROR = "error"
 
 
@@ -125,20 +126,29 @@ ACTIVE_STATES = frozenset({
 RESULT_STATES = frozenset({HostState.COMPROMISED})
 TERMINAL_STATES = frozenset({
     HostState.DOWN, HostState.COMPROMISED, HostState.CLEAN, HostState.ERROR,
+    HostState.UNREACHABLE,
 })
 _COMPLETED = TERMINAL_STATES
 
+# UNREACHABLE is reachable from every live state: a host can stop answering at any
+# point after discovery, including after it was already proven compromised. It is
+# deliberately distinct from DOWN, which means the host never answered discovery at
+# all. Collapsing the two would relabel a host the test knocked over as "never up"
+# and hide both the availability impact and the coverage gap.
 _TRANSITIONS = {
     HostState.QUEUED: frozenset({HostState.DISCOVERED, HostState.DOWN}),
-    HostState.DISCOVERED: frozenset({HostState.SCANNING}),
-    HostState.SCANNING: frozenset({HostState.ANALYZED}),
-    HostState.ANALYZED: frozenset({HostState.ATTACKING, HostState.CLEAN}),
-    HostState.ATTACKING: frozenset({HostState.COMPROMISED, HostState.CLEAN}),
+    HostState.DISCOVERED: frozenset({HostState.SCANNING, HostState.UNREACHABLE}),
+    HostState.SCANNING: frozenset({HostState.ANALYZED, HostState.UNREACHABLE}),
+    HostState.ANALYZED: frozenset({HostState.ATTACKING, HostState.CLEAN,
+                                   HostState.UNREACHABLE}),
+    HostState.ATTACKING: frozenset({HostState.COMPROMISED, HostState.CLEAN,
+                                    HostState.UNREACHABLE}),
     HostState.DOWN: frozenset(),
-    HostState.COMPROMISED: frozenset(),
+    HostState.COMPROMISED: frozenset({HostState.UNREACHABLE}),
     # clean can still be upgraded to compromised when the late global brute phase
     # finds a credential on a host the per-host attack left clean.
-    HostState.CLEAN: frozenset({HostState.COMPROMISED}),
+    HostState.CLEAN: frozenset({HostState.COMPROMISED, HostState.UNREACHABLE}),
+    HostState.UNREACHABLE: frozenset(),
     HostState.ERROR: frozenset(),
 }
 
@@ -329,6 +339,12 @@ class Host:
     access: list[Access] = field(default_factory=list)
     error: str = ""
     notes: str = ""
+    # set when the liveness breaker trips: when the host stopped answering, and the
+    # operation that was last started against it, for cause correlation.
+    unreachable_at: float = 0.0
+    last_op: str = ""              # description of the last operation started
+    last_op_at: float = 0.0        # when that operation started
+    unreachable_cause: str = ""    # last_op frozen at the moment the breaker tripped
     created_at: float = field(default_factory=_now)
     updated_at: float = field(default_factory=_now)
 
@@ -375,6 +391,10 @@ class Host:
         h.arch = d.get("arch", "")
         h.error = d.get("error", "")
         h.notes = d.get("notes", "")
+        h.unreachable_at = float(d.get("unreachable_at", 0.0) or 0.0)
+        h.last_op = d.get("last_op", "")
+        h.last_op_at = float(d.get("last_op_at", 0.0) or 0.0)
+        h.unreachable_cause = d.get("unreachable_cause", "")
         h.created_at = float(d.get("created_at", _now()))
         h.updated_at = float(d.get("updated_at", h.created_at))
         h.services = [Service.from_dict(x) for x in d.get("services", [])]
@@ -392,6 +412,7 @@ class Stats:
     queued: int
     live: int
     down: int
+    unreachable: int
     scanning: int
     analyzed: int
     attacking: int
@@ -532,6 +553,41 @@ class RunState:
             h.sessions.append(session)
             h.updated_at = _now()
 
+    def set_host_op(self, ip, description):
+        """Record the operation just started against a host, for cause correlation
+        if the host stops answering. Overwritten by each new operation, so it holds
+        the most recent one; phases run concurrently, so this is the last thing
+        started, not proof of what killed the host."""
+        with self._lock:
+            h = self._hosts.get(ip)
+            if h is None:
+                return
+            h.last_op = description or ""
+            h.last_op_at = _now()
+
+    def mark_unreachable(self, ip):
+        """Trip the liveness breaker for a host: freeze the operation that was last
+        started against it as the correlated cause, stamp the time, and move it to
+        UNREACHABLE so every remaining phase skips it. Returns (True, cause) when
+        this call tripped it, (False, "") when the host is already unreachable or
+        unknown. Never raises on an illegal transition."""
+        with self._lock:
+            h = self._hosts.get(ip)
+            if h is None or h.state == HostState.UNREACHABLE:
+                return False, ""
+            h.unreachable_at = _now()
+            h.unreachable_cause = h.last_op or ""
+            try:
+                h.state = HostState.UNREACHABLE
+            except Exception:
+                pass
+            h.updated_at = _now()
+            cause = h.unreachable_cause
+        logger.warning("host %s stopped answering; marking unreachable and "
+                       "skipping its remaining phases%s", ip,
+                       f" (last operation: {cause})" if cause else "")
+        return True, cause
+
     def set_session_proof(self, ip, session_id, proof, released_at):
         """Record proof-of-execution output and the release timestamp on a session,
         matched by id. Written at teardown when sessions are proved and killed
@@ -638,6 +694,7 @@ class RunState:
                 queued=queued,
                 live=total - queued - down,
                 down=down,
+                unreachable=counts[HostState.UNREACHABLE],
                 scanning=counts[HostState.SCANNING],
                 analyzed=counts[HostState.ANALYZED],
                 attacking=counts[HostState.ATTACKING],
@@ -794,6 +851,8 @@ class RunState:
             stats = self.stats()
             findings = []
             for h in self._hosts.values():
+                if h.state == HostState.UNREACHABLE:
+                    findings.append(_unreachable_row(h))
                 for s in h.sessions:
                     findings.append(_session_row(h, s))
                 for cred in h.credentials:
@@ -829,6 +888,29 @@ def _session_row(host, s):
         "proof": s.proof or None,
         "released_at": s.released_at or None,
         "exploited": True,
+    }
+
+
+def _unreachable_row(host):
+    """A host that was live and then stopped answering during testing. Reported as
+    an availability impact in its own right: the target was taken off the network by
+    the activity against it. cause is the operation last started against this host
+    before it dropped, with the seconds between that start and the drop, so the
+    operator can correlate. Phases run concurrently, so this is correlation and not
+    proof of causation."""
+    delta = None
+    if host.unreachable_at and host.last_op_at:
+        delta = round(host.unreachable_at - host.last_op_at, 1)
+    return {
+        "ip": host.ip,
+        "hostname": host.hostname or None,
+        "host_state": host.state.value,
+        "finding_type": "unreachable",
+        "unreachable_at": host.unreachable_at or None,
+        "cause": host.unreachable_cause or None,
+        "seconds_after_cause": delta,
+        "open_ports": len(host.services),
+        "exploited": False,
     }
 
 
