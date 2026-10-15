@@ -447,6 +447,46 @@ class Orchestrator:
         except Exception:
             return None
 
+    def _probe_alive(self, ip, timeout=3.0):
+        """True if the host still answers a TCP connect on a port discovery found
+        open. Connect-based, not ICMP, because the whole pipeline scans -sT -Pn and
+        ICMP is commonly filtered. A refused connection still proves the host is up
+        (something answered), so only a timeout or an unreachable network counts as
+        dead. A host with no known open port cannot be probed this way and is
+        reported alive, so the breaker never guesses."""
+        host = self.run.host_copy(ip)
+        ports = [s.port for s in (host.services if host else []) if s.port]
+        if not ports:
+            return True
+        for port in ports[:3]:
+            try:
+                with socket.create_connection((ip, port), timeout=timeout):
+                    return True
+            except ConnectionRefusedError:
+                return True          # answered, so the host is up
+            except OSError:
+                continue
+        return False
+
+    def _alive(self, ip):
+        """Liveness gate for every per-host phase. Returns False once the host has
+        been marked unreachable, so a dead host is probed once and then skipped for
+        the rest of the run rather than paying a full host-timeout per remaining
+        scan. Trips the breaker on the first failed probe and records the operation
+        last started against the host as the correlated cause."""
+        host = self.run.host_copy(ip)
+        if host is None or host.state == HostState.UNREACHABLE:
+            return False
+        if self._probe_alive(ip):
+            return True
+        tripped, cause = self.run.mark_unreachable(ip)
+        if tripped:
+            self.run.record_activity(
+                "liveness",
+                f"{ip} stopped answering"
+                + (f"; last operation started against it: {cause}" if cause else ""))
+        return False
+
     def _verify_phase(self, display):
         """Second stage, after all exploitation has settled. Runs the catalog's
         scripted checks against services that were NOT exploited, to surface flaws
@@ -464,6 +504,9 @@ class Orchestrator:
         for ip in list(self.run.live_hosts()):
             if self._stop.is_set():
                 break
+            if not self._alive(ip):
+                logger.info("verify: skipping %s (unreachable)", ip)
+                continue
             host = self.run.host_copy(ip)
             # ports that own a live session are sacred and excluded
             fenced = {s.port for s in host.sessions}
@@ -475,6 +518,16 @@ class Orchestrator:
                     logger.info("verify: fencing %s:%s (session held); not scanned",
                                 ip, svc.port)
                     continue
+                # Re-check between services: the scripted checks are the most
+                # volatile thing the run does, so a host that drops mid-verify is
+                # caught here instead of burning a host-timeout on every port left.
+                if not self._alive(ip):
+                    logger.info("verify: %s went unreachable mid-verify; "
+                                "skipping its remaining service(s)", ip)
+                    break
+                self.run.set_host_op(
+                    ip, f"nse verify scripts on {ip}:{svc.port} "
+                        f"({svc.name or 'unknown service'})")
                 try:
                     found = self.scanner.nse_discover(ip, svc, catalog)
                 except Exception as e:
@@ -701,6 +754,10 @@ class Orchestrator:
             except Exception as e:
                 if self._stop.is_set():
                     logger.info("host %s stopped by cancel", ip)
+                elif self.run.get_state(ip) == HostState.UNREACHABLE:
+                    # the liveness breaker already classified this host; an error
+                    # from the aborted phase must not relabel it
+                    logger.info("host %s is unreachable; pipeline stopped for it", ip)
                 else:
                     self.run.set_error(ip, f"pipeline error: {e}")
                     logger.exception("pipeline failed for %s", ip)
@@ -788,6 +845,11 @@ class Orchestrator:
             if stop_host and self._host_exploited(ip):
                 self._skip_rest(ip, cands[i:])
                 return
+            if not self._alive(ip):
+                self._skip_rest_unreachable(ip, cands[i:])
+                return
+            self.run.set_host_op(
+                ip, f"metasploit fire {cand.module} at {ip}:{cand.port}")
             session, status, detail = self.msf.fire(cand, host, ip, cand.port,
                                                     abort=abort)
             self.run.update_candidate_fire(ip, cand.module, status, detail)
@@ -804,6 +866,15 @@ class Orchestrator:
                 "host already exploited; stop at first session")
         logger.info("fire %s: host already exploited, skipping %d remaining "
                     "module(s) on this service", ip, len(cands))
+
+    def _skip_rest_unreachable(self, ip, cands):
+        """Mark a service's unfired exploit candidates skipped because the host
+        stopped answering, so the record shows they were never given a chance."""
+        for rest in cands:
+            self.run.update_candidate_fire(
+                ip, rest.module, "skipped", "host unreachable")
+        logger.info("fire %s: host unreachable, skipping %d remaining module(s) "
+                    "on this service", ip, len(cands))
 
     def _host_exploited(self, ip):
         """True once the host holds a session opened by an exploit module. Brute
@@ -853,7 +924,10 @@ class Orchestrator:
             ip, HostState.COMPROMISED if proven else HostState.CLEAN)
 
     def _do_scan(self, ip):
+        if not self._alive(ip):
+            raise NmapError(f"{ip} is unreachable; scan skipped")
         self.run.transition(ip, HostState.SCANNING)
+        self.run.set_host_op(ip, f"nmap version/vulners scan of {ip}")
         if self.scanner.cfg.full_ports:
             # Single pass: SYN-sweep every port, version-detect and vulners the
             # ones found open. Discovery already confirmed the host is up.
@@ -977,6 +1051,8 @@ class Orchestrator:
         targets = []
         for ip in list(self.run.live_hosts()):
             host = self.run.host_copy(ip)
+            if host.state == HostState.UNREACHABLE:
+                continue
             # A port already owned (a session) or already cracked (a credential) is
             # not attacked again.
             fenced = ({s.port for s in host.sessions if s.port}
@@ -1005,6 +1081,11 @@ class Orchestrator:
         Never raises out to the pool."""
         if self._stop.is_set():
             return
+        if not self._alive(ip):
+            return
+        self.run.set_host_op(
+            ip, f"nse credential brute on {ip}:{svc.port} "
+                f"({svc.name or 'unknown service'})")
         try:
             creds = self.scanner.nse_brute(ip, svc, self._verify_catalog)
         except Exception as e:
@@ -1111,6 +1192,8 @@ class Orchestrator:
         for host in self.run.snapshot_hosts():
             if host.state in skip or not host.services:
                 continue
+            if host.state == HostState.UNREACHABLE:
+                continue
             # Skip a port we already own (session) or already cracked
             # (credential); no reason to brute it again.
             sessioned = ({s.port for s in host.sessions if s.port}
@@ -1130,6 +1213,10 @@ class Orchestrator:
         if self._stop.is_set():
             return
         ip, service, module, port = target
+        if not self._alive(ip):
+            logger.info("brute: skipping %s:%s (unreachable)", ip, port)
+            return
+        self.run.set_host_op(ip, f"credential brute {module} at {ip}:{port}")
         with self.run.worker_slot():
             try:
                 creds, sessions = self.msf.brute_service(
