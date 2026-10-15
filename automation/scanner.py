@@ -855,7 +855,22 @@ def _cve_ids_in_text(text):
 
 _WEB_PORTS = frozenset({80, 443, 591, 981, 1311, 3000, 5000, 7080, 7443, 8000,
                         8008, 8080, 8081, 8181, 8443, 8888})
-_ALWAYS_KEEP_CATS = frozenset({"vuln", "exploit", "auth"})
+# Categories that carry no path to compromise. A script whose only categories are
+# these is enumeration or banner-grabbing: it tells us a version we already have
+# from the -sV fingerprint and never demonstrates access. Dropped outright.
+_NO_IMPACT_CATS = frozenset({"discovery", "version", "broadcast", "external",
+                             "default", "safe"})
+
+# Scripts kept on a bare service anchor even though they declare no CVE and no
+# product. Each one demonstrates exposure that is a foothold -- an exported share,
+# a readable repository, a readable password file, a recoverable backup, a default
+# login -- rather than reporting a version.
+_EXPOSURE_SCRIPTS = frozenset({
+    "nfs-ls", "nfs-showmount", "nfs-statfs",
+    "smb-enum-shares", "smb-enum-users", "smb-os-discovery",
+    "http-git", "http-passwd", "http-config-backup", "http-default-accounts",
+    "http-webdav-scan", "ftp-anon", "rsync-list-modules",
+})
 
 
 def _service_identity(service):
@@ -872,76 +887,113 @@ def _service_identity(service):
 
 
 def _is_web_service(service):
-    """True when the service is HTTP/web. Product scripts that ride on top of a web
-    server (a CMS, a repo, an interpreter) name a product nmap fingerprints as the
-    server, not the app, so their product claim is never treated as a hard mismatch
-    on a web service, only a soft demotion."""
+    """True when the service is HTTP/web."""
     n = (service.name or "").lower()
     if "http" in n or n in ("www", "https", "http-proxy", "http-alt", "web"):
         return True
     return service.port in _WEB_PORTS
 
 
+def _entry_targets(entry, service):
+    """True when a script names the service in front of it, by nmap service-name
+    token or by the exact open port. The service match is on the probed name, not
+    the port alone, so a script never runs merely because a number lined up."""
+    if service.port and service.port in (entry.get("ports") or []):
+        return True
+    svc_tokens = {t for t in re.findall(r"[a-z0-9]+", (service.name or "").lower())
+                  if len(t) >= 3}
+    return bool({s.lower() for s in (entry.get("services") or [])} & svc_tokens)
+
+
+def _script_anchor(entry, service, ident, known_cves):
+    """How a script is tied to what nmap and vulners actually found on this service,
+    or None when it is tied to nothing.
+
+    This is the same discipline the exploit selector already applies to Metasploit
+    modules (see msf._version_mismatch): a module whose declared CVEs are not in the
+    service's vulners list does not fire. Every verify script must likewise earn its
+    run from the fingerprint:
+
+      "cve"      the script declares CVEs and at least one is a CVE vulners
+                 attributed to this exact service version. Strongest tie, and the
+                 reason a CVE-named check never runs speculatively.
+      "product"  the script names a vendor product (from nmap's own CPE vocabulary)
+                 and that product is in the service fingerprint.
+      "service"  the script names neither, and the service it targets is what nmap
+                 probed here. Weakest tie, so it is accepted only for the exposure
+                 set, which proves access rather than reporting a version.
+
+    A script that declares CVEs none of which this version has is NOT downgraded to
+    a weaker anchor: the fingerprint positively says it does not apply. Same for a
+    product claim that contradicts the fingerprint, on web services as much as
+    anywhere else, which is what stopped dlink and coldfusion checks from being
+    sprayed at every http port."""
+    cves = {c.upper() for c in (entry.get("cves") or [])}
+    if cves:
+        return "cve" if (cves & known_cves) else None
+    claimed = set(entry.get("product") or [])
+    if claimed:
+        return "product" if (claimed & ident) else None
+    if entry["id"] in _EXPOSURE_SCRIPTS:
+        # The weakest tie, so it is held to the strictest evidence: the script must
+        # name the service nmap actually probed here, and a port-table guess is not
+        # a probe. Without this an exposure script rides along on every service.
+        if (service.method or "").lower() != "probed":
+            return None
+        return "service" if _entry_targets(entry, service) else None
+    return None
+
+
 def _score_verify_scripts(service, catalog, matched, cap):
-    """Rank the matched verify scripts by fit and take the strongest set, rather than
-    running every match. Product that matches the fingerprint boosts; product that
-    contradicts it drops the script on a non-web service (the sound case: a
-    service-identifying script for a product this service is not) and only demotes it
-    on a web service (app-layer, cannot be confirmed from the server fingerprint).
-    Actionable tier, a vuln or exploit category, a CVE, and a tool-feeding dependency
-    or credential edge all boost. vuln, exploit, and auth scripts are always kept, the
-    cap only bounds the discretionary tail. cap <= 0 disables the cap. A matched id
-    with no catalog record is kept neutrally."""
+    """Select the verify scripts that the fingerprint justifies running, then rank
+    what survives and take the strongest capped set.
+
+    Every script must carry an anchor (see _script_anchor); an unanchored script is
+    dropped rather than demoted, so the pass stops firing vendor checks at services
+    that are not that vendor. Enumeration and version scripts are dropped on their
+    categories, since they add nothing the -sV fingerprint has not already given us.
+    The cap now bounds everything: a vuln category no longer buys a bypass, which is
+    what let one http port pull the entire 60-script http-vuln battery and time the
+    whole scan out. cap <= 0 disables the cap."""
     meta = {s["id"]: s for s in catalog.get("scripts", [])}
     ident = _service_identity(service)
-    web = _is_web_service(service)
+    # the unfiltered vulners CVE list for the detected version: the same evidence
+    # the exploit selector gates modules on, before the mincvss floor is applied
+    known_cves = {c.upper() for c in (getattr(service, "vuln_ids", None) or [])}
     survivors = []
     for sid in matched:
         s = meta.get(sid)
         if s is None:
-            survivors.append((0, sid, set()))
-            continue
-        # Informational scripts (banners, headers, version/host-identity, broadcast
-        # discovery) are the catalog's confident-noise band; they are dropped from the
-        # verify phase outright, not just demoted, so they never consume a
-        # discretionary slot or reach the always-keep split even when they still carry
-        # a vuln/exploit/auth category. Scripts the classifier was unsure about keep an
-        # actionable tier and pass through here.
+            continue          # no catalog record means no anchor can be proven
         if s.get("tier") == "informational":
             continue
         cats = set(s.get("all_categories") or s.get("categories") or [])
-        claimed = set(s.get("product") or [])
-        score = 0
-        if claimed:
-            if claimed & ident:
-                score += 6
-            elif not web:
-                continue
-            else:
-                score -= 3
-        score += -3 if s.get("tier") == "informational" else 3
+        # enumeration/banner scripts: nothing here is a path to compromise
+        if not (cats - _NO_IMPACT_CATS) and sid not in _EXPOSURE_SCRIPTS:
+            continue
+        anchor = _script_anchor(s, service, ident, known_cves)
+        if anchor is None:
+            continue
+        # An exploit-category script is a detection pass running an exploit. It is
+        # allowed only where the fingerprint positively says it applies, never on a
+        # bare service match, so nothing speculative is detonated at a live service.
+        if "exploit" in cats and anchor == "service":
+            continue
+        score = {"cve": 10, "product": 6, "service": 2}[anchor]
         if cats & {"vuln", "exploit"}:
             score += 4
         elif "auth" in cats:
             score += 3
-        if s.get("cves"):
-            score += 2
+        if s.get("tier") != "informational":
+            score += 1
         if (s.get("dependencies") or s.get("feeds")
                 or "credentials" in (s.get("consumes") or [])):
             score += 1
-        survivors.append((score, sid, cats))
+        survivors.append((score, sid))
     if not cap or cap <= 0:
-        return {sid for _sc, sid, _cats in survivors}
-    must = [sid for _sc, sid, cats in survivors if cats & _ALWAYS_KEEP_CATS]
-    rest = sorted(((sc, sid) for sc, sid, cats in survivors
-                   if not (cats & _ALWAYS_KEEP_CATS)),
-                  key=lambda x: (-x[0], x[1]))
-    keep = list(dict.fromkeys(must))
-    for _sc, sid in rest:
-        if len(keep) >= cap:
-            break
-        keep.append(sid)
-    return set(keep)
+        return {sid for _sc, sid in survivors}
+    survivors.sort(key=lambda x: (-x[0], x[1]))
+    return {sid for _sc, sid in survivors[:cap]}
 
 
 def _match_catalog_scripts(service, catalog, key="scripts", cap=0):
