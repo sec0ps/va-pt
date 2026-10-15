@@ -104,6 +104,7 @@ _STATE_STYLE = {
     HostState.ATTACKING: f"bold {_LK_AMBER}",
     HostState.COMPROMISED: f"bold {_LK_OK}",
     HostState.CLEAN: _LK_FAINT,
+    HostState.UNREACHABLE: f"bold {_LK_AMBER}",
     HostState.ERROR: f"bold {_LK_CRIT}",
 }
 
