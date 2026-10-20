@@ -377,6 +377,31 @@ BRUTE_PORT_PEERS = {139: frozenset({445}), 445: frozenset({139})}
 EXEC_SESSION_TYPES = frozenset({"shell", "meterpreter", "powershell"})
 
 
+# Fire dispositions. session/no_session/error are outcomes of a real attempt;
+# these three are decided before or instead of one. DEFERRED means the module
+# needs a login the run has not recovered yet, so it is handed to the re-fire
+# phase rather than fired with a guess. REJECTED means the module cannot match
+# this target at all, so firing it could only ever burn the exploit timeout.
+FIRE_BLOCKED = "blocked"
+FIRE_DEFERRED = "deferred"
+FIRE_REJECTED = "rejected"
+
+# Options only an HTTP-transport module declares. A module carrying one of these
+# speaks HTTP, so a target port nmap identified as a non-HTTP service is the
+# wrong transport and the module is rejected rather than fired (the
+# cisco_ios_xe_rce web-UI exploit selected onto an SSH banner).
+_HTTP_ONLY_OPTS = frozenset({"TARGETURI", "URIPATH", "VHOST"})
+
+# Service-name tokens that do speak HTTP, so an HTTP-transport module is fair
+# game against them. Anything outside this set with no HTTP marker is non-HTTP.
+_HTTP_SERVICE_TOKENS = frozenset({
+    "http", "https", "http-alt", "http-proxy", "https-alt", "httpd",
+    "www", "web", "ssl", "tls", "soap", "rest", "wsman", "upnp",
+    "http-mgmt", "ssl/http", "ssl/https", "tomcat", "jetty", "nginx",
+    "apache", "iis", "websphere", "weblogic", "jboss", "wbem-http",
+})
+
+
 class MsfUnavailable(Exception):
     pass
 
@@ -925,7 +950,9 @@ class MsfClient:
 
     def fire(self, candidate, host, rhost, port, credential=None, abort=None):
         """Detonate the module against rhost. Returns (session, status, detail) with
-        the status vocabulary of _fire_once (session, no_session, blocked, error).
+        the status vocabulary of _fire_once (session, no_session, blocked, error,
+        deferred, rejected). A module whose transport cannot reach the identified
+        service is rejected here, before any payload is chosen.
         The best reverse payload is tried first (shells before meterpreter, per
         _select_payloads). A Great or Excellent rank module that fires cleanly but
         never calls back is retried once with the next compatible payload, since a
@@ -947,6 +974,9 @@ class MsfClient:
             return None, "error", f"fire error: {e}"
         if not payloads:
             return self._blocked(candidate, rhost, "no compatible payload")
+        mismatch = _transport_mismatch(exploit, host, port)
+        if mismatch:
+            return self._rejected(candidate, rhost, mismatch)
         # Second payload only for Great/Excellent (rank value >= 500); the loop below
         # advances only on a clean no_session, so a blocked or error stops it at once.
         cap = 2 if _rank_value(candidate.rank) >= 500 else 1
@@ -971,9 +1001,11 @@ class MsfClient:
                        rejected, no derivable LHOST, the LPORT pool was empty, or MSF
                        refused to run the module.
           error      - an exception was raised during the attempt.
-        Only no_session means the target got a real attempt and did not yield; every
-        other non-session status flags a tooling gap to review, so a real flaw is
-        never buried under a generic failure. This attempt owns its LPORT and handler
+        Only no_session means the target got a real attempt and did not yield.
+        blocked and error flag a tooling gap to review. deferred means the module
+        needs a login the run has not recovered yet and is the re-fire phase's
+        queue. rejected means the module could not match this target and was never
+        fired. No real flaw is buried under a generic failure. This attempt owns its LPORT and handler
         job, both freed in teardown, which leaves any session intact."""
         lport = self._lport_acquire()
         if lport is None:
@@ -1031,17 +1063,25 @@ class MsfClient:
             outstanding = [o for o in exploit.missing_required
                            if o not in supplied]
             if outstanding:
-                # Credential options (USERNAME/PASSWORD and friends) that the module
-                # requires with no default get a best-guess value so a credentialed
-                # module gets a fair attempt instead of a block. Everything else
-                # still blocks: we do not invent target URIs or module-specific
-                # values. Recompute after filling.
-                fails += self._satisfy_outstanding(exploit, outstanding)
-                supplied = set(payload.runoptions)
                 # Advanced options are filled with the module's own default by MSF
                 # at execute time (msfrpc lists them missing with no readable
-                # default), so do not block on them; execute is the real gate.
+                # default), so they never block; execute is the real gate.
                 advanced = self._advanced_options(exploit)
+                pending = [o for o in outstanding if o not in advanced]
+                cred_pending = [o for o in pending
+                                if _is_user_opt(o) or _is_pass_opt(o)]
+                if cred_pending and credential is None:
+                    # Pass one, and the module cannot run without a login. A
+                    # guessed value here fails the attempt and marks the candidate
+                    # fired, which takes it out of the re-fire phase that exists to
+                    # give it a recovered credential. Defer it instead.
+                    return self._deferred(candidate, rhost, cred_pending)
+                if credential is not None:
+                    # Re-fire. The recovered credential is already on the module's
+                    # declared options; this fills any further required credential
+                    # option the module names under a different key.
+                    fails += self._satisfy_outstanding(exploit, outstanding)
+                    supplied = set(payload.runoptions)
                 outstanding = [o for o in exploit.missing_required
                                if o not in supplied and o not in advanced]
             if outstanding or fails:
@@ -1248,6 +1288,24 @@ class MsfClient:
                        candidate.module, rhost, detail)
         self._activity("fire", f"blocked {candidate.module}: {detail}")
         return None, "blocked", detail
+
+    def _deferred(self, candidate, rhost, opts):
+        """Log and return the deferred tuple. The module requires a login the run
+        has not recovered, so it is not fired now. Filling the option with a guess
+        would burn the exploit timeout and, worse, mark the candidate fired so the
+        re-fire phase skips it once a real credential exists."""
+        detail = "needs credential: " + ", ".join(sorted(opts))
+        logger.info("fire deferred %s @ %s: %s", candidate.module, rhost, detail)
+        self._activity("fire", f"deferred {candidate.module}: {detail}")
+        return None, FIRE_DEFERRED, detail
+
+    def _rejected(self, candidate, rhost, detail):
+        """Log and return the rejected tuple. The module cannot match this target,
+        so no payload is sent. Recorded rather than dropped so the selection gap
+        stays visible instead of silently vanishing from the run."""
+        logger.info("fire rejected %s @ %s: %s", candidate.module, rhost, detail)
+        self._activity("fire", f"rejected {candidate.module}: {detail}")
+        return None, FIRE_REJECTED, detail
 
     def _satisfy_outstanding(self, exploit, outstanding):
         """Fill required credential options the module left unset, so a module that
@@ -1494,6 +1552,32 @@ class MsfClient:
                 except Exception:
                     pass
 
+
+
+def _transport_mismatch(exploit, host, port):
+    """A one-line reason this module cannot speak to this port, or "". The module
+    is asked for its own declared options rather than guessed at: one carrying
+    TARGETURI, URIPATH or VHOST speaks HTTP, so a port nmap identified as a
+    non-HTTP service is the wrong transport and no payload can land. Silent
+    (returns "") whenever the service is unidentified or the module declares no
+    transport marker, so this only ever rejects a provable mismatch."""
+    try:
+        declared = set(exploit.options or ())
+    except Exception:
+        return ""
+    if not declared & _HTTP_ONLY_OPTS:
+        return ""
+    svc = next((s for s in getattr(host, "services", ()) or ()
+                if s.port == port), None)
+    name = (getattr(svc, "name", "") or "").strip().lower()
+    if not name:
+        return ""
+    tokens = set(re.findall(r"[a-z0-9\-]+", name)) | {name}
+    if tokens & _HTTP_SERVICE_TOKENS:
+        return ""
+    return (f"module speaks HTTP (declares "
+            f"{', '.join(sorted(declared & _HTTP_ONLY_OPTS))}) but "
+            f"{port} is {name}")
 
 
 # --- module helpers (no live server required) ------------------------------
