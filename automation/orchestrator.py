@@ -1667,6 +1667,11 @@ def _parse_args(argv):
     p.add_argument("--top-ports", type=int, default=1000,
                    help="phase 1 discovery: top N ports for liveness")
     p.add_argument("--ports", default="", help="phase 1 discovery -p override")
+    p.add_argument("--discovery-skip-ping", action="store_true",
+                   help="phase 1 discovery: add -Pn, skipping host discovery and "
+                        "sweeping every address in scope whether or not it "
+                        "answers. Only for a scope whose hosts block discovery "
+                        "probes; it port-scans dead addresses at full cost.")
     p.add_argument("--no-full-ports", action="store_true",
                    help="phase 2: scan only discovered ports instead of all 65535")
     p.add_argument("--mincvss", type=float, default=7.0)
@@ -1864,6 +1869,7 @@ def main(argv=None):
     scfg = ScanConfig(nmap_path=args.nmap_path, discovery_top_ports=args.top_ports,
                       discovery_ports=args.ports or "", timing=args.timing,
                       mincvss=args.mincvss, full_ports=not args.no_full_ports,
+                      discovery_skip_ping=args.discovery_skip_ping,
                       nmap_out_dir=args.nmap_out_dir or "")
     scanner = Scanner(scfg, on_activity=run.record_activity)
     mcfg = MsfConfig.from_env(
