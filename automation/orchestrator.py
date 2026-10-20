@@ -201,7 +201,8 @@ from state import RunState, HostState, TERMINAL_STATES
 from scanner import Scanner, ScanConfig, NmapError
 from msf import (MsfClient, MsfConfig, RANK_VALUES, BRUTE_USER_SEED,
                  BRUTE_PASS_SEED, DEFERRED_BRUTE_PORTS, BRUTE_PORT_PEERS,
-                 login_module_for, locate_wordlist, write_builtin_wordlists)
+                 FIRE_DEFERRED, FIRE_REJECTED, login_module_for, locate_wordlist,
+                 write_builtin_wordlists)
 from system import (preflight, PreflightError, FirewallManager, MsfdManager,
                     find_msfrpcd, resolve_run_as, resolve_iface_ip)
 
@@ -816,9 +817,24 @@ class Orchestrator:
         group stops at its first session, so a risky overflow like trans2open is
         never fired at a daemon usermap_script already popped on this port or its
         sibling."""
+        # Resolve a daemon key per port in two passes. nmap reads a product on some
+        # ports of a daemon and not others (the four AD LDAP ports 389/636/3268/3269
+        # answer "ldap" but only the cleartext ones carry a product), so a port with
+        # no product inherits the product of a sibling port answering the same
+        # service name. Keying on the product alone made that daemon four groups and
+        # fired the same module four times; keying on the service name alone would
+        # merge genuinely different daemons that share a name (Apache on 80 and
+        # nginx on 8080 are both "http" but carry different products).
+        by_name = {}
+        for svc in host.services:
+            name = (svc.name or "").strip().lower()
+            if name and svc.product and name not in by_name:
+                by_name[name] = svc.product
         port_service = {}
         for svc in host.services:
-            port_service[svc.port] = svc.product or f"port-{svc.port}"
+            name = (svc.name or "").strip().lower()
+            port_service[svc.port] = (svc.product or by_name.get(name)
+                                      or name or f"port-{svc.port}")
         groups = {}
         seen = {}
         for cand in _fireable(host):
@@ -1164,18 +1180,24 @@ class Orchestrator:
             # reports it takes no credential, so a non-credentialed module blocks once
             # rather than once per credential.
             for cand in host.candidates:
-                # Only re-fire candidates that were BLOCKED (never got a fair
-                # attempt, e.g. a credentialed exploit missing a login). A
-                # "no_session"/"error" candidate already fired and failed; a
-                # recovered credential will not fix a non-credential exploit, and
-                # re-running it just burns the exploit timeout.
-                if cand.fire_status != "blocked":
+                # Only re-fire candidates the fire phase DEFERRED, meaning the
+                # module declared a required credential option and the run had no
+                # recovered login to put in it. Those are the only candidates a
+                # credential can change. A "no_session" candidate already got a
+                # fair attempt and the payload simply did not call back, a
+                # "rejected" one cannot match this target at all, and "blocked" is
+                # a tooling gap a login does not fix; re-running any of them just
+                # burns the exploit timeout.
+                if cand.fire_status != FIRE_DEFERRED:
                     continue
                 if not cand.port or cand.port in sessioned:
                     continue
                 if stop_host and self._host_exploited(ip):
                     break
-                for cred in creds_by_port.get(cand.port, []):
+                # At most two credentials per candidate. The ladder below stops
+                # earlier on any outcome that a further credential cannot change,
+                # so this cap only bounds the genuinely ambiguous case.
+                for cred in creds_by_port.get(cand.port, [])[:2]:
                     if cand.port in sessioned:
                         break
                     self.run.record_activity(
@@ -1202,6 +1224,14 @@ class Orchestrator:
                     if (status == "blocked"
                             and "no credential option" in (detail or "")):
                         break  # module takes no credential; other creds won't help
+                    if status == "no_session":
+                        # The exploit ran and the payload never called back, so
+                        # authentication already got far enough to deliver it. That
+                        # is a payload or target problem, not a credential one, and
+                        # the next login cannot change it.
+                        break
+                    if status == FIRE_REJECTED:
+                        break  # cannot match this target; no credential helps
 
     def _reconcile_after_brute(self):
         """Upgrade any CLEAN host the brute phase gave a credential to COMPROMISED,
@@ -1438,17 +1468,27 @@ class Orchestrator:
         gaps, not clean negatives, so they are reported at WARNING on exit and
         must never be read as the host being safe."""
         blocked = []
+        unfired = []
         for h in self.run.snapshot_hosts():
             for c in h.candidates:
                 if c.fire_status in ("blocked", "error"):
                     blocked.append((h.ip, c.module, c.fire_status, c.fire_detail))
-        if not blocked:
-            return
-        logger.warning("%d candidate(s) could not be fired (config/option gaps, "
-                       "review before trusting these hosts):", len(blocked))
-        for ip, module, status, detail in blocked:
-            logger.warning("  %s %s @ %s: %s", status, module, ip,
-                           detail or "(no detail)")
+                elif c.fire_status in (FIRE_DEFERRED, FIRE_REJECTED):
+                    unfired.append((h.ip, c.module, c.fire_status, c.fire_detail))
+        if blocked:
+            logger.warning("%d candidate(s) could not be fired (config/option "
+                           "gaps, review before trusting these hosts):",
+                           len(blocked))
+            for ip, module, status, detail in blocked:
+                logger.warning("  %s %s @ %s: %s", status, module, ip,
+                               detail or "(no detail)")
+        if unfired:
+            # Not a gap. These are selection decisions, reported so a module that
+            # was deliberately never fired is visible rather than silently absent.
+            logger.info("%d candidate(s) were not fired by decision:", len(unfired))
+            for ip, module, status, detail in unfired:
+                logger.info("  %s %s @ %s: %s", status, module, ip,
+                            detail or "(no detail)")
 
 
 # --- fire candidate selection ----------------------------------------------
