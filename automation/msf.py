@@ -386,19 +386,27 @@ FIRE_BLOCKED = "blocked"
 FIRE_DEFERRED = "deferred"
 FIRE_REJECTED = "rejected"
 
-# Options only an HTTP-transport module declares. A module carrying one of these
-# speaks HTTP, so a target port nmap identified as a non-HTTP service is the
-# wrong transport and the module is rejected rather than fired (the
-# cisco_ios_xe_rce web-UI exploit selected onto an SSH banner).
-_HTTP_ONLY_OPTS = frozenset({"TARGETURI", "URIPATH", "VHOST"})
+# Ports a module defaults RPORT to when it speaks HTTP to its target. Read from
+# the module's own default rather than inferred from its option names: options
+# like URIPATH, SRVHOST and SRVPORT describe the payload server WE stand up, not
+# the target's transport, so a non-HTTP exploit that stages over HTTP declares
+# them too (java_rmi_server talks RMI to 1099 and serves the class over its own
+# HTTP listener).
+_HTTP_DEFAULT_PORTS = frozenset({80, 443, 8000, 8008, 8080, 8443, 8888})
 
-# Service-name tokens that do speak HTTP, so an HTTP-transport module is fair
-# game against them. Anything outside this set with no HTTP marker is non-HTTP.
-_HTTP_SERVICE_TOKENS = frozenset({
-    "http", "https", "http-alt", "http-proxy", "https-alt", "httpd",
-    "www", "web", "ssl", "tls", "soap", "rest", "wsman", "upnp",
-    "http-mgmt", "ssl/http", "ssl/https", "tomcat", "jetty", "nginx",
-    "apache", "iis", "websphere", "weblogic", "jboss", "wbem-http",
+# Services that definitively do not speak HTTP. An allowlist, not the inverse of
+# an HTTP list, so an unfamiliar or unidentified service never triggers a
+# rejection. Only a module whose own default RPORT is HTTP, aimed at one of
+# these, is rejected.
+_NON_HTTP_SERVICES = frozenset({
+    "ssh", "telnet", "ftp", "ftp-data", "smtp", "submission",
+    "netbios-ssn", "netbios-ns", "microsoft-ds", "ldap", "ldapssl",
+    "kerberos-sec", "kpasswd5", "domain", "mysql", "ms-sql-s",
+    "postgresql", "oracle-tns", "vnc", "ms-wbt-server", "java-rmi",
+    "rmiregistry", "rpcbind", "nfs", "mountd", "irc", "ircs", "snmp",
+    "imap", "imaps", "pop3", "pop3s", "redis", "mongodb", "memcached",
+    "exec", "shell", "login", "sip", "afp", "rsync", "x11", "distccd",
+    "ajp13", "iscsi", "nrpe", "svn", "git",
 })
 
 
@@ -974,7 +982,7 @@ class MsfClient:
             return None, "error", f"fire error: {e}"
         if not payloads:
             return self._blocked(candidate, rhost, "no compatible payload")
-        mismatch = _transport_mismatch(exploit, host, port)
+        mismatch = _transport_mismatch(self._default_rport(exploit), host, port)
         if mismatch:
             return self._rejected(candidate, rhost, mismatch)
         # Second payload only for Great/Excellent (rank value >= 500); the loop below
@@ -1327,6 +1335,31 @@ class MsfClient:
             fails += _apply_options(exploit, [(opt, val)])
         return fails
 
+    def _default_rport(self, exploit):
+        """The module's own default RPORT as an int, or None when it declares none
+        or the lookup fails. Read from module.options, the same source
+        _advanced_options uses. None degrades the transport gate to allowing the
+        fire, so a lookup problem never rejects a candidate."""
+        try:
+            mtype = getattr(exploit, "moduletype", "") or "exploit"
+            ref = exploit.modulename or ""
+            if ref.startswith(mtype + "/"):
+                ref = ref[len(mtype) + 1:]
+            raw = self._client.call("module.options", [mtype, ref])
+        except Exception as e:
+            logger.debug("rport-default lookup failed for %s: %s",
+                         getattr(exploit, "modulename", "?"), e)
+            return None
+        if not isinstance(raw, dict):
+            return None
+        meta = raw.get("RPORT")
+        if not isinstance(meta, dict):
+            return None
+        try:
+            return int(meta.get("default"))
+        except (TypeError, ValueError):
+            return None
+
     def _advanced_options(self, exploit):
         """The set of ADVANCED option names for a module, from module.options. msf
         applies an advanced option's own default at execute time (the console 'run'
@@ -1554,30 +1587,23 @@ class MsfClient:
 
 
 
-def _transport_mismatch(exploit, host, port):
-    """A one-line reason this module cannot speak to this port, or "". The module
-    is asked for its own declared options rather than guessed at: one carrying
-    TARGETURI, URIPATH or VHOST speaks HTTP, so a port nmap identified as a
-    non-HTTP service is the wrong transport and no payload can land. Silent
-    (returns "") whenever the service is unidentified or the module declares no
-    transport marker, so this only ever rejects a provable mismatch."""
-    try:
-        declared = set(exploit.options or ())
-    except Exception:
-        return ""
-    if not declared & _HTTP_ONLY_OPTS:
+def _transport_mismatch(default_rport, host, port):
+    """A one-line reason this module cannot speak to this port, or "". Rejection
+    needs two independent facts to agree: the module's OWN default RPORT is an
+    HTTP port, and nmap identified the target port as a service known not to
+    speak HTTP. Both are read, neither is inferred from option names, so a module
+    that merely stages its payload over HTTP is never rejected. Silent (returns
+    "") on a missing default, an unidentified service, or any service not on the
+    explicit non-HTTP list, so only a provable mismatch is ever rejected."""
+    if default_rport not in _HTTP_DEFAULT_PORTS:
         return ""
     svc = next((s for s in getattr(host, "services", ()) or ()
                 if s.port == port), None)
     name = (getattr(svc, "name", "") or "").strip().lower()
-    if not name:
+    if name not in _NON_HTTP_SERVICES:
         return ""
-    tokens = set(re.findall(r"[a-z0-9\-]+", name)) | {name}
-    if tokens & _HTTP_SERVICE_TOKENS:
-        return ""
-    return (f"module speaks HTTP (declares "
-            f"{', '.join(sorted(declared & _HTTP_ONLY_OPTS))}) but "
-            f"{port} is {name}")
+    return (f"module targets HTTP (its own RPORT default is {default_rport}) "
+            f"but {port} is {name}")
 
 
 # --- module helpers (no live server required) ------------------------------
