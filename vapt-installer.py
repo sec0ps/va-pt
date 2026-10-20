@@ -534,6 +534,49 @@ def install_firefox_headless():
     print(f"  geckodriver: {gd[0] if gd else 'NOT FOUND'}")
 
 
+def install_chrome_headless():
+    """Install Chromium for katana's headless crawl, unless a Chrome or Chromium is
+    already present. This is a separate browser from install_firefox_headless on
+    purpose and neither replaces the other. ZAP's AJAX spider is driven by Selenium
+    and needs Firefox plus geckodriver; katana drives a browser over the Chrome
+    DevTools Protocol and cannot use Firefox at all.
+
+    Without this, katana falls back to a static parse. That is not a degraded crawl
+    of a javascript application, it is the shell page and nothing else, so a scan
+    looks like it completed while covering none of the app."""
+    print("Installing Chromium (katana headless crawl)")
+
+    # command -v is POSIX and takes one name, so dash silently ignores the rest.
+    # Loop instead, or an existing Chrome goes undetected and this reinstalls.
+    probe = ('for b in chromium chromium-browser google-chrome '
+             'google-chrome-stable; do command -v "$b" && break; done')
+    have = subprocess.run(probe, shell=True, capture_output=True,
+                          text=True).stdout.strip()
+    if have:
+        print(f"  browser already present at {have}, skipping.")
+        return
+
+    # On 22.04+ the chromium and chromium-browser apt packages are snap shims, so
+    # the snap is the real install either way. apt first for releases where it is
+    # still a deb, snap as the fallback.
+    run_command("sudo DEBIAN_FRONTEND=noninteractive apt-get install -y chromium "
+                "2>/dev/null || "
+                "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "
+                "chromium-browser 2>/dev/null || "
+                "sudo snap install chromium")
+
+    found = subprocess.run(probe, shell=True, capture_output=True,
+                           text=True).stdout.strip()
+    if found:
+        ver = subprocess.run(f"{found} --version 2>/dev/null", shell=True,
+                             capture_output=True, text=True).stdout.strip()
+        print(f"  chromium: {ver or found}")
+    else:
+        print("  chromium: NOT FOUND after install. katana will fall back to a "
+              "static parse and javascript applications will not be crawled.")
+        FAILED_PACKAGES.append("chromium: katana headless crawl")
+
+
 def detect_ubuntu_codename():
     """Resolve the running Ubuntu release codename (e.g. 'jammy', 'noble') for
     selecting the matching third-party repo. Tries, in order: VERSION_CODENAME
@@ -1171,8 +1214,11 @@ def tool_categories():
                 ("https://github.com/wapiti-scanner/wapiti.git", "/vapt/web/wapiti", [f"sudo {PIP} ."]),
                 ("https://github.com/com-puter-tips/Links-Extractor.git", "/vapt/web/Links-Extractor", [f"{PIP} -r requirements.txt"]),
             ],
-            # ZAP's AJAX spider needs a real .deb Firefox + geckodriver, installed here.
-            "builders": [build_zap, install_firefox_headless],
+            # Two browsers, two tools: Firefox + geckodriver drives ZAP's AJAX
+            # spider (Selenium), Chromium drives katana's crawl (CDP). Neither
+            # substitutes for the other; removing one breaks that tool.
+            "builders": [build_zap, install_firefox_headless,
+                         install_chrome_headless],
             "update_paths": [
                 "/vapt/web/htshells", "/vapt/web/joomscan", "/vapt/web/nikto",
                 "/vapt/web/php-webshells", "/vapt/web/watobo", "/vapt/web/WhatWeb",
