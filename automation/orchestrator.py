@@ -200,8 +200,8 @@ _bootstrap_runtime()
 from state import RunState, HostState, TERMINAL_STATES
 from scanner import Scanner, ScanConfig, NmapError
 from msf import (MsfClient, MsfConfig, RANK_VALUES, BRUTE_USER_SEED,
-                 BRUTE_PASS_SEED, login_module_for, locate_wordlist,
-                 write_builtin_wordlists)
+                 BRUTE_PASS_SEED, DEFERRED_BRUTE_PORTS, BRUTE_PORT_PEERS,
+                 login_module_for, locate_wordlist, write_builtin_wordlists)
 from system import (preflight, PreflightError, FirewallManager, MsfdManager,
                     find_msfrpcd, resolve_run_as, resolve_iface_ip)
 
@@ -510,6 +510,16 @@ class Orchestrator:
             host = self.run.host_copy(ip)
             # ports that own a live session are sacred and excluded
             fenced = {s.port for s in host.sessions}
+            for port in list(fenced):
+                fenced |= BRUTE_PORT_PEERS.get(port, frozenset())
+            # The scripted checks are the most volatile thing the run does, so the
+            # brute phases' port deferral holds here too: a host offering both SMB
+            # ports is scripted on 445 and 139 is left alone. Tracked separately so
+            # the log says which rule skipped the port.
+            open_ports = {s.port for s in host.services if s.port}
+            deferred = {p for p in DEFERRED_BRUTE_PORTS
+                        if BRUTE_PORT_PEERS.get(p, frozenset()) & open_ports}
+            deferred -= fenced
             scanned = 0
             for svc in host.services:
                 if self._stop.is_set():
@@ -517,6 +527,10 @@ class Orchestrator:
                 if svc.port in fenced:
                     logger.info("verify: fencing %s:%s (session held); not scanned",
                                 ip, svc.port)
+                    continue
+                if svc.port in deferred:
+                    logger.info("verify: deferring %s:%s to its peer port; "
+                                "not scanned", ip, svc.port)
                     continue
                 # Re-check between services: the scripted checks are the most
                 # volatile thing the run does, so a host that drops mid-verify is
@@ -553,9 +567,10 @@ class Orchestrator:
                         "cves": det["cves"],
                         "output": det["output"],
                     })
-            if scanned or fenced:
-                logger.info("verify %s: %d service(s) scanned, %d fenced by session",
-                            ip, scanned, len(fenced))
+            if scanned or fenced or deferred:
+                logger.info("verify %s: %d service(s) scanned, %d fenced by "
+                            "session, %d deferred by port",
+                            ip, scanned, len(fenced), len(deferred))
         if detections:
             try:
                 path = self.run.write_nse_detections(detections)
@@ -1054,12 +1069,22 @@ class Orchestrator:
             if host.state == HostState.UNREACHABLE:
                 continue
             # A port already owned (a session) or already cracked (a credential) is
-            # not attacked again.
+            # not attacked again. A credential counts for its peer port too, so an
+            # SMB login recovered on 445 also fences 139.
             fenced = ({s.port for s in host.sessions if s.port}
                       | {c.port for c in host.credentials if c.port})
+            for port in list(fenced):
+                fenced |= BRUTE_PORT_PEERS.get(port, frozenset())
+            open_ports = {s.port for s in host.services if s.port}
             for svc in host.services:
-                if svc.port and svc.port not in fenced:
-                    targets.append((ip, svc))
+                if not svc.port or svc.port in fenced:
+                    continue
+                # Same deferral as the msf brute: NSE's smb-brute targets 139 as
+                # readily as 445, so a host offering both is only bruted on 445.
+                if (svc.port in DEFERRED_BRUTE_PORTS
+                        and BRUTE_PORT_PEERS.get(svc.port, frozenset()) & open_ports):
+                    continue
+                targets.append((ip, svc))
         if not targets:
             return
         pool = ThreadPoolExecutor(max_workers=self.cfg.brute_workers,
@@ -1127,9 +1152,13 @@ class Orchestrator:
             abort = ((lambda _ip=ip: self._host_exploited(_ip)) if stop_host
                      else None)
             sessioned = {s.port for s in host.sessions if s.port}
+            # A credential is filed under its own port and its peer port, so moving
+            # the SMB brute from 139 to 445 does not take the recovered login away
+            # from a candidate that blocked on the other SMB port.
             creds_by_port = {}
             for c in host.credentials:
-                creds_by_port.setdefault(c.port, []).append(c)
+                for port in {c.port} | BRUTE_PORT_PEERS.get(c.port, frozenset()):
+                    creds_by_port.setdefault(port, []).append(c)
             # Candidate-outer: each blocked candidate is re-tried with the credentials
             # recovered for its port, and we stop the moment it lands a session or
             # reports it takes no credential, so a non-credentialed module blocks once
@@ -1186,7 +1215,9 @@ class Orchestrator:
 
     def _brute_targets(self):
         """One (ip, service, login_module, port) per distinct login scanner on each
-        live host, lowest port first so SMB on 139/445 is bruted once."""
+        live host, so SMB on 139/445 is bruted once. Ports in DEFERRED_BRUTE_PORTS
+        sort last, so a host offering both SMB ports is bruted on 445 and 139 is
+        only reached when it is the sole SMB port."""
         skip = (HostState.DOWN, HostState.QUEUED)
         targets = []
         for host in self.run.snapshot_hosts():
@@ -1199,13 +1230,19 @@ class Orchestrator:
             sessioned = ({s.port for s in host.sessions if s.port}
                          | {c.port for c in host.credentials if c.port})
             seen = set()
-            for svc in sorted(host.services, key=lambda s: s.port):
-                if svc.port in sessioned:
-                    continue  # already own a shell here; no point bruting it
+            for svc in sorted(host.services,
+                              key=lambda s: (s.port in DEFERRED_BRUTE_PORTS,
+                                             s.port)):
                 module = login_module_for(svc.name, svc.port)
                 if not module or module in seen:
                     continue
+                # Claim the scanner on its preferred port whether or not that port
+                # is bruted, so a port we already own cannot push the brute onto a
+                # deferred fallback port (owning SMB on 445 must not send the brute
+                # to 139).
                 seen.add(module)
+                if svc.port in sessioned:
+                    continue  # already own a shell or credential here
                 targets.append((host.ip, svc.name or "", module, svc.port))
         return targets
 
