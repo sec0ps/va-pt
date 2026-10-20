@@ -354,6 +354,29 @@ def _platform_from_path(fullname):
     return frozenset()
 
 
+# SMB answers on both 139 and 445 on a Windows host. 445 is direct-hosted SMB;
+# 139 is the NetBIOS session service, whose session table on Server 2008 R2 and
+# earlier does not survive a sustained multi-threaded login scan (observed: both
+# 2008 R2 hosts in a lab /24 stopped answering with smb_login on 139 as their
+# last operation). A host offering both is bruted on 445 only; 139 is used when
+# it is the sole SMB port.
+DEFERRED_BRUTE_PORTS = frozenset({139})
+
+# Ports that carry the same service as each other. SMB answers on both 139 and
+# 445, so a credential recovered on one is valid on the other, and a deferred
+# port is only skipped when the peer that replaces it is actually open. Used to
+# keep the deferral confined to the brute phases: the exploit paths still reach a
+# credential whichever SMB port recovered it.
+BRUTE_PORT_PEERS = {139: frozenset({445}), 445: frozenset({139})}
+
+# MSF session types that prove code execution on the target. A login scanner run
+# with CreateSession also opens protocol-client sessions (smb, mysql, mssql,
+# postgres, ldap, vnc). Those are a credential result, not a compromise, and they
+# cannot answer a proof-of-execution command, so they are reported as the
+# credential they are and never recorded as a session on the run.
+EXEC_SESSION_TYPES = frozenset({"shell", "meterpreter", "powershell"})
+
+
 class MsfUnavailable(Exception):
     pass
 
@@ -1378,8 +1401,12 @@ class MsfClient:
         so with a wide brute pool output scraping counts other modules' sessions;
         the session list attributes each session to the module and host that
         created it. Brute targets are deduped per (host, module), so this pair is
-        unique to this call. Found credentials are linked to the opened sessions in
-        id order (a login scanner only opens a session on success)."""
+        unique to this call. Only session types in EXEC_SESSION_TYPES are kept; a
+        protocol-client session (smb_login's smb session, the db logins) is the
+        credential already parsed from the console output and is not a compromise,
+        so it is dropped here and its credential stays unlinked. Found credentials
+        are linked to the kept sessions in id order (a login scanner only opens a
+        session on success)."""
         try:
             live = self._client.sessions.list or {}
         except Exception:
@@ -1391,6 +1418,12 @@ class MsfClient:
             host = (meta.get("session_host") or meta.get("target_host")
                     or _peer_host(meta.get("tunnel_peer", "")))
             if host != rhost:
+                continue
+            stype = str(meta.get("type", "")).strip().lower()
+            if stype not in EXEC_SESSION_TYPES:
+                logger.info("brute %s @ %s:%s opened a '%s' session; recording the "
+                            "credential only, not a session",
+                            login_module, rhost, port, stype or "unknown")
                 continue
             matched.append(str(sid))
         matched.sort(key=lambda s: int(s) if s.isdigit() else 0)
