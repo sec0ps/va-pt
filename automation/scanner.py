@@ -105,6 +105,13 @@ class ScanConfig:
     timing: str = "-T4"
     mincvss: float = 7.0
     discovery_timeout: int | None = None  # bulk pass; None means no wall limit
+    # -Pn on discovery. Off by default: -Pn skips host discovery and treats every
+    # address as online, so a sweep port-scans the whole range whether or not
+    # anything is there, and a dead address costs the full timeout on every port.
+    # With it off nmap runs its own host discovery first (ARP on a local segment,
+    # ICMP and TCP probes across a routed hop) and only sweeps what answers. Set it
+    # for a scope whose hosts are known to block discovery probes.
+    discovery_skip_ping: bool = False
     full_ports: bool = True             # phase 2: full connect sweep of every port
     port_scan_timeout: int = 900        # per-host -p- sweep wall limit
     vulners_timeout: int = 600
@@ -209,7 +216,9 @@ class Scanner:
             for t in targets:
                 f.write(f"{t}\n")
         try:
-            args = ["-sT", "-Pn", "-n", self.cfg.timing]
+            args = ["-sT", "-n", self.cfg.timing]
+            if self.cfg.discovery_skip_ping:
+                args.insert(1, "-Pn")
             if self.cfg.discovery_ports:
                 args += ["-p", self.cfg.discovery_ports]
             else:
