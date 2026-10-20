@@ -288,8 +288,16 @@ class Scanner:
         # applies to its detected version, which the exploit selector uses to drop a
         # module whose CVEs do not apply. The mincvss floor is applied in parsing to
         # the list that drives the exploit search, exactly as before.
+        # default,vulners, not vulners alone. An explicit --script REPLACES the
+        # default category rather than adding to it, so "--script vulners" silently
+        # discarded smb-security-mode, smb2-security-mode, ssl-cert, sslv2, nbstat
+        # and ldap-rootdse. That is host-level intelligence the verify phase cannot
+        # supply, because its anchor filter correctly drops scripts whose only
+        # categories are discovery/default/safe. Consumers read ldap-rootdse for the
+        # directory naming context, so without this the domain lookup has nothing to
+        # work from.
         args = ["-sT", "-sV", "-O", "-Pn", self.cfg.timing,
-                "--script", "vulners",
+                "--script", "default,vulners",
                 "--script-args", "mincvss=0"]
         args += port_args
         args += list(self.cfg.extra_args)
