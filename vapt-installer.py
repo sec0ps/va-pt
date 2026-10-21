@@ -872,7 +872,7 @@ def install_base_dependencies():
     # with the 'wireless' category instead, so a WSL/no-radio host never pulls them.
     # Dual-use packages that happen to be used by the wireless framework but also by
     # other tooling (wget, iptables, network-manager, python3-bs4, ethtool, usbutils,
-    # tshark/tcpdump) stay in base deliberately.
+    # tshark/tcpdump) stay in base.
     apt_packages = [
         "vim", "subversion", "landscape-common", "ufw", "openssh-server", "net-tools",
         "plocate", "screen", "whois", "libtool-bin", "make", "gcc", "ncftp",
@@ -920,9 +920,18 @@ def install_base_dependencies():
 
     print("Installing Python Packages and Dependencies")
     pip_packages = [
-        "build", "dnspython", "kerberoast", "certipy-ad", "knowsmore", "sherlock-project",
+        "build", "dnspython", "kerberoast", "knowsmore", "sherlock-project",
         "wafw00f", "pypykatz", "zeep", "netaddr", "ujson", "aiomultiprocess", "censys",
-        "shodan", "playwright", "uvloop", "easysnmp", "pysnmp", "tftpy", "aiohttp", "fierce", "aioquic"
+        "shodan", "playwright", "uvloop", "easysnmp", "pysnmp", "tftpy", "aiohttp", "fierce", "aioquic",
+        # ldap3 < 2.9 calls hmac.new() without an explicit digestmod in its NTLM path, which is
+        # fatal on Python 3.10+ (TypeError: Missing required parameter 'digestmod') and breaks
+        # EVERY NTLM LDAP bind done by a user-site tool here - certipy, knowsmore, kerberoast.
+        # Pinning the floor forces a stale 2.6-era user-site ldap3 to be upgraded in place.
+        # The version specifier is deliberate: filter_uninstalled_pip() matches on package name
+        # only, so an unversioned "ldap3" would be skipped whenever ANY ldap3 is already present,
+        # leaving the broken one in place. Carrying ">=2.9.1" makes it miss the installed-name
+        # filter and re-run pip each pass, which upgrades rather than skips.
+        "ldap3>=2.9.1",
     ]
 
     missing_pip = filter_uninstalled_pip(pip_packages)
@@ -938,6 +947,15 @@ def install_base_dependencies():
 
     # --force claims impacket's ~/.local/bin scripts cleanly over stale copies
     install_one("pipx", "pipx install --force impacket", "impacket")
+
+    # certipy-ad in its OWN isolated pipx venv, NOT pip into shared user-site. Shared user-site
+    # is exactly how certipy came to import a stale ldap3 2.6 (the broken NTLM digestmod above)
+    # while a good copy sat unused in another venv - the find/auth chain died on every LDAP bind.
+    # An isolated venv resolves and pins its own current ldap3 + impacket and cannot be shadowed
+    # by whatever else lands in user-site. --force claims the certipy console script on PATH over
+    # any prior pip-installed copy. The user-site ldap3>=2.9.1 pin above still covers the other
+    # NTLM tools (knowsmore, kerberoast) that DO live in user-site.
+    install_one("pipx", "pipx install --force certipy-ad", "certipy-ad")
 
     # install managed Go toolchain, then point the environment at /usr/local/go
     install_go()
@@ -1257,14 +1275,33 @@ def tool_categories():
                 ("https://github.com/GhostPack/Rubeus.git", "/vapt/ad_windows/Rubeus", None),
                 ("https://github.com/dirkjanm/ldapdomaindump.git", "/vapt/ad_windows/ldapdomaindump", ["pipx install /vapt/ad_windows/ldapdomaindump"]),
                 ("https://github.com/adityatelange/evil-winrm-py.git", "/vapt/ad_windows/evil-winrm-py", [f"sudo {PIP} ."]),
+                # kerbrute: Go-built Kerberos pre-auth user enumeration / password spray / brute.
+                # Credential-free userenum against the KDC (AS-REQ, no pre-auth) is the opening
+                # move of the AD attack chain; pairs with the GetNPUsers/GetUserSPNs impacket path.
+                # Built to /usr/local/bin like the web-category Go tools; rebuilt on update via the
+                # go_tools entry below (NOT update_paths - that would double-pull before the build).
+                ("https://github.com/ropnop/kerbrute.git", "/vapt/ad_windows/kerbrute", ["/usr/local/go/bin/go build -o kerbrute .", "sudo install -m 755 kerbrute /usr/local/bin/kerbrute"]),
+                # PetitPotam: MS-EFSRPC authentication coercion. Drives the ESC8 / NTLM-relay-to-ADCS
+                # path (coerce a DC or server, relay to the CA's web enrollment). Standalone Python
+                # run against the pipx impacket already installed in base deps; nothing to compile,
+                # so a plain clone and a plain git-pull on update (lives in update_paths below).
+                ("https://github.com/topotam/PetitPotam.git", "/vapt/ad_windows/PetitPotam", None),
             ],
             "builders": [],
             "update_paths": [
                 "/vapt/ad_windows/BloodHound", "/vapt/ad_windows/PowerSploit", "/vapt/ad_windows/ps1encode",
                 "/vapt/ad_windows/Invoke-TheHash", "/vapt/ad_windows/PowerShdll",
                 "/vapt/ad_windows/Rubeus", "/vapt/ad_windows/ldapdomaindump", "/vapt/ad_windows/evil-winrm-py",
+                # PetitPotam is a plain script: pull only, no rebuild. kerbrute is NOT here - it is
+                # a Go build and lives in go_tools so the pull and rebuild happen together.
+                "/vapt/ad_windows/PetitPotam",
             ],
-            "go_tools": [],
+            "go_tools": [
+                # kerbrute: pull, and rebuild + reinstall to /usr/local/bin only when the pull
+                # actually changed something (git_pull_changed gate in update_toolsets()).
+                ("kerbrute", "/vapt/ad_windows/kerbrute",
+                 "/usr/local/go/bin/go build -o kerbrute . && sudo install -m 755 kerbrute /usr/local/bin/kerbrute"),
+            ],
             "post": [],
         },
         "mobile": {
