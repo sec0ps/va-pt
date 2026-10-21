@@ -119,6 +119,14 @@ class ScanConfig:
     brute_nse_timeout: int = 300   # NSE credential-brute run wall
     brute_max_scripts: int = 3     # cap brute scripts run per service
     nse_discover_max: int = 12     # cap verify scripts run per service (0 = uncapped)
+    # Skip every NSE pass against an HTTP service, discovery and brute alike. Off
+    # by default so the engine standalone keeps its web coverage, since nothing
+    # else in the free toolkit tests the application layer. A deployment that runs
+    # a real web scanner behind this (katana plus nuclei, sqlmap) sets it, because
+    # the http-* NSE scripts duplicate that scanner's job at a worse standard: in
+    # three measured lab runs they returned no vulnerable verdict and recovered no
+    # credential, while costing a 162s or 270s host-timeout per web service.
+    skip_web_nse: bool = False
     brute_time_limit: str = "120s"  # per-script unpwdb time cap (empty = no cap)
     max_retries: int | None = 2         # nmap --max-retries; None keeps nmap default
     host_timeout: str = ""              # nmap --host-timeout; "" derives from the wall
@@ -327,6 +335,10 @@ class Scanner:
         script run. Never raises; a tooling problem yields no discoveries."""
         if catalog is None:
             return []
+        if self.cfg.skip_web_nse and _is_web_service(service):
+            logger.debug("nse discover skipping %s:%s (%s); web service left to "
+                         "the web scanner", ip, service.port, service.name)
+            return []
         if (service.method or "").lower() != "probed" and not service.product:
             return []
         scripts = _match_catalog_scripts(service, catalog,
@@ -403,6 +415,10 @@ class Scanner:
         Only probed services are brute-forced. Never raises; a tooling problem or no
         recovered login yields no credentials."""
         if catalog is None:
+            return []
+        if self.cfg.skip_web_nse and _is_web_service(service):
+            logger.debug("nse brute skipping %s:%s (%s); web service left to the "
+                         "web scanner", ip, service.port, service.name)
             return []
         if (service.method or "").lower() != "probed" and not service.product:
             return []
@@ -904,7 +920,12 @@ def _service_identity(service):
 
 
 def _is_web_service(service):
-    """True when the service is HTTP/web."""
+    """True when the service is HTTP/web. Gates the NSE passes when skip_web_nse is
+    set, so an external web scanner owns these services instead. Matched on the
+    nmap service name first, which catches an HTTP daemon on an odd port, then on
+    the well-known web port set, which over-skips a non-HTTP daemon squatting on
+    80 rather than risk testing a web service twice. ajp13 matches neither, so
+    ajp-brute still runs against Tomcat's binary connector."""
     n = (service.name or "").lower()
     if "http" in n or n in ("www", "https", "http-proxy", "http-alt", "web"):
         return True
