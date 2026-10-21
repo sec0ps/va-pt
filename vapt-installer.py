@@ -893,7 +893,7 @@ def install_base_dependencies():
         "pkg-config", "ethtool", "shtool",
         "libpcre3-dev", "libhwloc-dev", "libcmocka-dev",
         "tcpdump", "usbutils", "python3-dnspython", "python3-aiofiles",
-        "python3-watchdog", "python3-pandas",
+        "python3-watchdog", "python3-pandas", "ldap_utils",
         # dual-use (wireless framework + general): kept in base on purpose.
         "python3-bs4", "wget", "network-manager", "iptables"
     ]
