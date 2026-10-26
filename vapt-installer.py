@@ -1159,8 +1159,13 @@ def build_zap():
 
 def install_bettercap():
     """bettercap precompiled release binary; runs as root, so placed in /usr/local/bin.
-    Used for both first install and update (pull-latest-over-existing is the same op)."""
-    print("Installing/updating bettercap")
+    Idempotent: skips when the binary is already present so re-running the installer
+    does not re-download it every time. Remove /usr/local/bin/bettercap to force a
+    refresh to the latest release."""
+    if os.path.exists("/usr/local/bin/bettercap"):
+        print("bettercap already installed, skipping.")
+        return
+    print("Installing bettercap")
     run_command("cd /tmp && curl -sL -o bettercap.zip https://github.com/bettercap/bettercap/releases/latest/download/bettercap_linux_amd64.zip")
     run_command("cd /tmp && 7z x bettercap.zip -y")
     run_command("cd /tmp && sudo install -m 755 bettercap /usr/local/bin/bettercap")
