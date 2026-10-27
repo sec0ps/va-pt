@@ -81,7 +81,8 @@ _NON_ACTIONABLE_SERVICES = frozenset({"", "tcpwrapped", "unknown"})
 # search is skipped when the most specific token is one of these.
 _GENERIC_PRODUCT_TOKENS = frozenset({
     "http", "https", "www", "html", "ssl", "tls", "ssh", "smtp", "smtps",
-    "imap", "imaps", "pop3", "pop3s", "dns", "domain", "tcp", "udp", "ftp",
+    "imap", "imaps", "pop3", "pop3s", "dns", "domain", "ldap", "ldaps",
+    "tcp", "udp", "ftp",
     "ftps", "telnet", "ident", "ntp", "snmp", "rpc", "rpcbind", "msrpc",
     "netbios", "microsoft", "generic", "unknown", "service", "server",
     "daemon", "linux", "unix", "windows", "engine",
