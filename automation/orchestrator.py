@@ -20,11 +20,6 @@
 #             once per port. --stop-at-first-session narrows exploit fires to
 #             one proven path per host; brute and access checks are unaffected.
 #
-# SECURITY NOTICE
-#             This software is intended for authorized security assessment and
-#             defensive operations only. Use it exclusively on systems you own or
-#             are explicitly permitted to test. Unauthorized use may violate law.
-#
 # DISCLAIMER
 #             This software is provided "as is" without warranty of any kind. The
 #             author and Red Cell Security LLC accept no liability for damage or
@@ -1751,6 +1746,13 @@ def _parse_args(argv):
                         "probes; it port-scans dead addresses at full cost.")
     p.add_argument("--no-full-ports", action="store_true",
                    help="phase 2: scan only discovered ports instead of all 65535")
+    p.add_argument("--no-web-nse", action="store_true",
+                   help="skip every NSE pass against an HTTP service, discovery "
+                        "and credential brute alike. For a deployment running a "
+                        "real web scanner behind this engine, where the http-* "
+                        "scripts duplicate that scanner's job at a worse standard "
+                        "and cost a host-timeout per web service. Off by default "
+                        "so a standalone run keeps its web coverage.")
     p.add_argument("--mincvss", type=float, default=7.0)
     # Port-scan technique is TCP connect (-sT). The handshake completes, so it sees
     # ports that raw SYN reports "filtered" on paths that drop crafted packets
@@ -1947,6 +1949,7 @@ def main(argv=None):
                       discovery_ports=args.ports or "", timing=args.timing,
                       mincvss=args.mincvss, full_ports=not args.no_full_ports,
                       discovery_skip_ping=args.discovery_skip_ping,
+                      skip_web_nse=args.no_web_nse,
                       nmap_out_dir=args.nmap_out_dir or "")
     scanner = Scanner(scfg, on_activity=run.record_activity)
     mcfg = MsfConfig.from_env(
