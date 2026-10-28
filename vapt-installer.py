@@ -46,6 +46,13 @@ import datetime
 LOG_PATH = "/vapt/install_failures.log"
 MANIFEST_PATH = "/vapt/.install_manifest.json"
 
+# The Ruby the toolkit builds under rbenv and pins Metasploit to. Metasploit's own
+# .ruby-version moves ahead of whatever rbenv has installed, which breaks every Ruby
+# entry point until the new one is compiled, so the toolkit picks the version and
+# writes it into the framework tree. Bump this one line when the framework needs a
+# newer Ruby, then re-run the installer.
+RUBY_VERSION = "3.3.13"
+
 FAILED_PACKAGES = []
 
 def run_command(command):
@@ -426,8 +433,8 @@ def install_ruby():
     print("Checking Ruby version...")
 
     ruby_check = subprocess.run("ruby -v", shell=True, capture_output=True, text=True)
-    if ruby_check.returncode == 0 and "3.3.9" in ruby_check.stdout:
-        print("Ruby 3.3.9 already installed and active, skipping.")
+    if ruby_check.returncode == 0 and RUBY_VERSION in ruby_check.stdout:
+        print(f"Ruby {RUBY_VERSION} already installed and active, skipping.")
         return
 
     rbenv_root = os.path.expanduser("~/.rbenv")
@@ -454,28 +461,29 @@ def install_ruby():
     os.environ["PATH"] = f"{rbenv_root}/bin:{rbenv_root}/shims:{os.environ.get('PATH', '')}"
 
     # Confirm the definition exists before a multi-minute compile
-    if not os.path.exists(f"{ruby_build_dir}/share/ruby-build/3.3.9"):
-        print("  ERROR: ruby-build has no 3.3.9 definition even after update. "
-              f"Confirm the ruby-build git pull succeeded (see {LOG_PATH}).")
+    if not os.path.exists(f"{ruby_build_dir}/share/ruby-build/{RUBY_VERSION}"):
+        print(f"  ERROR: ruby-build has no {RUBY_VERSION} definition even after "
+              f"update. Confirm the ruby-build git pull succeeded (see {LOG_PATH}).")
 
-    print("Installing Ruby 3.3.9 (compiles from source, several minutes)...")
-    if not run_command(f"{rbenv_bin} install -s 3.3.9"):
-        print("  ERROR: rbenv install 3.3.9 failed. Usual causes: stale "
+    print(f"Installing Ruby {RUBY_VERSION} (compiles from source, several "
+          "minutes)...")
+    if not run_command(f"{rbenv_bin} install -s {RUBY_VERSION}"):
+        print(f"  ERROR: rbenv install {RUBY_VERSION} failed. Usual causes: stale "
               f"ruby-build definitions or a missing compile header (see {LOG_PATH}).")
-        FAILED_PACKAGES.append("ruby: 3.3.9 (rbenv install failed)")
+        FAILED_PACKAGES.append(f"ruby: {RUBY_VERSION} (rbenv install failed)")
         return
 
-    run_command(f"{rbenv_bin} global 3.3.9")
+    run_command(f"{rbenv_bin} global {RUBY_VERSION}")
     run_command(f"{rbenv_bin} rehash")
 
     verify = subprocess.run(f"{rbenv_root}/shims/ruby -v",
                             shell=True, capture_output=True, text=True)
-    if "3.3.9" in verify.stdout:
-        print("Ruby 3.3.9 installed and active.")
+    if RUBY_VERSION in verify.stdout:
+        print(f"Ruby {RUBY_VERSION} installed and active.")
     else:
         print(f"  WARNING: install ran but active ruby is: {verify.stdout.strip()} "
               "(shims or PATH issue). Run: source ~/.bashrc")
-        FAILED_PACKAGES.append("ruby: 3.3.9 (verify failed)")
+        FAILED_PACKAGES.append(f"ruby: {RUBY_VERSION} (verify failed)")
 
 
 def install_firefox_headless():
@@ -1070,7 +1078,7 @@ def install_base_dependencies():
 
 def _toolkit_path_env():
     """Put rbenv shims, Go, and GOPATH bin on PATH for this process. rbenv shims
-    first so Metasploit's bundle resolves the 3.3.9 Ruby, not system Ruby. Shared
+    first so Metasploit's bundle resolves the rbenv Ruby, not system Ruby. Shared
     by the install and update passes so both build against the same toolchain."""
     os.environ['GOROOT'] = '/usr/local/go'
     os.environ.setdefault('GOPATH', os.path.expanduser('~/go'))
@@ -1089,8 +1097,10 @@ def build_metasploit():
         return
     print("Installing Metasploit Framework")
     run_command(f"git clone https://github.com/rapid7/metasploit-framework.git {msf_dir}")
-    # pin MSF to the rbenv Ruby this installer provides (3.3.9), not the upstream .ruby-version
-    run_command(f"echo '3.3.9' > {msf_dir}/.ruby-version")
+    # Pin MSF to the rbenv Ruby this installer provides, not the upstream
+    # .ruby-version. This is a deliberate local edit to a tracked file, so a later
+    # git pull that touches .ruby-version aborts unless the puller carries it across.
+    run_command(f"echo '{RUBY_VERSION}' > {msf_dir}/.ruby-version")
     run_command(f"cd {msf_dir} && bundle config set --local path vendor/bundle")
     run_command(f"cd {msf_dir} && bundle install")
 
